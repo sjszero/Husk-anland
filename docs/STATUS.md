@@ -12,8 +12,13 @@ host-visible storage buffer、compute job 和离屏 graphics draw；GPU 写回 `
 像素回读 `0xff0000ff` 均已由 fence 后确认。发行版 Zink 也已在 surfaceless EGL 报出
 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`。
 
-## GPU 侧最新（evidence 47，2026-11-23）
+## GPU 侧最新（evidence 48，2026-11-23）
 
+- **Vulkan 扩展面已实测（evidence 48，FACT）**：PanVK 实例扩展 18 项、设备扩展 171 项；
+  `VK_KHR_external_memory_fd` / `VK_EXT_external_memory_dma_buf` 等 dma-buf 导入路径存在，
+  但 `VK_KHR_android_surface` 与 `VK_ANDROID_external_memory_android_hardware_buffer` 缺失。
+  因此 guest 不能直接建 Android Surface 或直接导入 AHB，必须走 app 侧 AHB → dma-buf fd →
+  `SCM_RIGHTS` → guest Vulkan 导入；该握手仍是 UNKNOWN / 未验证。
 - **surfaceless EGL/Zink 已通过（FACT）**：`eglinfo -B` 和纯 Rust `gl_probe` 都报出
   `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`；壳应用的 guest bash 实际使用 `rootfs-full`，
   子进程环境已注入 PanVK ICD + Zink。GBM / Wayland / X11 / swapchain / Android Surface 仍未通。

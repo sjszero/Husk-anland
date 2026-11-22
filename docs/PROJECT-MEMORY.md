@@ -74,6 +74,10 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
 - evidence 47：FristOneRR PanVK + 发行版 Zink 已通过 **surfaceless EGL**，
   `eglinfo -B` / 纯 Rust `gl_probe` 均报 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`；
   壳应用已自动注入 PanVK/Zink 环境并使用 `rootfs-full`。GBM/Wayland/X11/Surface/WSI 仍未通。
+- evidence 48：PanVK 报实例扩展 18 项、设备扩展 171 项；支持 raw dma-buf 的
+  `VK_EXT_external_memory_dma_buf` / `VK_KHR_external_memory_fd`，但缺
+  `VK_KHR_android_surface` 与 `VK_ANDROID_external_memory_android_hardware_buffer`。
+  窗口路线必须是 app 侧 AHB → dma-buf fd → `SCM_RIGHTS` → guest 导入；AHB 句柄导出 fd 仍未知。
 
 ### 4.3 当前主动路线（JUDGMENT，未完成）
 

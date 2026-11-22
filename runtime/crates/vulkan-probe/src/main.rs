@@ -329,6 +329,13 @@ struct VkPhysicalDeviceMemoryProperties {
 #[repr(C, align(16))]
 struct AlignedProperties([u8; 1024]);
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct VkExtensionProperties {
+    extension_name: [c_char; 256],
+    spec_version: u32,
+}
+
 type FnCreateInstance =
     unsafe extern "C" fn(*const VkInstanceCreateInfo, *const c_void, *mut VkInstance) -> VkResult;
 type FnDestroyInstance = unsafe extern "C" fn(VkInstance, *const c_void);
@@ -339,6 +346,14 @@ type FnGetPhysicalDeviceQueueFamilyProperties =
     unsafe extern "C" fn(VkPhysicalDevice, *mut u32, *mut VkQueueFamilyProperties);
 type FnGetPhysicalDeviceMemoryProperties =
     unsafe extern "C" fn(VkPhysicalDevice, *mut VkPhysicalDeviceMemoryProperties);
+type FnEnumerateInstanceExtensionProperties =
+    unsafe extern "C" fn(*const c_char, *mut u32, *mut VkExtensionProperties) -> VkResult;
+type FnEnumerateDeviceExtensionProperties = unsafe extern "C" fn(
+    VkPhysicalDevice,
+    *const c_char,
+    *mut u32,
+    *mut VkExtensionProperties,
+) -> VkResult;
 type FnCreateDevice = unsafe extern "C" fn(
     VkPhysicalDevice,
     *const VkDeviceCreateInfo,
@@ -502,6 +517,139 @@ fn choose_memory_type(props: &VkPhysicalDeviceMemoryProperties, bits: u32) -> Op
         }
     }
     None
+}
+
+fn extension_name(props: &VkExtensionProperties) -> String {
+    let bytes: Vec<u8> = props
+        .extension_name
+        .iter()
+        .map(|&c| c as u8)
+        .take_while(|&c| c != 0)
+        .collect();
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+unsafe fn enumerate_list(
+    count_fn: impl Fn(*mut u32, *mut VkExtensionProperties) -> VkResult,
+) -> Result<Vec<VkExtensionProperties>, VkResult> {
+    let mut count = 0u32;
+    let r = count_fn(&mut count, ptr::null_mut());
+    if r != VK_SUCCESS && r != 5 {
+        return Err(r);
+    }
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    let mut props = vec![
+        VkExtensionProperties {
+            extension_name: [0; 256],
+            spec_version: 0,
+        };
+        count as usize
+    ];
+    let r = count_fn(&mut count, props.as_mut_ptr());
+    if r != VK_SUCCESS && r != 5 {
+        return Err(r);
+    }
+    props.truncate(count as usize);
+    Ok(props)
+}
+
+unsafe fn report_extensions(lib: *mut c_void, instance: VkInstance, physical: VkPhysicalDevice) {
+    let instance_fn: FnEnumerateInstanceExtensionProperties =
+        match symbol(lib, "vkEnumerateInstanceExtensionProperties") {
+            Some(f) => f,
+            None => {
+                line(
+                    "ext",
+                    "FAIL",
+                    "vkEnumerateInstanceExtensionProperties missing",
+                );
+                return;
+            }
+        };
+    let device_fn: FnEnumerateDeviceExtensionProperties =
+        match symbol(lib, "vkEnumerateDeviceExtensionProperties") {
+            Some(f) => f,
+            None => {
+                line(
+                    "ext",
+                    "FAIL",
+                    "vkEnumerateDeviceExtensionProperties missing",
+                );
+                return;
+            }
+        };
+    let _ = instance;
+    let instance_list = enumerate_list(|count, props| instance_fn(ptr::null(), count, props));
+    let device_list = enumerate_list(|count, props| device_fn(physical, ptr::null(), count, props));
+    let (instance_list, device_list) = match (instance_list, device_list) {
+        (Ok(i), Ok(d)) => (i, d),
+        (Err(i), _) => {
+            line(
+                "ext",
+                "FAIL",
+                format!("instance enumerate {}", api_result(i)),
+            );
+            return;
+        }
+        (_, Err(d)) => {
+            line("ext", "FAIL", format!("device enumerate {}", api_result(d)));
+            return;
+        }
+    };
+    let instance_names: Vec<String> = instance_list.iter().map(extension_name).collect();
+    let device_names: Vec<String> = device_list.iter().map(extension_name).collect();
+    line(
+        "ext",
+        "INFO",
+        format!(
+            "instance={} device={}",
+            instance_names.len(),
+            device_names.len()
+        ),
+    );
+
+    const WANTED: &[(&str, bool)] = &[
+        ("VK_KHR_surface", true),
+        ("VK_KHR_android_surface", true),
+        ("VK_KHR_get_physical_device_properties2", true),
+        ("VK_KHR_external_memory_capabilities", true),
+        ("VK_KHR_external_fence_capabilities", true),
+        ("VK_KHR_external_semaphore_capabilities", true),
+        ("VK_KHR_get_surface_capabilities2", true),
+        ("VK_EXT_surface_maintenance1", true),
+        ("VK_KHR_swapchain", false),
+        ("VK_ANDROID_external_memory_android_hardware_buffer", false),
+        ("VK_KHR_external_memory", false),
+        ("VK_KHR_external_memory_fd", false),
+        ("VK_EXT_external_memory_dma_buf", false),
+        ("VK_EXT_external_memory_host", false),
+        ("VK_EXT_image_drm_format_modifier", false),
+        ("VK_KHR_external_fence", false),
+        ("VK_KHR_external_fence_fd", false),
+        ("VK_KHR_external_semaphore", false),
+        ("VK_KHR_external_semaphore_fd", false),
+        ("VK_EXT_queue_family_foreign", false),
+        ("VK_KHR_timeline_semaphore", false),
+        ("VK_KHR_synchronization2", false),
+        ("VK_EXT_swapchain_maintenance1", false),
+        ("VK_KHR_present_id", false),
+        ("VK_KHR_present_wait", false),
+    ];
+    for &(name, instance_ext) in WANTED {
+        let names = if instance_ext {
+            &instance_names
+        } else {
+            &device_names
+        };
+        let state = if names.iter().any(|n| n == name) {
+            "support"
+        } else {
+            "missing"
+        };
+        line("ext", state, name);
+    }
 }
 
 const COMPUTE_SPV: &[u8] = include_bytes!("../shaders/compute.spv");
@@ -1289,6 +1437,7 @@ unsafe fn run() -> i32 {
         "PASS",
         format!("count={physical_count} name={name}"),
     );
+    report_extensions(lib, instance, dev);
 
     let mut family_count: u32 = 0;
     get_queue_families(dev, &mut family_count, ptr::null_mut());

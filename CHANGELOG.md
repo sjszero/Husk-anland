@@ -1,5 +1,18 @@
 # 变更记录
 
+## 2026-11-23 — PanVK 表面 / dma-buf 扩展扫描
+
+- **evidence 48**：纯 Rust `vulkan-probe` 新增 instance/device extension 枚举；真机报实例扩展 18 项、
+  设备扩展 171 项。
+- **FACT**：支持 `VK_KHR_surface`、`VK_KHR_swapchain`、`VK_KHR_external_memory_fd`、
+  `VK_EXT_external_memory_dma_buf`、`VK_KHR_external_fence_fd`、`VK_KHR_external_semaphore_fd`、
+  `VK_EXT_image_drm_format_modifier`、`VK_KHR_timeline_semaphore` 等。
+- **FACT**：缺失 `VK_KHR_android_surface` 与 `VK_ANDROID_external_memory_android_hardware_buffer`。
+  因此 Android 窗口路线改为 app 侧 AHB → dma-buf fd → guest 导入，不能用 guest 直接建
+  Android Vulkan Surface 的假设。AHB native handle 是否含可导入 fd 仍为 UNKNOWN。
+- 离屏 compute / graphics / GPU readback 回归仍全部 PASS；产物 sha256
+  `e7b9b6936cef9cf354e81200450b82ea6a5b888930f74814e06ad761f92b2175`。
+
 ## 2026-11-23 — Zink/PanVK surfaceless renderer 通过；壳应用注入 GPU 环境
 
 - **evidence 47**：FristOneRR glibc PanVK + 发行版 Zink 在 guest 内通过 surfaceless EGL 1.5；
