@@ -229,3 +229,12 @@ O S C 现在也认 `ESC \` 结束符（否则会一直吞到下一个 BEL）。
   EINVAL 而不是 ENOTTY ⇒ 命令可达，evidence 31 的"提交接口待查"是扫描方法错误造成的假阴性。
 * 工具：`gpu-probe submit0`（新增，零 job 提交，不碰 21:30 panic 的那条路径）。
 * 教训写进 evidence 35 §4：判定"内核不支持"必须先从真实客户端取命令字。
+
+## 2026-11-22 22:20 C5 路线现实核对（evidence 36）
+
+* FACT：上游 Mesa（25.2.0 与 main）的 panfrost 只有 DRM / Panthor 两种 kmod 后端，**没有 kbase**；
+  Ubuntu 24.04 rootfs 的 libgallium 也只有 `DRM_IOCTL_PANFROST_*`，且没有 panvk ICD。
+  ⇒ 原目标"走 Mesa 的 kbase 后端"在发行版 Mesa 上不可能，必须在 Rust 侧做 DRM 语义层。
+* FACT：kbase `mem_alloc` 可用。in/out 结构：返回 0，字段0 写回实际 flags（0x200d），字段1 写回 GPU VA（0x41000/0x42000）。
+* FACT：对这些 VA 做 `mmap(2)` 返回 EPERM，是当前最靠前的具体障碍。
+* 下一步：从厂商 .so 反读它的 mmap 用法（offset 里的标志位），再对齐 mem_query。

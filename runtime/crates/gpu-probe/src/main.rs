@@ -436,6 +436,124 @@ fn strerror_guess(e: i32) -> &'static str {
     }
 }
 
+// --------------------------------------------------------- GPU memory (C5)
+
+#[repr(C)]
+struct MemAlloc {
+    va_pages: u64,
+    commit_pages: u64,
+    extension: u64,
+    flags: u64,
+}
+
+#[repr(C)]
+struct MemQuery {
+    gpu_va: u64,
+    va_pages: u16,
+    commit_pages: u16,
+    extension: u16,
+    flags: u8,
+    padding: u8,
+}
+
+/// Can we get GPU-visible memory that the CPU can write, and map it?
+///
+/// This is the floor everything else stands on: panfrost/panvk need BOs it can
+/// fill from the CPU and hand to the GPU. All three commands are from evidence 35
+/// (read out of the vendor driver), and none of them puts work on the GPU.
+fn alloc1() {
+    let f = match OpenOptions::new().read(true).write(true).open("/dev/mali0") {
+        Ok(f) => f,
+        Err(e) => {
+            line("alloc_open", "FAIL", format!("errno={}", e.raw_os_error().unwrap_or(0)));
+            return;
+        }
+    };
+    let fd = f.as_raw_fd();
+    let vc = KbaseVersionCheck { major: 0, minor: 0 };
+    let e = ioctl_errno(fd, KBASE_IOCTL_VERSION_CHECK, &vc as *const _ as *mut core::ffi::c_void);
+    line("version_check", if e == 0 { "PASS" } else { "FAIL" }, format!("errno={e} {}.{}", vc.major, vc.minor));
+    let mut flags: u32 = 0;
+    let e = ioctl_errno(fd, 0x4004_8001, &mut flags as *mut u32 as *mut core::ffi::c_void);
+    line("set_flags", if e == 0 { "PASS" } else { "FAIL" }, format!("errno={e}"));
+
+    // BASE_MEM_PROT_CPU_RW|GPU_RD|GPU_WR = 1|4|8
+    for (vap, cmp_, probe_flags) in [(1u64, 1u64, 0u64), (1, 1, 0xDu64), (1, 0, 0xDu64)] {
+        let mut a = MemAlloc { va_pages: vap, commit_pages: cmp_, extension: 0, flags: probe_flags };
+        let cmd = 0xc020_8005u64;
+        let r = unsafe { ioctl(fd, cmd, &mut a as *mut MemAlloc as *mut core::ffi::c_void) };
+        let tail = format!(
+            "in(va={vap},commit={cmp_},flags={probe_flags:#x}) ret={r} back=[{:#x},{:#x},{:#x},{:#x}]",
+            a.va_pages, a.commit_pages, a.extension, a.flags
+        );
+        if r < 0 {
+            let e = errno();
+            line("mem_alloc", "FAIL", format!("errno={e} ({}) {tail}", strerror_guess(e)));
+            continue;
+        }
+        // Measured writeback on this kernel (see the tail line): field0 becomes
+        // the flags the driver actually used, field1 becomes the GPU VA, and the
+        // ioctl return is 0. Two different allocations land on 0x41000 / 0x42000,
+        // i.e. consecutive one-page VAs, which is what a real VA allocator does.
+        let gpu_va = a.commit_pages;
+        let out_flags = a.va_pages;
+        line(
+            "mem_alloc",
+            "PASS",
+            format!("{tail} => gpu_va={gpu_va:#x} flags_out={out_flags:#x}"),
+        );
+
+        let mut q = MemQuery {
+            gpu_va,
+            va_pages: 0,
+            commit_pages: 0,
+            extension: 0,
+            flags: 0,
+            padding: 0,
+        };
+        let e = ioctl_errno(fd, 0xc010_8006, &mut q as *mut MemQuery as *mut core::ffi::c_void);
+        line(
+            "mem_query",
+            if e == 0 { "PASS" } else { "FAIL" },
+            format!(
+                "errno={e} va_pages={} commit_pages={} ext={} flags={:#x}",
+                q.va_pages, q.commit_pages, q.extension, q.flags
+            ),
+        );
+
+        let p = unsafe {
+            mmap(
+                core::ptr::null_mut(),
+                4096,
+                3, // PROT_READ|PROT_WRITE
+                1, // MAP_SHARED
+                fd,
+                gpu_va as i64,
+            )
+        };
+        if p as isize == -1 {
+            let e = errno();
+            line("mmap(gpu_va)", "FAIL", format!("errno={e} ({})", strerror_guess(e)));
+        } else {
+            // Write a recognisable pattern and read it back: proves the CPU can
+            // fill a buffer the GPU will read.
+            unsafe {
+                let b = p as *mut u8;
+                for i in 0..16 {
+                    *b.add(i) = 0xA5;
+                }
+                let ok = (0..16).all(|i| *b.add(i) == 0xA5);
+                line(
+                    "mmap(gpu_va)",
+                    if ok { "PASS" } else { "FAIL" },
+                    format!("mapped at {:p}, cpu write+readback {}", p, ok),
+                );
+                munmap(p, 4096);
+            }
+        }
+    }
+}
+
 // ------------------------------------------------------------- ioctl surface
 
 /// Walk (nr, size) for the kbase command word with a zeroed 64-byte buffer and
@@ -522,13 +640,14 @@ fn main() {
         "nrscan" => nrscan(),
         "ver" => ver(),
         "submit0" => submit0(),
+        "alloc1" => alloc1(),
         "one" => {
             let major: u16 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
             let minor: u16 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(0);
             one(major, minor)
         }
         "" => {
-            eprintln!("usage: gpu-probe nodes|kbase|enc|nrscan|ver|submit0|one <major> <minor>");
+            eprintln!("usage: gpu-probe nodes|kbase|enc|nrscan|ver|submit0|alloc1|one <major> <minor>");
             std::process::exit(2);
         }
         other => {
