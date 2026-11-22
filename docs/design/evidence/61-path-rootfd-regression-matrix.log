@@ -1,0 +1,232 @@
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+chdir realnow=/data/data/com.linuxhub.husk/files/rootfs-full/tmp
+chdir realnow=/data/data/com.linuxhub.husk/files/rootfs-full/tmp/n1/n2/n3
+PASS mkdirp
+PASS mkdirp-place
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS deepwrite
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+chdir realnow=/data/data/com.linuxhub.husk/files/rootfs-full/tmp
+chdir realnow=/data/data/com.linuxhub.husk/files/rootfs-full/tmp
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS redirect
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+nrshim open /tmp/d1/b err 2
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS cp
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS mv
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS chmod
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS readlink
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS symlink-follow
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS symlink-abs
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS symlink-dotdot
+nr-init|sigaction|ret=0
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS find-files
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+1024nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS find-links
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+nr-init|sigaction|ret=0
+root high rc=1024
+nr-init|sigsys handler installed
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS readdir
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS ls-long
+chdir realnow=/data/data/com.linuxhub.husk/files/rootfs-full/usr/bin
+PASS pwd
+chdir realnow=/data/data/com.linuxhub.husk/files/rootfs-full
+PASS pwd-root
+chdir realnow=/data/data/com.linuxhub.husk/files/rootfs-full/etc
+chdir realnow=/data/data/com.linuxhub.husk/files/rootfs-full
+PASS dotdot
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS dotdot-read
+PASS escape-link
+PASS escape-write
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS rm-rf
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+nr-init|sigaction|ret=0
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS sort
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS sha256
+chdir realnow=/data/data/com.linuxhub.husk/files/rootfs-full/etc
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS glob
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS stdin
+chdir realnow=/data/data/com.linuxhub.husk/files/rootfs-full/etc
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS subshell
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS exec-abs
+chdir realnow=/data/data/com.linuxhub.husk/files/rootfs-full/etc
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS exec-rel
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS bigio
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+PASS write-read
+#checks=31 fail=0

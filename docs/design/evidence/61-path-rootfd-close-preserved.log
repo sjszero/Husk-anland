@@ -1,0 +1,17 @@
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+nrshim open /data/user/0/com.linuxhub.husk/.bashrc err 2
+close preserved rootfd
+nr-init|sigaction|ret=0
+nr-init|sigaction|ret=0
+nr-init|sigsys handler installed
+nr-init|sigsys handler installed
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+root high rc=1024
+rootfd env=/data/data/com.linuxhub.husk/files/rootfs-full real=/data/data/com.linuxhub.husk/files/rootfs-full fd=1024
+NAME="Ubuntu"
+chdir realnow=/data/data/com.linuxhub.husk/files/rootfs-full/etc
+/etc

@@ -56,6 +56,11 @@ const O_CLOEXEC: CInt = 0o2000000;
 const SYS_WRITE: usize = 64;
 const SYS_OPENAT: usize = 56;
 const SYS_CLOSE: usize = 57;
+const SYS_CLOSE_RANGE: usize = 436;
+const SYS_FCNTL: usize = 25;
+const F_GETFD: usize = 1;
+const F_DUPFD_CLOEXEC: usize = 1030;
+const ROOTFD_FLOOR: usize = 1024;
 const SYS_PREAD64: usize = 67;
 const SYS_READLINKAT: usize = 78;
 const SYS_NEWFSTATAT: usize = 79;
@@ -537,8 +542,30 @@ unsafe fn dbgn(parts: &[&[u8]], v: i64) {
     dbg(&[&b[i..], b"\n"]);
 }
 
+unsafe fn rootfd_alive(fd: CInt) -> bool {
+    fd >= 0 && syscall4(SYS_FCNTL, fd as usize, F_GETFD, 0, 0) >= 0
+}
+
+/// Open the guest root at a high descriptor. Guest daemons close descriptors
+/// they inherited, sometimes through libc internals that bypass GOT interpose;
+/// keeping the runtime descriptor above the usual 0..1023 range makes accidental
+/// reuse much less likely, and `rootfd` reopens it if a bulk close still got it.
+unsafe fn move_root_high(fd: CInt) -> CInt {
+    let high = syscall4(SYS_FCNTL, fd as usize, F_DUPFD_CLOEXEC, ROOTFD_FLOOR, 0);
+    dbgn(&[b"root high rc="], high as i64);
+    if high >= ROOTFD_FLOOR as Ssize {
+        rc::close(fd);
+        high as CInt
+    } else {
+        fd
+    }
+}
+
 unsafe fn rootfd() -> CInt {
-    if ROOT_STATE.load(Ordering::Acquire) == 2 { return ROOTFD; }
+    if ROOT_STATE.load(Ordering::Acquire) == 2 {
+        if rootfd_alive(ROOTFD) { return ROOTFD; }
+        ROOT_STATE.store(0, Ordering::Release);
+    }
     if ROOT_STATE.compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire).is_err() {
         while ROOT_STATE.load(Ordering::Acquire) != 2 { core::hint::spin_loop(); }
         return ROOTFD;
@@ -549,11 +576,11 @@ unsafe fn rootfd() -> CInt {
             ROOT_ENV[..n].copy_from_slice(&r[..n]);
             ROOT_ENV_LEN = n;
             if let Ok(fd) = rc::openat(AT_FDCWD, r, O_PATH | O_DIRECTORY | O_CLOEXEC, 0) {
-                ROOTFD = fd;
+                ROOTFD = move_root_high(fd);
                 let mut pl = [0u8; 64];
                 let mut i = 0;
                 for &c in b"/proc/self/fd/" { pl[i] = c; i += 1; }
-                let mut v = fd as u32;
+                let mut v = ROOTFD as u32;
                 let mut d = [0u8; 10];
                 let mut dn = 0;
                 if v == 0 { d[0] = b'0'; dn = 1; }
@@ -571,9 +598,18 @@ unsafe fn rootfd() -> CInt {
             }
         }
     }
-    dbg(&[b"rootfd env=", core::slice::from_raw_parts(ROOT_ENV.as_ptr(), ROOT_ENV_LEN),
-          b" real=", core::slice::from_raw_parts(ROOT_REAL.as_ptr(), ROOT_REAL_LEN),
-          b" fd=", &[b'0' + ((ROOTFD.max(0) as u8) % 10)], b"\n"]);
+    if dbg_on() {
+        let mut buf = [0u8; 160];
+        let mut k = 0;
+        put(&mut buf, &mut k, b"rootfd env=");
+        put(&mut buf, &mut k, core::slice::from_raw_parts(ROOT_ENV.as_ptr(), ROOT_ENV_LEN));
+        put(&mut buf, &mut k, b" real=");
+        put(&mut buf, &mut k, core::slice::from_raw_parts(ROOT_REAL.as_ptr(), ROOT_REAL_LEN));
+        put(&mut buf, &mut k, b" fd=");
+        putnum(&mut buf, &mut k, ROOTFD as i64);
+        put(&mut buf, &mut k, b"\n");
+        dbg(&[&buf[..k]]);
+    }
     ROOT_STATE.store(2, Ordering::Release);
     ROOTFD
 }
@@ -1183,6 +1219,44 @@ pub unsafe extern "C" fn readlink(path: *const CChar, out: *mut CChar, len: CSiz
     // glibc's readlink() is a separate entry point that does not go through the
     // interposed readlinkat(), so it needs its own hook.
     readlinkat(AT_FDCWD, path, out, len)
+}
+
+/// Keep the runtime's private root descriptor alive even when a guest daemon
+/// closes every descriptor it inherited (PulseAudio does exactly this before
+/// its final chdir("/")). The fd is never exposed to guest code, and all path
+/// resolution depends on it, so closing it would turn a perfectly valid guest
+/// daemon into ENOENT/EACCES on every later absolute path.
+#[no_mangle]
+pub unsafe extern "C" fn close(fd: CInt) -> CInt {
+    let rfd = rootfd();
+    if fd >= 0 && fd == rfd {
+        dbg(&[b"close preserved rootfd\n"]);
+        return 0;
+    }
+    ret_or_errno(syscall4(SYS_CLOSE, fd as usize, 0, 0, 0))
+}
+
+/// Same rule for a bulk close. Preserve the root fd by punching a one-fd hole
+/// in the requested range instead of walking a potentially enormous range in
+/// user space.
+#[no_mangle]
+pub unsafe extern "C" fn close_range(first: u32, last: u32, flags: CInt) -> CInt {
+    let rfd = rootfd();
+    if rfd >= 0 {
+        let r = rfd as u32;
+        if first <= r && r <= last {
+            if first < r {
+                let rc = syscall4(SYS_CLOSE_RANGE, first as usize, (r - 1) as usize, flags as usize, 0);
+                if rc < 0 { return ret_or_errno(rc); }
+            }
+            if r < last {
+                let rc = syscall4(SYS_CLOSE_RANGE, (r + 1) as usize, last as usize, flags as usize, 0);
+                if rc < 0 { return ret_or_errno(rc); }
+            }
+            return 0;
+        }
+    }
+    ret_or_errno(syscall4(SYS_CLOSE_RANGE, first as usize, last as usize, flags as usize, 0))
 }
 
 #[no_mangle]
