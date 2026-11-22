@@ -1497,6 +1497,7 @@ unsafe fn run() -> i32 {
             CString::new("VK_KHR_external_memory").unwrap(),
             CString::new("VK_KHR_external_memory_fd").unwrap(),
             CString::new("VK_EXT_external_memory_dma_buf").unwrap(),
+            CString::new("VK_EXT_image_drm_format_modifier").unwrap(),
         ]
     } else {
         Vec::new()

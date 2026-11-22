@@ -19,6 +19,7 @@
 
 use core::ffi::{c_char, c_int, c_void};
 use std::ffi::CStr;
+use std::io::Write;
 use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -30,7 +31,12 @@ const F_GETFD: c_int = 1;
 const AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM: u32 = 1;
 const AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE: u64 = 1 << 8;
 const AHARDWAREBUFFER_USAGE_GPU_FRAMEBUFFER: u64 = 1 << 9;
+const AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN: u64 = 1 << 1;
+const AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN: u64 = 1 << 5;
 const MAX_HANDLE_FDS: c_int = 16;
+
+const PROBE_WIDTH: u32 = 64;
+const PROBE_HEIGHT: u32 = 64;
 
 static PROBED: AtomicBool = AtomicBool::new(false);
 
@@ -54,6 +60,8 @@ type FnRelease = unsafe extern "C" fn(*mut Ahb);
 type FnGetNativeHandle = unsafe extern "C" fn(*const Ahb) -> *const c_void;
 type FnSendToSocket = unsafe extern "C" fn(*const Ahb, c_int) -> c_int;
 type FnRecvFromSocket = unsafe extern "C" fn(c_int, *mut *mut Ahb) -> c_int;
+type FnLock = unsafe extern "C" fn(*mut Ahb, u64, c_int, *const c_void, *mut *mut c_void) -> c_int;
+type FnUnlock = unsafe extern "C" fn(*mut Ahb, *mut c_int) -> c_int;
 
 struct Symbols {
     allocate: FnAllocate,
@@ -62,6 +70,8 @@ struct Symbols {
     native_handle: FnGetNativeHandle,
     send: FnSendToSocket,
     recv: FnRecvFromSocket,
+    lock: FnLock,
+    unlock: FnUnlock,
 }
 
 unsafe extern "C" {
@@ -97,8 +107,10 @@ unsafe fn load() -> Option<(*mut c_void, Symbols)> {
         "AHardwareBuffer_getNativeHandle",
         "AHardwareBuffer_sendHandleToUnixSocket",
         "AHardwareBuffer_recvHandleFromUnixSocket",
+        "AHardwareBuffer_lock",
+        "AHardwareBuffer_unlock",
     ];
-    let mut resolved = [core::ptr::null_mut::<c_void>(); 6];
+    let mut resolved = [core::ptr::null_mut::<c_void>(); 8];
     for (slot, name) in resolved.iter_mut().zip(names) {
         let cname = std::ffi::CString::new(name).ok()?;
         *slot = dlsym(handle, cname.as_ptr());
@@ -117,8 +129,131 @@ unsafe fn load() -> Option<(*mut c_void, Symbols)> {
         native_handle: core::mem::transmute(resolved[3]),
         send: core::mem::transmute(resolved[4]),
         recv: core::mem::transmute(resolved[5]),
+        lock: core::mem::transmute(resolved[6]),
+        unlock: core::mem::transmute(resolved[7]),
     };
     Some((handle, symbols))
+}
+
+fn cookie(i: usize, x: u32, y: u32) -> u32 {
+    0x9a5c_0000 ^ ((i as u32) << 12) ^ (x << 1) ^ y
+}
+
+fn probe_points(width: u32, height: u32) -> [(u32, u32); 9] {
+    let cx = width / 2;
+    let cy = height / 2;
+    [
+        (0, 0),
+        (cx, 0),
+        (width - 1, 0),
+        (0, cy),
+        (cx, cy),
+        (width - 1, cy),
+        (0, height - 1),
+        (cx, height - 1),
+        (width - 1, height - 1),
+    ]
+}
+
+unsafe fn probe_linear_view(s: &Symbols, buffer: *mut Ahb, desc: &Desc) -> bool {
+    if desc.layers != 1
+        || desc.width == 0
+        || desc.height == 0
+        || desc.stride < desc.width
+        || desc.format != AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM
+    {
+        crate::log(&format!(
+            "ahb|linear|SKIP|unsupported {}x{}x{} format={} stride={}",
+            desc.width, desc.height, desc.layers, desc.format, desc.stride
+        ));
+        return false;
+    }
+
+    let mut cpu: *mut c_void = core::ptr::null_mut();
+    let lock_rc = (s.lock)(
+        buffer,
+        AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN,
+        -1,
+        core::ptr::null(),
+        &mut cpu,
+    );
+    crate::log(&format!("ahb|linear|lock_write|rc={lock_rc} cpu={cpu:p}"));
+    if lock_rc != 0 || cpu.is_null() {
+        return false;
+    }
+    let base = cpu as *mut u8;
+    for (i, (x, y)) in probe_points(desc.width, desc.height)
+        .into_iter()
+        .enumerate()
+    {
+        let pixel = base.add(((y * desc.stride + x) * 4) as usize) as *mut u32;
+        pixel.write_unaligned(cookie(i, x, y));
+    }
+    let unlock_rc = (s.unlock)(buffer, core::ptr::null_mut());
+    crate::log(&format!("ahb|linear|unlock_write|rc={unlock_rc}"));
+    if unlock_rc != 0 {
+        return false;
+    }
+
+    cpu = core::ptr::null_mut();
+    let lock_rc = (s.lock)(
+        buffer,
+        AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN,
+        -1,
+        core::ptr::null(),
+        &mut cpu,
+    );
+    crate::log(&format!("ahb|linear|lock_read|rc={lock_rc} cpu={cpu:p}"));
+    if lock_rc != 0 || cpu.is_null() {
+        return false;
+    }
+    let base = cpu as *const u8;
+    let mut matched = 0;
+    let mut seen = [0u32; 9];
+    for (i, (x, y)) in probe_points(desc.width, desc.height)
+        .into_iter()
+        .enumerate()
+    {
+        let pixel = base.add(((y * desc.stride + x) * 4) as usize) as *const u32;
+        let got = pixel.read_unaligned();
+        seen[i] = got;
+        if got == cookie(i, x, y) {
+            matched += 1;
+        }
+    }
+    let unlock_rc = (s.unlock)(buffer, core::ptr::null_mut());
+    crate::log(&format!(
+        "ahb|linear|cpu_view|match={matched}/9|got={seen:?}|unlock={unlock_rc}"
+    ));
+    matched == 9 && unlock_rc == 0
+}
+
+fn bridge_meta(desc: &Desc) -> String {
+    let mut cookies = Vec::with_capacity(9);
+    for (i, (x, y)) in probe_points(desc.width, desc.height)
+        .into_iter()
+        .enumerate()
+    {
+        cookies.push(cookie(i, x, y).to_string());
+    }
+    format!(
+        "HUSK-AHB-1\nwidth={}\nheight={}\nstride={}\nformat={}\nusage=0x{:x}\ncookies={}\n",
+        desc.width,
+        desc.height,
+        desc.stride,
+        desc.format,
+        desc.usage,
+        cookies.join(",")
+    )
+}
+
+fn write_bridge_meta(files: &std::path::Path, desc: &Desc) {
+    let meta = bridge_meta(desc);
+    let path = files.join("ahb-bridge.meta");
+    match std::fs::write(&path, meta) {
+        Ok(()) => crate::log(&format!("ahb|bridge|META|{}", path.display())),
+        Err(e) => crate::log(&format!("ahb|bridge|META_FAIL|{e}")),
+    }
 }
 
 fn files_dir() -> Option<std::path::PathBuf> {
@@ -140,7 +275,7 @@ fn files_dir() -> Option<std::path::PathBuf> {
 /// Keep the buffer alive long enough for a same-UID glibc guest process to
 /// connect and receive the native handle. This is gated by a marker file so a
 /// normal launch only runs the non-invasive allocation test.
-unsafe fn serve_bridge(s: &Symbols, buffer: *mut Ahb) {
+unsafe fn serve_bridge(s: &Symbols, buffer: *mut Ahb, desc: &Desc) {
     let Some(files) = files_dir() else {
         crate::log("ahb|bridge|SKIP|no files dir");
         return;
@@ -150,6 +285,7 @@ unsafe fn serve_bridge(s: &Symbols, buffer: *mut Ahb) {
         crate::log("ahb|bridge|SKIP|no marker");
         return;
     }
+    write_bridge_meta(&files, desc);
     let path = files.join("ahb-bridge.sock");
     let _ = std::fs::remove_file(&path);
     let listener = match std::os::unix::net::UnixListener::bind(&path) {
@@ -164,7 +300,15 @@ unsafe fn serve_bridge(s: &Symbols, buffer: *mut Ahb) {
     let deadline = Instant::now() + Duration::from_secs(90);
     while Instant::now() < deadline {
         match listener.accept() {
-            Ok((stream, _)) => {
+            Ok((mut stream, _)) => {
+                let meta = bridge_meta(desc);
+                let meta_rc = stream
+                    .write_all(&(meta.len() as u32).to_be_bytes())
+                    .and_then(|_| stream.write_all(meta.as_bytes()));
+                crate::log(&format!("ahb|bridge|META_SEND|rc={meta_rc:?}"));
+                if meta_rc.is_err() {
+                    continue;
+                }
                 let rc = (s.send)(buffer, stream.as_raw_fd());
                 crate::log(&format!("ahb|bridge|SEND|rc={rc}"));
                 std::thread::sleep(Duration::from_millis(250));
@@ -200,6 +344,15 @@ unsafe fn inspect_handle(label: &str, handle: *const c_void) -> c_int {
         return -1;
     }
     let count = num_fds.min(MAX_HANDLE_FDS);
+    let ints_off = 3 + num_fds.max(0) as usize;
+    let int_count = num_ints.max(0).min(32) as usize;
+    if int_count > 0 {
+        let mut words_out = Vec::with_capacity(int_count);
+        for i in 0..int_count {
+            words_out.push(words.add(ints_off + i).read_unaligned());
+        }
+        crate::log(&format!("ahb|{label}|ints[0..{int_count}]={words_out:?}"));
+    }
     let mut first = -1;
     for i in 0..count {
         let fd = words.add(3 + i as usize).read_unaligned();
@@ -226,11 +379,14 @@ fn probe() {
         };
 
         let desc = Desc {
-            width: 64,
-            height: 64,
+            width: PROBE_WIDTH,
+            height: PROBE_HEIGHT,
             layers: 1,
             format: AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM,
-            usage: AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE | AHARDWAREBUFFER_USAGE_GPU_FRAMEBUFFER,
+            usage: AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE
+                | AHARDWAREBUFFER_USAGE_GPU_FRAMEBUFFER
+                | AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN
+                | AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN,
             ..Desc::default()
         };
         let mut buffer: *mut Ahb = core::ptr::null_mut();
@@ -246,6 +402,12 @@ fn probe() {
         crate::log(&format!(
             "ahb|describe|{}x{}x{} format={} usage=0x{:x} stride={}",
             actual.width, actual.height, actual.layers, actual.format, actual.usage, actual.stride
+        ));
+
+        let linear_ok = probe_linear_view(&s, buffer, &actual);
+        crate::log(&format!(
+            "ahb|linear|cpu_contract|{}",
+            if linear_ok { "PASS" } else { "FAIL" }
         ));
 
         let native = (s.native_handle)(buffer);
@@ -277,7 +439,7 @@ fn probe() {
             close(sv[1]);
         }
 
-        serve_bridge(&s, buffer);
+        serve_bridge(&s, buffer, &actual);
         (s.release)(buffer);
         crate::log("ahb|allocated|released");
         dlclose(lib);

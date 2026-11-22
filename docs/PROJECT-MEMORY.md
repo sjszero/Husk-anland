@@ -91,8 +91,10 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
 3. **已完成（evidence 46）**：把 `MEM_EXEC_INIT` 移到 `MEM_JIT_INIT` 之前，并把 EXEC_VA 设为
    4G；本机 warning 消失。可复现 patch 见 `docs/design/patches/fristonerr-exec-va-order.patch`。
 4. **已完成（evidence 47）**：发行版自带 Zink 已走这颗 PanVK，surfaceless `eglinfo` 与纯 Rust
-   `gl_probe` 报出 Mali-G77 renderer。下一步只剩真正的 GBM/Wayland/X11、swapchain、WSI、
-   Android Surface 和窗口显示；headless renderer 不等于窗口系统验收。
+   `gl_probe` 报出 Mali-G77 renderer。**已完成（evidence 51）**：app AHB dma-buf 按 LINEAR 2D
+   image 导入 PanVK，GPU clear 后 staging buffer 与直接 dma-buf CPU mmap 均回读 9/9 红色；
+   每次外部 memory import 使用独立 `dup(fd)`。下一步只剩真正的 GBM/Wayland/X11、swapchain、WSI、
+   Android Surface 和窗口显示；headless renderer 或 image 导入不等于窗口系统验收。
 5. `funnymdzz/mesa` 的 `kbase-v0.1.2` 已实测卡在 `drmSyncobjCreate()`，保留为失败证据和对照，
    不再作为唯一主动路线。
 6. DRM 语义层代码保留：它是已经完成的 M1/M2 资产，也是 panfrost 路线的后备，不删除。
@@ -114,8 +116,9 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
 - guest 已实测（evidence 50）用 PanVK `VK_EXT_external_memory_dma_buf` /
   `VK_KHR_external_memory_fd` 导入真实 AHB dma-buf：external buffer + import memory + bind 全 PASS，
   GPU compute 写入/回读 `0x4855534b` PASS；kbase `MEM_IMPORT` 保留为后备；
-- 下一步必须是 AHB 2D image / DRM modifier 导入和 `ANativeWindow_queueBuffer`；
-  当前 buffer 导入不能冒充显示完成；
+- evidence 51 已完成 AHB → dma-buf → `DRM_FORMAT_MOD_LINEAR` 2D image → GPU write；
+  下一步必须是 `ASurfaceControl` / `ANativeWindow_queueBuffer`、present fence 和 SurfaceFlinger
+  生命周期测试，当前 image 导入仍不能冒充显示完成；
 - 同一块 buffer 由 app `queueBuffer` 给 SurfaceFlinger，目标是零拷贝；
 - kbase 没有 export，所以方向必须是 app → guest 导入，不能假装有 kbase 导出。
 - 退化路径可以 CPU 拷贝，但必须记录原因和实测开销。
@@ -200,9 +203,9 @@ eglinfo 报 Mali-G77；音频出声并有延迟数字；H.264/HEVC 硬解、AV �
 
 1. 读本文件、`GOALS.md`、`STATUS.md`、`references.md`、`mali-kbase-prior-art.md`。
 2. 查 `git status --short --branch`，确认没有未提交改动；没有用户授权不要动 LinuxHub 2.0 分支。
-3. 继续 GPU 主线：FristOneRR glibc PanVK 已完成 compute job、离屏 graphics draw + GPU readback
-   （evidence 46），发行版 Zink 的 surfaceless renderer 也已通过（evidence 47）；
-   下一步接 GBM / Wayland / X11、swapchain / WSI / Android Surface 和实际窗口显示。
+3. 继续显示主线：FristOneRR glibc PanVK 已完成 compute job、离屏 graphics、surfaceless Zink
+   （evidence 46–47）和 AHB LINEAR 2D image GPU 写入（evidence 51）；
+   下一步接 GBM / Wayland / X11、`ASurfaceControl` 展示、present fence 和实际窗口显示。
 4. 每次失败也写清楚失败点和下一假设；证据放 `docs/design/evidence/`。
 5. 窗口 renderer 与 Surface 路径通过后再进入显示零拷贝；视频、音频按第 5 节并行设计但不能跳过硬解验收。
 6. 最后做 2.0 proot 替换与补丁清除。

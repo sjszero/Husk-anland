@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 03:18）
+# 当前状态（2026-11-23 03:32）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -10,15 +10,16 @@
 FristOneRR PanVK 在 guest 内报出 **Mali-G77 MC9**，纯 Rust 探针完成 logical device、queue、
 host-visible storage buffer、compute job 和离屏 graphics draw；GPU 写回 `0x4855534b`、
 像素回读 `0xff0000ff` 均已由 fence 后确认。发行版 Zink 也已在 surfaceless EGL 报出
-`zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`。
+`zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`；AHB 的 LINEAR 2D image 导入也已由 GPU clear
+后回读确认。Android Surface 展示仍未完成。
 
-## SoC 直连最新（evidence 50，2026-11-23）
+## SoC 直连最新（evidence 51，2026-11-23）
 
 - **Vulkan 扩展面已实测（evidence 48，FACT）**：PanVK 实例扩展 18 项、设备扩展 171 项；
   `VK_KHR_external_memory_fd` / `VK_EXT_external_memory_dma_buf` 等 dma-buf 导入路径存在，
   但 `VK_KHR_android_surface` 与 `VK_ANDROID_external_memory_android_hardware_buffer` 缺失。
   因此 guest 不能直接建 Android Surface 或直接导入 AHB，必须走 app 侧 AHB → dma-buf fd →
-  `SCM_RIGHTS` → guest Vulkan 导入；该握手仍是 UNKNOWN / 未验证。
+  `SCM_RIGHTS` → guest Vulkan 导入；这条跨进程握手已由 evidence 49–51 实测打通。
 - **surfaceless EGL/Zink 已通过（FACT）**：`eglinfo -B` 和纯 Rust `gl_probe` 都报出
   `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`；壳应用的 guest bash 实际使用 `rootfs-full`，
   子进程环境已注入 PanVK ICD + Zink。GBM / Wayland / X11 / swapchain / Android Surface 仍未通。
@@ -26,17 +27,26 @@ host-visible storage buffer、compute job 和离屏 graphics draw；GPU 写回 `
   `VK_DRIVER_FILES`、`__EGL_VENDOR_LIBRARY_FILENAMES`、`MESA_LOADER_DRIVER_OVERRIDE=zink`、
   `GALLIUM_DRIVER=zink`；logcat 显示会话与窗口尺寸正常。
 
-## 显示零拷贝前两段（evidence 49–50，2026-11-23）
+## 显示零拷贝前三段（evidence 49–51，2026-11-23）
 
-- **FACT**：纯 Rust app 进程成功分配 `64x64 RGBA8` AHardwareBuffer（usage `0x300`，stride 128）。
+- **FACT**：纯 Rust app 进程成功分配 `64x64 RGBA8` AHardwareBuffer；带 CPU 读写能力的探针版
+  为 usage `0x322`、stride 64。
 - **FACT**：`AHardwareBuffer_getNativeHandle()` 返回 3 个 fd，其中一个由
   `/proc/self/fd` 确认为 `/dmabuf:G:pid [...]`；native-handle fd 顺序不能写死，必须扫描。
 - **FACT**：真实 AHB dma-buf 经 `AF_UNIX/SOCK_SEQPACKET` + `SCM_RIGHTS` 跨进程进入 glibc guest；
   PanVK 报告 DMA_BUF buffer 能力 `compatibleHandleTypes=0x201`，external buffer 创建、
   `VkImportMemoryFdInfoKHR` 导入、bind 全部成功，GPU compute 写入并回读 `0x4855534b` PASS。
-- **UNKNOWN**：这还是 buffer 导入，不是 AHB 的 2D image / DRM modifier 导入；
-  `ANativeWindow_queueBuffer`、SurfaceFlinger、present fence、旋转 / DPI / 多窗口 / 10 分钟泄漏
-  仍未验证。不能把本条写成“显示完成”。
+- **FACT**：app 通过 AHB CPU view 写入 9 个 cookie，guest 直接 `mmap` 同一 dma-buf 后按
+  `DRM_FORMAT_MOD_LINEAR` / offset 0 / rowPitch 256 读回 9/9，证明本机新分配 AHB 是线性布局。
+- **FACT**：PanVK 以 `VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT` +
+  `VkImageDrmFormatModifierExplicitCreateInfoEXT` 成功创建 LINEAR 2D image，导入 dma-buf、
+  bind image 均成功；GPU `vkCmdClearColorImage` 后 staging readback 9/9 红，直接 dma-buf
+  CPU mmap 也 9/9 红。
+- **FACT**：重复使用同一个 glibc fd 分别 import buffer 和 image 会让 image import 报
+  `invalid dmabuf size`；每次 import 独立 `dup(fd)` 后两条路径同轮通过。驱动内部精确原因仍为
+  UNKNOWN，不把推断写成根因。
+- **UNKNOWN / 未完成**：`ASurfaceControl` / `ANativeWindow_queueBuffer`、SurfaceFlinger、
+  present fence、旋转 / DPI / 多窗口 / 10 分钟泄漏仍未验证，不能写成“显示完成”。
 
 ## GPU 基线（evidence 46，2026-11-23）
 

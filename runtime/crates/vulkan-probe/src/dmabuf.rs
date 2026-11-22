@@ -8,11 +8,14 @@
 
 use super::*;
 use core::ffi::{c_int, c_void};
+use std::io::Read;
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 
 const SOL_SOCKET: c_int = 1;
 const SCM_RIGHTS: c_int = 1;
+const PROT_READ: c_int = 1;
+const MAP_SHARED: c_int = 1;
 const VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT: u32 = 0x200;
 const VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_BUFFER_INFO: u32 = 1_000_071_002;
 const VK_STRUCTURE_TYPE_EXTERNAL_BUFFER_PROPERTIES: u32 = 1_000_071_003;
@@ -48,6 +51,774 @@ struct CmsgHdr {
 extern "C" {
     fn recvmsg(fd: c_int, msg: *mut MsgHdr, flags: c_int) -> isize;
     fn close(fd: c_int) -> c_int;
+    fn dup(fd: c_int) -> c_int;
+    fn lseek(fd: c_int, offset: i64, whence: c_int) -> i64;
+    fn mmap(
+        addr: *mut c_void,
+        len: usize,
+        prot: c_int,
+        flags: c_int,
+        fd: c_int,
+        offset: i64,
+    ) -> *mut c_void;
+    fn munmap(addr: *mut c_void, len: usize) -> c_int;
+}
+
+#[derive(Debug)]
+struct AhbMeta {
+    width: u32,
+    height: u32,
+    stride: u32,
+    format: u32,
+    usage: u64,
+    cookies: [u32; 9],
+}
+
+fn parse_meta(text: &str) -> Result<AhbMeta, String> {
+    let mut lines = text.lines();
+    if lines.next() != Some("HUSK-AHB-1") {
+        return Err("bad magic".to_string());
+    }
+    let mut width = None;
+    let mut height = None;
+    let mut stride = None;
+    let mut format = None;
+    let mut usage = None;
+    let mut cookies = None;
+    for line in lines {
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        match key {
+            "width" => width = value.parse().ok(),
+            "height" => height = value.parse().ok(),
+            "stride" => stride = value.parse().ok(),
+            "format" => format = value.parse().ok(),
+            "usage" => {
+                usage = value
+                    .strip_prefix("0x")
+                    .and_then(|v| u64::from_str_radix(v, 16).ok())
+            }
+            "cookies" => {
+                let parsed: Vec<u32> = value.split(',').filter_map(|v| v.parse().ok()).collect();
+                if parsed.len() == 9 {
+                    let mut out = [0u32; 9];
+                    out.copy_from_slice(&parsed);
+                    cookies = Some(out);
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(AhbMeta {
+        width: width.ok_or_else(|| "missing width".to_string())?,
+        height: height.ok_or_else(|| "missing height".to_string())?,
+        stride: stride.ok_or_else(|| "missing stride".to_string())?,
+        format: format.ok_or_else(|| "missing format".to_string())?,
+        usage: usage.ok_or_else(|| "missing usage".to_string())?,
+        cookies: cookies.ok_or_else(|| "missing cookies".to_string())?,
+    })
+}
+
+fn probe_points(width: u32, height: u32) -> [(u32, u32); 9] {
+    let cx = width / 2;
+    let cy = height / 2;
+    [
+        (0, 0),
+        (cx, 0),
+        (width - 1, 0),
+        (0, cy),
+        (cx, cy),
+        (width - 1, cy),
+        (0, height - 1),
+        (cx, height - 1),
+        (width - 1, height - 1),
+    ]
+}
+
+unsafe fn probe_linear_dmabuf(fd: c_int, meta: &AhbMeta) -> bool {
+    if meta.width == 0 || meta.height == 0 || meta.stride < meta.width || meta.format != 1 {
+        line(
+            "dmabuf",
+            "linear",
+            format!(
+                "SKIP|unsupported {}x{} stride={} format={}",
+                meta.width, meta.height, meta.stride, meta.format
+            ),
+        );
+        return false;
+    }
+    let pitch = meta.stride as usize * 4;
+    let seek_size = lseek(fd, 0, 2);
+    if seek_size < 0 {
+        line(
+            "dmabuf",
+            "fd_size",
+            format!(
+                "FAIL|lseek_end={seek_size}: {}",
+                std::io::Error::last_os_error()
+            ),
+        );
+    } else {
+        line("dmabuf", "fd_size", format!("PASS|lseek_end={seek_size}"));
+    }
+    let len = match pitch.checked_mul(meta.height as usize) {
+        Some(v) if v > 0 => v,
+        _ => {
+            line("dmabuf", "linear", "FAIL|size overflow");
+            return false;
+        }
+    };
+    let map = mmap(ptr::null_mut(), len, PROT_READ, MAP_SHARED, fd, 0);
+    if map as isize == -1 {
+        line(
+            "dmabuf",
+            "linear",
+            format!("FAIL|mmap len={len}: {}", std::io::Error::last_os_error()),
+        );
+        return false;
+    }
+    let base = map as *const u8;
+    let mut matched = 0;
+    let mut seen = [0u32; 9];
+    for (i, (x, y)) in probe_points(meta.width, meta.height)
+        .into_iter()
+        .enumerate()
+    {
+        let off = y as usize * pitch + x as usize * 4;
+        let got = (base.add(off) as *const u32).read_unaligned();
+        seen[i] = got;
+        if got == meta.cookies[i] {
+            matched += 1;
+        }
+    }
+    let unmap_rc = munmap(map, len);
+    let ok = matched == 9 && unmap_rc == 0;
+    line(
+        "dmabuf",
+        "linear",
+        format!(
+            "{}|match={matched}/9|{}x{} stride={} pitch={} len={} expected={:?} got={seen:?} unmap={unmap_rc}",
+            if ok { "PASS" } else { "FAIL" },
+            meta.width,
+            meta.height,
+            meta.stride,
+            pitch,
+            len,
+            meta.cookies
+        ),
+    );
+    ok
+}
+
+unsafe fn probe_linear_image(
+    lib: *mut c_void,
+    physical: VkPhysicalDevice,
+    device: VkDevice,
+    queue: VkQueue,
+    family_index: u32,
+    fd: c_int,
+    meta: &AhbMeta,
+) -> bool {
+    if meta.width == 0
+        || meta.height == 0
+        || meta.stride < meta.width
+        || meta.format != 1
+        || meta.width > i32::MAX as u32
+        || meta.height > i32::MAX as u32
+    {
+        line("dmabuf", "image", "SKIP|unsupported AHB metadata");
+        return false;
+    }
+    let pitch = meta.stride as u64 * 4;
+    let image_bytes = pitch * meta.height as u64;
+
+    let Some(create_image): Option<FnCreateImage> = symbol(lib, "vkCreateImage") else {
+        line("dmabuf", "image", "FAIL|vkCreateImage missing");
+        return false;
+    };
+    let Some(destroy_image): Option<FnDestroyImage> = symbol(lib, "vkDestroyImage") else {
+        line("dmabuf", "image", "FAIL|vkDestroyImage missing");
+        return false;
+    };
+    let Some(get_image_requirements): Option<FnGetImageRequirements2> =
+        symbol(lib, "vkGetImageMemoryRequirements2")
+    else {
+        line(
+            "dmabuf",
+            "image",
+            "FAIL|vkGetImageMemoryRequirements2 missing",
+        );
+        return false;
+    };
+    let Some(bind_image): Option<FnBindImageMemory> = symbol(lib, "vkBindImageMemory") else {
+        line("dmabuf", "image", "FAIL|vkBindImageMemory missing");
+        return false;
+    };
+    let Some(allocate_memory): Option<FnAllocateMemory> = symbol(lib, "vkAllocateMemory") else {
+        line("dmabuf", "image", "FAIL|vkAllocateMemory missing");
+        return false;
+    };
+    let Some(free_memory): Option<FnFreeMemory> = symbol(lib, "vkFreeMemory") else {
+        line("dmabuf", "image", "FAIL|vkFreeMemory missing");
+        return false;
+    };
+    let Some(get_memory_props): Option<FnGetPhysicalDeviceMemoryProperties> =
+        symbol(lib, "vkGetPhysicalDeviceMemoryProperties")
+    else {
+        line("dmabuf", "image", "FAIL|memory properties missing");
+        return false;
+    };
+    let Some(create_buffer): Option<FnCreateBuffer> = symbol(lib, "vkCreateBuffer") else {
+        line("dmabuf", "image", "FAIL|vkCreateBuffer missing");
+        return false;
+    };
+    let Some(destroy_buffer): Option<FnDestroyBuffer> = symbol(lib, "vkDestroyBuffer") else {
+        line("dmabuf", "image", "FAIL|vkDestroyBuffer missing");
+        return false;
+    };
+    let Some(get_buffer_requirements): Option<FnGetBufferMemoryRequirements> =
+        symbol(lib, "vkGetBufferMemoryRequirements")
+    else {
+        line("dmabuf", "image", "FAIL|buffer requirements missing");
+        return false;
+    };
+    let Some(bind_buffer): Option<FnBindBufferMemory> = symbol(lib, "vkBindBufferMemory") else {
+        line("dmabuf", "image", "FAIL|vkBindBufferMemory missing");
+        return false;
+    };
+    let Some(map_memory): Option<FnMapMemory> = symbol(lib, "vkMapMemory") else {
+        line("dmabuf", "image", "FAIL|vkMapMemory missing");
+        return false;
+    };
+    let Some(unmap_memory): Option<FnUnmapMemory> = symbol(lib, "vkUnmapMemory") else {
+        line("dmabuf", "image", "FAIL|vkUnmapMemory missing");
+        return false;
+    };
+    let Some(create_pool): Option<FnCreateCommandPool> = symbol(lib, "vkCreateCommandPool") else {
+        line("dmabuf", "image", "FAIL|vkCreateCommandPool missing");
+        return false;
+    };
+    let Some(destroy_pool): Option<FnDestroyCommandPool> = symbol(lib, "vkDestroyCommandPool")
+    else {
+        line("dmabuf", "image", "FAIL|vkDestroyCommandPool missing");
+        return false;
+    };
+    let Some(allocate_commands): Option<FnAllocateCommandBuffers> =
+        symbol(lib, "vkAllocateCommandBuffers")
+    else {
+        line("dmabuf", "image", "FAIL|vkAllocateCommandBuffers missing");
+        return false;
+    };
+    let Some(begin_command): Option<FnBeginCommandBuffer> = symbol(lib, "vkBeginCommandBuffer")
+    else {
+        line("dmabuf", "image", "FAIL|vkBeginCommandBuffer missing");
+        return false;
+    };
+    let Some(end_command): Option<FnEndCommandBuffer> = symbol(lib, "vkEndCommandBuffer") else {
+        line("dmabuf", "image", "FAIL|vkEndCommandBuffer missing");
+        return false;
+    };
+    let Some(pipeline_barrier): Option<FnCmdPipelineBarrier> = symbol(lib, "vkCmdPipelineBarrier")
+    else {
+        line("dmabuf", "image", "FAIL|vkCmdPipelineBarrier missing");
+        return false;
+    };
+    let Some(clear_color): Option<FnCmdClearColorImage> = symbol(lib, "vkCmdClearColorImage")
+    else {
+        line("dmabuf", "image", "FAIL|vkCmdClearColorImage missing");
+        return false;
+    };
+    let Some(copy_image_to_buffer): Option<FnCmdCopyImageToBuffer> =
+        symbol(lib, "vkCmdCopyImageToBuffer")
+    else {
+        line("dmabuf", "image", "FAIL|vkCmdCopyImageToBuffer missing");
+        return false;
+    };
+    let Some(create_fence): Option<FnCreateFence> = symbol(lib, "vkCreateFence") else {
+        line("dmabuf", "image", "FAIL|vkCreateFence missing");
+        return false;
+    };
+    let Some(destroy_fence): Option<FnDestroyFence> = symbol(lib, "vkDestroyFence") else {
+        line("dmabuf", "image", "FAIL|vkDestroyFence missing");
+        return false;
+    };
+    let Some(wait_fences): Option<FnWaitForFences> = symbol(lib, "vkWaitForFences") else {
+        line("dmabuf", "image", "FAIL|vkWaitForFences missing");
+        return false;
+    };
+    let Some(queue_submit): Option<FnQueueSubmit> = symbol(lib, "vkQueueSubmit") else {
+        line("dmabuf", "image", "FAIL|vkQueueSubmit missing");
+        return false;
+    };
+
+    let layout = VkSubresourceLayout {
+        offset: 0,
+        size: image_bytes,
+        row_pitch: pitch,
+        array_pitch: 0,
+        depth_pitch: 0,
+    };
+    let external = VkExternalMemoryImageCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+        p_next: ptr::null(),
+        handle_types: VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+    };
+    let explicit = VkImageDrmFormatModifierExplicitCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_EXPLICIT_CREATE_INFO_EXT,
+        p_next: &external as *const _ as *const c_void,
+        drm_format_modifier: DRM_FORMAT_MOD_LINEAR,
+        drm_format_modifier_plane_count: 1,
+        p_plane_layouts: &layout,
+    };
+    let image_info = VkImageCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        p_next: &explicit as *const _ as *const c_void,
+        flags: 0,
+        image_type: VK_IMAGE_TYPE_2D,
+        format: VK_FORMAT_R8G8B8A8_UNORM,
+        extent: VkExtent3D {
+            width: meta.width,
+            height: meta.height,
+            depth: 1,
+        },
+        mip_levels: 1,
+        array_layers: 1,
+        samples: 1,
+        tiling: VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT,
+        usage: VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        sharing_mode: VK_SHARING_MODE_EXCLUSIVE,
+        queue_family_index_count: 0,
+        p_queue_family_indices: ptr::null(),
+        initial_layout: VK_IMAGE_LAYOUT_UNDEFINED,
+    };
+    let mut image: VkImage = ptr::null_mut();
+    let r = create_image(device, &image_info, ptr::null(), &mut image);
+    line(
+        "dmabuf",
+        "image_create",
+        format!(
+            "{}|{}x{} pitch={} modifier=LINEAR",
+            api_result(r),
+            meta.width,
+            meta.height,
+            pitch
+        ),
+    );
+    if r != VK_SUCCESS {
+        return false;
+    }
+
+    let req_info = VkImageMemoryRequirementsInfo2 {
+        s_type: VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2,
+        p_next: ptr::null(),
+        image,
+    };
+    let mut req2 = VkMemoryRequirements2 {
+        s_type: VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2,
+        p_next: ptr::null_mut(),
+        requirements: VkMemoryRequirements::default(),
+    };
+    get_image_requirements(device, &req_info, &mut req2);
+    let req = req2.requirements;
+    line(
+        "dmabuf",
+        "image_requirements",
+        format!(
+            "size={} align={} bits={:#x}",
+            req.size, req.alignment, req.memory_type_bits
+        ),
+    );
+    let mut mem_props: VkPhysicalDeviceMemoryProperties = std::mem::zeroed();
+    get_memory_props(physical, &mut mem_props);
+    let Some(image_type_index) = choose_memory_type(&mem_props, req.memory_type_bits) else {
+        line("dmabuf", "image", "FAIL|no memory type");
+        destroy_image(device, image, ptr::null());
+        return false;
+    };
+    let mut import = VkImportMemoryFdInfo {
+        s_type: VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
+        p_next: ptr::null(),
+        handle_type: VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+        fd: dup(fd),
+    };
+    if import.fd < 0 {
+        line("dmabuf", "image_import", "FAIL|dup");
+        destroy_image(device, image, ptr::null());
+        return false;
+    }
+    let alloc = VkMemoryAllocateInfo {
+        s_type: VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        p_next: &mut import as *mut _ as *const c_void,
+        allocation_size: req.size,
+        memory_type_index: image_type_index,
+    };
+    let mut image_memory: VkDeviceMemory = ptr::null_mut();
+    let r = allocate_memory(device, &alloc, ptr::null(), &mut image_memory);
+    line(
+        "dmabuf",
+        "image_import",
+        format!(
+            "{}|type={} size={} fd={}",
+            api_result(r),
+            image_type_index,
+            req.size,
+            fd
+        ),
+    );
+    close(import.fd);
+    if r != VK_SUCCESS {
+        destroy_image(device, image, ptr::null());
+        return false;
+    }
+    let r = bind_image(device, image, image_memory, 0);
+    line("dmabuf", "image_bind", api_result(r));
+    if r != VK_SUCCESS {
+        free_memory(device, image_memory, ptr::null());
+        destroy_image(device, image, ptr::null());
+        return false;
+    }
+
+    let buffer_info = VkBufferCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        p_next: ptr::null(),
+        flags: 0,
+        size: image_bytes,
+        usage: VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        sharing_mode: VK_SHARING_MODE_EXCLUSIVE,
+        queue_family_index_count: 0,
+        p_queue_family_indices: ptr::null(),
+    };
+    let mut readback: VkBuffer = ptr::null_mut();
+    let r = create_buffer(device, &buffer_info, ptr::null(), &mut readback);
+    if r != VK_SUCCESS {
+        line("dmabuf", "image", format!("FAIL|readback buffer {r}"));
+        free_memory(device, image_memory, ptr::null());
+        destroy_image(device, image, ptr::null());
+        return false;
+    }
+    let mut readback_req = VkMemoryRequirements::default();
+    get_buffer_requirements(device, readback, &mut readback_req);
+    let Some(readback_type_index) = choose_memory_type(&mem_props, readback_req.memory_type_bits)
+    else {
+        line("dmabuf", "image", "FAIL|no readback memory type");
+        destroy_buffer(device, readback, ptr::null());
+        free_memory(device, image_memory, ptr::null());
+        destroy_image(device, image, ptr::null());
+        return false;
+    };
+    let readback_alloc = VkMemoryAllocateInfo {
+        s_type: VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        p_next: ptr::null(),
+        allocation_size: readback_req.size,
+        memory_type_index: readback_type_index,
+    };
+    let mut readback_memory: VkDeviceMemory = ptr::null_mut();
+    let r = allocate_memory(device, &readback_alloc, ptr::null(), &mut readback_memory);
+    if r != VK_SUCCESS || bind_buffer(device, readback, readback_memory, 0) != VK_SUCCESS {
+        line("dmabuf", "image", "FAIL|readback allocation/bind");
+        if r == VK_SUCCESS {
+            free_memory(device, readback_memory, ptr::null());
+        }
+        destroy_buffer(device, readback, ptr::null());
+        free_memory(device, image_memory, ptr::null());
+        destroy_image(device, image, ptr::null());
+        return false;
+    }
+
+    let pool_info = VkCommandPoolCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        p_next: ptr::null(),
+        flags: 0,
+        queue_family_index: family_index,
+    };
+    let mut pool: VkCommandPool = ptr::null_mut();
+    let r = create_pool(device, &pool_info, ptr::null(), &mut pool);
+    if r != VK_SUCCESS {
+        line("dmabuf", "image", format!("FAIL|command pool {r}"));
+        free_memory(device, readback_memory, ptr::null());
+        destroy_buffer(device, readback, ptr::null());
+        free_memory(device, image_memory, ptr::null());
+        destroy_image(device, image, ptr::null());
+        return false;
+    }
+    let cmd_alloc = VkCommandBufferAllocateInfo {
+        s_type: VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        p_next: ptr::null(),
+        command_pool: pool,
+        level: VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        command_buffer_count: 1,
+    };
+    let mut command: VkCommandBuffer = ptr::null_mut();
+    let r = allocate_commands(device, &cmd_alloc, &mut command);
+    if r != VK_SUCCESS {
+        line("dmabuf", "image", format!("FAIL|allocate command {r}"));
+        destroy_pool(device, pool, ptr::null());
+        free_memory(device, readback_memory, ptr::null());
+        destroy_buffer(device, readback, ptr::null());
+        free_memory(device, image_memory, ptr::null());
+        destroy_image(device, image, ptr::null());
+        return false;
+    }
+    let begin_info = VkCommandBufferBeginInfo {
+        s_type: VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        p_next: ptr::null(),
+        flags: VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        p_inheritance_info: ptr::null(),
+    };
+    let r = begin_command(command, &begin_info);
+    if r != VK_SUCCESS {
+        line("dmabuf", "image", format!("FAIL|begin command {r}"));
+        destroy_pool(device, pool, ptr::null());
+        free_memory(device, readback_memory, ptr::null());
+        destroy_buffer(device, readback, ptr::null());
+        free_memory(device, image_memory, ptr::null());
+        destroy_image(device, image, ptr::null());
+        return false;
+    }
+
+    let range = VkImageSubresourceRange {
+        aspect_mask: VK_IMAGE_ASPECT_COLOR_BIT,
+        base_mip_level: 0,
+        level_count: 1,
+        base_array_layer: 0,
+        layer_count: 1,
+    };
+    let to_dst = VkImageMemoryBarrier {
+        s_type: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        p_next: ptr::null(),
+        src_access_mask: 0,
+        dst_access_mask: VK_ACCESS_TRANSFER_WRITE_BIT,
+        old_layout: VK_IMAGE_LAYOUT_UNDEFINED,
+        new_layout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        src_queue_family_index: VK_QUEUE_FAMILY_IGNORED,
+        dst_queue_family_index: VK_QUEUE_FAMILY_IGNORED,
+        image,
+        subresource_range: range,
+    };
+    pipeline_barrier(
+        command,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0,
+        0,
+        ptr::null(),
+        0,
+        ptr::null(),
+        1,
+        &to_dst,
+    );
+    let clear = VkClearColorValue {
+        float32: [1.0, 0.0, 0.0, 1.0],
+    };
+    clear_color(
+        command,
+        image,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        &clear,
+        1,
+        &range,
+    );
+    let to_src = VkImageMemoryBarrier {
+        s_type: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        p_next: ptr::null(),
+        src_access_mask: VK_ACCESS_TRANSFER_WRITE_BIT,
+        dst_access_mask: VK_ACCESS_TRANSFER_READ_BIT,
+        old_layout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        new_layout: VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        src_queue_family_index: VK_QUEUE_FAMILY_IGNORED,
+        dst_queue_family_index: VK_QUEUE_FAMILY_IGNORED,
+        image,
+        subresource_range: range,
+    };
+    pipeline_barrier(
+        command,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0,
+        0,
+        ptr::null(),
+        0,
+        ptr::null(),
+        1,
+        &to_src,
+    );
+    let copy = VkBufferImageCopy {
+        buffer_offset: 0,
+        buffer_row_length: 0,
+        buffer_image_height: 0,
+        image_subresource: VkImageSubresourceLayers {
+            aspect_mask: VK_IMAGE_ASPECT_COLOR_BIT,
+            mip_level: 0,
+            base_array_layer: 0,
+            layer_count: 1,
+        },
+        image_offset: VkOffset3D::default(),
+        image_extent: VkExtent3D {
+            width: meta.width,
+            height: meta.height,
+            depth: 1,
+        },
+    };
+    copy_image_to_buffer(
+        command,
+        image,
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        readback,
+        1,
+        &copy,
+    );
+    let host_barrier = VkMemoryBarrier {
+        s_type: VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+        p_next: ptr::null(),
+        src_access_mask: VK_ACCESS_TRANSFER_WRITE_BIT,
+        dst_access_mask: VK_ACCESS_HOST_READ_BIT,
+    };
+    pipeline_barrier(
+        command,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_PIPELINE_STAGE_HOST_BIT,
+        0,
+        1,
+        &host_barrier as *const _ as *const c_void,
+        0,
+        ptr::null(),
+        0,
+        ptr::null(),
+    );
+    let r = end_command(command);
+    if r != VK_SUCCESS {
+        line("dmabuf", "image", format!("FAIL|end command {r}"));
+        destroy_pool(device, pool, ptr::null());
+        free_memory(device, readback_memory, ptr::null());
+        destroy_buffer(device, readback, ptr::null());
+        free_memory(device, image_memory, ptr::null());
+        destroy_image(device, image, ptr::null());
+        return false;
+    }
+
+    let fence_info = VkFenceCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        p_next: ptr::null(),
+        flags: 0,
+    };
+    let mut fence: VkFence = ptr::null_mut();
+    let r = create_fence(device, &fence_info, ptr::null(), &mut fence);
+    if r != VK_SUCCESS {
+        line("dmabuf", "image", format!("FAIL|fence {r}"));
+        destroy_pool(device, pool, ptr::null());
+        free_memory(device, readback_memory, ptr::null());
+        destroy_buffer(device, readback, ptr::null());
+        free_memory(device, image_memory, ptr::null());
+        destroy_image(device, image, ptr::null());
+        return false;
+    }
+    let submit = VkSubmitInfo {
+        s_type: VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        p_next: ptr::null(),
+        wait_semaphore_count: 0,
+        p_wait_semaphores: ptr::null(),
+        p_wait_dst_stage_mask: ptr::null(),
+        command_buffer_count: 1,
+        p_command_buffers: &command,
+        signal_semaphore_count: 0,
+        p_signal_semaphores: ptr::null(),
+    };
+    let submit_rc = queue_submit(queue, 1, &submit, fence);
+    let wait_rc = if submit_rc == VK_SUCCESS {
+        wait_fences(device, 1, &fence, VK_TRUE, u64::MAX)
+    } else {
+        submit_rc
+    };
+    line(
+        "dmabuf",
+        "image_submit",
+        format!("submit={submit_rc} wait={wait_rc}"),
+    );
+
+    let mut mapped: *mut c_void = ptr::null_mut();
+    let mut pixels_ok = false;
+    let mut dma_view_ok = false;
+    if wait_rc == VK_SUCCESS {
+        let map_rc = map_memory(
+            device,
+            readback_memory,
+            0,
+            readback_req.size,
+            0,
+            &mut mapped,
+        );
+        if map_rc == VK_SUCCESS && !mapped.is_null() {
+            let base = mapped as *const u8;
+            let mut checked = 0;
+            let mut red = 0;
+            for (x, y) in probe_points(meta.width, meta.height) {
+                let off = (y as usize * pitch as usize) + x as usize * 4;
+                let pixel = (base.add(off) as *const u32).read_unaligned();
+                checked += 1;
+                if pixel == 0xff00_00ff {
+                    red += 1;
+                }
+            }
+            pixels_ok = checked == 9 && red == 9;
+            line(
+                "dmabuf",
+                "image_readback",
+                format!(
+                    "{}|red={red}/{checked} first={:#x}",
+                    if pixels_ok { "PASS" } else { "FAIL" },
+                    (base as *const u32).read_unaligned()
+                ),
+            );
+            unmap_memory(device, readback_memory);
+        } else {
+            line("dmabuf", "image_readback", format!("FAIL|map {map_rc}"));
+        }
+
+        let dma_map = mmap(
+            ptr::null_mut(),
+            image_bytes as usize,
+            PROT_READ,
+            MAP_SHARED,
+            fd,
+            0,
+        );
+        if dma_map as isize != -1 {
+            let base = dma_map as *const u8;
+            let mut dma_red = 0;
+            for (x, y) in probe_points(meta.width, meta.height) {
+                let off = (y as usize * pitch as usize) + x as usize * 4;
+                if (base.add(off) as *const u32).read_unaligned() == 0xff00_00ff {
+                    dma_red += 1;
+                }
+            }
+            dma_view_ok = dma_red == 9;
+            line(
+                "dmabuf",
+                "image_dma_buf_view",
+                format!(
+                    "{}|red={dma_red}/9 first={:#x}",
+                    if dma_view_ok { "PASS" } else { "FAIL" },
+                    (base as *const u32).read_unaligned()
+                ),
+            );
+            munmap(dma_map, image_bytes as usize);
+        } else {
+            line(
+                "dmabuf",
+                "image_dma_buf_view",
+                format!("FAIL|mmap: {}", std::io::Error::last_os_error()),
+            );
+        }
+    }
+
+    destroy_fence(device, fence, ptr::null());
+    destroy_pool(device, pool, ptr::null());
+    free_memory(device, readback_memory, ptr::null());
+    destroy_buffer(device, readback, ptr::null());
+    free_memory(device, image_memory, ptr::null());
+    destroy_image(device, image, ptr::null());
+    pixels_ok && dma_view_ok
 }
 
 #[repr(C)]
@@ -102,6 +873,193 @@ struct VkMemoryRequirements2 {
     requirements: VkMemoryRequirements,
 }
 
+const VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO: u32 = 14;
+const VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO: u32 = 1_000_072_001;
+const VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER: u32 = 45;
+const VK_STRUCTURE_TYPE_MEMORY_BARRIER: u32 = 46;
+const VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2: u32 = 1_000_146_001;
+const VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_EXPLICIT_CREATE_INFO_EXT: u32 = 1_000_158_004;
+const VK_FORMAT_R8G8B8A8_UNORM: u32 = 37;
+const VK_IMAGE_TYPE_2D: u32 = 1;
+const VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT: u32 = 1_000_158_000;
+const VK_IMAGE_USAGE_TRANSFER_SRC_BIT: u32 = 1;
+const VK_IMAGE_USAGE_TRANSFER_DST_BIT: u32 = 2;
+const VK_IMAGE_LAYOUT_UNDEFINED: u32 = 0;
+const VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL: u32 = 6;
+const VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL: u32 = 7;
+const VK_IMAGE_ASPECT_COLOR_BIT: u32 = 1;
+const VK_QUEUE_FAMILY_IGNORED: u32 = u32::MAX;
+const VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT: u32 = 1;
+const VK_PIPELINE_STAGE_TRANSFER_BIT: u32 = 1 << 12;
+const VK_PIPELINE_STAGE_HOST_BIT: u32 = 1 << 14;
+const VK_ACCESS_TRANSFER_READ_BIT: u32 = 1 << 11;
+const VK_ACCESS_TRANSFER_WRITE_BIT: u32 = 1 << 12;
+const VK_ACCESS_HOST_READ_BIT: u32 = 1 << 13;
+const DRM_FORMAT_MOD_LINEAR: u64 = 0;
+
+type VkImage = *mut c_void;
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct VkExtent3D {
+    width: u32,
+    height: u32,
+    depth: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct VkOffset3D {
+    x: i32,
+    y: i32,
+    z: i32,
+}
+
+#[repr(C)]
+struct VkSubresourceLayout {
+    offset: u64,
+    size: u64,
+    row_pitch: u64,
+    array_pitch: u64,
+    depth_pitch: u64,
+}
+
+#[repr(C)]
+struct VkExternalMemoryImageCreateInfo {
+    s_type: u32,
+    p_next: *const c_void,
+    handle_types: u32,
+}
+
+#[repr(C)]
+struct VkImageDrmFormatModifierExplicitCreateInfo {
+    s_type: u32,
+    p_next: *const c_void,
+    drm_format_modifier: u64,
+    drm_format_modifier_plane_count: u32,
+    p_plane_layouts: *const VkSubresourceLayout,
+}
+
+#[repr(C)]
+struct VkImageCreateInfo {
+    s_type: u32,
+    p_next: *const c_void,
+    flags: u32,
+    image_type: u32,
+    format: u32,
+    extent: VkExtent3D,
+    mip_levels: u32,
+    array_layers: u32,
+    samples: u32,
+    tiling: u32,
+    usage: u32,
+    sharing_mode: u32,
+    queue_family_index_count: u32,
+    p_queue_family_indices: *const u32,
+    initial_layout: u32,
+}
+
+#[repr(C)]
+struct VkImageMemoryRequirementsInfo2 {
+    s_type: u32,
+    p_next: *const c_void,
+    image: VkImage,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct VkImageSubresourceRange {
+    aspect_mask: u32,
+    base_mip_level: u32,
+    level_count: u32,
+    base_array_layer: u32,
+    layer_count: u32,
+}
+
+#[repr(C)]
+struct VkImageMemoryBarrier {
+    s_type: u32,
+    p_next: *const c_void,
+    src_access_mask: u32,
+    dst_access_mask: u32,
+    old_layout: u32,
+    new_layout: u32,
+    src_queue_family_index: u32,
+    dst_queue_family_index: u32,
+    image: VkImage,
+    subresource_range: VkImageSubresourceRange,
+}
+
+#[repr(C)]
+struct VkMemoryBarrier {
+    s_type: u32,
+    p_next: *const c_void,
+    src_access_mask: u32,
+    dst_access_mask: u32,
+}
+
+#[repr(C)]
+union VkClearColorValue {
+    float32: [f32; 4],
+    uint32: [u32; 4],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct VkImageSubresourceLayers {
+    aspect_mask: u32,
+    mip_level: u32,
+    base_array_layer: u32,
+    layer_count: u32,
+}
+
+#[repr(C)]
+struct VkBufferImageCopy {
+    buffer_offset: u64,
+    buffer_row_length: u32,
+    buffer_image_height: u32,
+    image_subresource: VkImageSubresourceLayers,
+    image_offset: VkOffset3D,
+    image_extent: VkExtent3D,
+}
+
+type FnCreateImage = unsafe extern "C" fn(
+    VkDevice,
+    *const VkImageCreateInfo,
+    *const c_void,
+    *mut VkImage,
+) -> VkResult;
+type FnDestroyImage = unsafe extern "C" fn(VkDevice, VkImage, *const c_void);
+type FnGetImageRequirements2 = unsafe extern "C" fn(
+    VkDevice,
+    *const VkImageMemoryRequirementsInfo2,
+    *mut VkMemoryRequirements2,
+);
+type FnBindImageMemory =
+    unsafe extern "C" fn(VkDevice, VkImage, VkDeviceMemory, VkDeviceSize) -> VkResult;
+type FnCmdPipelineBarrier = unsafe extern "C" fn(
+    VkCommandBuffer,
+    u32,
+    u32,
+    u32,
+    u32,
+    *const c_void,
+    u32,
+    *const c_void,
+    u32,
+    *const VkImageMemoryBarrier,
+);
+type FnCmdClearColorImage = unsafe extern "C" fn(
+    VkCommandBuffer,
+    VkImage,
+    u32,
+    *const VkClearColorValue,
+    u32,
+    *const VkImageSubresourceRange,
+);
+type FnCmdCopyImageToBuffer =
+    unsafe extern "C" fn(VkCommandBuffer, VkImage, u32, VkBuffer, u32, *const VkBufferImageCopy);
+
 type FnGetExternalBufferProperties = unsafe extern "C" fn(
     VkPhysicalDevice,
     *const VkPhysicalDeviceExternalBufferInfo,
@@ -118,9 +1076,32 @@ fn cmsg_align(n: usize) -> usize {
     (n + a - 1) & !(a - 1)
 }
 
-unsafe fn receive_fds(path: &str) -> Result<Vec<c_int>, String> {
-    let stream = UnixStream::connect(path).map_err(|e| format!("connect {path}: {e}"))?;
+unsafe fn receive_handle(path: &str) -> Result<(AhbMeta, Vec<c_int>), String> {
+    let mut stream = UnixStream::connect(path).map_err(|e| format!("connect {path}: {e}"))?;
     line("dmabuf", "socket", format!("PASS|{path}"));
+
+    let mut frame_len = [0u8; 4];
+    stream
+        .read_exact(&mut frame_len)
+        .map_err(|e| format!("read meta length: {e}"))?;
+    let meta_len = u32::from_be_bytes(frame_len) as usize;
+    if meta_len == 0 || meta_len > 4096 {
+        return Err(format!("bad meta length {meta_len}"));
+    }
+    let mut meta_buf = vec![0u8; meta_len];
+    stream
+        .read_exact(&mut meta_buf)
+        .map_err(|e| format!("read meta: {e}"))?;
+    let meta_text = core::str::from_utf8(&meta_buf).map_err(|e| format!("meta utf8: {e}"))?;
+    let meta = parse_meta(meta_text).map_err(|e| format!("meta: {e}"))?;
+    line(
+        "dmabuf",
+        "meta",
+        format!(
+            "PASS|{}x{} stride={} format={} usage={:#x}",
+            meta.width, meta.height, meta.stride, meta.format, meta.usage
+        ),
+    );
 
     let mut data = [0u8; 512];
     let mut control = [0u8; 512];
@@ -171,7 +1152,7 @@ unsafe fn receive_fds(path: &str) -> Result<Vec<c_int>, String> {
         off += cmsg_align(len);
     }
     line("dmabuf", "fd_count", format!("{}", fds.len()));
-    Ok(fds)
+    Ok((meta, fds))
 }
 
 unsafe fn find_dmabuf(fds: &[c_int]) -> Option<c_int> {
@@ -200,10 +1181,10 @@ pub unsafe fn run(
     family_index: u32,
     path: &str,
 ) -> bool {
-    let fds = match receive_fds(path) {
+    let (meta, fds) = match receive_handle(path) {
         Ok(v) => v,
         Err(e) => {
-            line("dmabuf", "FAIL", e);
+            line("dmabuf", "FAIL", format!("{e}"));
             return false;
         }
     };
@@ -214,6 +1195,7 @@ pub unsafe fn run(
         }
         return false;
     };
+    let linear_ok = probe_linear_dmabuf(fd, &meta);
 
     let get_external_props: FnGetExternalBufferProperties =
         match symbol(lib, "vkGetPhysicalDeviceExternalBufferProperties") {
@@ -391,11 +1373,32 @@ pub unsafe fn run(
         return false;
     };
 
+    let import_fd = dup(fd);
+    if import_fd < 0 {
+        line(
+            "dmabuf",
+            "import_fd",
+            format!("FAIL|dup: {}", std::io::Error::last_os_error()),
+        );
+    } else {
+        line(
+            "dmabuf",
+            "import_fd",
+            format!("PASS|fd={import_fd} source_size={}", lseek(fd, 0, 2)),
+        );
+    }
+    if import_fd < 0 {
+        destroy_buffer(device, buffer, ptr::null());
+        for &fd in &fds {
+            close(fd);
+        }
+        return false;
+    }
     let mut import = VkImportMemoryFdInfo {
         s_type: VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
         p_next: ptr::null(),
         handle_type: VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
-        fd,
+        fd: import_fd,
     };
     let alloc = VkMemoryAllocateInfo {
         s_type: VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
@@ -417,12 +1420,14 @@ pub unsafe fn run(
         ),
     );
     if r != VK_SUCCESS {
+        close(import_fd);
         destroy_buffer(device, buffer, ptr::null());
         for &fd in &fds {
             close(fd);
         }
         return false;
     }
+    close(import_fd);
 
     let r = bind_buffer(device, buffer, memory, 0);
     line("dmabuf", "bind", api_result(r));
@@ -439,11 +1444,22 @@ pub unsafe fn run(
     );
     free_memory(device, memory, ptr::null());
     destroy_buffer(device, buffer, ptr::null());
+    let image_ok =
+        gpu_ok && probe_linear_image(lib, physical, device, queue, family_index, fd, &meta);
+    line(
+        "dmabuf",
+        "image_summary",
+        if image_ok {
+            "PASS|LINEAR 2D image imported, cleared by GPU, read back 9/9 red"
+        } else {
+            "FAIL|LINEAR 2D image path incomplete"
+        },
+    );
     for &fd in &fds {
         close(fd);
     }
     line("dmabuf", "teardown", "memory/buffer/fds released");
-    r == VK_SUCCESS && gpu_ok
+    r == VK_SUCCESS && gpu_ok && linear_ok && image_ok
 }
 
 pub fn socket_arg() -> Option<String> {
