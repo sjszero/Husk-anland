@@ -109,7 +109,7 @@ loader 必须与镜像同源，所以 `--loader-out` 是从镜像自己的 `ld.s
 
 ## 7. 没测 / 不知道
 
-- **UNKNOWN**：16K 页内核。只保证 4K。
+- **未实测**：16K 页内核。机制与实测对齐数据见 [design/page-size.md](design/page-size.md)（Ubuntu arm64 用户态本身 64K 对齐，16K 内核不需要改造 guest）。
 - **UNKNOWN**：长期稳定性（跑过的最长连续负载是 gcc+make 构建，分钟级）。
 - **UNKNOWN**：多 husk 并发实例。
 - **FACT**：`execl` 家族拦不到（原因见 [ARCHITECTURE §6](ARCHITECTURE.md)）。

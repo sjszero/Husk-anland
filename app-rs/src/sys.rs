@@ -2,7 +2,7 @@
 //! app has exactly one non-Rust input, the platform's own ABI.
 #![allow(non_camel_case_types, non_snake_case, dead_code)]
 
-use core::ffi::{c_char, c_int, c_void};
+use core::ffi::{c_char, c_int, c_long, c_void};
 
 // ------------------------------------------------------------------ libc ---
 extern "C" {
@@ -11,6 +11,7 @@ extern "C" {
     pub fn unlockpt(fd: c_int) -> c_int;
     pub fn ptsname_r(fd: c_int, buf: *mut c_char, len: usize) -> c_int;
     pub fn fork() -> c_int;
+    pub fn getpid() -> c_int;
     pub fn setsid() -> c_int;
     pub fn open(path: *const c_char, flags: c_int, ...) -> c_int;
     pub fn ioctl(fd: c_int, req: usize, ...) -> c_int;
@@ -118,7 +119,6 @@ extern "C" {
     pub fn AKeyEvent_getAction(event: *const c_void) -> i32;
     pub fn AKeyEvent_getKeyCode(event: *const c_void) -> i32;
     pub fn AKeyEvent_getMetaState(event: *const c_void) -> i32;
-    pub fn AKeyEvent_getUnicodeChar(event: *const c_void, metaState: i32) -> i32;
     pub fn AMotionEvent_getAction(event: *const c_void) -> i32;
     pub fn AMotionEvent_getX(event: *const c_void, pointerIndex: usize) -> f32;
     pub fn AMotionEvent_getY(event: *const c_void, pointerIndex: usize) -> f32;
@@ -142,6 +142,24 @@ pub const AKEYCODE_DPAD_DOWN: i32 = 20;
 pub const AKEYCODE_DPAD_LEFT: i32 = 21;
 pub const AKEYCODE_DPAD_RIGHT: i32 = 22;
 pub const AKEYCODE_TAB: i32 = 61;
+pub const AKEYCODE_SPACE: i32 = 62;
+pub const AKEYCODE_0: i32 = 7;
+pub const AKEYCODE_9: i32 = 16;
+pub const AKEYCODE_A: i32 = 29;
+pub const AKEYCODE_Z: i32 = 54;
+pub const AKEYCODE_COMMA: i32 = 55;
+pub const AKEYCODE_PERIOD: i32 = 56;
+pub const AKEYCODE_GRAVE: i32 = 68;
+pub const AKEYCODE_MINUS: i32 = 69;
+pub const AKEYCODE_EQUALS: i32 = 70;
+pub const AKEYCODE_LEFT_BRACKET: i32 = 71;
+pub const AKEYCODE_RIGHT_BRACKET: i32 = 72;
+pub const AKEYCODE_BACKSLASH: i32 = 73;
+pub const AKEYCODE_SEMICOLON: i32 = 74;
+pub const AKEYCODE_APOSTROPHE: i32 = 75;
+pub const AKEYCODE_SLASH: i32 = 76;
+pub const AKEYCODE_ESCAPE: i32 = 111;
+pub const AMETA_SHIFT_ON: i32 = 1;
 
 // ------------------------------------------------------------ EGL / GLES ---
 pub type EGLDisplay = *mut c_void;
@@ -233,3 +251,35 @@ pub const GL_COLOR_BUFFER_BIT: u32 = 0x4000;
 pub const GL_BLEND: u32 = 0x0BE2;
 pub const GL_SRC_ALPHA: u32 = 0x0302;
 pub const GL_ONE_MINUS_SRC_ALPHA: u32 = 0x0303;
+
+extern "C" {
+    pub fn prctl(option: c_int, ...) -> c_int;
+    pub fn syscall(num: c_long, ...) -> c_long;
+    pub fn kill(pid: c_int, sig: c_int) -> c_int;
+}
+
+/// Constants bionic does not export as Rust macros.
+pub const PR_SET_CHILD_SUBREAPER: c_int = 36;
+pub const SIGHUP: c_int = 1;
+pub const SIGKILL: c_int = 9;
+pub const SIGSYS: c_int = 31;
+pub const WNOHANG: c_int = 1;
+pub const EINTR: c_int = 4;
+pub const EIO: c_int = 5;
+pub const EAGAIN: c_int = 11;
+
+/// wait(2) status decoding. Linux layout, same on every arch we ship.
+pub fn wifexited(st: c_int) -> bool { st & 0x7f == 0 }
+pub fn wexitstatus(st: c_int) -> c_int { (st >> 8) & 0xff }
+pub fn wifsignaled(st: c_int) -> bool { (st & 0x7f) != 0 && (st & 0x7f) != 0x7f }
+pub fn wtermsig(st: c_int) -> c_int { st & 0x7f }
+
+pub fn sig_name(sig: c_int) -> &'static str {
+    match sig {
+        1 => "SIGHUP", 2 => "SIGINT", 3 => "SIGQUIT", 4 => "SIGILL", 5 => "SIGTRAP",
+        6 => "SIGABRT", 7 => "SIGBUS", 8 => "SIGFPE", 9 => "SIGKILL", 11 => "SIGSEGV",
+        13 => "SIGPIPE", 14 => "SIGALRM", 15 => "SIGTERM", 17 => "SIGCHLD",
+        18 => "SIGCONT", 19 => "SIGSTOP", 31 => "SIGSYS",
+        _ => "?",
+    }
+}

@@ -17,7 +17,7 @@ mod gl;
 mod sys;
 mod term;
 
-use core::ffi::{c_char, c_int, c_void};
+use core::ffi::{c_char, c_int, c_long, c_void};
 use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::sync::Mutex;
 use sys::*;
@@ -30,6 +30,10 @@ static DESTROYED: AtomicBool = AtomicBool::new(false);
 static FOCUSED: AtomicBool = AtomicBool::new(false);
 static LOOPER: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
 static APP: Mutex<Option<Box<App>>> = Mutex::new(None);
+/// (pid, wait status) collected by the single reaper thread. Nothing else in the
+/// process is allowed to call waitpid(): two waiters is how zombies get leaked.
+static EXITS: Mutex<Vec<(i32, i32)>> = Mutex::new(Vec::new());
+static REAPER: AtomicBool = AtomicBool::new(false);
 
 extern "C" {
     fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int;
@@ -59,11 +63,27 @@ struct App {
     /// Scrollback offset in lines, 0 = bottom.
     scroll: usize,
     drag: i32,
+    /// The session is started exactly once per process. A dead guest stays dead
+    /// until the user taps -- auto-respawn turns any broken rootfs into a fork
+    /// storm (700+ zombies on 2026-11-22).
+    started: bool,
+    last_spawn: Option<std::time::Instant>,
 }
 
 impl App {
     fn new() -> App {
-        App { term: None, gfx: None, attached_queue: 0, win_ptr: 0, dirty: true, laid_out: (0, 0), scroll: 0, drag: 0 }
+        App {
+            term: None,
+            gfx: None,
+            attached_queue: 0,
+            win_ptr: 0,
+            dirty: true,
+            laid_out: (0, 0),
+            scroll: 0,
+            drag: 0,
+            started: false,
+            last_spawn: None,
+        }
     }
 
     fn paths(&self) -> Option<(String, String, String)> {
@@ -82,6 +102,49 @@ impl App {
         Some((rootfs, libdir, loader))
     }
 
+    /// Start the session once, as soon as we know the screen size.
+    fn maybe_start(&mut self) {
+        if self.started {
+            return;
+        }
+        self.started = true;
+        self.ensure_term();
+    }
+
+    /// User-driven restart (tap on a dead session). Rate limited so a stray
+    /// double tap cannot fork twice.
+    fn restart_session(&mut self) {
+        const MIN_GAP: core::time::Duration = core::time::Duration::from_millis(400);
+        if let Some(t) = self.last_spawn {
+            if t.elapsed() < MIN_GAP {
+                return;
+            }
+        }
+        self.term = None;
+        self.ensure_term();
+    }
+
+    /// Drain what the reaper thread saw and give each status to its session.
+    fn poll_children(&mut self) {
+        let done: Vec<(i32, i32)> = match EXITS.lock() {
+            Ok(mut q) => q.drain(..).collect(),
+            Err(_) => return,
+        };
+        for (pid, st) in done {
+            let mine = self.term.as_ref().map(|t| t.pid == pid).unwrap_or(false);
+            if mine {
+                if let Some(t) = self.term.as_mut() {
+                    t.note_exit(st);
+                }
+                self.dirty = true;
+            } else {
+                // A grandchild (bash's own children) reparented to us by
+                // PR_SET_CHILD_SUBREAPER. Reaped, nothing else to do.
+                crate::log(&format!("reaped orphan pid={pid} status={st}"));
+            }
+        }
+    }
+
     fn ensure_term(&mut self) {
         if let Some(t) = &self.term {
             if !t.dead {
@@ -98,6 +161,7 @@ impl App {
         let (cols, rows) = if cols > 0 { (cols, rows) } else { (80, 24) };
         match Term::spawn(&loader, &libpath, &rootfs, cols, rows) {
             Some(t) => {
+                self.last_spawn = Some(std::time::Instant::now());
                 log("guest session started");
                 if let Some(old) = self.term.take() {
                     if old.fd >= 0 {
@@ -216,6 +280,7 @@ unsafe extern "C" fn on_focus(_a: *mut ANativeActivity, focused: c_int) {
 }
 
 unsafe extern "C" fn on_window(_a: *mut ANativeActivity, w: *mut c_void) {
+    log(&format!("onNativeWindow win={:p}", w));
     WINDOW.store(w, Ordering::SeqCst);
 }
 
@@ -247,6 +312,7 @@ unsafe extern "C" fn on_destroy(_a: *mut ANativeActivity) {
 
 #[no_mangle]
 pub unsafe extern "C" fn ANativeActivity_onCreate(activity: *mut ANativeActivity, _state: *mut c_void, _size: usize) {
+    log(&format!("onCreate activity={:p}", activity));
     if activity.is_null() {
         return;
     }
@@ -256,12 +322,88 @@ pub unsafe extern "C" fn ANativeActivity_onCreate(activity: *mut ANativeActivity
     if let Ok(mut g) = APP.lock() {
         *g = Some(Box::new(App::new()));
     }
+    probe_sigsys_semantics();
+    start_reaper();
     std::thread::spawn(|| {
         let _ = std::panic::catch_unwind(run);
     });
 }
 
+
+/// One-shot experiment: does this ROM's app-domain seccomp use TRAP (catchable)
+/// or KILL (the process is gone, no handler ever runs)?
+///
+/// Method: the child installs a SIGSYS handler, then calls `openat2` (437), which
+/// this ROM is known to disallow for apps. Handler ran -> child exits 42 (TRAP).
+/// Child died of SIGSYS -> KILL, and no in-process emulation is possible.
+/// Child got an errno back -> 43 (allowed after all).
+unsafe extern "C" fn probe_sig_handler(_s: c_int, _i: *mut c_void, _u: *mut c_void) {
+    _exit(42);
+}
+
+fn probe_sigsys_semantics() {
+    unsafe {
+        let pid = fork();
+        if pid == 0 {
+            let mut act = [0usize; 4];
+            act[0] = probe_sig_handler as usize;
+            act[1] = 0x1004; // SA_SIGINFO | SA_RESTART
+            let r = syscall(134, SIGSYS as c_long, act.as_ptr() as c_long, 0 as c_long, 8 as c_long);
+            crate::log(&format!("probe: rt_sigaction ret={r}"));
+            let code = syscall(437, 0 as c_long, 0 as c_long, 0 as c_long, 0 as c_long);
+            _exit(if code < 0 { 43 } else { 44 });
+        }
+        let mut st: c_int = 0;
+        waitpid(pid, &mut st, 0);
+        let verdict = if wifexited(st) {
+            match wexitstatus(st) {
+                42 => "TRAP (handler ran: in-process emulation possible)".to_string(),
+                43 => "ALLOWED (syscall returned errno)".to_string(),
+                44 => "ALLOWED (syscall succeeded)".to_string(),
+                c => format!("exit {c}"),
+            }
+        } else {
+            format!("signal {} ({}) -- KILL, nothing can catch it", wtermsig(st), sig_name(wtermsig(st)))
+        };
+        crate::log(&format!("probe: openat2 semantics = {verdict}"));
+    }
+}
+
+/// One thread, one waitpid(-1), for the whole process.
+///
+/// `PR_SET_CHILD_SUBREAPER` makes orphaned grandchildren (bash's children, vim's
+/// children) reparent to us instead of init, so they are reaped here too. This is
+/// what proot does with its tracee list, and what tini/runc's PID 1 does with
+/// SIGCHLD: exactly one owner of child status.
+fn start_reaper() {
+    if REAPER.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(|| {
+        unsafe {
+            prctl(PR_SET_CHILD_SUBREAPER, 1 as c_long, 0 as c_long, 0 as c_long, 0 as c_long);
+        }
+        loop {
+            let mut st: c_int = 0;
+            let pid = unsafe { waitpid(-1, &mut st, 0) };
+            if pid > 0 {
+                if let Ok(mut q) = EXITS.lock() {
+                    q.push((pid, st));
+                }
+                continue;
+            }
+            let e = unsafe { *__errno() };
+            if e == EINTR {
+                continue;
+            }
+            // ECHILD: nothing to wait for right now. Idle instead of spinning.
+            unsafe { usleep(50_000) };
+        }
+    });
+}
+
 fn run() {
+    log("run: thread up");
     let looper = unsafe { ALooper_prepare(ALOOPER_PREPARE_ALLOW_NON_CALLBACKS) };
     if looper.is_null() {
         log("no looper");
@@ -278,7 +420,8 @@ fn run() {
         if let Ok(mut guard) = APP.lock() {
             if let Some(app) = guard.as_mut() {
                 app.sync_surface();
-                app.ensure_term();
+                app.poll_children();
+                app.maybe_start();
                 let q = INPUTQ.load(Ordering::SeqCst) as usize;
                 if q != 0 && app.attached_queue != q {
                     unsafe {
@@ -348,7 +491,6 @@ fn drain_input(q: *mut c_void, app: &mut App) -> bool {
                     if AKeyEvent_getAction(ev) == AKEY_EVENT_ACTION_DOWN {
                         let meta = AKeyEvent_getMetaState(ev);
                         let code = AKeyEvent_getKeyCode(ev);
-                        let uni = AKeyEvent_getUnicodeChar(ev, meta);
                         app.scroll = 0;
                         if let Some(t) = app.term.as_mut() {
                             match code {
@@ -360,12 +502,10 @@ fn drain_input(q: *mut c_void, app: &mut App) -> bool {
                                 AKEYCODE_DPAD_RIGHT => t.send(b"\x1b[C"),
                                 AKEYCODE_DPAD_LEFT => t.send(b"\x1b[D"),
                                 _ => {
-                                    if uni > 0 {
-                                        if let Some(ch) = char::from_u32(uni as u32) {
-                                            let mut b = [0u8; 4];
-                                            let s = ch.encode_utf8(&mut b);
-                                            t.send(s.as_bytes());
-                                        }
+                                    if let Some(ch) = key_text(code, meta) {
+                                        let mut b = [0u8; 4];
+                                        let s = ch.encode_utf8(&mut b);
+                                        t.send(s.as_bytes());
                                     }
                                 }
                             }
@@ -377,11 +517,8 @@ fn drain_input(q: *mut c_void, app: &mut App) -> bool {
                     match action {
                         AMOTION_EVENT_ACTION_DOWN => {
                             app.drag = AMotionEvent_getY(ev, 0) as i32;
-                            if let Some(t) = &app.term {
-                                if t.dead {
-                                    app.term = None;
-                                    app.ensure_term();
-                                }
+                            if app.term.as_ref().map(|t| t.dead).unwrap_or(false) {
+                                app.restart_session();
                             }
                             let act = ACTIVITY.load(Ordering::SeqCst);
                             if !act.is_null() {
@@ -419,4 +556,52 @@ fn drain_input(q: *mut c_void, app: &mut App) -> bool {
         }
     }
     handled_any
+}
+
+/// US-layout keycode -> text.  The NDK has no "unicode char" accessor (that
+/// symbol does not exist in libandroid, verified against a device's libandroid.so),
+/// so the mapping lives here.  This is what hardware keyboards and
+/// `adb shell input text` deliver.
+fn key_text(code: i32, meta: i32) -> Option<char> {
+    let shift = meta & AMETA_SHIFT_ON != 0;
+    let c = match code {
+        AKEYCODE_SPACE => ' ',
+        AKEYCODE_COMMA => if shift { '<' } else { ',' },
+        AKEYCODE_PERIOD => if shift { '>' } else { '.' },
+        AKEYCODE_SLASH => if shift { '?' } else { '/' },
+        AKEYCODE_SEMICOLON => if shift { ':' } else { ';' },
+        AKEYCODE_APOSTROPHE => if shift { '"' } else { '\'' },
+        AKEYCODE_GRAVE => if shift { '~' } else { '`' },
+        AKEYCODE_MINUS => if shift { '_' } else { '-' },
+        AKEYCODE_EQUALS => if shift { '+' } else { '=' },
+        AKEYCODE_LEFT_BRACKET => if shift { '{' } else { '[' },
+        AKEYCODE_RIGHT_BRACKET => if shift { '}' } else { ']' },
+        AKEYCODE_BACKSLASH => if shift { '|' } else { '\\' },
+        AKEYCODE_ESCAPE => '\x1b',
+        c if c >= AKEYCODE_0 && c <= AKEYCODE_9 => {
+            let d = b'0' + (c - AKEYCODE_0) as u8;
+            if shift {
+                match c - AKEYCODE_0 {
+                    0 => ')',
+                    1 => '!',
+                    2 => '@',
+                    3 => '#',
+                    4 => '$',
+                    5 => '%',
+                    6 => '^',
+                    7 => '&',
+                    8 => '*',
+                    _ => '(',
+                }
+            } else {
+                d as char
+            }
+        }
+        c if c >= AKEYCODE_A && c <= AKEYCODE_Z => {
+            let d = (b'a' + (c - AKEYCODE_A) as u8) as char;
+            if shift { d.to_ascii_uppercase() } else { d }
+        }
+        _ => return None,
+    };
+    Some(c)
 }

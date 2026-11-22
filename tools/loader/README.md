@@ -108,4 +108,7 @@ fault is otherwise invisible.
   process; path calls +1.5us over a native stat.
 * The `svc` sites are located by pattern with a glibc version self-check
   (`evidence/15`); updating the count expectations is a deliberate human step.
-* A 16K-page kernel is untested (the code assumes 4K page alignment).
+* A 16K-page kernel is untested. The stub blob is placed at a 4K-aligned
+  `NR_STUB_VADDR`; on a 16K kernel that placement (and every `mprotect` length in
+  the shim) must be built from `AT_PAGESZ` instead of a literal 4096. See
+  `docs/design/page-size.md`.

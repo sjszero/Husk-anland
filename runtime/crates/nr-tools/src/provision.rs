@@ -220,7 +220,7 @@ fn generic_names(stage: &Path) {
     if bin.join("dash").exists() { ln("dash", "sh"); }
 }
 
-fn break_hardlinks(stage: &Path) {
+pub(crate) fn break_hardlinks(stage: &Path) {
     // App-private storage refuses hard links (packages ship gunzip -> uncompress),
     // so every multi-link file becomes a private copy first.
     fn walk(dir: &Path) {

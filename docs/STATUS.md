@@ -57,3 +57,41 @@
 2. 在 RMX3357（4.19 内核 / Android 13）上重跑 31 项矩阵与越界测试 —— 目前全部结论只来自 Android 16；
 3. `apt` 冒烟：dpkg/apt 已能跑（缺 `usr/share/dpkg` 的问题已用 provision 补上），
    还差 `apt-get update` 与一次真实安装。
+
+---
+
+# 2026-11-22 深夜追加：壳应用生命周期 + 第二台设备诊断
+
+## 修掉的真 bug（FACT，已上机验证）
+
+**会话生命周期**：旧实现把"启动会话"放在渲染循环里，子进程一死就下一帧重新 `fork`，
+而且 `waitpid` 只在 PTY 读到 EIO 时用 `WNOHANG` 试一次、失败就再没人回收。
+结果：一次运行 2 秒起了 171 个 loader、堆出 700+ 个僵尸 `[libld.so]`。
+你看到的"一直闪退、一直点开退出"就是它。
+
+现在的模型（对照 proot / Termux / tini 的做法，用 Rust 实现）：
+
+- `start_reaper()`：**全进程唯一**的 `waitpid(-1)` 线程，先 `PR_SET_CHILD_SUBREAPER`，
+  bash 的孙进程死亡后也重挂回我们、由它收割；`EINTR` 重试，`ECHILD` 时 `usleep` 不空转。
+- 状态回传：reaper → `EXITS` 队列 → 渲染线程 `poll_children()` → 只交给 pid 对得上的 session。
+- 启动**一次**（`maybe_start`），死了就死着，**点了才重启**（`restart_session`，400ms 限流）。
+- 会话死亡原因**写到屏幕上**：`[husk] session ended: signal 31 (SIGSYS)`。
+- `read_available` 见到 EIO 只标记一次 + `close`，不再每帧刷日志。
+
+验证（RMX3357）：`onCreate` → `run: thread up` → `spawned pid=11338` → `pty read errno=5; session closed`
+→ `session pid=11338 ended: signal 31 (SIGSYS)`。**一次 spawn、零僵尸。**
+
+## 这台机器（RMX3357 / Android 13 / 4.19.191 / 4K）的新事实
+
+| 事实 | 结论 |
+|---|---|
+| loader 每次都能跑到 `.init_array`（`sigsys.log` 每次 spawn 精确 +33 字节） | 自举期没有 syscall 被拦，**旧结论"自举被 SIGSYS 杀"错误** |
+| app 域 `openat2(437)` 实测 = **TRAP**，我们自己装的 handler 跑到了（`rt_sigaction ret=0`） | 这台 ROM 的 app seccomp **可捕获可仿真**，不是 KILL |
+| guest 子进程仍然 `signal 31 (SIGSYS)`，而 shim 的 handler 从未产生二进制记录 | 问题在**我们 loader 里的 handler 没装上/没生效**，不是 ROM 限制 |
+| `dmesg` 被拒、logcat 无 `type=1326` | 这台 ROM 拿不到 syscall 号，需用 ptrace 旁路观察或让 handler 自己报 |
+
+## 下一步
+
+1. 让 `install_sigsys` 打印 `rt_sigaction` 的返回值与 errno（现在无条件打 "installed"），确认是"没装上"还是"装上了被覆盖"。
+2. `nr-tools` 加 `check-elf`（页大小体检），构建期断言 `p_offset ≡ p_vaddr (mod 0x4000)`。
+3. 页大小设计见 [design/page-size.md](design/page-size.md)。

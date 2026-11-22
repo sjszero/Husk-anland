@@ -21,6 +21,8 @@ pub struct Term {
     pub cx: usize,
     pub cy: usize,
     pub dead: bool,
+    /// Human-readable end of session ("exit 7" / "signal 31 (SIGSYS)").
+    pub exit_text: String,
     history: VecDeque<Vec<u8>>,
     esc: u8,
     params: Vec<u32>,
@@ -39,6 +41,7 @@ impl Term {
             cx: 0,
             cy: 0,
             dead: true,
+            exit_text: String::new(),
             history: VecDeque::with_capacity(HISTORY),
             esc: 0,
             params: Vec::new(),
@@ -87,6 +90,9 @@ impl Term {
             "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin".to_string(),
             "LANG=C.UTF-8".to_string(),
             "USER=root".to_string(),
+            // diagnostics for the seccomp policy of the ROM under test
+            "NR_SIGSYS=log".to_string(),
+            format!("NR_SIGSYS_LOG={rootfs}/../sigsys.log"),
         ]
         .iter()
         .filter_map(|s| CString::new(s.as_str()).ok())
@@ -123,6 +129,7 @@ impl Term {
         unsafe {
             fcntl(mfd, F_SETFL, O_NONBLOCK);
         }
+        crate::log(&format!("spawned pid={pid} fd={mfd}"));
         let mut t = Term::blank(cols, rows);
         t.fd = mfd;
         t.pid = pid;
@@ -167,7 +174,9 @@ impl Term {
     }
 
     pub fn read_available(&mut self) -> bool {
-        if self.fd < 0 {
+        // Once the master has seen EIO/EOF it stays dead: reading it again just
+        // spams EIO for every frame. Close it and let the reaper finish the story.
+        if self.fd < 0 || self.dead {
             return false;
         }
         let mut buf = [0u8; 8192];
@@ -183,15 +192,43 @@ impl Term {
                 self.dead = true;
             } else {
                 let e = unsafe { *__errno() };
-                // EAGAIN = nothing more right now; anything else on a PTY means
-                // the child is gone (EIO) or the fd is unusable.
-                if e != 11 && e != 4 {
+                // EIO/EOF on a pty master means every slave is closed: the child
+                // exited (or exec'd away from us). waitpid belongs to the reaper
+                // thread alone -- a second waiter here is exactly what leaked
+                // 700 zombies on 2026-11-22.
+                if e != EAGAIN && e != EINTR {
+                    crate::log(&format!("pty read errno={e}; session closed"));
                     self.dead = true;
+                    unsafe { close(self.fd) };
+                    self.fd = -1;
                 }
             }
             break;
         }
         got
+    }
+
+    /// The reaper thread saw this session's pid exit. Records the real reason and
+    /// prints it on screen, so a dead guest explains itself instead of blinking.
+    pub fn note_exit(&mut self, status: i32) {
+        let text = if wifexited(status) {
+            format!("exit {}", wexitstatus(status))
+        } else if wifsignaled(status) {
+            let sig = wtermsig(status);
+            format!("signal {sig} ({})", sig_name(sig))
+        } else {
+            format!("status {status}")
+        };
+        crate::log(&format!("session pid={} ended: {text}", self.pid));
+        self.exit_text = text.clone();
+        self.dead = true;
+        self.banner(&format!("\r\n[husk] session ended: {text}\r\n[husk] tap to start again\r\n"));
+    }
+
+    pub fn banner(&mut self, text: &str) {
+        for b in text.bytes() {
+            self.feed(&[b]);
+        }
     }
 
     fn put(&mut self, c: u8) {

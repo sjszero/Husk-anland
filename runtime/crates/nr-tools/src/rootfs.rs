@@ -231,6 +231,9 @@ Architecture: {arch}\nVersion: {version}\nDescription: {name} (staged by nr-tool
     println!("staged: {} entries in usr/bin, usr-merge links {}", bins, if links_ok { "ok" } else { "MISSING" });
 
     if let Some(t) = tar {
+        // App-private storage refuses hard links; every multi-link file becomes a
+        // private copy so the device-side extractor never has to create one.
+        crate::provision::break_hardlinks(&out);
         let mut child = Command::new("tar")
             .arg("czf")
             .arg(&t)

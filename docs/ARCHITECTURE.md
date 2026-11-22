@@ -87,7 +87,7 @@ GOT 补丁看不见。所以除 POSIX 入口外还补了：
 | `execl/execle/execlp` | glibc 内部走私有 `execve`，无 PLT 槽；C 变参在稳定版 Rust 里定义不了；汇编蹦床会被 rustc 的 cdylib 导出表本地化 | 这两类调用路径不被重写，子进程拿不到 shim |
 | `freopen` / `glob` / `nftw` / `dlmopen` | 未覆盖 | 少数程序路径解析走宿主 |
 | `posix_spawn` 用 `fork` 而非 `vfork` | 实现选择 | 多一次页表拷贝 |
-| 16K 页内核 | 未测 | 只保证 4K 页 |
+| 16K 页内核 | 未实测 | **不是不支持**：见 [design/page-size.md](design/page-size.md)，over-align 单产物即可通吃 4K/16K/64K |
 
 ## 7. 明确不做
 
