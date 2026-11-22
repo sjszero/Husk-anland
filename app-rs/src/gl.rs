@@ -359,6 +359,11 @@ impl Drop for Gfx {
             eglMakeCurrent(self.dpy, core::ptr::null_mut(), core::ptr::null_mut(), core::ptr::null_mut());
             eglDestroySurface(self.dpy, self.surf);
             eglDestroyContext(self.dpy, self.ctx);
+            // Without this every rotation leaks the display's swap-chain buffers:
+            // 12 anon_inode:sync_file + 12 ashmem + 6 gralloc_extra fds per
+            // surface rebuild, all of them held by the EGL display we never shut
+            // down (measured on RMX3357, 2026-11-22).
+            eglTerminate(self.dpy);
         }
     }
 }

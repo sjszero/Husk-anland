@@ -61,7 +61,7 @@ pub struct Winsize {
 pub struct ANativeActivityCallbacks {
     pub onStart: Option<unsafe extern "C" fn(*mut ANativeActivity)>,
     pub onResume: Option<unsafe extern "C" fn(*mut ANativeActivity)>,
-    pub onSaveInstanceState: Option<unsafe extern "C" fn(*mut ANativeActivity, *mut c_void, usize)>,
+    pub onSaveInstanceState: Option<unsafe extern "C" fn(*mut ANativeActivity, *mut c_void, usize) -> *mut c_void>,
     pub onPause: Option<unsafe extern "C" fn(*mut ANativeActivity)>,
     pub onStop: Option<unsafe extern "C" fn(*mut ANativeActivity)>,
     pub onDestroy: Option<unsafe extern "C" fn(*mut ANativeActivity)>,
@@ -75,6 +75,15 @@ pub struct ANativeActivityCallbacks {
     pub onContentRectChanged: Option<unsafe extern "C" fn(*mut ANativeActivity, *const c_void)>,
     pub onConfigurationChanged: Option<unsafe extern "C" fn(*mut ANativeActivity)>,
     pub onLowMemory: Option<unsafe extern "C" fn(*mut ANativeActivity)>,
+}
+
+/// android.graphics.Rect as the framework hands it to onContentRectChanged.
+#[repr(C)]
+pub struct ARect {
+    pub left: c_int,
+    pub top: c_int,
+    pub right: c_int,
+    pub bottom: c_int,
 }
 
 #[repr(C)]
@@ -191,9 +200,9 @@ extern "C" {
     pub fn eglSwapBuffers(dpy: EGLDisplay, surf: EGLSurface) -> u32;
     pub fn eglQuerySurface(dpy: EGLDisplay, surf: EGLSurface, attr: i32, value: *mut i32) -> u32;
     pub fn eglDestroySurface(dpy: EGLDisplay, surf: EGLSurface) -> u32;
-    pub fn eglDestroyContext(dpy: EGLDisplay, ctx: EGLContext) -> u32;
     pub fn eglTerminate(dpy: EGLDisplay) -> u32;
-
+    pub fn eglDestroyContext(dpy: EGLDisplay, ctx: EGLContext) -> u32;
+    
     pub fn glViewport(x: i32, y: i32, w: i32, h: i32);
     pub fn glClearColor(r: f32, g: f32, b: f32, a: f32);
     pub fn glClear(mask: u32);

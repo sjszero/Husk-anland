@@ -210,3 +210,14 @@ O S C 现在也认 `ESC \` 结束符（否则会一直吞到下一个 BEL）。
 - 实测：guest 的 bash/libc/loader 三种页大小全通过（本来就 64K 对齐）；我们的 `libld.so`
   三种全通过；`libhuskapp.so`（NDK 29 = 16K 对齐）在 64K 页内核上会失败（Android 无此情况）。
   证据：[evidence 30](design/evidence/30-check-elf-20261122.md)。
+
+## 2026-11-22 22:08 生命周期收口（载体级）
+
+* 补全 NativeActivity 全部回调：`onStop` / `onSaveInstanceState`（返回 null）/ `onLowMemory`（裁 scrollback + 后台时丢 EGL）/ `onContentRectChanged`（记 insets 并触发重排）。
+* `escalate` 加 pgid 复用防御：比较 `/proc/<pid>/stat` 的 starttime，pid 被回收就拒绝 `kill(-pid)`。
+* `session:` 每行加 `fds=`（`/proc/self/fd` 计数）。
+* 修两个真泄漏（设备实测抓到）：
+  1. `Term` 没有 `Drop`：reaper 先报退出、master 还没读到 EIO 时被丢弃 → 每次重生残留 1 个 `/dev/ptmx` + 1 个 `pty.log`。现在 `Drop` 走 `close_master()`（先 `ALooper_removeFd` 再 close）。
+  2. `Gfx` 没 `eglTerminate`：每次旋转/重建泄漏 swap-chain 的 `sync_file` / ashmem / gralloc_extra。
+* 实测：旋转 `67x58 -> 142x26 -> 67x58` 同 pid；guest `stty size` = `58 67`；fds 启动 98 → 旋转 12 次后 167（每次重建约 +2，尚未判定为泄漏，需长跑）。
+* 边界写清：运行时只管载体（进程/PTY/fd/信号/Surface 接入），GNOME/浏览器/DPI 属桌面层，不在运行时范围。

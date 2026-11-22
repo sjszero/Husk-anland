@@ -36,6 +36,9 @@ static APP: Mutex<Option<Box<App>>> = Mutex::new(None);
 /// process is allowed to call waitpid(): two waiters is how zombies get leaked.
 static EXITS: Mutex<Vec<(i32, i32)>> = Mutex::new(Vec::new());
 static REAPER: AtomicBool = AtomicBool::new(false);
+/// Scrollback lines kept after onLowMemory. The live grid is untouched; this is
+/// pure memory we can hand back without the guest noticing.
+const LOW_MEMORY_HISTORY: usize = 200;
 
 extern "C" {
     fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int;
@@ -150,8 +153,9 @@ impl App {
                 if let Some(t) = self.term.as_mut() {
                     t.note_exit(st);
                     log(&format!(
-                        "session: exited pid={pid} status={st} ({})",
-                        t.exit_text
+                        "session: exited pid={pid} status={st} ({}) fds={}",
+                        t.exit_text,
+                        fd_count()
                     ));
                 }
                 self.dirty = true;
@@ -177,8 +181,10 @@ impl App {
         let pid = t.pid;
         let fd = t.fd;
         log(&format!(
-            "session: teardown({why}) pid={pid} dead={} exit=\"{}\"",
-            t.dead, t.exit_text
+            "session: teardown({why}) pid={pid} dead={} exit=\"{}\" fds={}",
+            t.dead,
+            t.exit_text,
+            fd_count()
         ));
         if fd >= 0 {
             let l = LOOPER.load(Ordering::SeqCst);
@@ -194,7 +200,8 @@ impl App {
             }
         }
         if !t.dead && pid > 0 {
-            std::thread::spawn(move || escalate(pid));
+            let ticks = t.start_ticks;
+            std::thread::spawn(move || escalate(pid, ticks));
         }
         log("session: teardown done");
     }
@@ -217,8 +224,11 @@ impl App {
             Some(t) => {
                 self.last_spawn = Some(std::time::Instant::now());
                 log(&format!(
-                    "session: running pid={} (pgid=sid=pid by setsid) {}x{}",
-                    t.pid, cols, rows
+                    "session: running pid={} (pgid=sid=pid by setsid) {}x{} fds={}",
+                    t.pid,
+                    cols,
+                    rows,
+                    fd_count()
                 ));
                 if let Some(old) = self.term.take() {
                     if old.fd >= 0 {
@@ -287,6 +297,28 @@ impl App {
     }
 }
 
+/// Open descriptors in this process. Printed on every session transition: a
+/// number that creeps up across restarts is the only cheap leak detector we
+/// have inside an unprivileged app (lifecycle G5).
+fn fd_count() -> usize {
+    std::fs::read_dir("/proc/self/fd").map(|d| d.count()).unwrap_or(0)
+}
+
+/// "none" / "running" / "exited", for callback log lines.
+fn session_state() -> &'static str {
+    match APP.lock() {
+        Ok(g) => match g.as_ref() {
+            None => "none",
+            Some(a) => match a.term.as_ref() {
+                None => "none",
+                Some(t) if t.dead => "exited",
+                Some(_) => "running",
+            },
+        },
+        Err(_) => "?",
+    }
+}
+
 fn native_lib_dir() -> Option<String> {
     let addr = native_lib_dir as *const c_void;
     let mut info = DlInfo {
@@ -309,9 +341,9 @@ fn native_lib_dir() -> Option<String> {
 static CALLBACKS: ANativeActivityCallbacks = ANativeActivityCallbacks {
     onStart: Some(on_start),
     onResume: Some(on_resume),
-    onSaveInstanceState: None,
+    onSaveInstanceState: Some(on_save_state),
     onPause: Some(on_pause),
-    onStop: None,
+    onStop: Some(on_stop),
     onDestroy: Some(on_destroy),
     onWindowFocusChanged: Some(on_focus),
     onNativeWindowCreated: Some(on_window),
@@ -320,9 +352,9 @@ static CALLBACKS: ANativeActivityCallbacks = ANativeActivityCallbacks {
     onNativeWindowDestroyed: Some(on_window_gone),
     onInputQueueCreated: Some(on_input_queue),
     onInputQueueDestroyed: Some(on_input_queue_gone),
-    onContentRectChanged: None,
+    onContentRectChanged: Some(on_content_rect),
     onConfigurationChanged: Some(on_config),
-    onLowMemory: None,
+    onLowMemory: Some(on_low_memory),
 };
 
 unsafe extern "C" fn on_start(_a: *mut ANativeActivity) { log("cb: onStart"); }
@@ -333,6 +365,78 @@ unsafe extern "C" fn on_config(_a: *mut ANativeActivity) {
         if let Some(app) = g.as_mut() {
             app.dirty = true;
         }
+    }
+}
+
+/// onStop is the last callback we are guaranteed before the process becomes a
+/// candidate for the LMK. It must not touch the session: a stopped Activity is
+/// still alive, and the guest keeps its PTY. It exists so the log has the full
+/// callback timeline (lifecycle E1) and so a stop-then-kill leaves a trace.
+unsafe extern "C" fn on_stop(_a: *mut ANativeActivity) {
+    log(&format!("cb: onStop (session {}, fds={})", session_state(), fd_count()));
+}
+
+/// No UI state is worth persisting: the session lives in the process and the
+/// screen is rebuilt from the PTY. Returning null tells the framework to pass
+/// its own default Bundle, which is what an Activity with no state wants.
+unsafe extern "C" fn on_save_state(
+    _a: *mut ANativeActivity,
+    _out: *mut c_void,
+    _size: usize,
+) -> *mut c_void {
+    log("cb: onSaveInstanceState");
+    core::ptr::null_mut()
+}
+
+/// The visible rect changes when the IME opens, when insets move, and on
+/// rotation. The surface size itself is read from the window; this hook only
+/// makes the next frame lay out instead of waiting for a resize event.
+unsafe extern "C" fn on_content_rect(_a: *mut ANativeActivity, r: *const c_void) {
+    let (l, t, rr, b) = if r.is_null() {
+        (0, 0, 0, 0)
+    } else {
+        let r = unsafe { &*(r as *const crate::sys::ARect) };
+        (r.left, r.top, r.right, r.bottom)
+    };
+    log(&format!(
+        "cb: onContentRectChanged {l},{t}..{rr},{b} ({}x{})",
+        rr - l,
+        b - t
+    ));
+    if let Ok(mut g) = APP.lock() {
+        if let Some(app) = g.as_mut() {
+            app.dirty = true;
+        }
+    }
+}
+
+/// Memory pressure. Give back what is genuinely large and recoverable: the
+/// scrollback, plus the EGL surface and atlas when we are not drawing anyway.
+/// The session, the PTY and the screen grid are never dropped.
+unsafe extern "C" fn on_low_memory(_a: *mut ANativeActivity) {
+    log("cb: onLowMemory");
+    if let Ok(mut g) = APP.lock() {
+        let Some(app) = g.as_mut() else { return };
+        let (before, after) = match app.term.as_mut() {
+            Some(t) => {
+                let b = t.history_len();
+                t.trim_history(LOW_MEMORY_HISTORY);
+                (b, t.history_len())
+            }
+            None => (0, 0),
+        };
+        let dropped = if !FOCUSED.load(Ordering::SeqCst) && app.gfx.is_some() {
+            app.gfx = None;
+            app.win_ptr = 0;
+            true
+        } else {
+            false
+        };
+        log(&format!(
+            "cb: onLowMemory -> history {before}->{after} lines, gfx dropped={dropped}, fds={}",
+            fd_count()
+        ));
+        app.dirty = true;
     }
 }
 
@@ -528,24 +632,41 @@ fn trace_requested() -> bool {
 /// `pid` is the session leader, so `-pid` addresses the whole process group:
 /// bash, its jobs and anything they forked. Terminated processes are reaped by
 /// the single reaper thread, never here.
-fn escalate(pid: i32) {
+fn escalate(pid: i32, ticks: u64) {
     const TERM_DELAY: core::time::Duration = core::time::Duration::from_millis(300);
     const KILL_DELAY: core::time::Duration = core::time::Duration::from_millis(700);
     std::thread::sleep(TERM_DELAY);
-    let alive = unsafe { kill(-pid, 0) } == 0;
-    if !alive {
+    if !group_alive(pid, ticks) {
         log("session: group gone after SIGHUP");
         return;
     }
     unsafe { kill(-pid, SIGTERM) };
     log("session: SIGTERM -> process group");
     std::thread::sleep(KILL_DELAY);
-    if unsafe { kill(-pid, 0) } == 0 {
+    if group_alive(pid, ticks) {
         unsafe { kill(-pid, SIGKILL) };
         log("session: SIGKILL -> process group");
     } else {
         log("session: group gone after SIGTERM");
     }
+}
+
+/// Is process group `-pid` still ours?
+///
+/// `kill(-pid, 0)` alone is not enough: once the leader is reaped its pid can be
+/// recycled, and the "group" being probed then belongs to an unrelated process.
+/// We compare the leader's start time (field 22 of /proc/<pid>/stat) with the
+/// one recorded at fork. If the leader is gone we cannot compare and fall back
+/// to the group probe, which is still correct for the group as a whole.
+fn group_alive(pid: i32, ticks: u64) -> bool {
+    let now = term::start_ticks(pid);
+    if now != 0 && ticks != 0 && now != ticks {
+        log(&format!(
+            "session: pid {pid} was recycled (start {now} != {ticks}); not signalling"
+        ));
+        return false;
+    }
+    (unsafe { kill(-pid, 0) }) == 0
 }
 
 /// One thread, one waitpid(-1), for the whole process.

@@ -26,6 +26,11 @@ pub struct Term {
     pub tee: i32,
     /// Human-readable end of session ("exit 7" / "signal 31 (SIGSYS)").
     pub exit_text: String,
+    /// Field 22 of /proc/<pid>/stat taken right after fork. The session leader's
+    /// pid can be recycled; comparing start ticks is the only cheap way to tell
+    /// "our group is still there" from "an unrelated process now owns this pid"
+    /// before signalling -pid.
+    pub start_ticks: u64,
     history: VecDeque<Vec<u8>>,
     esc: u8,
     /// CSI with a private marker (`ESC [ ? ... h/l`): the alternate screen that
@@ -51,6 +56,7 @@ impl Term {
             dead: true,
             tee: -1,
             exit_text: String::new(),
+            start_ticks: 0,
             history: VecDeque::with_capacity(HISTORY),
             esc: 0,
             private: false,
@@ -172,6 +178,7 @@ impl Term {
         };
         crate::log(&format!("spawned pid={pid} fd={mfd} tee={tee}"));
         let mut t = Term::blank(cols, rows);
+        t.start_ticks = start_ticks(pid);
         t.fd = mfd;
         t.tee = tee;
         t.pid = pid;
@@ -187,6 +194,9 @@ impl Term {
             return;
         }
         let (oc, orows) = (self.cols, self.rows);
+        if (cols, rows) != (oc, orows) && self.pid > 0 {
+            crate::log(&format!("session: resize {oc}x{orows} -> {cols}x{rows} (TIOCSWINSZ, pid={})", self.pid));
+        }
         let mut cells = vec![b' '; cols * rows];
         for r in 0..rows.min(orows) {
             for c in 0..cols.min(oc) {
@@ -271,6 +281,18 @@ impl Term {
         if self.tee >= 0 {
             unsafe { close(self.tee) };
             self.tee = -1;
+        }
+    }
+
+    pub fn history_len(&self) -> usize {
+        self.history.len()
+    }
+
+    /// Give scrollback memory back. Called from onLowMemory; the visible grid and
+    /// the live PTY are untouched, so the shell does not notice.
+    pub fn trim_history(&mut self, keep: usize) {
+        while self.history.len() > keep {
+            self.history.pop_front();
         }
     }
 
@@ -708,4 +730,26 @@ fn append(path: &str, extra: &str) -> std::io::Result<()> {
     use std::io::Write;
     let mut f = std::fs::OpenOptions::new().append(true).create(true).open(path)?;
     f.write_all(extra.as_bytes())
+}
+
+/// Field 22 (starttime, in clock ticks since boot) of /proc/<pid>/stat.
+/// 0 means "could not read it", which callers must treat as "unverified".
+pub fn start_ticks(pid: i32) -> u64 {
+    let Ok(s) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else { return 0 };
+    let Some(i) = s.rfind(')') else { return 0 };
+    // After the comm field the fields start again at #3 (state), so #22 is #19.
+    s[i + 1..].split_whitespace().nth(19).and_then(|t| t.parse().ok()).unwrap_or(0)
+}
+
+/// Dropping a Term must hang up its PTY, not just forget the numbers.
+///
+/// Found on device 2026-11-22: the reaper reports the child's exit and the shell
+/// is dropped before the master has seen EIO, which left both the ptmx fd and
+/// the pty.log tee behind on every restart (fds 98 -> 154 -> 159 over two
+/// sessions). close_master() deregisters from the looper first, so this is also
+/// what stops the "phantom input" class of bug.
+impl Drop for Term {
+    fn drop(&mut self) {
+        self.close_master();
+    }
 }

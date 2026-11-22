@@ -9,6 +9,19 @@
 
 ---
 
+## 0. 边界：本文只写"载体"的契约
+
+Husk 是**用户层运行时**（和容器同一层），不是桌面。所以本文只规定运行时必须保证的东西：
+
+* 进程 / 会话 / PTY / fd / 信号 / 关停顺序 —— 运行的载体；
+* Surface 与输入队列的接入点 —— 载体交给上层的接口；
+* 观测（日志、退出原因）—— 出问题时能定位。
+
+**不在本文范围**：GNOME、浏览器、输入法面板、DPI 适配这些桌面层的事。载体只保证"能跑起来、不泄漏、不崩"，
+桌面自身的行为不归运行时管。C 段（GPU / 显示 / 音频直连 SoC）见 `docs/GOALS.md` 与 evidence 31。
+
+---
+
 ## 1. 参照物：机制级对照（不是"抄个概念"）
 
 | 参照物 | 它要解决的失败模式 | 它的具体机制 | Husk 取什么 / 不取什么 |
@@ -123,7 +136,9 @@
 | T7 会话退出 | `input text "exit"` | `session: exited pid=15293 status=0 (exit 0)`，libld=0 ✅ |
 | T7b 点击重生 | `input tap 500 1200` | `session: restart requested by user` → `running pid=15490` ✅（400ms 限流生效） |
 | T8 强杀（无 onDestroy） | `am force-stop com.linuxhub.husk` | libld=0，guest 未变孤儿 ✅ |
-| T9 旋转/尺寸 | `wm size 1200x2400` | **无法测**：shell 缺 `WRITE_SECURE_SETTINGS`（旋转路径历史上已验，见 STATUS 附录 21:20） |
+| T9 旋转/尺寸 | `cmd window user-rotation lock 1` / `lock 0`（不需要 WRITE_SECURE_SETTINGS） | 22:05 实测：`67x58 -> 142x26 -> 67x58`，同一 pid 31478，`onContentRectChanged` 跟随；guest 内 `stty size` 回 `58 67`，与 TIOCSWINSZ 一致 ✅ |
+| T10 fd 计数 | `session:` 日志里的 `fds=` | 启动 98；旋转 2 次后 159；再旋转 5 次后 167（每次重建约 +2，见缺口 G5） |
+| T11 重启泄漏 | 连续 exit → 点击重生 | 修复前每次重生残留 1 个 ptmx + 1 个 pty.log；加 `Drop for Term` 后只剩当前会话那一对 ✅ |
 
 ---
 
@@ -146,9 +161,9 @@
 
 | # | 缺口 | 影响 | 计划 |
 |---|---|---|---|
-| G1 | 旋转/尺寸变化在本轮**未实测**（shell 无 `WRITE_SECURE_SETTINGS`） | C1/C3 只有历史证据（本轮代码改动前） | 用 App 内自带的旋转按钮或 `input` 手势触发，或让 app 提供 `adb` 广播入口 |
+| G1 | ~~旋转未实测~~ | 已关闭：`cmd window user-rotation lock` + `stty size` 双向验证（T9） | 已完成 |
 | G2 | 未验证"系统 LMK 直接杀进程"路径（只验了 `force-stop`） | D2 的第二种入口假设 | 用 `am kill` / 长时间后台压内存 |
-| G3 | 无 `onSaveInstanceState` / `onLowMemory` / `onConfigurationChanged` 处理 | 内存紧张或配置变化时没有降级动作 | 至少实现 `onLowMemory`：释放图集与滚动缓冲 |
+| G3 | `onLowMemory` / `onSaveInstanceState` / `onStop` / `onContentRectChanged` 已实现，但**无法用 adb 触发**（NativeActivity 不转发 onTrimMemory，`am send-trim-memory` 到不了 onLowMemory） | 内存压力下的降级动作只经过编译，未上机 | 真实内存压力测试，或用 `setprop` + 大分配在测试构建里强制调用 |
 | G4 | `escalate` 用 `kill(-pid, 0)` 判活，pgid 复用无防御 | 极端情况下误杀新进程组 | 记录会话启动时间/命令，判活时先核对 `/proc/<pid>/stat` 起点 |
 | G5 | 没有 fd/线程泄漏的长时统计 | 长时间使用后可能累积 | 在 `session:` 日志里加 fd 计数（`/proc/self/fd`） |
 | G6 | 大输出量下的 PTY 背压未测 | C2 只测了"空闲后台"，没测"输出狂刷时切后台" | soak 增加 `yes` 类高频输出阶段 |
