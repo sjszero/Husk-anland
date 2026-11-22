@@ -18,7 +18,10 @@
 //! every descriptor and releases both references.
 
 use core::ffi::{c_char, c_int, c_void};
+use std::ffi::CStr;
+use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 const RTLD_NOW: c_int = 2;
 const AF_UNIX: c_int = 1;
@@ -118,6 +121,69 @@ unsafe fn load() -> Option<(*mut c_void, Symbols)> {
     Some((handle, symbols))
 }
 
+fn files_dir() -> Option<std::path::PathBuf> {
+    let act = crate::ACTIVITY.load(Ordering::SeqCst);
+    if act.is_null() {
+        return None;
+    }
+    let path = unsafe { (*act).internalDataPath };
+    if path.is_null() {
+        return None;
+    }
+    Some(std::path::PathBuf::from(
+        unsafe { CStr::from_ptr(path) }
+            .to_string_lossy()
+            .into_owned(),
+    ))
+}
+
+/// Keep the buffer alive long enough for a same-UID glibc guest process to
+/// connect and receive the native handle. This is gated by a marker file so a
+/// normal launch only runs the non-invasive allocation test.
+unsafe fn serve_bridge(s: &Symbols, buffer: *mut Ahb) {
+    let Some(files) = files_dir() else {
+        crate::log("ahb|bridge|SKIP|no files dir");
+        return;
+    };
+    let marker = files.join("ahb-bridge");
+    if !marker.exists() {
+        crate::log("ahb|bridge|SKIP|no marker");
+        return;
+    }
+    let path = files.join("ahb-bridge.sock");
+    let _ = std::fs::remove_file(&path);
+    let listener = match std::os::unix::net::UnixListener::bind(&path) {
+        Ok(l) => l,
+        Err(e) => {
+            crate::log(&format!("ahb|bridge|FAIL|bind {e}"));
+            return;
+        }
+    };
+    let _ = listener.set_nonblocking(true);
+    crate::log(&format!("ahb|bridge|LISTEN|{}", path.display()));
+    let deadline = Instant::now() + Duration::from_secs(90);
+    while Instant::now() < deadline {
+        match listener.accept() {
+            Ok((stream, _)) => {
+                let rc = (s.send)(buffer, stream.as_raw_fd());
+                crate::log(&format!("ahb|bridge|SEND|rc={rc}"));
+                std::thread::sleep(Duration::from_millis(250));
+                let _ = std::fs::remove_file(&path);
+                return;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => {
+                crate::log(&format!("ahb|bridge|FAIL|accept {e}"));
+                break;
+            }
+        }
+    }
+    crate::log("ahb|bridge|TIMEOUT");
+    let _ = std::fs::remove_file(&path);
+}
+
 unsafe fn inspect_handle(label: &str, handle: *const c_void) -> c_int {
     if handle.is_null() {
         crate::log(&format!("ahb|{label}|handle=null"));
@@ -211,6 +277,7 @@ fn probe() {
             close(sv[1]);
         }
 
+        serve_bridge(&s, buffer);
         (s.release)(buffer);
         crate::log("ahb|allocated|released");
         dlclose(lib);

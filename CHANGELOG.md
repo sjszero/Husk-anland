@@ -1,5 +1,18 @@
 # 变更记录
 
+## 2026-11-23 — AHardwareBuffer dma-buf 已跨进程导入 PanVK 并由 GPU 访问
+
+- **evidence 50**：app 分配的真实 AHardwareBuffer 经 native handle 扫描出 dmabuf fd，
+  通过 `SCM_RIGHTS` 跨进程交给 glibc guest；guest 成功用 PanVK
+  `VK_EXT_external_memory_dma_buf` + `VK_KHR_external_memory_fd` 创建 external buffer、
+  导入 memory 并 bind。
+- PanVK 报告 DMA_BUF buffer 能力 `compatibleHandleTypes=0x201`；导入后 GPU compute
+  写入并回读 `0x4855534b` 为 **PASS**，证明 GPU 确实访问了 dma-buf 后备存储。
+- **仍未完成**：AHB 2D image / DRM modifier 导入、ANativeWindow queueBuffer，
+  SurfaceFlinger、present fence、旋转 / DPI / 多窗口 / 10 分钟泄漏。
+- APK sha256 `4996f71a59b46ba729b55e76bff5b854d12372f45109bef5f6b12a4d8d3dbce2`；
+  `vulkan-probe` sha256 `a9f4cc15f324743a44e094ac79296d1fbb4c5e3292d3929c7f3475fd2cdb61d5`。
+
 ## 2026-11-23 — AHardwareBuffer 导出 dma-buf fd 已实测
 
 - **evidence 49**：纯 Rust NativeActivity 动态解析 `libandroid.so` 的 AHardwareBuffer API，

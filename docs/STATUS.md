@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 03:05）
+# 当前状态（2026-11-23 03:18）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -12,7 +12,7 @@ host-visible storage buffer、compute job 和离屏 graphics draw；GPU 写回 `
 像素回读 `0xff0000ff` 均已由 fence 后确认。发行版 Zink 也已在 surfaceless EGL 报出
 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`。
 
-## GPU 侧最新（evidence 48，2026-11-23）
+## SoC 直连最新（evidence 50，2026-11-23）
 
 - **Vulkan 扩展面已实测（evidence 48，FACT）**：PanVK 实例扩展 18 项、设备扩展 171 项；
   `VK_KHR_external_memory_fd` / `VK_EXT_external_memory_dma_buf` 等 dma-buf 导入路径存在，
@@ -26,15 +26,17 @@ host-visible storage buffer、compute job 和离屏 graphics draw；GPU 写回 `
   `VK_DRIVER_FILES`、`__EGL_VENDOR_LIBRARY_FILENAMES`、`MESA_LOADER_DRIVER_OVERRIDE=zink`、
   `GALLIUM_DRIVER=zink`；logcat 显示会话与窗口尺寸正常。
 
-## 显示零拷贝第一段（evidence 49，2026-11-23）
+## 显示零拷贝前两段（evidence 49–50，2026-11-23）
 
 - **FACT**：纯 Rust app 进程成功分配 `64x64 RGBA8` AHardwareBuffer（usage `0x300`，stride 128）。
 - **FACT**：`AHardwareBuffer_getNativeHandle()` 返回 3 个 fd，其中一个由
-  `/proc/self/fd` 确认为 `/dmabuf:G:pid [...]`。
-- **FACT**：`AHardwareBuffer_sendHandleToUnixSocket()` → `_recvHandleFromUnixSocket()`
-  在 `AF_UNIX/SOCK_SEQPACKET` 上成功，接收端 fd 全部有效，dmabuf 仍存在。
-- **UNKNOWN**：跨进程交给 glibc guest 后，PanVK raw dma-buf 导入和实际 Surface queueBuffer
-  还未验证；native-handle fd 顺序不能写死，必须扫描 `/proc/self/fd`。
+  `/proc/self/fd` 确认为 `/dmabuf:G:pid [...]`；native-handle fd 顺序不能写死，必须扫描。
+- **FACT**：真实 AHB dma-buf 经 `AF_UNIX/SOCK_SEQPACKET` + `SCM_RIGHTS` 跨进程进入 glibc guest；
+  PanVK 报告 DMA_BUF buffer 能力 `compatibleHandleTypes=0x201`，external buffer 创建、
+  `VkImportMemoryFdInfoKHR` 导入、bind 全部成功，GPU compute 写入并回读 `0x4855534b` PASS。
+- **UNKNOWN**：这还是 buffer 导入，不是 AHB 的 2D image / DRM modifier 导入；
+  `ANativeWindow_queueBuffer`、SurfaceFlinger、present fence、旋转 / DPI / 多窗口 / 10 分钟泄漏
+  仍未验证。不能把本条写成“显示完成”。
 
 ## GPU 基线（evidence 46，2026-11-23）
 

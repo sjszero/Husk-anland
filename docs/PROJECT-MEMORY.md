@@ -111,8 +111,11 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
 - app 侧分配 AHardwareBuffer / dma-buf，交给 guest；
 - evidence 49 已实测 app 侧 AHB native handle 含 dmabuf fd，且 Unix socket 收发成功；
   native-handle fd 顺序不固定，必须扫描 `/proc/self/fd` 找 dmabuf；
-- guest 首选用 PanVK `VK_EXT_external_memory_dma_buf` / `VK_KHR_external_memory_fd` 导入；
-  kbase `MEM_IMPORT` 作为后备；
+- guest 已实测（evidence 50）用 PanVK `VK_EXT_external_memory_dma_buf` /
+  `VK_KHR_external_memory_fd` 导入真实 AHB dma-buf：external buffer + import memory + bind 全 PASS，
+  GPU compute 写入/回读 `0x4855534b` PASS；kbase `MEM_IMPORT` 保留为后备；
+- 下一步必须是 AHB 2D image / DRM modifier 导入和 `ANativeWindow_queueBuffer`；
+  当前 buffer 导入不能冒充显示完成；
 - 同一块 buffer 由 app `queueBuffer` 给 SurfaceFlinger，目标是零拷贝；
 - kbase 没有 export，所以方向必须是 app → guest 导入，不能假装有 kbase 导出。
 - 退化路径可以 CPU 拷贝，但必须记录原因和实测开销。

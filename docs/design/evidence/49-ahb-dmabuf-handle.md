@@ -20,10 +20,11 @@ APK sha256：`dfe3dccee9851b4561ff60b043d391f09bf6f427ddb79d87d9cf0f2d23690899`
   其中 fd 1 仍是 dmabuf。
 - **INFERENCE**：本机 app/bionic 侧存在可用的 AHardwareBuffer → dma-buf fd 路线，
   不需要经过 Java，也不需要额外 C 代码。
-- **UNKNOWN / 未验证**：guest（glibc）进程跨进程接收该 fd 后，PanVK 是否能用
+- **UNKNOWN / 未验证（本条取证时）**：guest（glibc）进程跨进程接收该 fd 后，PanVK 是否能用
   `VK_EXT_external_memory_dma_buf` + `VK_KHR_external_memory_fd` 成功创建 image；
   AHardwareBuffer 的 native-handle fd 顺序也不是公开稳定 ABI，产品代码必须扫描 fd 并用
   `readlink(/proc/self/fd/N)` 找 dmabuf，不能把 fd 1 写死。
+  其中跨进程 fd 传递与 **buffer** 导入/GPU 访问已由 **evidence 50** 补齐；image 导入仍未完成。
 - **UNKNOWN / 未验证**：把同一块 AHB 通过 `ANativeWindow_queueBuffer` 交给 SurfaceFlinger、
   渲染完成 fence 和实际窗口显示尚未做。
 

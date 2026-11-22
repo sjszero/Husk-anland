@@ -11,6 +11,7 @@ use core::ffi::{c_char, c_int, c_void};
 use std::ffi::CString;
 use std::ptr;
 
+mod dmabuf;
 mod graphics;
 
 type VkResult = i32;
@@ -1376,6 +1377,15 @@ unsafe fn run() -> i32 {
     };
     line("symbols", "PASS", "core entrypoints resolved");
 
+    let ahb_socket = dmabuf::socket_arg();
+    let instance_ext_names = if ahb_socket.is_some() {
+        vec![CString::new("VK_KHR_external_memory_capabilities").unwrap()]
+    } else {
+        Vec::new()
+    };
+    let instance_ext_ptrs: Vec<*const c_char> =
+        instance_ext_names.iter().map(|s| s.as_ptr()).collect();
+
     let app_name = CString::new("husk-vulkan-probe").unwrap();
     let engine_name = CString::new("husk").unwrap();
     let app = VkApplicationInfo {
@@ -1394,8 +1404,8 @@ unsafe fn run() -> i32 {
         p_application_info: &app,
         enabled_layer_count: 0,
         pp_enabled_layer_names: ptr::null(),
-        enabled_extension_count: 0,
-        pp_enabled_extension_names: ptr::null(),
+        enabled_extension_count: instance_ext_ptrs.len() as u32,
+        pp_enabled_extension_names: instance_ext_ptrs.as_ptr(),
     };
     let mut instance: VkInstance = ptr::null_mut();
     let r = create_instance(&instance_info, ptr::null(), &mut instance);
@@ -1482,6 +1492,16 @@ unsafe fn run() -> i32 {
     );
 
     let priority: f32 = 1.0;
+    let device_ext_names = if ahb_socket.is_some() {
+        vec![
+            CString::new("VK_KHR_external_memory").unwrap(),
+            CString::new("VK_KHR_external_memory_fd").unwrap(),
+            CString::new("VK_EXT_external_memory_dma_buf").unwrap(),
+        ]
+    } else {
+        Vec::new()
+    };
+    let device_ext_ptrs: Vec<*const c_char> = device_ext_names.iter().map(|s| s.as_ptr()).collect();
     let queue_info = VkDeviceQueueCreateInfo {
         s_type: VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
         p_next: ptr::null(),
@@ -1498,8 +1518,8 @@ unsafe fn run() -> i32 {
         p_queue_create_infos: &queue_info,
         enabled_layer_count: 0,
         pp_enabled_layer_names: ptr::null(),
-        enabled_extension_count: 0,
-        pp_enabled_extension_names: ptr::null(),
+        enabled_extension_count: device_ext_ptrs.len() as u32,
+        pp_enabled_extension_names: device_ext_ptrs.as_ptr(),
         p_enabled_features: ptr::null(),
     };
     let mut device: VkDevice = ptr::null_mut();
@@ -1629,6 +1649,10 @@ unsafe fn run() -> i32 {
 
     let compute_ok = map_ok && submit_compute(lib, device, queue, family_index, buffer, memory);
     let graphics_ok = compute_ok && graphics::run_graphics(lib, dev, device, queue, family_index);
+    let dmabuf_ok = match ahb_socket.as_deref() {
+        Some(path) => dmabuf::run(lib, dev, device, queue, family_index, path),
+        None => true,
+    };
 
     free_memory(device, memory, ptr::null());
     destroy_buffer(device, buffer, ptr::null());
@@ -1636,7 +1660,7 @@ unsafe fn run() -> i32 {
     destroy_instance(instance, ptr::null());
     dlclose(lib);
     line("teardown", "PASS", "device/instance/loader released");
-    if compute_ok && graphics_ok {
+    if compute_ok && graphics_ok && dmabuf_ok {
         0
     } else {
         1
