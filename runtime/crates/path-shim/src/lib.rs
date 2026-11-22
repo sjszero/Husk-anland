@@ -745,6 +745,8 @@ pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mo
         if rfd >= 0 {
             let mut gp = [0u8; PATH_MAX];
             let n = match abs_guest(path, &mut gp) { Some(n) => n, None => PATH_MAX };
+            // DRM 假节点：先于 passthrough 判断，否则 /dev/* 会直接落到宿主上 ENOENT
+            if is_drm_node(&gp[..n]) { return drm_fake_open(); }
             if passthrough(&gp[..n]) {
                 return ret_or_errno(syscall4(SYS_OPENAT, AT_FDCWD as usize, gp.as_ptr() as usize, flags as usize, mode as usize));
             }
@@ -757,6 +759,12 @@ pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mo
     }
     let mut buf = [0u8; PATH_MAX];
     if abs_guest(path, &mut buf).is_none() { return set_errno(36); }
+    let bl = {
+        let mut i = 0;
+        while i < PATH_MAX && buf[i] != 0 { i += 1; }
+        i
+    };
+    if is_drm_node(&buf[..bl]) { return drm_fake_open(); }
     ret_or_errno(syscall4(SYS_OPENAT, dirfd as usize, buf.as_ptr() as usize, flags as usize, mode as usize))
 }
 
@@ -2769,4 +2777,147 @@ pub unsafe extern "C" fn getgrnam(name: *const CChar) -> *mut Group {
     let buf = core::ptr::addr_of_mut!(ID_RES) as *mut u8;
     let cap = core::mem::size_of::<[u8; 512]>();
     if gr_lookup(0, None, Some(bytes(name)), buf, cap, out) == 0 { out } else { core::ptr::null_mut() }
+}
+
+// ---------------------------------------------------------------------------
+// DRM（panfrost）假节点：把 Mesa 的 DRM 语义接到 /dev/mali0 的 kbase 上。
+//
+// 设计见 docs/design/gpu-drm-shim.md；语义已在 evidence 43 上机验过。
+// 这里的三个钩子：
+//   open("/dev/dri/renderD128") -> 一个假 fd（真的 /dev/null），登记在 FAKE_FDS 里
+//   ioctl(fake_fd, PANFROST_*)   -> drm_shim::DrmCtx::dispatch
+//   mmap(fake_fd, off=GPU VA)    -> 转到 mali0 fd 上真映射（prot 由 BO 的 kbase flags 决定）
+// 其余 fd 一律原样走 syscall，不改任何行为。
+// ---------------------------------------------------------------------------
+const SYS_IOCTL: usize = 29;
+const SYS_MMAP: usize = 222;
+
+static mut DRM_CTX: drm_shim::DrmCtx = drm_shim::DrmCtx::empty();
+static mut DRM_MALI_FD: CInt = -1;
+static mut FAKE_FDS: [CInt; 8] = [-1; 8];
+
+unsafe fn syscall6(n: usize, a: usize, b: usize, c: usize, d: usize, e: usize, f: usize) -> Ssize {
+    let ret: Ssize;
+    core::arch::asm!("svc 0", in("x8") n, in("x0") a, in("x1") b, in("x2") c, in("x3") d,
+        in("x4") e, in("x5") f, lateout("x0") ret, options(nostack));
+    ret
+}
+
+fn is_drm_node(p: &[u8]) -> bool {
+    p == b"/dev/dri/renderD128" || p == b"/dev/dri/card0"
+}
+
+unsafe fn is_fake_fd(fd: CInt) -> bool {
+    let mut i = 0;
+    while i < FAKE_FDS.len() {
+        if FAKE_FDS[i] == fd && fd >= 0 { return true; }
+        i += 1;
+    }
+    false
+}
+
+unsafe fn register_fake_fd(fd: CInt) {
+    let mut i = 0;
+    while i < FAKE_FDS.len() {
+        if FAKE_FDS[i] < 0 { FAKE_FDS[i] = fd; return; }
+        i += 1;
+    }
+}
+
+/// 假节点打开：懒初始化 kbase context，然后给调用方一个真 fd（/dev/null），
+/// 这样 close/poll/dup 都不会炸；对它的 ioctl/mmap 都进我们这里。
+unsafe fn drm_fake_open() -> CInt {
+    if DRM_MALI_FD < 0 {
+        let fd = syscall4(
+            SYS_OPENAT,
+            AT_FDCWD as usize,
+            b"/dev/mali0\0".as_ptr() as usize,
+            2, // O_RDWR
+            0,
+        );
+        if fd < 0 {
+            return set_errno(2);
+        }
+        DRM_MALI_FD = fd as CInt;
+        let _ = DRM_CTX.init(DRM_MALI_FD, |f, req, arg| {
+            syscall4(SYS_IOCTL, f as usize, req as usize, arg as usize, 0) as i64
+        });
+    }
+    let fd = syscall4(
+        SYS_OPENAT,
+        AT_FDCWD as usize,
+        b"/dev/null\0".as_ptr() as usize,
+        2,
+        0,
+    );
+    if fd < 0 {
+        return set_errno(5);
+    }
+    register_fake_fd(fd as CInt);
+    fd as CInt
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn ioctl(fd: CInt, request: u64, arg: *mut u8) -> CInt {
+    if is_fake_fd(fd) {
+        let r = DRM_CTX.dispatch(
+            |f, req, a| syscall4(SYS_IOCTL, f as usize, req as usize, a as usize, 0) as i64,
+            request,
+            arg,
+        );
+        if r < 0 {
+            return set_errno((-r) as CInt);
+        }
+        return 0;
+    }
+    ret_or_errno(syscall4(SYS_IOCTL, fd as usize, request as usize, arg as usize, 0))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mmap(
+    addr: *mut u8,
+    len: usize,
+    prot: CInt,
+    flags: CInt,
+    fd: CInt,
+    off: i64,
+) -> *mut u8 {
+    let r = if is_fake_fd(fd) && DRM_MALI_FD >= 0 {
+        // DRM 的 offset 就是 BO 的 GPU VA；kbase 要求 prot == 分配 flags 的低两位。
+        syscall6(
+            SYS_MMAP,
+            addr as usize,
+            len,
+            prot as usize,
+            flags as usize,
+            DRM_MALI_FD as usize,
+            off as usize,
+        )
+    } else {
+        syscall6(
+            SYS_MMAP,
+            addr as usize,
+            len,
+            prot as usize,
+            flags as usize,
+            fd as usize,
+            off as usize,
+        )
+    };
+    if r < 0 && r > -4096 {
+        return set_errno_ptr((-r) as CInt, core::ptr::null_mut()) as *mut u8;
+    }
+    r as *mut u8
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mmap64(
+    addr: *mut u8,
+    len: usize,
+    prot: CInt,
+    flags: CInt,
+    fd: CInt,
+    off: i64,
+) -> *mut u8 {
+    mmap(addr, len, prot, flags, fd, off)
 }

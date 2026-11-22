@@ -1,6 +1,6 @@
 # GPU：把 Mesa panfrost 接到 kbase 上（DRM 语义层）
 
-> 状态：设计定稿；**M1（DRM BO == kbase 显存）已实测通过**（[evidence 43](evidence/43-drm-bo-semantics.md)），M2 的参数来源也已实测通过（[evidence 42](evidence/42-gpuprops-feeds-panfrost.md)）。
+> 状态：**M1 完成**——假 `/dev/dri/renderD128` 已生效，只懂 DRM 的程序能 alloc/mmap/读写显存（[evidence 44](evidence/44-fake-renderd128-interpose.md)）；M2 的参数来源已实测（[evidence 42](evidence/42-gpuprops-feeds-panfrost.md)）。
 > 依据：[evidence 41](evidence/41-csf-dead-import-only-panfrost.md)、[evidence 36](evidence/36-gpu-route-reality-check.md)。
 
 ## 0. 一句话
@@ -76,7 +76,7 @@ kbase 自己分配的 BO（渲染中间缓冲）走 CPU 拷贝回 app，这一�
 
 | # | 目标 | 判据 |
 |---|---|---|
-| M1 | DRM BO 语义 → kbase 显存 | ✅ 已过：`selfcheck` CREATE_BO→VA 0x41000→mmap 写读一致（evidence 43）。剩 interpose 接线 |
+| M1 | 假 `renderD128` + `CREATE_BO`/`MMAP_BO` 通 | ✅ 已过：`drmfake` 走 libc 的 open/ioctl/mmap 全 PASS（evidence 44） |
 | M2 | `GET_PARAM` 全表答得出 | Mesa 日志里 panfrost probe 通过，不再 fallback 到 swrast |
 | M3 | `SUBMIT` 出 START | kinstr 记录里出现 `state=START(1)`（第一次证明我们的 atom 真的进了硬件槽） |
 | M4 | 画一帧 | panfrost 跑 `kmscube`/`glmark` 的最小场景，CPU 回读像素非空 |

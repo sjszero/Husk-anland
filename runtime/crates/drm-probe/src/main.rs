@@ -122,16 +122,20 @@ fn selfcheck() {
         Err(e) => { line("selfcheck/open", "FAIL", format!("errno={}", e.raw_os_error().unwrap_or(0))); return; }
     };
     let fd = f.as_raw_fd();
-    let mut ctx = match drm_shim::DrmCtx::new(fd) {
-        Ok(c) => c,
-        Err(e) => { line("selfcheck/ctx", "FAIL", format!("errno={e}")); return; }
+    let raw = |f: i32, req: u64, arg: *mut u8| -> i64 {
+        unsafe { ioctl(f, req, arg as *mut core::ffi::c_void) as i64 }
     };
+    let mut ctx = drm_shim::DrmCtx::empty();
+    if let Err(e) = ctx.init(fd, raw) {
+        line("selfcheck/ctx", "FAIL", format!("errno={e}"));
+        return;
+    }
     line("selfcheck/ctx", "PASS", format!("props={} GET_PARAM 可用", ctx.props.len()));
 
     // --- CREATE_BO(size=4096) ---
     let mut arg = [0u8; 24];
     arg[0..4].copy_from_slice(&4096u32.to_le_bytes());
-    let r = unsafe { ctx.dispatch(drm_shim::DRM_IOCTL_PANFROST_CREATE_BO, arg.as_mut_ptr()) };
+    let r = unsafe { ctx.dispatch(raw, drm_shim::DRM_IOCTL_PANFROST_CREATE_BO, arg.as_mut_ptr()) };
     if r < 0 { line("selfcheck/create_bo", "FAIL", format!("ret={r}")); return; }
     let handle = u32::from_le_bytes([arg[8], arg[9], arg[10], arg[11]]);
     let mut va = [0u8; 8];
@@ -142,7 +146,7 @@ fn selfcheck() {
     // --- MMAP_BO(handle) ---
     let mut mb = [0u8; 16];
     mb[0..4].copy_from_slice(&handle.to_le_bytes());
-    let r = unsafe { ctx.dispatch(drm_shim::DRM_IOCTL_PANFROST_MMAP_BO, mb.as_mut_ptr()) };
+    let r = unsafe { ctx.dispatch(raw, drm_shim::DRM_IOCTL_PANFROST_MMAP_BO, mb.as_mut_ptr()) };
     if r < 0 { line("selfcheck/mmap_bo", "FAIL", format!("ret={r}")); return; }
     let mut off = [0u8; 8];
     off.copy_from_slice(&mb[8..16]);
@@ -171,7 +175,7 @@ fn selfcheck() {
     for (n, name) in [(0u32, "GPU_PROD_ID"), (7, "JS_PRESENT"), (14, "MAX_THREADS")] {
         let mut gp = [0u8; 16];
         gp[0..4].copy_from_slice(&n.to_le_bytes());
-        let r = unsafe { ctx.dispatch(drm_shim::DRM_IOCTL_PANFROST_GET_PARAM, gp.as_mut_ptr()) };
+        let r = unsafe { ctx.dispatch(raw, drm_shim::DRM_IOCTL_PANFROST_GET_PARAM, gp.as_mut_ptr()) };
         let mut v = [0u8; 8];
         v.copy_from_slice(&gp[8..16]);
         let v = u64::from_le_bytes(v);
@@ -185,7 +189,7 @@ fn selfcheck() {
     // --- GET_BO_OFFSET 一致性 ---
     let mut gb = [0u8; 16];
     gb[0..4].copy_from_slice(&handle.to_le_bytes());
-    let r = unsafe { ctx.dispatch(drm_shim::DRM_IOCTL_PANFROST_GET_BO_OFFSET, gb.as_mut_ptr()) };
+    let r = unsafe { ctx.dispatch(raw, drm_shim::DRM_IOCTL_PANFROST_GET_BO_OFFSET, gb.as_mut_ptr()) };
     let mut o2 = [0u8; 8];
     o2.copy_from_slice(&gb[8..16]);
     let o2 = u64::from_le_bytes(o2);

@@ -42,6 +42,7 @@ version = "0.1.0"
 name = "path-shim"
 version = "0.1.0"
 dependencies = [
+ "drm-shim",
  "runtime-core",
 ]
 

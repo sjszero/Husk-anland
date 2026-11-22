@@ -10,3 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 drm-shim = { path = "../drm-shim" }
+
+[[bin]]
+name = "drmfake"
+path = "src/bin/drmfake.rs"

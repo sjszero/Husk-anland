@@ -1,24 +1,17 @@
-//! drm-shim — 把 DRM（panfrost）语义翻译成 kbase。
+//! drm-shim — 把 DRM（panfrost）语义翻译成 kbase。**no_std**：要能编进 path-shim 的 loader。
 //!
-//! 这一层最终挂在 path-shim 里：guest 打开 `/dev/dri/renderD128` 时给它一个假 fd，
-//! 这个 fd 上的 `ioctl` / `mmap` 都进到这里。现在先用同进程自测把语义跑通，
-//! 再接进 interpose（见 docs/design/gpu-drm-shim.md）。
+//! 最终形态：guest 打开 `/dev/dri/renderD128` 时 path-shim 给它一个假 fd，
+//! 这个 fd 上的 `ioctl` / `mmap` 都进到这里。
 //!
-//! 关键事实（evidence 41/42）：
-//! - `/dev/mali0` 只有 kbase ioctl；UAPI 11.38；GET_GPUPROPS = `0x40108003`（_IOW）。
-//! - kbase 没有 export，只有 MEM_IMPORT，所以渲染中间缓冲只能 CPU 拷回。
-//! - 完成信号只能看 KINSTR（`0xc0088033`）的 START/COMPLETE。
+//! 事实依据（evidence 41/42/43）：
+//! - `/dev/mali0` 只有 kbase ioctl；UAPI 11.38；`GET_GPUPROPS = 0x40108003`（_IOW）。
+//! - kbase 没有 export，只有 MEM_IMPORT → 中间缓冲只能 CPU 拷回。
+//! - 完成信号只能看 KINSTR（`0xc0088033`）的 START / COMPLETE。
 
-use std::collections::HashMap;
+#![no_std]
 
-extern "C" {
-    fn ioctl(fd: i32, request: u64, ...) -> i32;
-    fn __errno_location() -> *mut i32;
-}
-
-fn errno() -> i32 {
-    unsafe { *__errno_location() }
-}
+pub const MAX_PROPS: usize = 192;
+pub const MAX_BOS: usize = 256;
 
 const _IOC_WRITE: u64 = 1;
 const _IOC_READ: u64 = 2;
@@ -56,7 +49,7 @@ pub const PANFROST_BO_NOEXEC: u32 = 1;
 pub const PANFROST_BO_HEAP: u32 = 2;
 pub const PANFROST_BO_COHERENT: u32 = 4;
 
-// kbase gpuprops id（用到的几个）
+// kbase gpuprops id
 pub const KB_PRODUCT_ID: u32 = 1;
 pub const KB_MINOR_REVISION: u32 = 3;
 pub const KB_MAJOR_REVISION: u32 = 4;
@@ -76,43 +69,110 @@ pub const KB_RAW_TEXTURE_FEATURES_0: u32 = 52;
 pub const KB_RAW_THREAD_FEATURES: u32 = 59;
 pub const KB_RAW_COHERENCY_MODE: u32 = 60;
 
-/// 一块 kbase 显存（对我们来说就是一块 BO）
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct Bo {
+    pub handle: u32,
     pub va: u64,
     pub bytes: u64,
     pub kbase_flags: u64,
 }
 
+/// 硬件参数表（固定容量，无分配）
+pub struct Props {
+    ids: [u32; MAX_PROPS],
+    vals: [u64; MAX_PROPS],
+    n: usize,
+}
+
+impl Props {
+    pub const fn new() -> Self {
+        Props { ids: [0; MAX_PROPS], vals: [0; MAX_PROPS], n: 0 }
+    }
+    pub fn len(&self) -> usize {
+        self.n
+    }
+    pub fn is_empty(&self) -> bool {
+        self.n == 0
+    }
+    pub fn get(&self, id: u32) -> Option<u64> {
+        let mut i = 0;
+        while i < self.n {
+            if self.ids[i] == id {
+                return Some(self.vals[i]);
+            }
+            i += 1;
+        }
+        None
+    }
+    fn set(&mut self, id: u32, v: u64) {
+        let mut i = 0;
+        while i < self.n {
+            if self.ids[i] == id {
+                self.vals[i] = v;
+                return;
+            }
+            i += 1;
+        }
+        if self.n < MAX_PROPS {
+            self.ids[self.n] = id;
+            self.vals[self.n] = v;
+            self.n += 1;
+        }
+    }
+}
+
+/// DRM 侧的上下文：一个 kbase context + 参数表 + BO 表
 pub struct DrmCtx {
     pub kfd: i32,
-    pub props: HashMap<u32, u64>,
-    pub bos: HashMap<u32, Bo>,
+    pub props: Props,
+    bos: [Bo; MAX_BOS],
+    n_bos: usize,
     next_handle: u32,
+    pub ready: bool,
 }
 
 impl DrmCtx {
-    /// 建 kbase context（VERSION_CHECK + SET_FLAGS）并抓一遍硬件参数。
-    pub fn new(kfd: i32) -> Result<Self, i32> {
-        let mut ver: [u16; 2] = [11, 38];
-        let r = unsafe { ioctl(kfd, KBASE_VERSION_CHECK, ver.as_mut_ptr() as *mut core::ffi::c_void) };
-        if r < 0 {
-            return Err(errno());
+    pub const fn empty() -> Self {
+        DrmCtx {
+            kfd: -1,
+            props: Props::new(),
+            bos: [Bo { handle: 0, va: 0, bytes: 0, kbase_flags: 0 }; MAX_BOS],
+            n_bos: 0,
+            next_handle: 1,
+            ready: false,
         }
-        let mut flags: u32 = 0;
-        let r = unsafe { ioctl(kfd, KBASE_SET_FLAGS, &mut flags as *mut u32 as *mut core::ffi::c_void) };
-        if r < 0 {
-            return Err(errno());
-        }
-        let mut ctx = DrmCtx { kfd, props: HashMap::new(), bos: HashMap::new(), next_handle: 1 };
-        ctx.load_props();
-        Ok(ctx)
     }
 
-    fn load_props(&mut self) {
-        let mut buf = vec![0u8; 8192];
+    pub fn bo_count(&self) -> usize {
+        self.n_bos
+    }
+
+    /// 建 kbase context 并抓一次硬件参数。`ioctl_fn` 是调用方的 ioctl 原语
+    /// （path-shim 里是裸 syscall，测试里是 libc::ioctl），这样本 crate 不需要链接任何东西。
+    pub fn init<F>(&mut self, kfd: i32, mut ioctl_fn: F) -> Result<(), i32>
+    where
+        F: FnMut(i32, u64, *mut u8) -> i64,
+    {
+        let mut ver = [11u8, 0, 38u8, 0];
+        let r = ioctl_fn(kfd, KBASE_VERSION_CHECK, ver.as_mut_ptr());
+        if r < 0 {
+            return Err(r as i32);
+        }
+        let mut flags = [0u8; 4];
+        let r = ioctl_fn(kfd, KBASE_SET_FLAGS, flags.as_mut_ptr());
+        if r < 0 {
+            return Err(r as i32);
+        }
+        self.kfd = kfd;
+        self.load_props(&mut ioctl_fn);
+        self.ready = true;
+        Ok(())
+    }
+
+    fn load_props<F: FnMut(i32, u64, *mut u8) -> i64>(&mut self, ioctl_fn: &mut F) {
+        let mut buf = [0u8; 4096];
         let mut args: [u64; 2] = [buf.as_mut_ptr() as u64, buf.len() as u64];
-        let r = unsafe { ioctl(self.kfd, KBASE_GET_GPUPROPS, &mut args as *mut [u64; 2] as *mut core::ffi::c_void) };
+        let r = ioctl_fn(self.kfd, KBASE_GET_GPUPROPS, args.as_mut_ptr() as *mut u8);
         if r <= 0 {
             return;
         }
@@ -127,35 +187,51 @@ impl DrmCtx {
                 break;
             }
             let mut v = 0u64;
-            for k in 0..sz {
+            let mut k = 0;
+            while k < sz {
                 v |= (buf[i + k] as u64) << (8 * k);
+                k += 1;
             }
             i += sz;
-            self.props.insert(id, v);
+            self.props.set(id, v);
         }
     }
 
     pub fn prop(&self, id: u32) -> Option<u64> {
-        self.props.get(&id).copied()
+        self.props.get(id)
     }
 
-    /// kbase mem_alloc。返回 (gpu_va, va_pages)。
-    pub fn mem_alloc(&self, pages: u64, flags: u64) -> Result<(u64, u64), i32> {
+    pub fn mem_alloc<F: FnMut(i32, u64, *mut u8) -> i64>(
+        &self,
+        mut ioctl_fn: F,
+        pages: u64,
+        flags: u64,
+    ) -> Result<u64, i32> {
         let mut a: [u64; 5] = [pages, pages, 0, flags, 0];
-        let r = unsafe { ioctl(self.kfd, KBASE_MEM_ALLOC, a.as_mut_ptr() as *mut core::ffi::c_void) };
+        let r = ioctl_fn(self.kfd, KBASE_MEM_ALLOC, a.as_mut_ptr() as *mut u8);
         if r < 0 {
-            return Err(errno());
+            return Err(r as i32);
         }
-        Ok((a[1], a[2])) // out: flags, gpu_va, va_pages
+        Ok(a[1]) // gpu_va
     }
 
-    /// panfrost `DRM_PANFROST_PARAM_*` → 值
+    pub fn bo(&self, handle: u32) -> Option<&Bo> {
+        let mut i = 0;
+        while i < self.n_bos {
+            if self.bos[i].handle == handle {
+                return Some(&self.bos[i]);
+            }
+            i += 1;
+        }
+        None
+    }
+
     pub fn get_param(&self, param: u32) -> Option<u64> {
         match param {
             0 => self.prop(KB_PRODUCT_ID).or_else(|| self.prop(55)),
-            1 => self.prop(KB_MAJOR_REVISION).map(|ma| {
-                (ma << 16) | self.prop(KB_MINOR_REVISION).unwrap_or(0)
-            }),
+            1 => self
+                .prop(KB_MAJOR_REVISION)
+                .map(|ma| (ma << 16) | self.prop(KB_MINOR_REVISION).unwrap_or(0)),
             2 => self.prop(KB_RAW_SHADER_PRESENT),
             3 => self.prop(KB_RAW_TILER_PRESENT),
             4 => self.prop(KB_RAW_L2_PRESENT),
@@ -179,63 +255,56 @@ impl DrmCtx {
             22..=37 => self.prop(KB_RAW_JS_FEATURES_0 + (param - 22)),
             38 => self.prop(62),
             40 => self.prop(83),
-            41 => None, // AFBC_FEATURES: 待定
-            43 => None, // SYSTEM_TIMESTAMP: 走 clock_gettime
             _ => None,
         }
     }
 
-    /// DRM ioctl 分发。`arg` 指向 guest 传进来的结构体；成功返回 0，失败返回 `-errno`。
+    /// DRM ioctl 分发。返回 0 或 `-errno`。
     ///
     /// # Safety
-    /// `arg` 必须指向至少与对应 ioctl 结构体等长的可读写内存。
-    pub unsafe fn dispatch(&mut self, request: u64, arg: *mut u8) -> i64 {
+    /// `arg` 指向至少与对应结构体等长的可读写内存。
+    pub unsafe fn dispatch<F: FnMut(i32, u64, *mut u8) -> i64>(
+        &mut self,
+        mut ioctl_fn: F,
+        request: u64,
+        arg: *mut u8,
+    ) -> i64 {
         match request {
-            // CREATE_BO: {u32 size; u32 flags; u32 handle; u32 pad; u64 offset}
             DRM_IOCTL_PANFROST_CREATE_BO => {
                 let size = u32::from_le_bytes([*arg, *arg.add(1), *arg.add(2), *arg.add(3)]) as u64;
                 let dflags = u32::from_le_bytes([*arg.add(4), *arg.add(5), *arg.add(6), *arg.add(7)]);
-                let pages = (size.max(4096) + 4095) / 4096;
-                // DRM 语义 → kbase 语义：默认给可 CPU 映射的 uncached 内存（0xf）
-                let mut kb = 0xf;
+                let pages = if size == 0 { 1 } else { (size + 4095) / 4096 };
+                let mut kb = 0xf; // CPU 可映射、非缓存
                 if dflags & PANFROST_BO_COHERENT != 0 {
                     kb |= 0x40; // BASE_MEM_COHERENT_SYSTEM
                 }
-                let (va, _pages) = match self.mem_alloc(pages, kb) {
+                let va = match self.mem_alloc(&mut ioctl_fn, pages, kb) {
                     Ok(v) => v,
-                    Err(e) => return -(e as i64),
+                    Err(e) => return e as i64,
                 };
+                if self.n_bos >= MAX_BOS {
+                    return -12; // -ENOMEM
+                }
                 let handle = self.next_handle;
                 self.next_handle += 1;
-                self.bos.insert(handle, Bo { va, bytes: pages * 4096, kbase_flags: kb });
-                core::ptr::copy_nonoverlapping(handle.to_le_bytes().as_ptr(), arg.add(8), 4); // out.handle
-                core::ptr::copy_nonoverlapping(0u32.to_le_bytes().as_ptr(), arg.add(12), 4); // pad
-                core::ptr::copy_nonoverlapping(va.to_le_bytes().as_ptr(), arg.add(16), 8); // out.offset == GPU VA
+                self.bos[self.n_bos] = Bo { handle, va, bytes: pages * 4096, kbase_flags: kb };
+                self.n_bos += 1;
+                core::ptr::copy_nonoverlapping(handle.to_le_bytes().as_ptr(), arg.add(8), 4);
+                core::ptr::copy_nonoverlapping(0u32.to_le_bytes().as_ptr(), arg.add(12), 4);
+                core::ptr::copy_nonoverlapping(va.to_le_bytes().as_ptr(), arg.add(16), 8);
                 0
             }
-            // MMAP_BO: {u32 handle; u32 flags; u64 offset} → 只回 offset，真 mmap 由 mmap 钩子做
-            DRM_IOCTL_PANFROST_MMAP_BO => {
+            DRM_IOCTL_PANFROST_MMAP_BO | DRM_IOCTL_PANFROST_GET_BO_OFFSET => {
                 let handle = u32::from_le_bytes([*arg, *arg.add(1), *arg.add(2), *arg.add(3)]);
-                match self.bos.get(&handle) {
+                match self.bo(handle) {
                     Some(bo) => {
-                        core::ptr::copy_nonoverlapping(bo.va.to_le_bytes().as_ptr(), arg.add(8), 8);
+                        let va = bo.va;
+                        core::ptr::copy_nonoverlapping(va.to_le_bytes().as_ptr(), arg.add(8), 8);
                         0
                     }
-                    None => -22,
+                    None => -22, // -EINVAL
                 }
             }
-            // GET_BO_OFFSET: {u32 handle; u32 pad; u64 offset}
-            DRM_IOCTL_PANFROST_GET_BO_OFFSET => {
-                let handle = u32::from_le_bytes([*arg, *arg.add(1), *arg.add(2), *arg.add(3)]);
-                match self.bos.get(&handle) {
-                    Some(bo) => {
-                        core::ptr::copy_nonoverlapping(bo.va.to_le_bytes().as_ptr(), arg.add(8), 8);
-                        0
-                    }
-                    None => -22,
-                }
-            }
-            // GET_PARAM: {u32 param; u32 pad; u64 value}
             DRM_IOCTL_PANFROST_GET_PARAM => {
                 let param = u32::from_le_bytes([*arg, *arg.add(1), *arg.add(2), *arg.add(3)]);
                 match self.get_param(param) {
@@ -246,34 +315,29 @@ impl DrmCtx {
                     None => -22,
                 }
             }
-            // SUBMIT: {u64 jc; u64 in_syncs; u32 in_sync_count; u32 out_sync; u64 bo_handles; …}
             DRM_IOCTL_PANFROST_SUBMIT => {
                 let mut jc = [0u8; 8];
                 jc.copy_from_slice(core::slice::from_raw_parts(arg, 8));
                 let jc = u64::from_le_bytes(jc);
                 let req = u32::from_le_bytes([*arg.add(36), *arg.add(37), *arg.add(38), *arg.add(39)]);
-                // requirements: PANFROST_JD_REQ_FS(1)=3D, 否则 compute→CS(2)
                 let core_req: u32 = if req & 1 != 0 { 0x1 } else { 0x2 };
                 let atom = build_atom(jc, core_req);
-                let mut js = [atom.as_ptr() as u64, 1u64, 72u64, 0u64];
-                let r = ioctl(self.kfd, KBASE_JOB_SUBMIT, js.as_mut_ptr() as *mut core::ffi::c_void);
+                let mut js: [u64; 3] = [atom.as_ptr() as u64, 1, 72];
+                let r = ioctl_fn(self.kfd, KBASE_JOB_SUBMIT, js.as_mut_ptr() as *mut u8);
                 if r < 0 {
-                    return -(errno() as i64);
+                    return r;
                 }
                 0
             }
-            // 簿记类：MADVISE / SET_LABEL_BO / SYNC_BO / QUERY_BO_INFO / JM_CTX_*
             DRM_IOCTL_PANFROST_MADVISE
             | DRM_IOCTL_PANFROST_SET_LABEL_BO
             | DRM_IOCTL_PANFROST_SYNC_BO
             | DRM_IOCTL_PANFROST_JM_CTX_CREATE
-            | DRM_IOCTL_PANFROST_JM_CTX_DESTROY => 0,
-            // WAIT_BO：完成信号要靠 KINSTR 记录，这里先直接放行（M3 再补真实等待）
-            DRM_IOCTL_PANFROST_WAIT_BO => 0,
-            // QUERY_BO_INFO: {u32 handle; u32 pad; ...} 先把 handle 原样回写
+            | DRM_IOCTL_PANFROST_JM_CTX_DESTROY
+            | DRM_IOCTL_PANFROST_WAIT_BO => 0,
             DRM_IOCTL_PANFROST_QUERY_BO_INFO => {
                 let handle = u32::from_le_bytes([*arg, *arg.add(1), *arg.add(2), *arg.add(3)]);
-                if self.bos.contains_key(&handle) { 0 } else { -22 }
+                if self.bo(handle).is_some() { 0 } else { -22 }
             }
             _ => -38, // -ENOSYS
         }
@@ -281,10 +345,10 @@ impl DrmCtx {
 }
 
 /// r32p1 的 `base_jd_atom_v2`（72 字节，evidence 41）
-fn build_atom(jc: u64, core_req: u32) -> [u8; 72] {
+pub fn build_atom(jc: u64, core_req: u32) -> [u8; 72] {
     let mut a = [0u8; 72];
-    a[0..8].copy_from_slice(&jc.to_le_bytes()); // jc
+    a[0..8].copy_from_slice(&jc.to_le_bytes());
     a[0x2c..0x2e].copy_from_slice(&1u16.to_le_bytes()); // atom_number
-    a[0x34..0x38].copy_from_slice(&core_req.to_le_bytes()); // core_req
+    a[0x34..0x38].copy_from_slice(&core_req.to_le_bytes());
     a
 }

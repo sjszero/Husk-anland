@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 runtime-core = { path = "../runtime-core" }
+drm-shim = { path = "../drm-shim" }
 
 [lib]
 crate-type = ["cdylib"]
