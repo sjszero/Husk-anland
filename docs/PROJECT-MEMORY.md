@@ -46,8 +46,9 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
   10 分钟长稳通过（600s / 11360 次 fork-exec / 零僵尸）。
 - 页大小：`nr-tools check-elf` 可做 4K/16K/64K 静态同余体检；当前 loader 的追加段通过，
   但 `libhuskapp.so` 的 64K 同余失败，16K/64K 内核实机运行仍是 **UNKNOWN**，不能写成整机页大小无关。
-- 路径边界：fd 泄漏、超长路径、最终 symlink TOCTOU、AArch64 `O_NOFOLLOW` 和
-  `faccessat(AT_SYMLINK_NOFOLLOW)` 已在当前 4K 设备验证；GNU Hash 完整映射校验与 GOT 失败注入仍是 **UNKNOWN**。
+- 路径边界：fd 泄漏、超长路径、open/stat/access 的最终 symlink 路径、AArch64 `O_NOFOLLOW` 和
+  `faccessat(AT_SYMLINK_NOFOLLOW)` 已在当前 4K 设备验证；`chmod`/`chown`/`utimensat` 等
+  follow-final `pathop` 的竞态面仍待收口；GNU Hash 完整映射校验与 GOT 失败注入仍是 **UNKNOWN**。
 - 2.0 的 Ubuntu 24.04 rootfs 能起 GNOME Shell 46、mutter、gjs、dbus、Xwayland。
 - guest 进程能打开 `/dev/mali0`，kbase UAPI 11.38 可建上下文；
   `VERSION_CHECK` / `SET_FLAGS` / `MEM_ALLOC` / `mmap`（CPU 读写显存）已验证。

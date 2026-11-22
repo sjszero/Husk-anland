@@ -13,7 +13,7 @@ default.
 
 | Audit item | Current verdict |
 |---|---|
-| Final symlink TOCTOU | **Confirmed risk; fixed path**. Final open/stat/access use an `O_NOFOLLOW` object and manual guest-root symlink resolution. Concurrent replacement may still alter the chosen target, but it cannot escape the guest root. |
+| Final symlink TOCTOU | **Confirmed risk; open/stat/access path fixed**. Those three use an `O_NOFOLLOW` object and manual guest-root symlink resolution. Concurrent replacement may still alter the chosen target, but it cannot escape the guest root. Follow-final namespace mutators (`chmod` / `chown` / `utimensat`) are still an open race surface. |
 | Temporary fd leak on errors | **Confirmed defect; fixed and measured** with the 1000-call test. |
 | 512-byte symlink buffer | **Confirmed defect; fixed** to `PATH_MAX` with truncation detection. |
 | Overlength absolute path | **Confirmed defect; fixed**; panic no longer spins. |
@@ -191,6 +191,11 @@ kernels still need the same probe.
   prove every dynamic pointer is inside a mapped object.
 - A deliberate GOT-failure injection has not been run. The code exits before
   guest entry on a reported failure, but that branch is still **UNKNOWN**.
+- `pathop()` callers whose kernel semantics follow the final component
+  (`chmod`, `chown`, `utimensat`, and follow-mode `fchmodat`/`fchownat`) still
+  pass a resolved parent+name to the kernel. A concurrent replacement of that
+  final name is not yet closed with an fd-based operation. This is a remaining
+  containment review item, not a tested escape.
 - Page-size independence remains a static/congruence claim for the loader, not
   a 16 KiB or 64 KiB runtime claim. `libhuskapp.so` still fails the 64 KiB
   congruence check.
