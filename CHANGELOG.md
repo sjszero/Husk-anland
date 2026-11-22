@@ -1,5 +1,18 @@
 # 变更记录
 
+## 2026-11-22 23:20 — 目标 v10：视频补全
+
+- **evidence 39**：把「guest 能不能直连硬解」钉死。`/dev/video0-4` 是 `0660 media:system` 的
+  相机采集节点（不是编解码器），`untrusted_app` 打不开；厂商解码 `.so` 带 bionic DT_NEEDED，
+  glibc guest 内加载不了 → **硬解只能在 bionic 侧调 NDK `AMediaCodec`**。
+- 本机硬解器（取自 `/vendor/etc/media_codecs_c2.xml`）：`c2.mtk.{avc,hevc,vp9,av1}.decoder`
+  及 mpeg4/h263/mpeg2/vc1/heif；厂商自报 1080p 帧率 avc 113–248 / hevc 125–276 / vp9 114–251 fps（未实测）。
+- 目标升到 **v10**：总目标从「GPU / 显示 / 音频」改为「GPU / 显示 / **视频** / 音频」四件同级；
+  第 4 条视频从一句口号扩成可验收规格（独立 socketpair + 共享内存环 → app 内 Rust 解码线程 →
+  MediaCodec → AHardwareBuffer → MEM_IMPORT 回 guest；验收含 1080p30 H.264/HEVC 十分钟不掉帧、
+  硬解 vs 软解 CPU 对比、AV 同步 <40ms、Chromium `<video>`）。
+- 新增 `docs/goal-objective.txt`（粘贴块纯文本版），`docs/GOALS.md` 附三锚点表补 4 行视频事实。
+
 ## 2026-11-22 深夜 — 生命周期收口 + SoC 直连打通第一段
 
 ### 运行时壳（app-rs）

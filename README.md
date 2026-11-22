@@ -5,7 +5,7 @@
 
 它不拦截系统调用，因此性能与原生应用处于同一量级。
 
-> 当前状态：**运行时核心已验证；SoC 直连（GPU / 显示 / 音频）进行中；与 LinuxHub 2.0 的集成尚未开始。**
+> 当前状态：**运行时核心已验证；SoC 直连（GPU / 显示 / 视频 / 音频）进行中；与 LinuxHub 2.0 的集成尚未开始。**
 > 2026-11-22 真机（RMX3357 / Android 13 / kernel 4.19.191 / 4 KiB 页 / 普通应用权限 `untrusted_app`）：
 > shell、常用工具、gcc 13.3 + make 全链路通过；2.0 的完整 Ubuntu 24.04 rootfs 能起 GNOME Shell 46；
 > 生命周期（旋转 / 切后台 / Surface 重建 / 会话不重启）全部实测通过；
@@ -95,7 +95,7 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 ## 7. 当前限制
 
 - **GPU 渲染未通**：命令面与内存已打通，job 的 atom 结构尚未构造（不在"能画一帧"的程度）；
-- **显示 / 音频桥未开始**：dma-buf → Surface、AAudio 通路都还没写；
+- **显示 / 视频 / 音频桥未开始**：dma-buf → Surface、MediaCodec 硬解回传、AAudio 通路都还没写；
 - `execl` 系列函数不生效；`freopen`、`glob`、`nftw`、`dlmopen` 未覆盖；
 - **libc 内部调用**（NSS / locale / `/etc/hosts` / `ld.so.cache`）仍读宿主，槽位方案未实现，
   因此 `apt`/`dpkg`/locale 在完整 rootfs 里尚不可靠；
@@ -145,7 +145,7 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 | `JOB_SUBMIT` | `0x40108002`（W,16）：实测 EINVAL（命令可达，参数被拒），不是 ENOTTY |
 | 显存 | `mem_alloc` + `mmap` 实测可分配并 CPU 读写（`prot` 必须等于 flags 低两位） |
 | 上游 Mesa | 25.2 与 main 均**没有** kbase 后端 → 由 Rust 侧 DRM 语义层补齐 |
-| 显示 / 音频 | 未开始；路线见 [GOALS](docs/GOALS.md) 第 3、4 条 |
+| 显示 / 视频 / 音频 | 未开始；路线见 [GOALS](docs/GOALS.md) 第 3、4、5 条（视频硬解可行性见 [evidence 39](docs/design/evidence/39-video-decode-path.md)） |
 
 细节与原始输出：[evidence 35](docs/design/evidence/35-gpu-ioctl-surface-from-vendor-driver.md)、
 [evidence 36](docs/design/evidence/36-gpu-route-reality-check.md)。
