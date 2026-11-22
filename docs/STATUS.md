@@ -30,6 +30,7 @@
 | 带 shebang 的 guest 脚本（`#!/bin/bash`、`#!/usr/bin/python3`…） | **可用**：shim 的 execve 里做解释器映射 | 34 |
 | guest 直连视频硬解 | **不可行，已关闭**（`/dev/video*` = `0660 media:system` 相机节点；厂商解码 .so 带 bionic DT_NEEDED） | 39 |
 | 本机硬解器与容量 | `c2.mtk.{avc,hevc,vp9,av1}.decoder`；1080p 自报 avc 113–248 / hevc 125–276 fps（未实测） | 39 |
+| 视频路径（设计定稿） | guest 内 Rust VA-API 后端驱动 `husk` → 通道 → app 侧 AMediaCodec；Chromium 与 GStreamer 共用一份后端，不改不重编 | 39 / goals v11 |
 | 内核 kbase 版本（自报） | `K:r32p1-00bet5(GPL)`，与厂商 `libGLES_mali.so` 同代 | 40 |
 | atom 结构 | 72 字节；`stride` 必须 72（56 → EINVAL）；数组确实被 `copy_from_user`（坏指针 → EFAULT） | 40 |
 | timeline fd（`STREAM_CREATE`） | **不能当完成通道**：任何被接受的 submit 都让它 POLLIN，`read()` 返回 EINVAL | 40 |
