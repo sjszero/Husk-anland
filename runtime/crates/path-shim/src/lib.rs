@@ -50,6 +50,7 @@ const PATH_MAX: usize = 4096;
 const AT_FDCWD: CInt = -100;
 const AT_SYMLINK_NOFOLLOW: CInt = 0x100;
 const AT_EMPTY_PATH: CInt = 0x1000;
+const AT_SYMLINK_FOLLOW: CInt = 0x400;
 const O_PATH: CInt = 0o10000000;
 const O_NOFOLLOW: CInt = 0o100000; // AArch64 UAPI
 const O_DIRECTORY: CInt = 0o40000; // AArch64 UAPI, not asm-generic 0o200000
@@ -100,7 +101,10 @@ pub extern "C" fn rust_eh_personality() {}
 
 unsafe fn c_strlen(p: *const CChar) -> usize {
     let mut n = 0;
-    while *p.add(n) != 0 { n += 1; }
+    // Guest pointers are ABI boundaries, not trusted Rust slices. Cap the scan
+    // at PATH_MAX so a missing NUL cannot turn a path call into an unbounded
+    // memory walk. A result of PATH_MAX is rejected by abs_guest() below.
+    while n < PATH_MAX && *p.add(n) != 0 { n += 1; }
     n
 }
 
@@ -813,12 +817,28 @@ unsafe fn under_root(p: &[u8]) -> bool {
     false
 }
 
-unsafe fn passthrough(p: &[u8]) -> bool {
-    for pre in [b"/dev/".as_ref(), b"/proc/".as_ref(), b"/sys/".as_ref()] {
-        if p.len() >= pre.len() && &p[..pre.len()] == pre { return true; }
+unsafe fn pseudo_path(p: &[u8]) -> bool {
+    for root in [b"/dev".as_ref(), b"/proc".as_ref(), b"/sys".as_ref()] {
+        if p == root || (p.len() > root.len() && &p[..root.len()] == root && p[root.len()] == b'/') {
+            return true;
+        }
     }
-    if p == b"/dev" || p == b"/proc" || p == b"/sys" { return true; }
-    under_root(p)
+    false
+}
+
+/// Lexically reject the procfs magic links that escape a passed-through tree.
+/// `..` can climb out of /proc, /dev or /sys; `/proc/*/root` and `/proc/*/cwd`
+/// can jump straight back to the host namespace. Ordinary proc queries such as
+/// `/proc/self/status` and `/dev/null` remain passthrough.
+unsafe fn passthrough(p: &[u8]) -> bool {
+    if under_root(p) { return true; }
+    if !pseudo_path(p) { return false; }
+    let is_proc = p == b"/proc" || (p.len() > 5 && &p[..5] == b"/proc" && p[5] == b'/');
+    for c in p.split(|x| *x == b'/') {
+        if c == b".." { return false; }
+        if is_proc && (c == b"root" || c == b"cwd") { return false; }
+    }
+    true
 }
 
 unsafe fn real_path(parent: CInt, name: &[u8], out: &mut [u8; PATH_MAX]) -> Option<usize> {
@@ -861,19 +881,16 @@ pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mo
     let absolute = *path == b'/' as CChar;
     if dirfd != AT_FDCWD && !absolute {
         if verbose_on() { dbg(&[b"OPENAT fd="]); dbgn(&[], dirfd as i64); dbg(&[b"  name=", bytes(path), b"\n"]); }
-        // A real dirfd pins a starting point, not a containment boundary: a
-        // relative ".." chain can still walk from the guest tree to the host.
-        // Reconstruct the guest path whenever the dirfd is inside the rootfs.
         let rfd = rootfd();
         if rfd >= 0 {
             let mut gp = [0u8; PATH_MAX];
-            if let Some(n) = dirfd_guest_path(dirfd, bytes(path), &mut gp) {
-                if !passthrough(&gp[..n]) {
-                    return match rc::resolve_open(rfd, &gp[..n], flags, mode) {
-                        Ok(fd) => fd,
-                        Err(e) => set_errno(e),
-                    };
-                }
+            match resolve_dirfd_rel(dirfd, bytes(path), &mut gp) {
+                Ok(Some(n)) => return match rc::resolve_open(rfd, &gp[..n], flags, mode) {
+                    Ok(fd) => fd,
+                    Err(e) => set_errno(e),
+                },
+                Ok(None) => {}
+                Err(e) => return set_errno(e),
             }
         }
         return ret_or_errno(syscall4(SYS_OPENAT, dirfd as usize, path as usize, flags as usize, mode as usize));
@@ -972,13 +989,13 @@ pub unsafe extern "C" fn fstatat(dirfd: CInt, path: *const CChar, st: *mut u8, f
     let rfd = rootfd();
     if rfd >= 0 {
         let mut gp = [0u8; PATH_MAX];
-        if let Some(n) = dirfd_guest_path(dirfd, bytes(path), &mut gp) {
-            if !passthrough(&gp[..n]) {
-                return match rc::resolve_fstat(rfd, &gp[..n], st, flags) {
-                    Ok(()) => 0,
-                    Err(e) => set_errno(e),
-                };
-            }
+        match resolve_dirfd_rel(dirfd, bytes(path), &mut gp) {
+            Ok(Some(n)) => return match rc::resolve_fstat(rfd, &gp[..n], st, flags) {
+                Ok(()) => 0,
+                Err(e) => set_errno(e),
+            },
+            Ok(None) => {}
+            Err(e) => return set_errno(e),
         }
     }
     ret_or_errno(syscall4(SYS_NEWFSTATAT, dirfd as usize, path as usize, st as usize, flags as usize))
@@ -1023,14 +1040,12 @@ where
     let mut gp = [0u8; PATH_MAX];
     let n = if dirfd != AT_FDCWD && *path != b'/' as CChar {
         let rfd = rootfd();
-        let mut mapped = 0usize;
-        if rfd >= 0 {
-            if let Some(n) = dirfd_guest_path(dirfd, bytes(path), &mut gp) {
-                if !passthrough(&gp[..n]) { mapped = n; }
-            }
+        if rfd < 0 { return ret_or_errno(f(dirfd, path)); }
+        match resolve_dirfd_rel(dirfd, bytes(path), &mut gp) {
+            Ok(Some(n)) => n,
+            Ok(None) => return ret_or_errno(f(dirfd, path)),
+            Err(e) => return set_errno(e),
         }
-        if mapped == 0 { return ret_or_errno(f(dirfd, path)); }
-        mapped
     } else {
         match abs_guest(path, &mut gp) { Some(n) => n, None => return set_errno(36) }
     };
@@ -1076,10 +1091,10 @@ unsafe fn target_fd(dirfd: CInt, path: *const CChar, follow: bool) -> Result<CIn
         let rfd = rootfd();
         if rfd >= 0 {
             let mut gp = [0u8; PATH_MAX];
-            if let Some(n) = dirfd_guest_path(dirfd, bytes(path), &mut gp) {
-                if !passthrough(&gp[..n]) {
-                    return rc::resolve_final(rfd, &gp[..n], follow);
-                }
+            match resolve_dirfd_rel(dirfd, bytes(path), &mut gp) {
+                Ok(Some(n)) => return rc::resolve_final(rfd, &gp[..n], follow),
+                Ok(None) => return rc::openat(dirfd, bytes(path), flags, 0),
+                Err(e) => return Err(e),
             }
         }
         return rc::openat(dirfd, bytes(path), flags, 0);
@@ -1101,14 +1116,8 @@ unsafe fn target_fd(dirfd: CInt, path: *const CChar, follow: bool) -> Result<CIn
 /// the historical raw behavior.
 unsafe fn dirfd_guest_path(dirfd: CInt, rel: &[u8], out: &mut [u8; PATH_MAX]) -> Option<usize> {
     if rel.is_empty() || rel.len() >= PATH_MAX { return None; }
-    let mut pb = [0u8; 32];
-    let proc_path = fd_proc_path(dirfd, &mut pb);
     let mut real = [0u8; PATH_MAX];
-    let rn = syscall4(SYS_READLINKAT, AT_FDCWD as usize, proc_path.as_ptr() as usize,
-                      real.as_mut_ptr() as usize, PATH_MAX - 1);
-    if rn <= 0 { return None; }
-    let mut rl = rn as usize;
-    while rl > 0 && real[rl - 1] == 0 { rl -= 1; }
+    let rl = match fd_real_path(dirfd, &mut real) { Some(v) => v, None => return None };
     let root = guest_root();
     if root.is_empty() || rl < root.len() || &real[..root.len()] != root { return None; }
     if rl != root.len() && real[root.len()] != b'/' { return None; }
@@ -1127,6 +1136,69 @@ unsafe fn dirfd_guest_path(dirfd: CInt, rel: &[u8], out: &mut [u8; PATH_MAX]) ->
     raw[n..n + rel.len()].copy_from_slice(rel);
     n += rel.len();
     Some(normalize(&raw[..n], out))
+}
+
+/// Read the kernel's real path for an already-open descriptor.
+unsafe fn fd_real_path(fd: CInt, out: &mut [u8; PATH_MAX]) -> Option<usize> {
+    let mut pb = [0u8; 32];
+    let proc_path = fd_proc_path(fd, &mut pb);
+    let rn = syscall4(SYS_READLINKAT, AT_FDCWD as usize, proc_path.as_ptr() as usize,
+                      out.as_mut_ptr() as usize, PATH_MAX - 1);
+    if rn <= 0 { return None; }
+    let mut rl = rn as usize;
+    while rl > 0 && out[rl - 1] == 0 { rl -= 1; }
+    (rl != 0).then_some(rl)
+}
+
+/// A relative path from a host descriptor is only safe inside the three
+/// deliberately passed-through trees. Refuse to let `/proc`, `/dev`, or `/sys`
+/// descriptors become a namespace escape via `..` or proc magic links such as
+/// `self/root` and `self/cwd`.
+unsafe fn host_dirfd_safe(dirfd: CInt, rel: &[u8]) -> Option<usize> {
+    if rel.is_empty() || rel.len() >= PATH_MAX { return None; }
+    let mut real = [0u8; PATH_MAX];
+    let rn = fd_real_path(dirfd, &mut real)?;
+    let mut root_len = 0usize;
+    let mut is_proc = false;
+    for root in [b"/proc".as_ref(), b"/dev".as_ref(), b"/sys".as_ref()] {
+        if rn >= root.len() && &real[..root.len()] == root &&
+           (rn == root.len() || real[root.len()] == b'/') {
+            root_len = root.len();
+            is_proc = root == b"/proc".as_ref();
+            break;
+        }
+    }
+    if root_len == 0 { return None; }
+    for c in rel.split(|x| *x == b'/') {
+        if c == b".." || (is_proc && (c == b"root" || c == b"cwd")) { return None; }
+    }
+    Some(root_len)
+}
+
+unsafe fn fd_visible_path(fd: CInt) -> bool {
+    let mut real = [0u8; PATH_MAX];
+    let Some(rn) = fd_real_path(fd, &mut real) else { return false };
+    let root = guest_root();
+    if !root.is_empty() && rn >= root.len() && &real[..root.len()] == root &&
+       (rn == root.len() || real[root.len()] == b'/') {
+        return true;
+    }
+    pseudo_path(&real[..rn]) && passthrough(&real[..rn])
+}
+
+/// Resolve a non-absolute path relative to a real directory fd.
+/// `Ok(Some(n))` means `out[..n]` is a guest-absolute path and the caller must
+/// use the guest-root resolver. `Ok(None)` means the fd is one of the explicit
+/// host passthrough trees and the relative path was lexically checked. Any
+/// other fd is denied: an inherited host fd must not become a namespace hole.
+unsafe fn resolve_dirfd_rel(dirfd: CInt, rel: &[u8], out: &mut [u8; PATH_MAX])
+    -> Result<Option<usize>, CInt>
+{
+    if rel.is_empty() { return Err(2); }
+    if rel.len() >= PATH_MAX { return Err(36); }
+    if let Some(n) = dirfd_guest_path(dirfd, rel, out) { return Ok(Some(n)); }
+    if host_dirfd_safe(dirfd, rel).is_some() { return Ok(None); }
+    Err(13)
 }
 
 unsafe fn fd_proc_path(fd: CInt, out: &mut [u8; 32]) -> &[u8] {
@@ -1247,8 +1319,8 @@ unsafe fn one_side(
     if dirfd != AT_FDCWD && *path != b'/' as CChar {
         if rfd >= 0 {
             let mut gp = [0u8; PATH_MAX];
-            if let Some(n) = dirfd_guest_path(dirfd, bytes(path), &mut gp) {
-                if !passthrough(&gp[..n]) {
+            match resolve_dirfd_rel(dirfd, bytes(path), &mut gp) {
+                Ok(Some(n)) => {
                     let mut name = [0u8; 256];
                     let parent = if follow {
                         rc::resolve_parent_follow(rfd, &gp[..n], &mut name)
@@ -1260,6 +1332,8 @@ unsafe fn one_side(
                     nb[nl] = 0;
                     return Ok((parent, nb.as_ptr() as *const CChar, true));
                 }
+                Ok(None) => {}
+                Err(e) => return Err(e),
             }
         }
         return Ok((dirfd, path, false));
@@ -1354,7 +1428,9 @@ pub unsafe extern "C" fn renameat(afd: CInt, from: *const CChar, bfd: CInt, to: 
 pub unsafe extern "C" fn renameat2(afd: CInt, from: *const CChar, bfd: CInt, to: *const CChar, flags: CInt) -> CInt {
     pathop2(afd, from, bfd, to, false, false, |fa, pa, fb, pb| {
         let r = syscall5(SYS_RENAMEAT2, fa as usize, pa as usize, fb as usize, pb as usize, flags as usize);
-        if r == -38 {
+        // renameat() cannot preserve RENAME_NOREPLACE / RENAME_EXCHANGE /
+        // RENAME_WHITEOUT. Only use the legacy fallback for flags == 0.
+        if r == -38 && flags == 0 {
             return syscall4(SYS_RENAMEAT, fa as usize, pa as usize, fb as usize, pb as usize);
         }
         r
@@ -1386,7 +1462,11 @@ pub unsafe extern "C" fn link(old: *const CChar, new: *const CChar) -> CInt {
 
 #[no_mangle]
 pub unsafe extern "C" fn linkat(ofd: CInt, old: *const CChar, nfd: CInt, new: *const CChar, flags: CInt) -> CInt {
-    pathop2(ofd, old, nfd, new, false, false, |fa, pa, fb, pb| {
+    // Resolve the old final symlink through the guest root before the kernel
+    // sees AT_SYMLINK_FOLLOW. Passing the flag with an unresolved old name
+    // would let an absolute link target resolve against the host root.
+    let follow_old = flags & AT_SYMLINK_FOLLOW != 0;
+    pathop2(ofd, old, nfd, new, follow_old, false, |fa, pa, fb, pb| {
         // linkat's 5th argument carries flags; keep it in x4 via a small shim.
         syscall5(SYS_LINKAT, fa as usize, pa as usize, fb as usize, pb as usize, flags as usize)
     })
@@ -1479,35 +1559,40 @@ pub unsafe extern "C" fn readlinkat(dirfd: CInt, path: *const CChar, out: *mut C
     let absolute = *path == b'/' as CChar;
     if verbose_on() { dbg(&[b"READLINKAT fd="]); dbgn(&[], dirfd as i64); dbg(&[b" p=", bytes(path), b"\n"]); }
     let rfd = rootfd();
-    let mut gp = [0u8; PATH_MAX];
-    let gn = if rfd >= 0 && dirfd != AT_FDCWD && !absolute {
-        dirfd_guest_path(dirfd, bytes(path), &mut gp).unwrap_or(0)
-    } else if rfd >= 0 && (dirfd == AT_FDCWD || absolute) {
-        abs_guest(path, &mut gp).unwrap_or(0)
-    } else {
-        0
-    };
-    if rfd >= 0 && gn != 0 && !passthrough(&gp[..gn]) {
-        let mut name = [0u8; 256];
-        if let Ok(parent) = rc::resolve_parent(rfd, &gp[..gn], &mut name) {
-            let nl = name.iter().position(|c| *c == 0).unwrap_or(0);
-            let mut nb = [0u8; 256];
-            nb[..nl].copy_from_slice(&name[..nl]);
-            let r = syscall4(SYS_READLINKAT, parent as usize, nb.as_ptr() as usize, out as usize, len);
-            rc::close(parent);
-            if verbose_on() { dbg(&[b"  -> "]); dbgn(&[], r as i64); }
-            return r;
-        } else {
-            *__errno_location() = 2;
-            return -1;
-        }
-    }
-    if dirfd != AT_FDCWD && *path != b'/' as CChar {
+    if rfd < 0 && dirfd != AT_FDCWD && !absolute {
         return syscall4(SYS_READLINKAT, dirfd as usize, path as usize, out as usize, len);
     }
     let mut gp = [0u8; PATH_MAX];
-    if abs_guest(path, &mut gp).is_none() { *__errno_location() = 36; return -1; }
-    syscall4(SYS_READLINKAT, dirfd as usize, gp.as_ptr() as usize, out as usize, len)
+    if rfd >= 0 && dirfd != AT_FDCWD && !absolute {
+        match resolve_dirfd_rel(dirfd, bytes(path), &mut gp) {
+            Ok(Some(n)) => {
+                let mut name = [0u8; 256];
+                let parent = match rc::resolve_parent(rfd, &gp[..n], &mut name) {
+                    Ok(fd) => fd,
+                    Err(e) => return set_errno(e) as Ssize,
+                };
+                let r = syscall4(SYS_READLINKAT, parent as usize, name.as_ptr() as usize, out as usize, len);
+                rc::close(parent);
+                if verbose_on() { dbg(&[b"  -> "]); dbgn(&[], r as i64); }
+                return r;
+            }
+            Ok(None) => return syscall4(SYS_READLINKAT, dirfd as usize, path as usize, out as usize, len),
+            Err(e) => return set_errno(e) as Ssize,
+        }
+    }
+    let n = match abs_guest(path, &mut gp) {
+        Some(n) if rfd >= 0 && !passthrough(&gp[..n]) => n,
+        Some(_) => return syscall4(SYS_READLINKAT, AT_FDCWD as usize, gp.as_ptr() as usize, out as usize, len),
+        None => return set_errno(36) as Ssize,
+    };
+    let mut name = [0u8; 256];
+    let parent = match rc::resolve_parent(rfd, &gp[..n], &mut name) {
+        Ok(fd) => fd,
+        Err(e) => return set_errno(e) as Ssize,
+    };
+    let r = syscall4(SYS_READLINKAT, parent as usize, name.as_ptr() as usize, out as usize, len);
+    rc::close(parent);
+    r
 }
 
 #[no_mangle]
@@ -1591,6 +1676,7 @@ pub unsafe extern "C" fn chdir(path: *const CChar) -> CInt {
 
 #[no_mangle]
 pub unsafe extern "C" fn fchdir(fd: CInt) -> CInt {
+    if !fd_visible_path(fd) { return set_errno(13); }
     let r = syscall4(SYS_FCHDIR, fd as usize, 0, 0, 0);
     if r == 0 { CWD_STATE.store(0, Ordering::Release); }
     ret_or_errno(r)
@@ -1864,10 +1950,8 @@ pub unsafe extern "C" fn execve(path: *const CChar, argv: *const *const CChar, e
         EXE_GUEST[..n].copy_from_slice(&gp[..n]);
         EXE_GUEST_LEN = n;
     }
-    for pre in [b"/dev/".as_ref(), b"/proc/".as_ref(), b"/sys/".as_ref()] {
-        if n >= pre.len() && &gp[..pre.len()] == pre {
-            return ret_or_errno(syscall4(SYS_EXECVE, gp.as_ptr() as usize, argv as usize, envp as usize, 0));
-        }
+    if pseudo_path(&gp[..n]) && passthrough(&gp[..n]) {
+        return ret_or_errno(syscall4(SYS_EXECVE, gp.as_ptr() as usize, argv as usize, envp as usize, 0));
     }
     let mut real = [0u8; PATH_MAX];
     if under_root(&gp[..n]) {
@@ -2311,8 +2395,7 @@ unsafe fn realpath_impl(path: *const CChar, out: *mut CChar, out_size: usize) ->
     let rfd = rootfd();
     let mut guest = [0u8; PATH_MAX];
     let gl: usize;
-    if rfd < 0 || gp[..n] == *b"/dev" || gp[..n] == *b"/proc" || gp[..n] == *b"/sys"
-        || (n > 5 && (&gp[..5] == b"/dev/" || &gp[..5] == b"/proc" || &gp[..5] == b"/sys/")) {
+    if rfd < 0 || (pseudo_path(&gp[..n]) && passthrough(&gp[..n])) {
         guest[..n].copy_from_slice(&gp[..n]);
         gl = n;
     } else if under_root(&gp[..n]) {
@@ -2815,13 +2898,13 @@ pub unsafe extern "C" fn faccessat(dirfd: CInt, path: *const CChar, mode: CInt, 
     if dirfd != AT_FDCWD && !absolute {
         if rfd >= 0 {
             let mut gp = [0u8; PATH_MAX];
-            if let Some(n) = dirfd_guest_path(dirfd, bytes(path), &mut gp) {
-                if !passthrough(&gp[..n]) {
-                    return match rc::resolve_access(rfd, &gp[..n], mode, flags) {
-                        Ok(()) => 0,
-                        Err(e) => set_errno(e),
-                    };
-                }
+            match resolve_dirfd_rel(dirfd, bytes(path), &mut gp) {
+                Ok(Some(n)) => return match rc::resolve_access(rfd, &gp[..n], mode, flags) {
+                    Ok(()) => 0,
+                    Err(e) => set_errno(e),
+                },
+                Ok(None) => {}
+                Err(e) => return set_errno(e),
             }
         }
         if nofollow { return accessat_nofollow(dirfd, path, mode); }

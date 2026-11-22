@@ -169,21 +169,16 @@ pub fn pop_component(out: &[u8; PATH_MAX], n: usize) -> usize {
 
 struct Walk {
     cur: CInt,
-    held: [CInt; 32],
-    held_n: usize,
 }
 
 impl Walk {
     unsafe fn new(root: CInt) -> Result<Self, CInt> {
-        Ok(Self { cur: dup(root)?, held: [0; 32], held_n: 0 })
+        Ok(Self { cur: dup(root)? })
     }
 
-    unsafe fn pop(&mut self) {
-        if self.held_n > 0 {
-            close(self.cur);
-            self.held_n -= 1;
-            self.cur = self.held[self.held_n];
-        }
+    unsafe fn replace(&mut self, fd: CInt) {
+        if self.cur >= 0 { close(self.cur); }
+        self.cur = fd;
     }
 
     unsafe fn finish(mut self) -> CInt {
@@ -197,8 +192,6 @@ impl Drop for Walk {
     fn drop(&mut self) {
         unsafe {
             if self.cur >= 0 { close(self.cur); }
-            let mut i = 0;
-            while i < self.held_n { close(self.held[i]); i += 1; }
         }
     }
 }
@@ -215,9 +208,15 @@ unsafe fn resolve_at(root: CInt, _base: CInt, path: &[u8], name: &mut [u8], dept
         let last = it.peek().is_none();
         if is_dot(comp) { continue; }
         if is_dotdot(comp) {
-            walk.pop();
-            // pop one guest component (path stack mirrors the fd stack)
-            glen = pop_component(&gpath, glen);
+            // `..` is opened from the current directory descriptor; the guest
+            // path stack decides when we are at the root and must clamp. This
+            // avoids keeping one fd per component (the old fixed 32-fd stack
+            // rejected valid paths sent by build tools and package managers).
+            if glen > 1 {
+                let fd = openat(walk.cur, b"..", O_PATH | O_DIRECTORY | O_CLOEXEC, 0)?;
+                walk.replace(fd);
+                glen = pop_component(&gpath, glen);
+            }
             continue;
         }
         let mut link = [0u8; PATH_MAX];
@@ -259,9 +258,7 @@ unsafe fn resolve_at(root: CInt, _base: CInt, path: &[u8], name: &mut [u8], dept
             return Ok(walk.finish());
         }
         let fd = openat(walk.cur, comp, O_PATH | O_NOFOLLOW | O_DIRECTORY | O_CLOEXEC, 0)?;
-        if walk.held_n >= walk.held.len() { close(fd); return Err(ELOOP); }
-        walk.held[walk.held_n] = walk.cur; walk.held_n += 1;
-        walk.cur = fd;
+        walk.replace(fd);
         if glen + 1 + comp.len() >= PATH_MAX { return Err(ENAMETOOLONG); }
         gpath[glen] = b'/'; glen += 1;
         gpath[glen..glen + comp.len()].copy_from_slice(comp); glen += comp.len();

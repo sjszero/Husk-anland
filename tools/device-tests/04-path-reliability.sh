@@ -16,6 +16,13 @@ for i in $(seq 1 1000); do test -e /definitely/missing/$i/x; done
 after=$(ls /proc/self/fd | wc -l | tr -d ' ')
 chk fd-stable "$after" "$before"
 
+# A valid Linux path may contain more than 32 directory components. The
+# resolver must not keep a fixed one-fd-per-component stack and reject it.
+deep=/tmp/husk-deep
+for i in $(seq 1 64); do deep=$deep/d$i; done
+mkdir -p "$deep"
+chk deep-path "$(cd "$deep" && pwd -P)" "$deep"
+
 # An oversized absolute path must return promptly, not panic or spin.
 printf -v long '%*s' 5000 ''
 long=${long// /a}
@@ -32,6 +39,12 @@ ln -s /system/build.prop /tmp/husk-rel/escape-abs
 ln -s ../../../../../../system/build.prop /tmp/husk-rel/escape-dots
 if cat /tmp/husk-rel/escape-abs >/dev/null 2>&1; then bad escape-abs contained; else ok escape-abs; fi
 if cat /tmp/husk-rel/escape-dots >/dev/null 2>&1; then bad escape-dots contained; else ok escape-dots; fi
+
+# Passthrough /proc must keep normal process queries while refusing the procfs
+# magic links that point back into the host namespace.
+test -e /proc/self/root/system/build.prop
+chk proc-root-contained "$?" 1
+chk proc-safe-status "$(head -1 /proc/self/status | cut -d: -f1)" Name
 
 # Metadata calls must act on the final inode without letting a final-name lookup
 # race. These checks cover chmod, follow/no-follow utimensat, and stat/statx
@@ -72,6 +85,6 @@ else
     echo "SKIP relative-dirfd-contained -- /dirfd-probe not installed"
 fi
 
-rm -rf /tmp/husk-rel
+rm -rf /tmp/husk-rel /tmp/husk-deep
 echo "#checks=$n fail=$f"
 [ "$f" -eq 0 ]
