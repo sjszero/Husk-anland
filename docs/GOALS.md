@@ -3,7 +3,7 @@
 > 本文件是目标的**权威规格**。会话里的 goal 对象不可编辑，重建 goal 时以本文件为准；
 > 改目标就改这里，再把下面的「粘贴块」整段贴进去。
 
-最后更新：2026-11-22（v5：B 段只认 LinuxHub 2.0 的 Ubuntu 24.04 资产链；C 段按 guest 侧实测重写）
+最后更新：2026-11-22（v6：C5 路线按 evidence 35/36 重写——上游 Mesa 无 kbase 后端，改为 Rust DRM 语义层；命令字一律取自真实客户端）
 
 ---
 
@@ -22,13 +22,13 @@
 4）用 **LinuxHub 2.0** 的完整 rootfs 验证，唯一来源是 /Users/l/Documents/Codex/2026-08-10/linuxhub/LinuxHub-2.0/app/src/main/assets/：rootfs/ubuntu-base-24.04.4-base-arm64.tar（31 MB）→ offline/bootstrap-arm64.tar（349 MB）→ offline/gnome-24.04-arm64.tar（532 MB）→ offline/vendor-apps-arm64.tar（403 MB），外加 offline/mesa-for-android-container_27.0.0-devel-20261025-r2_ubuntu_noble_arm64.tar（12 MB）、desktop/（GNOME 默认值、图标、壁纸、会话总线配置）、x11/xkb-data.tar。资产只用这一份 2.0 目录里的 24.04 链。解到 Husk 私有目录的独立副本（files/rootfs-full），绝不读写 com.linuxhub.myth。验收：不只是 bash——GNOME 桌面能起，浏览器、文件管理器、终端可用。同时打通 libc 内部调用（构建期槽位方案），否则 apt/dpkg/locale 仍读宿主文件。
 
 【C. 原生直连 SoC】本机已实测（2026-11-22，guest 侧，见 evidence 31）：/dev/mali0 可从 guest rw 打开；kbase UAPI = 11.38；VERSION_CHECK 用 _IOC(RW,0x80,0,4) 编码才被识别；SET_FLAGS _IOC(W,0x80,1,4) 在 guest 里返回 0（kctx 建成）；MEM_ALLOC/MEM_QUERY 等命令存在；/dev/kgsl-3d0 不存在、/dev/dri 打不开、/dev/dma_heap 不存在、/dev/snd 打不开、/dev/ion 在 guest 侧 EACCES（待复核）。厂商 libGLES_mali.so 有 25 个 bionic DT_NEEDED（libc.so/libc++/libhidlbase/gralloc…），**不能在 glibc guest 内加载**，此路线已排除，不再尝试。
-5）GPU：唯一路线 = guest 进程自己打开 /dev/mali0，走 Mesa panfrost/panvk 的 kbase 后端，不经任何中转服务、不留独立 GPU 进程。先查清这台内核的提交接口（教科书 nr=2 JOB_SUBMIT 实测为 ENOTTY，需确认是否为 CSF 或 MTK 改号），再出最小可测实现。验收：guest 内 eglinfo/glxinfo 报出 Mali-G77 真实 renderer；同一场景硬件 vs llvmpipe 帧率对比表；不崩、可降级。
-6）显示：guest 渲染面与 Android Surface 零拷贝。dma-buf 来源按节点表实测选择（/dev/ion 访问权复核；无 /dev/dri），包成 AHardwareBuffer → ANativeWindow queueBuffer + render-done fence 交 SurfaceFlinger，全部 Rust。验收：窗口可交互、拖动不掉帧、旋转与 DPI 变化正确、多窗口正常、连续 10 分钟无泄漏。
+5）GPU：唯一路线 = guest 进程自己打开 /dev/mali0，直连厂商 kbase（UAPI 11.38），不经任何中转服务、不留独立 GPU 进程。FACT（evidence 35/36）：上游 Mesa（25.2.0 与 main）的 panfrost 只有 panfrost_kmod(DRM) 与 panthor_kmod，没有 kbase 后端，发行版 Mesa 无法直接驱动本机；命令字必须取自真实客户端（厂商 libGLES_mali.so r32p1 反读，共 26 条），JOB_SUBMIT = 0x40108002（W,16），实测 EINVAL 而非 ENOTTY（命令可达，atom 未构造）；mem_alloc（flags 低两位 = CPU 权限）+ mmap（prot 必须等于 flags&3，offset = 回写的 GPU VA）已实测可分配并 CPU 读写显存。实现方式：由 Rust 侧提供 DRM 语义层——在 guest 进程内拦 open("/dev/dri/renderD128") + ioctl + mmap，翻译成 kbase 命令字；发行版 Mesa 的 panfrost/panvk 不改不重编，不写 C。验收：guest 内 eglinfo/glxinfo 报出 Mali-G77 真实 renderer；同一场景硬件 vs llvmpipe 帧率对比表；不崩、可降级。
+6）显示：guest 渲染面与 Android Surface 零拷贝。dma-buf 来源按实测选择：优先 kbase 分配且可导出的 BO（导出能力待实测）；若 kbase 不支持导出，退化为 CPU 拷贝，并必须在 evidence 里写明原因与实测开销。包成 AHardwareBuffer → ANativeWindow queueBuffer + render-done fence 交 SurfaceFlinger，全部 Rust。验收：窗口可交互、拖动不掉帧、旋转与 DPI 变化正确、多窗口正常、连续 10 分钟无泄漏。
 7）音频：/dev/snd 打不开，只能在 app 进程内用 AAudio 开流；guest ↔ app 用独立 socketpair 传 PCM（不与输入/剪贴板争通道），Rust 实现。验收：guest 内可枚举输出设备、能出声、音量可控、延迟有实测数字并写明测量方法。
-8）探测与降级：SoC 与节点能力写成代码里的表（按 /dev/mali0、/dev/kgsl-3d0、/dev/dri/renderD128、ro.hardware.egl、ro.hardware.vulkan、ro.board.platform 判定），探测失败必须有明确降级路径（软件渲染 + 日志说明原因），任何一条都不能崩。
+8）探测与降级：SoC 与节点能力写成代码里的表（按 /dev/mali0、/dev/kgsl-3d0、/dev/dri/renderD128、ro.hardware.egl、ro.hardware.vulkan、ro.board.platform 判定）；适配器按芯片家族实现（Mali kbase / Adreno kgsl / DRM），不按机型做一次性适配；探测失败必须有明确降级路径（软件渲染 + 日志说明原因），任何一条都不能崩。
 
 【D. 工程纪律】
-9）每一步留可复现命令与证据（docs/design/evidence/、docs/STATUS.md、docs/GOALS.md），事实与推断分开标注；对外结论别人用同样命令能复现。一项做完先上机验证再写"完成"，未验证就明确写未验证。收尾时设备息屏、会话不留僵尸。
+9）每一步留可复现命令与证据（docs/design/evidence/、docs/STATUS.md、docs/GOALS.md），事实与推断分开标注；对外结论别人用同样命令能复现。判定「内核/驱动不支持某能力」之前，必须先从真实客户端（厂商 .so 反汇编、sysfs）取到命令字或参数，再用最小合法参数打一次；禁止用猜的 header 组合下结论（2026-11-22 JOB_SUBMIT 假阴性就是这类错误）。一项做完先上机验证再写"完成"，未验证就明确写未验证。收尾时设备息屏、会话不留僵尸。
 
 ---
 
@@ -75,8 +75,11 @@ FACT：`com.linuxhub.myth` 不是 debuggable 包，`run-as` 直接拒绝（`pack
 | kbase UAPI | 11.38（vendor 不校验请求版本） | evidence 31 |
 | VERSION_CHECK 编码 | `_IOC(RW, 0x80, 0, 4)`；size=0 是 ENOTTY | evidence 31 |
 | SET_FLAGS 编码 | `_IOC(W, 0x80, 1, 4)`，guest 内返回 0 | evidence 31 |
-| 已知命令面 | nr 0(4,RW) 1(4,W) 5(32) 6(16) 16(24) 21(32) 22(24) 31(16) | evidence 31 |
-| JOB_SUBMIT | nr=2 全 size ENOTTY —— 提交接口待查 | evidence 31 |
+| 命令面（26 条，取自厂商 .so） | `0xc0048000` VERSION_CHECK / `0x40048001` SET_FLAGS / **`0x40108002` JOB_SUBMIT** / `0xc0208005` mem_alloc / `0xc0108006` mem_query / 其余见 evidence 35 表 | evidence 35 |
+| JOB_SUBMIT | **可达**：`0x40108002` 传 `nr_atoms=0` 返回 EINVAL(22)，不是 ENOTTY；提交结构 `{u64 addr; u32 nr_atoms; u32 stride}`，**stride = 72** | evidence 35 / 36 |
+| mem_alloc | in/out：返回 0，字段0 回写实际 flags（`0x200f`），字段1 回写 GPU VA（`0x41000`）；flags=0 时 ENOMEM | evidence 36 |
+| mmap 规则 | `prot` 必须等于 `mem_alloc` 输入 flags 的低两位，offset = 回写 VA，len = va_pages<<12；不符即 EPERM；写 PROT_READ 映射 → SIGSEGV | evidence 36 |
+| 上游 Mesa | 25.2.0 与 main 的 `src/panfrost/lib/kmod/` 只有 panfrost(DRM)/panthor/virtio，**无 kbase**；rootfs 无 panvk ICD | evidence 36 |
 | `/dev/ion` | guest 侧 EACCES；app 侧曾成功 → 待复核 | evidence 26 / 31 |
 | `/dev/dma_heap` | 不存在 | evidence 31 |
 | `/dev/dri` | card0 EACCES，无 renderD128 | evidence 31 |
