@@ -1,5 +1,18 @@
 # 变更记录
 
+## 2026-11-23 — AHardwareBuffer 导出 dma-buf fd 已实测
+
+- **evidence 49**：纯 Rust NativeActivity 动态解析 `libandroid.so` 的 AHardwareBuffer API，
+  分配 `64x64x1 RGBA8` GPU buffer；`AHardwareBuffer_getNativeHandle()` 返回 3 个 fd，
+  其中一个是 `/dmabuf:G:pid [...]`。
+- `AHardwareBuffer_sendHandleToUnixSocket()` / `_recvHandleFromUnixSocket()` 在
+  `AF_UNIX/SOCK_SEQPACKET` 上均返回 0，接收端得到 3 个新的有效 fd，dmabuf 身份保持。
+- 同一轮启动保持正常 guest 会话、Surface 1080x2400 与 resize；APK sha256
+  `dfe3dccee9851b4561ff60b043d391f09bf6f427ddb79d87d9cf0f2d23690899`。
+- **仍未完成**：跨进程把 fd 交给 glibc guest、PanVK dma-buf 导入、AHB queueBuffer、
+  render-done fence 和实际窗口显示。native-handle fd 顺序不是公开稳定 ABI，代码必须扫描
+  `/proc/self/fd` 找 dmabuf。
+
 ## 2026-11-23 — PanVK 表面 / dma-buf 扩展扫描
 
 - **evidence 48**：纯 Rust `vulkan-probe` 新增 instance/device extension 枚举；真机报实例扩展 18 项、

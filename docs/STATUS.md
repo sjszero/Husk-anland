@@ -26,6 +26,16 @@ host-visible storage buffer、compute job 和离屏 graphics draw；GPU 写回 `
   `VK_DRIVER_FILES`、`__EGL_VENDOR_LIBRARY_FILENAMES`、`MESA_LOADER_DRIVER_OVERRIDE=zink`、
   `GALLIUM_DRIVER=zink`；logcat 显示会话与窗口尺寸正常。
 
+## 显示零拷贝第一段（evidence 49，2026-11-23）
+
+- **FACT**：纯 Rust app 进程成功分配 `64x64 RGBA8` AHardwareBuffer（usage `0x300`，stride 128）。
+- **FACT**：`AHardwareBuffer_getNativeHandle()` 返回 3 个 fd，其中一个由
+  `/proc/self/fd` 确认为 `/dmabuf:G:pid [...]`。
+- **FACT**：`AHardwareBuffer_sendHandleToUnixSocket()` → `_recvHandleFromUnixSocket()`
+  在 `AF_UNIX/SOCK_SEQPACKET` 上成功，接收端 fd 全部有效，dmabuf 仍存在。
+- **UNKNOWN**：跨进程交给 glibc guest 后，PanVK raw dma-buf 导入和实际 Surface queueBuffer
+  还未验证；native-handle fd 顺序不能写死，必须扫描 `/proc/self/fd`。
+
 ## GPU 基线（evidence 46，2026-11-23）
 
 - **FristOneRR PanVK 已产出 glibc 版**：源码 commit

@@ -140,7 +140,7 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 | [状态](docs/STATUS.md) | 逐日进度、修掉的 bug、待办 |
 | [生命周期规格](docs/design/lifecycle.md) | 会话 / PTY / fd / 信号 / 关停的完整契约与不变量 |
 | [libc 内部调用](docs/design/libc-interpose.md) | 槽位方案设计（未实现） |
-| [证据](docs/design/evidence/) | 01–48：设备原始输出，与方案引用一一对应 |
+| [证据](docs/design/evidence/) | 01–49：设备原始输出，与方案引用一一对应 |
 | [参考仓库原始清单](docs/design/reference-request-20261122.md) | 用户提供的 12 类、120 个条目，逐字保存 |
 | [参考仓库审计](docs/design/references.md) | 真实路径、可用性、已拉取 commit 与借鉴结论 |
 | [参考仓库逐条矩阵](docs/design/reference-audit-matrix.md) | 原始 120 条逐项对应：69 GitHub + 45 官方上游/组件 + 6 UNKNOWN |
@@ -160,14 +160,15 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 | 上游 Mesa | 25.2 与 main 均**没有** kbase 后端；Ubuntu 25.2.8 panfrost 模型表也无 G77/G78 |
 | 当前 GPU 路线 | FristOneRR PanVK（Mesa 26.3.0-devel，glibc 构建）+ 发行版 Zink；DRM 语义层保留为后备 |
 | PanVK / Zink 验证 | `vulkaninfo` + 纯 Rust probe：Mali-G77 / logical device / compute job / 离屏 graphics draw + GPU 像素回读 PASS；Zink surfaceless renderer 也报 Mali-G77；swapchain / WSI / Surface 未验收 |
-| 显示 / 视频 / 音频 | 未开始；路线见 [GOALS](docs/GOALS.md) 第 3、4、5 条（视频硬解可行性见 [evidence 39](docs/design/evidence/39-video-decode-path.md)） |
+| 显示 / 视频 / 音频 | 显示已完成 AHB→dmabuf→Unix socket 第一段（[evidence 49](docs/design/evidence/49-ahb-dmabuf-handle.md)）；guest 导入 / queueBuffer / 视频 / 音频未完成，路线见 [GOALS](docs/GOALS.md) 第 3、4、5 条 |
 
 细节与原始输出：[evidence 35](docs/design/evidence/35-gpu-ioctl-surface-from-vendor-driver.md)、
 [evidence 36](docs/design/evidence/36-gpu-route-reality-check.md)、
 [evidence 45](docs/design/evidence/45-panfrost-loads-over-kbase.md)、
 [evidence 46](docs/design/evidence/46-panvk-fristonerr-kbase-g77.md)、
 [evidence 47](docs/design/evidence/47-zink-eglinfo-surfaceless.md)、
-[evidence 48](docs/design/evidence/48-panvk-extension-scan.md)。
+[evidence 48](docs/design/evidence/48-panvk-extension-scan.md)、
+[evidence 49](docs/design/evidence/49-ahb-dmabuf-handle.md)。
 
 ## 11. 许可与来源
 
