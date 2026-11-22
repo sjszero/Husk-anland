@@ -25,14 +25,15 @@
 | 页大小体检（`nr-tools check-elf` 4K/16K/64K） | 可用 | 30 |
 | guest 打开 `/dev/mali0` + kbase 建 kctx | **可用**（UAPI 11.38） | 31 |
 | 厂商 `libGLES_mali.so` 在 guest 内加载 | **不可行，已关闭**（25 个 bionic DT_NEEDED） | 31 |
-| 长稳 10 分钟（goal A1 验收） | **未完成**：跑到 4 分 37 秒时 USB 掉线（不是崩溃） | 见下 |
+| 长稳 10 分钟（goal A1 验收） | **未完成**：跑到 4 分 37 秒时设备 kernel_panic 重启（21:30，见 evidence 31 §6） | 见下 |
 
 ## 本轮（21:24–21:31）做了什么
 
 1. 把积压的 3 个 commit 推上 GitHub（`origin/main` = `91ce86c`）。
 2. **长稳**：在真机会话里注入 soak 脚本（每秒 20 次 fork/exec + 写一行文件），
-   跑到第 277 tick（约 4 分 37 秒）时 **adb 设备掉线**，会话本身没有崩溃、没有僵尸。
-   10 分钟验收还差一段，等设备回来重跑（脚本已在设备上：`files/rootfs/tmp/soak.sh`）。
+   跑到第 277 tick（约 4 分 37 秒）时设备 **kernel_panic 重启**（21:30:05）。
+   不是电量/过热：`ro.boot.bootreason=kernel_panic`。时间上紧接我的 kbase ioctl 盲扫，
+   判断极可能是盲扫打崩的内核（细节与纪律见 evidence 31 §6）。**不可再盲扫内核 ioctl。**
 3. **GPU 直连第一段取证**：新增 `runtime/crates/gpu-probe`（纯 Rust，guest 侧运行），
    量出 kbase 的真实命令字编码、UAPI 版本 11.38、`SET_FLAGS` 在 guest 内成功；
    同时证明 `/dev/kgsl-3d0` 不存在、`/dev/dri`、`/dev/snd`、`/dev/ion` 在 guest 侧都打不开。

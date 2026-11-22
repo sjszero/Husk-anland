@@ -125,3 +125,25 @@ kbase 按**完整命令字**（含 size 与方向位）匹配，不是只按 (ty
 2. 原文把联发科写成 `/dev/kgsl-3d0` 是错的（那是高通）；本机实测只有 `/dev/mali0`。
 3. 原文写“把 /dev/dri 接给 guest Mesa”在本机不成立（无 renderD128，card0 打不开）；
    dma-buf 的来源要按实测（`/dev/ion` 的访问权待复核，`/dev/dma_heap` 不存在）。
+
+## 6. 事故记录：盲扫 ioctl 把内核打崩了一次（2026-11-22 21:30，FACT）
+
+**现象**：21:29:13 是 soak 脚本最后一个 tick，21:30:05 手机重启（重启后 `uptime` 反推）。
+重启原因不是电池、不是过热：
+
+    getprop ro.boot.bootreason   -> kernel_panic
+    getprop sys.boot.reason      -> kernel_panic,bug
+
+**关联**：21:26–21:29 我正在 `gpu-probe nrscan` 里**盲扫命令字**（nr 0..=40 × 25 种 size ×
+三种方向，单次上千个 ioctl），其中包含用全 0 参数调 `SET_FLAGS`/`MEM_ALLOC`/未知命令。
+
+**结论（判断，不是事实）**：极可能是这次盲扫触发的 —— 机制上讲得通：vendor 驱动把某个命令字
+当成合法命令，按错误的 size 读/写内核侧结构，踩到 `BUG()`/空指针就直接 panic。
+拿不到 kmsg（`dmesg` 被拒、无 `/proc/last_kmsg`、pstore 不可读），所以不能 100% 归因。
+
+**代价与学到的**：
+1. 崩溃后 `files/rootfs/tmp/soak.log` 从 277 tick **回滚到 133 tick** —— 说明 /data 是 f2fs，
+   panic 后回到上一个 checkpoint，**最近的写入会丢**。以后写证据必须定期 `sync`。
+2. 停掉的做法：**不再盲扫内核 ioctl**。改成一次只发一条、只发公开头文件里已知的命令、
+   参数用合法值（例如 `MEM_ALLOC` 给真实 size/flags），并且一次实验只验证一个假设。
+3. 副作用检查：重启后 `com.linuxhub.husk` 私有目录完整，app 能正常起、能拿到窗口回调。
