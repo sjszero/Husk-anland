@@ -189,7 +189,12 @@ unsafe fn sigsys_mode() -> u8 {
 }
 
 unsafe fn record(line: &[u8]) {
-    write_all(2, line);
+    // Only spam the terminal when there is no log file to write to: in the
+    // product the guest owns fd 2 and a shim record must not land inside the
+    // user's shell session.
+    if env_lookup(b"NR_SIGSYS_LOG").is_none() {
+        write_all(2, line);
+    }
     let mut logged = false;
     if let Some(p) = env_lookup(b"NR_SIGSYS_LOG") {
         // O_WRONLY|O_CREAT|O_APPEND, 0644
@@ -1777,6 +1782,71 @@ pub unsafe extern "C" fn dlopen(file: *const CChar, mode: CInt) -> *mut u8 {
     rc::close(parent);
     if r.is_none() { *__errno_location() = ENOENT; return core::ptr::null_mut(); }
     dlmopen(LM_ID_BASE, real.as_ptr() as *const CChar, mode)
+}
+
+// --------------------------------------------------------- sigaction guard
+// Why this exists (measured): bash installs its own terminator for some signals
+// and, once it does, *our* SIGSYS handler is gone - so a seccomp trap is then
+// delivered to bash's handler, which re-raises the signal and exits 128+31
+// (159). With our handler in place the same trap is emulated to ENOSYS instead.
+// The handler is therefore kept: any attempt to install a SIGSYS disposition is
+// accepted (the caller is told "success") and quietly ignored.
+//
+// The other signals are forwarded, which needs the two struct layouts:
+//   libc       { handler@0, mask@8 (128B), flags@136, restorer@144 }  size 152
+//   kernel     { handler@0, flags@8, restorer@16, mask@24 (8B) }      sigsetsize 8
+const SIGSYS_SIGNAL: CInt = 31;
+const SIGACTION_SIZEOF: usize = 152;
+
+unsafe fn k_from_libc(act: *const u8, k: &mut KSigaction) {
+    let q = act as *const u64;
+    k.handler = *q as usize;
+    k.mask = *q.add(1);
+    k.flags = *(act.add(136) as *const i32) as usize;
+    k.restorer = *q.add(18) as usize;
+}
+
+unsafe fn libc_from_k(k: &KSigaction, out: *mut u8) {
+    core::ptr::write_bytes(out, 0, SIGACTION_SIZEOF);
+    let q = out as *mut u64;
+    *q = k.handler as u64;
+    *q.add(1) = k.mask;
+    *(out.add(136) as *mut i32) = k.flags as i32;
+    *q.add(18) = k.restorer as u64;
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sigaction(sig: CInt, act: *const u8, old: *mut u8) -> CInt {
+    if sig == SIGSYS_SIGNAL {
+        if !act.is_null() { dbg(&[b"nr-sigaction|SIGSYS ignored\n"]); }
+        if !old.is_null() { core::ptr::write_bytes(old, 0, SIGACTION_SIZEOF); }
+        return 0;
+    }
+    let mut k = KSigaction { handler: 0, flags: 0, restorer: 0, mask: 0 };
+    let mut ko = KSigaction { handler: 0, flags: 0, restorer: 0, mask: 0 };
+    let kp = if act.is_null() {
+        0
+    } else {
+        k_from_libc(act, &mut k);
+        &k as *const KSigaction as usize
+    };
+    let op = if old.is_null() { 0 } else { &mut ko as *mut KSigaction as usize };
+    let r = syscall4(SYS_RT_SIGACTION, sig as usize, kp, op, 8) as CInt;
+    if r < 0 { return set_errno(-r); }
+    if !old.is_null() { libc_from_k(&ko, old); }
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn signal(sig: CInt, handler: usize) -> usize {
+    // BSD semantics, as glibc's own signal() implements them.
+    let mut act = [0u8; SIGACTION_SIZEOF];
+    let mut old = [0u8; SIGACTION_SIZEOF];
+    let q = act.as_mut_ptr() as *mut u64;
+    *q = handler as u64;
+    *(act.as_mut_ptr().add(136) as *mut i32) = 0x1000_0000u32 as i32; // SA_RESTART
+    if sigaction(sig, act.as_ptr(), old.as_mut_ptr()) != 0 { return usize::MAX; }
+    *(old.as_ptr() as *const u64) as usize
 }
 
 // ------------------------------------------------------------ signalling

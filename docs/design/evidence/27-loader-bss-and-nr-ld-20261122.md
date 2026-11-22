@@ -69,3 +69,22 @@ UNKNOWN / 待查：bash 在这个位置为什么发 SIGSYS（不排除是它对�
     nr-tools embed <shim.so> /tmp/ld-s1.so init-hook.bin libld.so
     # 验机
     run-as com.linuxhub.husk sh -c 'cd files; ./ld.so --library-path $PWD/rootfs/usr/lib/aarch64-linux-gnu rootfs/usr/bin/true; echo $?'
+
+## 六、续：`bash -i` 的 159 已解决（sigaction guard）
+
+FACT：把 `sigaction`/`signal` 也 interpose 之后，第一次看到真正的 trap：
+    sigsys|code=1|nr=151|...|mode=2   ← setfsgid
+    sigsys|code=1|nr=152|...|mode=2   ← setfsuid
+即 untrusted_app 域里被拦的是 **setfsuid/setfsgid**（TRAP 档，可仿真）。
+
+INFERENCE（有实测支撑）：之前看不到这些记录，是因为 bash 自己
+`sigaction(SIGSYS, …)` 覆盖掉了我们的处理器；于是一次 trap 交给了 bash 的
+`termsig_handler`，它 `kill(getpid(), sig)` 再 `exit(128+sig)` → 159。
+反汇编 bash 的 0x8b1a4 正好是 `add w0, w21, #0x80 ; bl exit`，与 159 完全对上。
+
+FIX：shim interpose `sigaction`/`signal`，SIGSYS 的安装一律「返回成功但不生效」，
+其它信号按两种结构体布局（libc 152B / kernel 24B+mask）翻译后透传。
+
+VERIFIED（untrusted_app，真机）：`bash -i` 起来并停在提示符：
+    [?2004hI have no name!@localhost:/$
+进程存活（/proc/<pid> 在），sigsys.log 里有 nr=151/152 的仿真记录。
