@@ -3,7 +3,7 @@
 > 本文件是目标的**权威规格**。会话里的 goal 对象不可编辑，重建 goal 时以本文件为准；
 > 改目标就改这里，再把下面的「粘贴块」整段贴进去。
 
-最后更新：2026-11-22（v7：目标重写——已完成项降为回归门禁，只留剩余工作；C 段按 evidence 35/36 纠正）
+最后更新：2026-11-22（v8：新增 D 段——用 Husk 替换 2.0 的 proot，一次性消除 proot 补丁，附回滚包与 sha256；验收全部可复现）
 
 ---
 
@@ -31,6 +31,18 @@
 
 【C. 工程纪律】
 6）每步留可复现命令与证据（docs/design/evidence/、docs/STATUS.md、docs/GOALS.md），事实与推断分开标注；一项做完先上机验证再写"完成"，未验证就写未验证。判定「内核/驱动不支持某能力」前，必须先从真实客户端（厂商 .so、sysfs）取到命令字或参数，再用最小合法参数打一次，禁止用猜的组合下结论（2026-11-22 JOB_SUBMIT 假阴性即此错）。收尾时设备息屏、会话不留僵尸。
+
+【D. 落地：用 Husk 替换 LinuxHub 2.0 的 proot】
+7）集成：Husk 达到上一条验收后，替换 2.0 的 proot 运行时——`LinuxContainerManager.prootCommand()` 改成直接 exec 我们的 loader，2.0 的 UI/会话/桌面资产不动。基线包（可回滚，已校验）：`artifacts/rollback/LinuxHub-Myth-Prometheus.apk`，sha256 `c4951876599b5a8a388170952039a724959f5c48004aec8f92e1de7379adc2b7`，1,037,527,072 字节，与 `artifacts/release/` 逐字节一致。
+8）一次性消除 proot 带来的补丁（FACT：以下均已在 2.0 源码中定位，消除后不得残留）：
+   · 启动方式：`-0` 假 root、`--link2symlink`、`-b` 绑定挂载、`-w`、`-r`，以及 `PROOT_LOADER` / `PROOT_TMP_DIR` / 改写的 `TMPDIR`；
+   · 依赖库：`libtalloc.so.2`、`libandroid-shmem.so` 及其拷贝与 `LD_LIBRARY_PATH` 指向；
+   · 网络桥：`LD_PRELOAD=libgetifaddrs_bridge.so` 及 `/etc/profile.d/doro.sh` 里写死它的那行、`unset LD_PRELOAD` 补丁——由 Husk shim 的 interpose 直接提供 getifaddrs；
+   · fake-root 副作用补丁：`ensureAndroidGroupNamesScript()` 往 `/etc/group` 注入 `android_gid_*`、靠 `/proc/self/status` 的 Groups 行绕开 proot 对 getgroups 的拦截——由 Husk 的 uid/gid 映射直接给出正确语义；
+   · 伪 /proc 与设备补丁：`/proc/stat`、`/proc/version`、`/proc/bus/pci/devices`（Chromium 需要）、`/run/doro-audio` 之类为绕过 proot 而造的假文件；
+   · GPU：`doro-gpu-run.sh` + virgl/virpipe + virgl server 进程——由原生 kbase 路径（上一条 2）替代，不留中转进程；
+   · 音频：`/run/doro-audio` 桥——由 AAudio + socketpair 替代。
+9）验收（全部可在设备上复现）：运行期 `ps -A` 里 proot 计数为 0、无 virgl server 进程；guest 内 `env | grep PROOT` 为空、`LD_PRELOAD` 为空；`/proc/<guest pid>/maps` 里无 `talloc` / `shmem` / `getifaddrs_bridge`；GNOME Shell 46 能起，浏览器 / 文件管理器 / 终端可用；`eglinfo` 报 Mali-G77 硬件 renderer；音频出声且延迟有实测数字；回滚直接用上面那个 APK。
 
 ---
 
