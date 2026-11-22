@@ -1434,11 +1434,101 @@ pub unsafe extern "C" fn execve(path: *const CChar, argv: *const *const CChar, e
 
     let fd = ret_or_errno(syscall4(SYS_OPENAT, AT_FDCWD as usize, real.as_ptr() as usize, 0, 0));
     if fd < 0 { return -1; }
-    let dynamic = elf_interp(fd);
-    rc::close(fd);
+
+    // ---------------------------------------------------- #! scripts ---
+    // The kernel resolves a script's interpreter against the *host* root, so a
+    // guest script whose first line says `#!/usr/bin/python3` can never start
+    // here (the host has no such file). Parse the line ourselves, resolve the
+    // interpreter inside the guest root, and re-enter the loader with the argv
+    // shape the kernel would have produced: [interp, arg?, script, argv[1..]].
+    let mut hdr = [0u8; 256];
+    let hn = syscall4(SYS_PREAD64, fd as usize, hdr.as_mut_ptr() as usize, hdr.len(), 0);
+    let mut tgt = real;
+    let mut shebang_arg = [0u8; 200];
+    let mut shebang_arg_len = 0usize;
+    let mut is_script = false;
+
+    if hn > 2 && hdr[0] == b'#' && hdr[1] == b'!' {
+        let hn = hn as usize;
+        let mut i = 2usize;
+        while i < hn && (hdr[i] == b' ' || hdr[i] == b'\t') { i += 1; }
+        let istart = i;
+        while i < hn && hdr[i] != b' ' && hdr[i] != b'\t' && hdr[i] != b'\n' && hdr[i] != b'\r' { i += 1; }
+        if i == istart { rc::close(fd); return set_errno(ENOEXEC); }
+        // one optional argument, as the kernel allows
+        let mut j = i;
+        while j < hn && (hdr[j] == b' ' || hdr[j] == b'\t') { j += 1; }
+        let astart = j;
+        while j < hn && hdr[j] != b'\n' && hdr[j] != b'\r' { j += 1; }
+        if j > astart {
+            let l = core::cmp::min(j - astart, shebang_arg.len() - 1);
+            shebang_arg[..l].copy_from_slice(&hdr[astart..astart + l]);
+            shebang_arg_len = l;
+        }
+        let mut interp = [0u8; PATH_MAX];
+        let l = i - istart;
+        if l >= PATH_MAX { rc::close(fd); return set_errno(36); }
+        interp[..l].copy_from_slice(&hdr[istart..i]);
+        interp[l] = 0;
+        if interp[0] != b'/' { rc::close(fd); return set_errno(ENOEXEC); }
+        // Two candidates, and that is enough for a usr-merged rootfs:
+        //   <root>/usr/bin/x   (what Ubuntu 24.04 actually stores)
+        //   <root>/bin/x       (the pre-merge spelling a shebang may still use)
+        // Anything deeper (python3 -> python3.12) is left to the kernel: it is a
+        // symlink *inside* the root, so it resolves correctly once we are there.
+        let root = guest_root();
+        let mut found = false;
+        for variant in 0..2usize {
+            let mut p = [0u8; PATH_MAX];
+            if root.len() + 4 + l + 1 >= PATH_MAX { break; }
+            let mut o = root.len();
+            p[..root.len()].copy_from_slice(root);
+            if variant == 1 {
+                p[o..o + 4].copy_from_slice(b"/usr");
+                o += 4;
+            }
+            p[o..o + l].copy_from_slice(&interp[..l]);
+            o += l;
+            p[o] = 0;
+            let f = syscall4(SYS_OPENAT, AT_FDCWD as usize, p.as_ptr() as usize, 0, 0);
+            if f >= 0 {
+                rc::close(f as CInt);
+                tgt = p;
+                found = true;
+                break;
+            }
+        }
+        if !found { rc::close(fd); return set_errno(ENOENT); }
+        is_script = true;
+    }
+
+    let tfd = if is_script {
+        let f = ret_or_errno(syscall4(SYS_OPENAT, AT_FDCWD as usize, tgt.as_ptr() as usize, 0, 0));
+        if f < 0 { rc::close(fd); return -1; }
+        f
+    } else {
+        fd
+    };
+    let dynamic = elf_interp(tfd);
+    rc::close(tfd);
+    if tfd != fd { rc::close(fd); }
 
     if !dynamic {
-        return ret_or_errno(syscall4(SYS_EXECVE, real.as_ptr() as usize, argv as usize, envp as usize, 0));
+        if !is_script {
+            return ret_or_errno(syscall4(SYS_EXECVE, tgt.as_ptr() as usize, argv as usize, envp as usize, 0));
+        }
+        let mut sargs: [*const CChar; 64] = [core::ptr::null(); 64];
+        let mut k = 0usize;
+        sargs[k] = tgt.as_ptr() as *const CChar; k += 1;
+        if shebang_arg_len > 0 { sargs[k] = shebang_arg.as_ptr() as *const CChar; k += 1; }
+        sargs[k] = real.as_ptr() as *const CChar; k += 1;
+        let mut i = 1usize;
+        while !argv.is_null() && !(*argv.add(i)).is_null() && k < 63 {
+            sargs[k] = *argv.add(i);
+            k += 1;
+            i += 1;
+        }
+        return ret_or_errno(syscall4(SYS_EXECVE, tgt.as_ptr() as usize, sargs.as_ptr() as usize, envp as usize, 0));
     }
 
     let root = guest_root();
@@ -1477,7 +1567,15 @@ pub unsafe extern "C" fn execve(path: *const CChar, argv: *const *const CChar, e
     args[k] = ld2.as_ptr() as *const CChar; k += 1;
     args[k] = b"--library-path\0".as_ptr() as *const CChar; k += 1;
     args[k] = lib.as_ptr() as *const CChar; k += 1;
-    args[k] = real.as_ptr() as *const CChar; k += 1;
+    args[k] = tgt.as_ptr() as *const CChar; k += 1;
+    if is_script {
+        if shebang_arg_len > 0 && k < 62 {
+            args[k] = shebang_arg.as_ptr() as *const CChar; k += 1;
+        }
+        if k < 62 {
+            args[k] = real.as_ptr() as *const CChar; k += 1;
+        }
+    }
     let mut i = 1usize;
     while !argv.is_null() && !(*argv.add(i)).is_null() && k < 63 {
         args[k] = *argv.add(i);

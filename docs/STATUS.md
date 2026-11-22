@@ -27,7 +27,7 @@
 | 厂商 `libGLES_mali.so` 在 guest 内加载 | **不可行，已关闭**（25 个 bionic DT_NEEDED） | 31 |
 | 长稳 10 分钟（goal A1 验收） | **通过**：600 秒 / 568 tick / 11 360 次 fork-exec，同 pid、零僵尸 | 32 |
 | 2.0 完整 rootfs（Ubuntu 24.04.4，817 bins） | **可用**：GNOME Shell 46.0 / mutter / gjs 1.80.2 / dbus / Xwayland 23.2.6 均能起 | 33 |
-| 带 shebang 的 guest 脚本（如 gnome-terminal） | **不可用**：解释器按宿主路径解析 → ENOENT | 33 §缺口1 |
+| 带 shebang 的 guest 脚本（`#!/bin/bash`、`#!/usr/bin/python3`…） | **可用**：shim 的 execve 里做解释器映射 | 34 |
 
 ## 本轮（21:24–21:31）做了什么
 
