@@ -7,10 +7,11 @@
 //! dma-buf descriptor, which we locate by inspecting /proc/self/fd.
 
 use super::*;
-use core::ffi::{c_int, c_void};
+use core::ffi::{c_int, c_uint, c_void};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
+use std::thread::JoinHandle;
 
 const SOL_SOCKET: c_int = 1;
 const SCM_RIGHTS: c_int = 1;
@@ -48,10 +49,146 @@ struct CmsgHdr {
     ty: c_int,
 }
 
+struct AsyncCompletion {
+    acquire_fd: c_int,
+    join: Option<JoinHandle<()>>,
+}
+
+impl Default for AsyncCompletion {
+    fn default() -> Self {
+        Self {
+            acquire_fd: -1,
+            join: None,
+        }
+    }
+}
+
+struct CompletionResources {
+    device: usize,
+    fence: usize,
+    command_pool: usize,
+    readback_memory: usize,
+    readback: usize,
+    image_memory: usize,
+    image: usize,
+    write_fd: c_int,
+    wait_fences: FnWaitForFences,
+    destroy_fence: FnDestroyFence,
+    destroy_pool: FnDestroyCommandPool,
+    free_memory: FnFreeMemory,
+    destroy_buffer: FnDestroyBuffer,
+    destroy_image: FnDestroyImage,
+    map_memory: FnMapMemory,
+    unmap_memory: FnUnmapMemory,
+    readback_size: u64,
+    pitch: u64,
+    width: u32,
+    height: u32,
+    expected_pixel: u32,
+    frame: usize,
+    slot: usize,
+}
+
+// All handles are Vulkan objects owned by the completion thread after submit.
+// The thread is the only user of them until it waits for the fence.
+unsafe impl Send for CompletionResources {}
+
+impl CompletionResources {
+    unsafe fn verify_readback(&self) {
+        let device = self.device as VkDevice;
+        let readback_memory = self.readback_memory as VkDeviceMemory;
+        let mut mapped: *mut c_void = ptr::null_mut();
+        let map_rc = (self.map_memory)(
+            device,
+            readback_memory,
+            0,
+            self.readback_size,
+            0,
+            &mut mapped,
+        );
+        if map_rc != VK_SUCCESS || mapped.is_null() {
+            line(
+                "dmabuf",
+                "image_readback",
+                format!(
+                    "frame={} slot={} FAIL|async map {map_rc}",
+                    self.frame, self.slot
+                ),
+            );
+            return;
+        }
+        let base = mapped as *const u8;
+        let mut checked = 0usize;
+        let mut matched = 0usize;
+        for (x, y) in probe_points(self.width, self.height) {
+            let off = (y as usize * self.pitch as usize) + x as usize * 4;
+            let pixel = (base.add(off) as *const u32).read_unaligned();
+            checked += 1;
+            if pixel == self.expected_pixel {
+                matched += 1;
+            }
+        }
+        line(
+            "dmabuf",
+            "image_readback",
+            format!(
+                "frame={} slot={} {}|match={matched}/{checked} expected={:#010x}",
+                self.frame,
+                self.slot,
+                if checked == 9 && matched == 9 {
+                    "PASS"
+                } else {
+                    "FAIL"
+                },
+                self.expected_pixel
+            ),
+        );
+        (self.unmap_memory)(device, readback_memory);
+    }
+}
+
+impl Drop for CompletionResources {
+    fn drop(&mut self) {
+        unsafe {
+            let device = self.device as VkDevice;
+            let fence = self.fence as VkFence;
+            // This also covers a thread-spawn failure and a panic in the
+            // completion path: never destroy objects while the GPU may use
+            // them.
+            if !fence.is_null() {
+                let _ = (self.wait_fences)(device, 1, &fence, VK_TRUE, u64::MAX);
+                (self.destroy_fence)(device, fence, ptr::null());
+            }
+            if self.command_pool != 0 {
+                (self.destroy_pool)(device, self.command_pool as VkCommandPool, ptr::null());
+            }
+            if self.readback_memory != 0 {
+                (self.free_memory)(device, self.readback_memory as VkDeviceMemory, ptr::null());
+            }
+            if self.readback != 0 {
+                (self.destroy_buffer)(device, self.readback as VkBuffer, ptr::null());
+            }
+            if self.image_memory != 0 {
+                (self.free_memory)(device, self.image_memory as VkDeviceMemory, ptr::null());
+            }
+            if self.image != 0 {
+                (self.destroy_image)(device, self.image as VkImage, ptr::null());
+            }
+            if self.write_fd >= 0 {
+                close(self.write_fd);
+                self.write_fd = -1;
+            }
+        }
+    }
+}
+
 extern "C" {
     fn recvmsg(fd: c_int, msg: *mut MsgHdr, flags: c_int) -> isize;
+    fn sendmsg(fd: c_int, msg: *const MsgHdr, flags: c_int) -> isize;
     fn close(fd: c_int) -> c_int;
     fn dup(fd: c_int) -> c_int;
+    fn eventfd(initval: c_uint, flags: c_int) -> c_int;
+    fn write(fd: c_int, buf: *const c_void, count: usize) -> isize;
     fn lseek(fd: c_int, offset: i64, whence: c_int) -> i64;
     fn mmap(
         addr: *mut c_void,
@@ -230,7 +367,13 @@ unsafe fn render_linear_image(
     meta: &AhbMeta,
     color: [f32; 4],
     expected_pixel: u32,
+    frame: usize,
+    slot: usize,
+    mut async_out: Option<&mut AsyncCompletion>,
 ) -> bool {
+    if let Some(out) = async_out.as_deref_mut() {
+        *out = AsyncCompletion::default();
+    }
     if meta.width == 0
         || meta.height == 0
         || meta.stride < meta.width
@@ -734,6 +877,118 @@ unsafe fn render_linear_image(
         p_signal_semaphores: ptr::null(),
     };
     let submit_rc = queue_submit(queue, 1, &submit, fence);
+    if submit_rc == VK_SUCCESS {
+        if let Some(out) = async_out.as_deref_mut() {
+            let acquire_fd = eventfd(0, 0);
+            let write_fd = if acquire_fd >= 0 { dup(acquire_fd) } else { -1 };
+            if acquire_fd >= 0 && write_fd >= 0 {
+                let resources = CompletionResources {
+                    device: device as usize,
+                    fence: fence as usize,
+                    command_pool: pool as usize,
+                    readback_memory: readback_memory as usize,
+                    readback: readback as usize,
+                    image_memory: image_memory as usize,
+                    image: image as usize,
+                    write_fd,
+                    wait_fences,
+                    destroy_fence,
+                    destroy_pool,
+                    free_memory,
+                    destroy_buffer,
+                    destroy_image,
+                    map_memory,
+                    unmap_memory,
+                    readback_size: readback_req.size,
+                    pitch,
+                    width: meta.width,
+                    height: meta.height,
+                    expected_pixel,
+                    frame,
+                    slot,
+                };
+                let join = std::thread::Builder::new()
+                    .name(format!("husk-gpu-frame-{frame}"))
+                    .spawn(move || {
+                        let device = resources.device as VkDevice;
+                        let fence = resources.fence as VkFence;
+                        let wait_rc =
+                            (resources.wait_fences)(device, 1, &fence, VK_TRUE, u64::MAX);
+                        if wait_rc == VK_SUCCESS {
+                            let one = 1u64;
+                            let wrote = write(
+                                resources.write_fd,
+                                &one as *const u64 as *const c_void,
+                                8,
+                            );
+                            line(
+                                "dmabuf",
+                                "image_complete",
+                                format!(
+                                    "frame={} slot={} wait={} write={wrote}",
+                                    resources.frame,
+                                    resources.slot,
+                                    api_result(wait_rc)
+                                ),
+                            );
+                            resources.verify_readback();
+                        } else {
+                            line(
+                                "dmabuf",
+                                "image_complete",
+                                format!(
+                                    "frame={} slot={} wait={} acquire_fd=HUP",
+                                    resources.frame,
+                                    resources.slot,
+                                    api_result(wait_rc)
+                                ),
+                            );
+                        }
+                        drop(resources);
+                    });
+                match join {
+                    Ok(join) => {
+                        out.acquire_fd = acquire_fd;
+                        out.join = Some(join);
+                        line(
+                            "dmabuf",
+                            "image_async",
+                            format!(
+                                "frame={frame} slot={slot} acquire_fd={acquire_fd} submit=PASS"
+                            ),
+                        );
+                        return true;
+                    }
+                    Err(e) => {
+                        // The closure, and with it CompletionResources, was
+                        // dropped by Builder::spawn on this failure. Its Drop
+                        // waits for the GPU and performs the cleanup.
+                        close(acquire_fd);
+                        line(
+                            "dmabuf",
+                            "image_async",
+                            format!("frame={frame} slot={slot} FAIL|spawn: {e}"),
+                        );
+                        return false;
+                    }
+                }
+            }
+            if acquire_fd >= 0 {
+                close(acquire_fd);
+            }
+            if write_fd >= 0 {
+                close(write_fd);
+            }
+            line(
+                "dmabuf",
+                "image_async",
+                format!(
+                    "frame={frame} slot={slot} WARN|eventfd: {}",
+                    std::io::Error::last_os_error()
+                ),
+            );
+        }
+    }
     let wait_rc = if submit_rc == VK_SUCCESS {
         wait_fences(device, 1, &fence, VK_TRUE, u64::MAX)
     } else {
@@ -1203,6 +1458,85 @@ fn frame_color(frame: usize) -> ([f32; 4], u32) {
     }
 }
 
+unsafe fn send_ready_with_fd(stream: &UnixStream, text: &str, acquire_fd: c_int) -> bool {
+    let mut io = IoVec {
+        base: text.as_ptr() as *mut c_void,
+        len: text.len(),
+    };
+    let mut control = [0u8; 64];
+    let header_len = cmsg_align(core::mem::size_of::<CmsgHdr>());
+    let cmsg_len = header_len + core::mem::size_of::<c_int>();
+    let control_len = cmsg_align(cmsg_len);
+    let header = control.as_mut_ptr() as *mut CmsgHdr;
+    (*header).len = cmsg_len;
+    (*header).level = SOL_SOCKET;
+    (*header).ty = SCM_RIGHTS;
+    (control.as_mut_ptr().add(header_len) as *mut c_int).write_unaligned(acquire_fd);
+    let msg = MsgHdr {
+        name: ptr::null_mut(),
+        name_len: 0,
+        iov: &mut io,
+        iov_len: 1,
+        control: control.as_mut_ptr() as *mut c_void,
+        control_len,
+        flags: 0,
+    };
+    let sent = sendmsg(stream.as_raw_fd(), &msg, 0);
+    line(
+        "ring",
+        "sendmsg",
+        format!(
+            "len={} sent={sent} acquire_fd={acquire_fd} errno={}",
+            text.len(),
+            std::io::Error::last_os_error()
+        ),
+    );
+    if sent == text.len() as isize {
+        true
+    } else {
+        line(
+            "ring",
+            "FAIL",
+            format!(
+                "sendmsg fd={acquire_fd}: sent={sent} errno={}",
+                std::io::Error::last_os_error()
+            ),
+        );
+        false
+    }
+}
+
+unsafe fn send_text(stream: &UnixStream, text: &str) -> bool {
+    let mut io = IoVec {
+        base: text.as_ptr() as *mut c_void,
+        len: text.len(),
+    };
+    let msg = MsgHdr {
+        name: ptr::null_mut(),
+        name_len: 0,
+        iov: &mut io,
+        iov_len: 1,
+        control: ptr::null_mut(),
+        control_len: 0,
+        flags: 0,
+    };
+    let sent = sendmsg(stream.as_raw_fd(), &msg, 0);
+    if sent == text.len() as isize {
+        true
+    } else {
+        line(
+            "ring",
+            "FAIL",
+            format!(
+                "sendmsg text: sent={sent} len={} errno={}",
+                text.len(),
+                std::io::Error::last_os_error()
+            ),
+        );
+        false
+    }
+}
+
 unsafe fn run_ring(
     lib: *mut c_void,
     physical: VkPhysicalDevice,
@@ -1268,11 +1602,12 @@ unsafe fn run_ring(
         line("ring", "WARN", format!("read timeout: {e}"));
     }
     let mut reader = BufReader::new(reader_stream);
-    let mut writer = stream;
+    let writer = stream;
     let mut used = vec![false; meta.count];
     let mut rendered = 0usize;
     let mut releases = 0usize;
     let mut ok = true;
+    let mut completion_joins = Vec::with_capacity(meta.frames);
 
     for frame in 0..meta.frames {
         let slot = frame % meta.count;
@@ -1313,6 +1648,7 @@ unsafe fn run_ring(
             "RENDER",
             format!("frame={frame} slot={slot} expected={expected:#010x}",),
         );
+        let mut completion = AsyncCompletion::default();
         let rendered_ok = render_linear_image(
             lib,
             physical,
@@ -1323,15 +1659,29 @@ unsafe fn run_ring(
             meta,
             color,
             expected,
+            frame,
+            slot,
+            Some(&mut completion),
         );
+        let acquire_fd = completion.acquire_fd;
         let ready = rendered_ok
-            && writeln!(writer, "READY {slot} {frame} {expected:08x}")
-                .and_then(|_| writer.flush())
-                .is_ok();
+            && acquire_fd >= 0
+            && send_ready_with_fd(
+                &writer,
+                &format!("READY {slot} {frame} {expected:08x}\n"),
+                acquire_fd,
+            );
+        if acquire_fd >= 0 {
+            close(acquire_fd);
+            completion.acquire_fd = -1;
+        }
+        if let Some(join) = completion.join.take() {
+            completion_joins.push(join);
+        }
         line(
             "ring",
             "READY",
-            format!("frame={frame} slot={slot} rendered={rendered_ok} sent={ready}"),
+            format!("frame={frame} slot={slot} rendered={rendered_ok} acquire_fd={acquire_fd} sent={ready}"),
         );
         if !ready {
             ok = false;
@@ -1341,7 +1691,13 @@ unsafe fn run_ring(
         rendered += 1;
     }
 
-    let done = writeln!(writer, "DONE {rendered}").is_ok();
+    for join in completion_joins {
+        if join.join().is_err() {
+            line("ring", "FAIL", "GPU completion thread panicked");
+            ok = false;
+        }
+    }
+    let done = send_text(&writer, &format!("DONE {rendered}\n"));
     line(
         "ring",
         if ok && rendered == meta.frames && done {
@@ -1641,8 +1997,16 @@ pub unsafe fn run(
 
     let r = bind_buffer(device, buffer, memory, 0);
     line("dmabuf", "bind", api_result(r));
-    let gpu_ok =
-        r == VK_SUCCESS && submit_compute(lib, device, queue, family_index, buffer, memory);
+    let gpu_ok = r == VK_SUCCESS
+        && submit_compute(
+            lib,
+            device,
+            queue,
+            family_index,
+            buffer,
+            memory,
+            FenceMode::Wait,
+        );
     line(
         "dmabuf",
         "gpu_access",
@@ -1665,6 +2029,9 @@ pub unsafe fn run(
             &meta,
             [1.0, 0.0, 0.0, 1.0],
             0xff00_00ff,
+            0,
+            0,
+            None,
         );
     line(
         "dmabuf",

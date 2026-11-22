@@ -1,0 +1,1513 @@
+vk|loader|PASS|libvulkan.so.1
+vk|symbols|PASS|core entrypoints resolved
+vk|instance|PASS|VkResult=0
+MESA: info: panvk_debug: startup|noafbc
+MESA: info: Created an instance
+MESA: info: Found kbase device '/dev/mali0'.
+WARNING: panvk is not a conformant Vulkan implementation, testing use only.
+FristOneRR 1.2.0 (Mesa 26.3.0-devel)
+MESA: info: panvk (Mali-G77 MC9) FristOneRR 1.2.0 (Mesa 26.3.0-devel)
+MESA: info: panvk: gpu_id=0x90800011 variant=0x0 texture_features0=0xf7fffffe afbc=1 afrc=0
+vk|physical|PASS|count=1 name=Mali-G77 MC9
+vk|ext|INFO|instance=18 device=171
+vk|ext|support|VK_KHR_surface
+vk|ext|missing|VK_KHR_android_surface
+vk|ext|support|VK_KHR_get_physical_device_properties2
+vk|ext|support|VK_KHR_external_memory_capabilities
+vk|ext|support|VK_KHR_external_fence_capabilities
+vk|ext|support|VK_KHR_external_semaphore_capabilities
+vk|ext|support|VK_KHR_get_surface_capabilities2
+vk|ext|support|VK_EXT_surface_maintenance1
+vk|ext|support|VK_KHR_swapchain
+vk|ext|missing|VK_ANDROID_external_memory_android_hardware_buffer
+vk|ext|support|VK_KHR_external_memory
+vk|ext|support|VK_KHR_external_memory_fd
+vk|ext|support|VK_EXT_external_memory_dma_buf
+vk|ext|support|VK_EXT_external_memory_host
+vk|ext|support|VK_EXT_image_drm_format_modifier
+vk|ext|support|VK_KHR_external_fence
+vk|ext|support|VK_KHR_external_fence_fd
+vk|ext|support|VK_KHR_external_semaphore
+vk|ext|support|VK_KHR_external_semaphore_fd
+vk|ext|support|VK_EXT_queue_family_foreign
+vk|ext|support|VK_KHR_timeline_semaphore
+vk|ext|support|VK_KHR_synchronization2
+vk|ext|support|VK_EXT_swapchain_maintenance1
+vk|ext|support|VK_KHR_present_id
+vk|ext|support|VK_KHR_present_wait
+vk|queue_family|PASS|index=0 flags=0x7 queues=1
+vk|device|PASS|queue=0x558ff97980 VkResult=0
+vk|memory_types|PASS|count=3
+vk|buffer|PASS|created/bound/mapped size=4096 type=2 readback=0x4855534b
+vk|compute|PASS|shader words=98
+vk|compute|PASS|pipeline
+vk|compute|PASS|descriptor
+vk|compute|PASS|commands
+vk|compute|PASS|queue_submit+fence
+vk|compute|PASS|readback=0x4855534b
+vk|graphics|PASS|pipeline
+vk|graphics|PASS|commands
+vk|graphics|PASS|queue_submit+fence
+vk|graphics|PASS|pixel=0xff0000ff expected=0xff0000ff
+vk|graphics|PASS|teardown
+vk|dmabuf|socket|PASS|/data/user/0/com.linuxhub.husk/files/ahb-bridge.sock
+vk|dmabuf|meta|PASS|64x64 stride=64 format=1 usage=0x322 count=3 frames=120
+vk|dmabuf|recv|bytes=356 control_len=32
+vk|dmabuf|fd_count|3
+vk|dmabuf|recv|bytes=356 control_len=32
+vk|dmabuf|fd_count|3
+vk|dmabuf|recv|bytes=356 control_len=32
+vk|dmabuf|fd_count|3
+vk|ring|BEGIN|buffers=3 frames=120 64x64
+vk|dmabuf|fd|fd=7 target=anon_inode:gralloc_extra
+vk|dmabuf|found|fd=8 target=/dmabuf:G:pid [8610]
+vk|dmabuf|fd_size|PASS|lseek_end=16384
+vk|dmabuf|linear|PASS|match=9/9|64x64 stride=64 pitch=256 len=16384 expected=[2589720576, 2589724736, 2589728894, 2589732896, 2589737056, 2589741150, 2589745215, 2589749375, 2589753409] got=[2589720576, 2589724736, 2589728894, 2589732896, 2589737056, 2589741150, 2589745215, 2589749375, 2589753409] unmap=0
+vk|ring|linear|slot=0 fd=8 ok=true
+vk|dmabuf|fd|fd=10 target=anon_inode:gralloc_extra
+vk|dmabuf|found|fd=11 target=/dmabuf:G:pid [8610]
+vk|dmabuf|fd_size|PASS|lseek_end=16384
+vk|dmabuf|linear|PASS|match=9/9|64x64 stride=64 pitch=256 len=16384 expected=[2589720576, 2589724736, 2589728894, 2589732896, 2589737056, 2589741150, 2589745215, 2589749375, 2589753409] got=[2589720576, 2589724736, 2589728894, 2589732896, 2589737056, 2589741150, 2589745215, 2589749375, 2589753409] unmap=0
+vk|ring|linear|slot=1 fd=11 ok=true
+vk|dmabuf|fd|fd=13 target=anon_inode:gralloc_extra
+vk|dmabuf|found|fd=14 target=/dmabuf:G:pid [8610]
+vk|dmabuf|fd_size|PASS|lseek_end=16384
+vk|dmabuf|linear|PASS|match=9/9|64x64 stride=64 pitch=256 len=16384 expected=[2589720576, 2589724736, 2589728894, 2589732896, 2589737056, 2589741150, 2589745215, 2589749375, 2589753409] got=[2589720576, 2589724736, 2589728894, 2589732896, 2589737056, 2589741150, 2589745215, 2589749375, 2589753409] unmap=0
+vk|ring|linear|slot=2 fd=14 ok=true
+vk|ring|RENDER|frame=0 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=0 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=0 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=0 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=19 sent=19 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=0 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|RENDER|frame=1 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=1 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=1 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=1 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=19 sent=19 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=1 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|RENDER|frame=2 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=2 slot=2 acquire_fd=17 submit=PASS
+vk|ring|sendmsg|len=19 sent=19 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=2 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=3 slot=0
+vk|dmabuf|image_complete|frame=2 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=2 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|RELEASE|frame=3 slot=0
+vk|ring|RENDER|frame=3 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=3 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=3 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=3 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=19 sent=19 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=3 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=4 slot=1
+vk|ring|RELEASE|frame=4 slot=1
+vk|ring|RENDER|frame=4 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=4 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=4 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=4 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=19 sent=19 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=4 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=5 slot=2
+vk|ring|RELEASE|frame=5 slot=2
+vk|ring|RENDER|frame=5 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=5 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=5 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=5 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=19 sent=19 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=5 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=6 slot=0
+vk|ring|RELEASE|frame=6 slot=0
+vk|ring|RENDER|frame=6 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=6 slot=0 acquire_fd=17 submit=PASS
+vk|ring|sendmsg|len=19 sent=19 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=6 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=7 slot=1
+vk|dmabuf|image_complete|frame=6 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=6 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|RELEASE|frame=7 slot=1
+vk|ring|RENDER|frame=7 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=7 slot=1 acquire_fd=17 submit=PASS
+vk|ring|sendmsg|len=19 sent=19 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=7 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=8 slot=2
+vk|ring|RELEASE|frame=8 slot=2
+vk|ring|RENDER|frame=8 slot=2 expected=0xffff0000
+vk|dmabuf|image_complete|frame=7 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=7 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=8 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=8 slot=2 wait=VkResult=0 write=8
+vk|ring|sendmsg|len=19 sent=19 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=8 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=9 slot=0
+vk|dmabuf|image_readback|frame=8 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|RELEASE|frame=9 slot=0
+vk|ring|RENDER|frame=9 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=9 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=9 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=9 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=19 sent=19 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=9 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=10 slot=1
+vk|ring|RELEASE|frame=10 slot=1
+vk|ring|RENDER|frame=10 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=10 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=10 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=10 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=10 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=11 slot=2
+vk|ring|RELEASE|frame=11 slot=2
+vk|ring|RENDER|frame=11 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=11 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=11 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=11 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=11 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=12 slot=0
+vk|ring|RELEASE|frame=12 slot=0
+vk|ring|RENDER|frame=12 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=12 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=12 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=12 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=12 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=13 slot=1
+vk|ring|RELEASE|frame=13 slot=1
+vk|ring|RENDER|frame=13 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=13 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=13 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=13 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=13 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=14 slot=2
+vk|ring|RELEASE|frame=14 slot=2
+vk|ring|RENDER|frame=14 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=14 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=14 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=14 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=14 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=15 slot=0
+vk|ring|RELEASE|frame=15 slot=0
+vk|ring|RENDER|frame=15 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=15 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=15 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=15 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=15 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=16 slot=1
+vk|ring|RELEASE|frame=16 slot=1
+vk|ring|RENDER|frame=16 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=16 slot=1 acquire_fd=17 submit=PASS
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=16 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=17 slot=2
+vk|dmabuf|image_complete|frame=16 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=16 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|RELEASE|frame=17 slot=2
+vk|ring|RENDER|frame=17 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=17 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=17 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=17 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=17 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=18 slot=0
+vk|ring|RELEASE|frame=18 slot=0
+vk|ring|RENDER|frame=18 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=18 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=18 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=18 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=18 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=19 slot=1
+vk|ring|RELEASE|frame=19 slot=1
+vk|ring|RENDER|frame=19 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=19 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=19 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=19 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=19 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=20 slot=2
+vk|ring|RELEASE|frame=20 slot=2
+vk|ring|RENDER|frame=20 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=20 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=20 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=20 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=20 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=21 slot=0
+vk|ring|RELEASE|frame=21 slot=0
+vk|ring|RENDER|frame=21 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=21 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=21 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=21 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=21 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=22 slot=1
+vk|ring|RELEASE|frame=22 slot=1
+vk|ring|RENDER|frame=22 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=22 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=22 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=22 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=22 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=23 slot=2
+vk|ring|RELEASE|frame=23 slot=2
+vk|ring|RENDER|frame=23 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=23 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=23 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=23 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=23 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=24 slot=0
+vk|ring|RELEASE|frame=24 slot=0
+vk|ring|RENDER|frame=24 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=24 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=24 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=24 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=24 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=25 slot=1
+vk|ring|RELEASE|frame=25 slot=1
+vk|ring|RENDER|frame=25 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=25 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=25 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=25 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=25 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=26 slot=2
+vk|ring|RELEASE|frame=26 slot=2
+vk|ring|RENDER|frame=26 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=26 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=26 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=26 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=26 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=27 slot=0
+vk|ring|RELEASE|frame=27 slot=0
+vk|ring|RENDER|frame=27 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=27 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=27 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=27 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=27 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=28 slot=1
+vk|ring|RELEASE|frame=28 slot=1
+vk|ring|RENDER|frame=28 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=28 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=28 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=28 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=28 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=29 slot=2
+vk|ring|RELEASE|frame=29 slot=2
+vk|ring|RENDER|frame=29 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=29 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=29 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=29 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=29 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=30 slot=0
+vk|ring|RELEASE|frame=30 slot=0
+vk|ring|RENDER|frame=30 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=30 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=30 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=30 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=30 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=31 slot=1
+vk|ring|RELEASE|frame=31 slot=1
+vk|ring|RENDER|frame=31 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=31 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=31 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=31 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=31 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=32 slot=2
+vk|ring|RELEASE|frame=32 slot=2
+vk|ring|RENDER|frame=32 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=32 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=32 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=32 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=32 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=33 slot=0
+vk|ring|RELEASE|frame=33 slot=0
+vk|ring|RENDER|frame=33 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=33 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=33 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=33 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=33 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=34 slot=1
+vk|ring|RELEASE|frame=34 slot=1
+vk|ring|RENDER|frame=34 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=34 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=34 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=34 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=34 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=35 slot=2
+vk|ring|RELEASE|frame=35 slot=2
+vk|ring|RENDER|frame=35 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=35 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=35 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=35 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=35 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=36 slot=0
+vk|ring|RELEASE|frame=36 slot=0
+vk|ring|RENDER|frame=36 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=36 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=36 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=36 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=36 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=37 slot=1
+vk|ring|RELEASE|frame=37 slot=1
+vk|ring|RENDER|frame=37 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=37 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=37 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=37 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=37 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=38 slot=2
+vk|ring|RELEASE|frame=38 slot=2
+vk|ring|RENDER|frame=38 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=38 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=38 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=38 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=38 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=39 slot=0
+vk|ring|RELEASE|frame=39 slot=0
+vk|ring|RENDER|frame=39 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=39 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=39 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=39 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=39 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=40 slot=1
+vk|ring|RELEASE|frame=40 slot=1
+vk|ring|RENDER|frame=40 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=40 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=40 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=40 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=40 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=41 slot=2
+vk|ring|RELEASE|frame=41 slot=2
+vk|ring|RENDER|frame=41 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=41 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=41 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=41 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=41 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=42 slot=0
+vk|ring|RELEASE|frame=42 slot=0
+vk|ring|RENDER|frame=42 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_complete|frame=42 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_async|frame=42 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_readback|frame=42 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Resource temporarily unavailable (os error 11)
+vk|ring|READY|frame=42 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=43 slot=1
+vk|ring|RELEASE|frame=43 slot=1
+vk|ring|RENDER|frame=43 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=43 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=43 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=43 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=43 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=44 slot=2
+vk|ring|RELEASE|frame=44 slot=2
+vk|ring|RENDER|frame=44 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=44 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=44 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=44 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=44 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=45 slot=0
+vk|ring|RELEASE|frame=45 slot=0
+vk|ring|RENDER|frame=45 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=45 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=45 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=45 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=45 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=46 slot=1
+vk|ring|RELEASE|frame=46 slot=1
+vk|ring|RENDER|frame=46 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=46 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=46 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=46 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=46 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=47 slot=2
+vk|ring|RELEASE|frame=47 slot=2
+vk|ring|RENDER|frame=47 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=47 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=47 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=47 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=47 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=48 slot=0
+vk|ring|RELEASE|frame=48 slot=0
+vk|ring|RENDER|frame=48 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=48 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=48 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=48 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=48 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=49 slot=1
+vk|ring|RELEASE|frame=49 slot=1
+vk|ring|RENDER|frame=49 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=49 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=49 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=49 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=49 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=50 slot=2
+vk|ring|RELEASE|frame=50 slot=2
+vk|ring|RENDER|frame=50 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=50 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=50 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=50 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=50 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=51 slot=0
+vk|ring|RELEASE|frame=51 slot=0
+vk|ring|RENDER|frame=51 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=51 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=51 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=51 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=51 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=52 slot=1
+vk|ring|RELEASE|frame=52 slot=1
+vk|ring|RENDER|frame=52 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=52 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=52 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=52 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=52 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=53 slot=2
+vk|ring|RELEASE|frame=53 slot=2
+vk|ring|RENDER|frame=53 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=53 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=53 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=53 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=53 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=54 slot=0
+vk|ring|RELEASE|frame=54 slot=0
+vk|ring|RENDER|frame=54 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=54 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=54 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=54 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=54 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=55 slot=1
+vk|ring|RELEASE|frame=55 slot=1
+vk|ring|RENDER|frame=55 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=55 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=55 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=55 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=55 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=56 slot=2
+vk|ring|RELEASE|frame=56 slot=2
+vk|ring|RENDER|frame=56 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=56 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=56 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=56 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=56 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=57 slot=0
+vk|ring|RELEASE|frame=57 slot=0
+vk|ring|RENDER|frame=57 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=57 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=57 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=57 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=57 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=58 slot=1
+vk|ring|RELEASE|frame=58 slot=1
+vk|ring|RENDER|frame=58 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=58 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=58 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=58 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=58 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=59 slot=2
+vk|ring|RELEASE|frame=59 slot=2
+vk|ring|RENDER|frame=59 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=59 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=59 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=59 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=59 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=60 slot=0
+vk|ring|RELEASE|frame=60 slot=0
+vk|ring|RENDER|frame=60 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=60 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=60 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=60 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=60 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=61 slot=1
+vk|ring|RELEASE|frame=61 slot=1
+vk|ring|RENDER|frame=61 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=61 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=61 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=61 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=61 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=62 slot=2
+vk|ring|RELEASE|frame=62 slot=2
+vk|ring|RENDER|frame=62 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=62 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=62 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=62 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=62 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=63 slot=0
+vk|ring|RELEASE|frame=63 slot=0
+vk|ring|RENDER|frame=63 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=63 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=63 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=63 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=63 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=64 slot=1
+vk|ring|RELEASE|frame=64 slot=1
+vk|ring|RENDER|frame=64 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=64 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=64 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=64 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=64 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=65 slot=2
+vk|ring|RELEASE|frame=65 slot=2
+vk|ring|RENDER|frame=65 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=65 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=65 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=65 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=65 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=66 slot=0
+vk|ring|RELEASE|frame=66 slot=0
+vk|ring|RENDER|frame=66 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=66 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=66 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=66 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=66 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=67 slot=1
+vk|ring|RELEASE|frame=67 slot=1
+vk|ring|RENDER|frame=67 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=67 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=67 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=67 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=67 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=68 slot=2
+vk|ring|RELEASE|frame=68 slot=2
+vk|ring|RENDER|frame=68 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=68 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=68 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=68 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=68 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=69 slot=0
+vk|ring|RELEASE|frame=69 slot=0
+vk|ring|RENDER|frame=69 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=69 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=69 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=69 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=69 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=70 slot=1
+vk|ring|RELEASE|frame=70 slot=1
+vk|ring|RENDER|frame=70 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=70 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=70 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=70 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=70 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=71 slot=2
+vk|ring|RELEASE|frame=71 slot=2
+vk|ring|RENDER|frame=71 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=71 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=71 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=71 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=71 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=72 slot=0
+vk|ring|RELEASE|frame=72 slot=0
+vk|ring|RENDER|frame=72 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=72 slot=0 acquire_fd=17 submit=PASS
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=72 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=73 slot=1
+vk|dmabuf|image_complete|frame=72 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=72 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|RELEASE|frame=73 slot=1
+vk|ring|RENDER|frame=73 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=73 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=73 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=73 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=73 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=74 slot=2
+vk|ring|RELEASE|frame=74 slot=2
+vk|ring|RENDER|frame=74 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=74 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=74 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=74 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=74 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=75 slot=0
+vk|ring|RELEASE|frame=75 slot=0
+vk|ring|RENDER|frame=75 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=75 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=75 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=75 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=75 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=76 slot=1
+vk|ring|RELEASE|frame=76 slot=1
+vk|ring|RENDER|frame=76 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=76 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=76 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=76 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=76 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=77 slot=2
+vk|ring|RELEASE|frame=77 slot=2
+vk|ring|RENDER|frame=77 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=77 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=77 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=77 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=77 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=78 slot=0
+vk|ring|RELEASE|frame=78 slot=0
+vk|ring|RENDER|frame=78 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=78 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=78 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=78 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=78 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=79 slot=1
+vk|ring|RELEASE|frame=79 slot=1
+vk|ring|RENDER|frame=79 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=79 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=79 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=79 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=79 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=80 slot=2
+vk|ring|RELEASE|frame=80 slot=2
+vk|ring|RENDER|frame=80 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=80 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=80 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=80 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=80 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=81 slot=0
+vk|ring|RELEASE|frame=81 slot=0
+vk|ring|RENDER|frame=81 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=81 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=81 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=81 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=81 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=82 slot=1
+vk|ring|RELEASE|frame=82 slot=1
+vk|ring|RENDER|frame=82 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=82 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=82 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=82 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=82 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=83 slot=2
+vk|ring|RELEASE|frame=83 slot=2
+vk|ring|RENDER|frame=83 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=83 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=83 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=83 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=83 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=84 slot=0
+vk|ring|RELEASE|frame=84 slot=0
+vk|ring|RENDER|frame=84 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=84 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=84 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=84 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=84 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=85 slot=1
+vk|ring|RELEASE|frame=85 slot=1
+vk|ring|RENDER|frame=85 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=85 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=85 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=85 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=85 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=86 slot=2
+vk|ring|RELEASE|frame=86 slot=2
+vk|ring|RENDER|frame=86 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=86 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=86 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=86 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=86 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=87 slot=0
+vk|ring|RELEASE|frame=87 slot=0
+vk|ring|RENDER|frame=87 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=87 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=87 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=87 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=87 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=88 slot=1
+vk|ring|RELEASE|frame=88 slot=1
+vk|ring|RENDER|frame=88 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=88 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=88 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=88 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=88 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=89 slot=2
+vk|ring|RELEASE|frame=89 slot=2
+vk|ring|RENDER|frame=89 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=89 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=89 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=89 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=89 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=90 slot=0
+vk|ring|RELEASE|frame=90 slot=0
+vk|ring|RENDER|frame=90 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=90 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=90 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=90 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=90 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=91 slot=1
+vk|ring|RELEASE|frame=91 slot=1
+vk|ring|RENDER|frame=91 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=91 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=91 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=91 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=91 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=92 slot=2
+vk|ring|RELEASE|frame=92 slot=2
+vk|ring|RENDER|frame=92 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=92 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=92 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=92 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=92 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=93 slot=0
+vk|ring|RELEASE|frame=93 slot=0
+vk|ring|RENDER|frame=93 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=93 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=93 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=93 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=93 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=94 slot=1
+vk|ring|RELEASE|frame=94 slot=1
+vk|ring|RENDER|frame=94 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=94 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=94 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=94 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=94 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=95 slot=2
+vk|ring|RELEASE|frame=95 slot=2
+vk|ring|RENDER|frame=95 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=95 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=95 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=95 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=95 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=96 slot=0
+vk|ring|RELEASE|frame=96 slot=0
+vk|ring|RENDER|frame=96 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=96 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=96 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=96 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=96 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=97 slot=1
+vk|ring|RELEASE|frame=97 slot=1
+vk|ring|RENDER|frame=97 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=97 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=97 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=97 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=97 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=98 slot=2
+vk|ring|RELEASE|frame=98 slot=2
+vk|ring|RENDER|frame=98 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=98 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=98 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=98 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=98 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=99 slot=0
+vk|ring|RELEASE|frame=99 slot=0
+vk|ring|RENDER|frame=99 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=99 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=99 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=99 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=20 sent=20 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=99 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=100 slot=1
+vk|ring|RELEASE|frame=100 slot=1
+vk|ring|RENDER|frame=100 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=100 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=100 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=100 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=21 sent=21 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=100 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=101 slot=2
+vk|ring|RELEASE|frame=101 slot=2
+vk|ring|RENDER|frame=101 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=101 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=101 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=101 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=21 sent=21 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=101 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=102 slot=0
+vk|ring|RELEASE|frame=102 slot=0
+vk|ring|RENDER|frame=102 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=102 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=102 slot=0 wait=VkResult=0 write=8
+vk|ring|sendmsg|len=21 sent=21 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=102 slot=0 rendered=true acquire_fd=17 sent=true
+vk|dmabuf|image_readback|frame=102 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|WAIT_RELEASE|frame=103 slot=1
+vk|ring|RELEASE|frame=103 slot=1
+vk|ring|RENDER|frame=103 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=103 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=103 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=103 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=21 sent=21 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=103 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=104 slot=2
+vk|ring|RELEASE|frame=104 slot=2
+vk|ring|RENDER|frame=104 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=104 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=104 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=104 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=21 sent=21 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=104 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=105 slot=0
+vk|ring|RELEASE|frame=105 slot=0
+vk|ring|RENDER|frame=105 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=105 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=105 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=105 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=21 sent=21 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=105 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=106 slot=1
+vk|ring|RELEASE|frame=106 slot=1
+vk|ring|RENDER|frame=106 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=106 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=106 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=106 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=21 sent=21 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=106 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=107 slot=2
+vk|ring|RELEASE|frame=107 slot=2
+vk|ring|RENDER|frame=107 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=107 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=107 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=107 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=21 sent=21 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=107 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=108 slot=0
+vk|ring|RELEASE|frame=108 slot=0
+vk|ring|RENDER|frame=108 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=108 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=108 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=108 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=21 sent=21 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=108 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=109 slot=1
+vk|ring|RELEASE|frame=109 slot=1
+vk|ring|RENDER|frame=109 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=109 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=109 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=109 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=21 sent=21 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=109 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=110 slot=2
+vk|ring|RELEASE|frame=110 slot=2
+vk|ring|RENDER|frame=110 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=110 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=110 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=110 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=21 sent=21 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=110 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=111 slot=0
+vk|ring|RELEASE|frame=111 slot=0
+vk|ring|RENDER|frame=111 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=111 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=111 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=111 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=21 sent=21 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=111 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=112 slot=1
+vk|ring|RELEASE|frame=112 slot=1
+vk|ring|RENDER|frame=112 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=112 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=112 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=112 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=21 sent=21 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=112 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=113 slot=2
+vk|ring|RELEASE|frame=113 slot=2
+vk|ring|RENDER|frame=113 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=113 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=113 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=113 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=21 sent=21 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=113 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=114 slot=0
+vk|ring|RELEASE|frame=114 slot=0
+vk|ring|RENDER|frame=114 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=114 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=114 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=114 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=21 sent=21 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=114 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=115 slot=1
+vk|ring|RELEASE|frame=115 slot=1
+vk|ring|RENDER|frame=115 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=115 slot=1 acquire_fd=17 submit=PASS
+vk|ring|sendmsg|len=21 sent=21 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=115 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=116 slot=2
+vk|dmabuf|image_complete|frame=115 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=115 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|RELEASE|frame=116 slot=2
+vk|ring|RENDER|frame=116 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=116 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=116 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=116 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=21 sent=21 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=116 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=117 slot=0
+vk|ring|RELEASE|frame=117 slot=0
+vk|ring|RENDER|frame=117 slot=0 expected=0xff0000ff
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=8
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=117 slot=0 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=117 slot=0 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=117 slot=0 PASS|match=9/9 expected=0xff0000ff
+vk|ring|sendmsg|len=21 sent=21 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=117 slot=0 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=118 slot=1
+vk|ring|RELEASE|frame=118 slot=1
+vk|ring|RENDER|frame=118 slot=1 expected=0xff00ff00
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=11
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=118 slot=1 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=118 slot=1 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=118 slot=1 PASS|match=9/9 expected=0xff00ff00
+vk|ring|sendmsg|len=21 sent=21 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=118 slot=1 rendered=true acquire_fd=17 sent=true
+vk|ring|WAIT_RELEASE|frame=119 slot=2
+vk|ring|RELEASE|frame=119 slot=2
+vk|ring|RENDER|frame=119 slot=2 expected=0xffff0000
+vk|dmabuf|image_create|VkResult=0|64x64 pitch=256 modifier=LINEAR
+vk|dmabuf|image_requirements|size=16384 align=4096 bits=0x7
+vk|dmabuf|image_import|VkResult=0|type=2 size=16384 fd=14
+vk|dmabuf|image_bind|VkResult=0
+vk|dmabuf|image_async|frame=119 slot=2 acquire_fd=17 submit=PASS
+vk|dmabuf|image_complete|frame=119 slot=2 wait=VkResult=0 write=8
+vk|dmabuf|image_readback|frame=119 slot=2 PASS|match=9/9 expected=0xffff0000
+vk|ring|sendmsg|len=21 sent=21 acquire_fd=17 errno=Bad file descriptor (os error 9)
+vk|ring|READY|frame=119 slot=2 rendered=true acquire_fd=17 sent=true
+vk|ring|PASS|rendered=120/120 releases=117 done=true
+vk|ring|teardown|all received AHB fds closed
+vk|teardown|PASS|device/instance/loader released

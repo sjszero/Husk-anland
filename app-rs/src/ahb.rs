@@ -19,7 +19,7 @@
 
 use core::ffi::{c_char, c_int, c_void};
 use std::ffi::CStr;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -28,6 +28,8 @@ use std::time::{Duration, Instant};
 const RTLD_NOW: c_int = 2;
 const AF_UNIX: c_int = 1;
 const SOCK_SEQPACKET: c_int = 5;
+const SOL_SOCKET: c_int = 1;
+const SCM_RIGHTS: c_int = 1;
 const F_GETFD: c_int = 1;
 const AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM: u32 = 1;
 const AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE: u64 = 1 << 8;
@@ -113,6 +115,30 @@ struct PollFd {
     revents: i16,
 }
 
+#[repr(C)]
+struct IoVec {
+    base: *mut c_void,
+    len: usize,
+}
+
+#[repr(C)]
+struct MsgHdr {
+    name: *mut c_void,
+    name_len: u32,
+    iov: *mut IoVec,
+    iov_len: usize,
+    control: *mut c_void,
+    control_len: usize,
+    flags: c_int,
+}
+
+#[repr(C)]
+struct CmsgHdr {
+    len: usize,
+    level: c_int,
+    ty: c_int,
+}
+
 struct SurfaceSymbols {
     create_from_window: FnCreateSurfaceControl,
     create_child: FnCreateChildSurfaceControl,
@@ -135,6 +161,8 @@ unsafe extern "C" {
     fn close(fd: c_int) -> c_int;
     fn fcntl(fd: c_int, cmd: c_int, ...) -> c_int;
     fn poll(fds: *mut PollFd, nfds: usize, timeout: c_int) -> c_int;
+    fn recvmsg(fd: c_int, msg: *mut MsgHdr, flags: c_int) -> isize;
+    fn send(fd: c_int, buf: *const c_void, len: usize, flags: c_int) -> isize;
 }
 
 pub fn spawn_once() {
@@ -634,12 +662,13 @@ unsafe extern "C" fn on_transaction_complete(context: *mut c_void, stats: *mut c
         ));
         if let Some(previous_slot) = ctx.previous_slot {
             if released {
-                let mut stream = &ctx.stream;
-                match writeln!(stream, "RELEASE {previous_slot}").and_then(|_| stream.flush()) {
-                    Ok(()) => crate::log(&format!("ahb|ring|release_sent|slot={previous_slot}")),
-                    Err(e) => crate::log(&format!(
-                        "ahb|ring|release_send|FAIL|slot={previous_slot}|{e}"
-                    )),
+                let message = format!("RELEASE {previous_slot}\n");
+                if send_ring_text(&ctx.stream, &message) {
+                    crate::log(&format!("ahb|ring|release_sent|slot={previous_slot}"));
+                } else {
+                    crate::log(&format!(
+                        "ahb|ring|release_send|FAIL|slot={previous_slot}"
+                    ));
                 }
             }
         }
@@ -654,9 +683,17 @@ unsafe fn present_ring_frame(
     window: *mut c_void,
     current_slot: usize,
     previous_slot: Option<usize>,
+    acquire_fd: c_int,
     stream: &std::os::unix::net::UnixStream,
     progress: &Arc<RingProgress>,
 ) -> bool {
+    let stream = match stream.try_clone() {
+        Ok(v) => v,
+        Err(e) => {
+            crate::log(&format!("ahb|ring|present|FAIL|clone stream {e}"));
+            return false;
+        }
+    };
     let transaction = (surface.create_transaction)();
     if transaction.is_null() {
         crate::log("ahb|ring|present|FAIL|transaction");
@@ -678,16 +715,7 @@ unsafe fn present_ring_frame(
     };
     (surface.set_geometry)(transaction, control, &source, &destination, 0);
     (surface.set_z_order)(transaction, control, 100);
-    (surface.set_buffer)(transaction, control, buffer, -1);
-
-    let stream = match stream.try_clone() {
-        Ok(v) => v,
-        Err(e) => {
-            crate::log(&format!("ahb|ring|present|FAIL|clone stream {e}"));
-            (surface.delete_transaction)(transaction);
-            return false;
-        }
-    };
+    (surface.set_buffer)(transaction, control, buffer, acquire_fd);
     let context = Box::new(ReleaseContext {
         previous_slot,
         current_slot,
@@ -704,9 +732,93 @@ unsafe fn present_ring_frame(
     (surface.apply)(transaction);
     (surface.delete_transaction)(transaction);
     crate::log(&format!(
-        "ahb|ring|present|slot={current_slot}|previous={previous_slot:?}|{win_w}x{win_h}"
+        "ahb|ring|present|slot={current_slot}|previous={previous_slot:?}|acquire_fd={acquire_fd}|{win_w}x{win_h}"
     ));
     true
+}
+
+fn cmsg_align(len: usize) -> usize {
+    (len + core::mem::size_of::<usize>() - 1) & !(core::mem::size_of::<usize>() - 1)
+}
+
+unsafe fn send_ring_text(stream: &std::os::unix::net::UnixStream, text: &str) -> bool {
+    let sent = send(
+        stream.as_raw_fd(),
+        text.as_ptr() as *const c_void,
+        text.len(),
+        0,
+    );
+    if sent == text.len() as isize {
+        true
+    } else {
+        crate::log(&format!(
+            "ahb|ring|send|FAIL|sent={sent}|len={}|{}",
+            text.len(),
+            std::io::Error::last_os_error()
+        ));
+        false
+    }
+}
+
+unsafe fn recv_ring_record(
+    stream: &std::os::unix::net::UnixStream,
+) -> Result<(String, Vec<c_int>), String> {
+    let mut data = [0u8; 256];
+    let mut control = [0u8; 64];
+    let mut iov = IoVec {
+        base: data.as_mut_ptr() as *mut c_void,
+        len: data.len(),
+    };
+    let mut msg = MsgHdr {
+        name: core::ptr::null_mut(),
+        name_len: 0,
+        iov: &mut iov,
+        iov_len: 1,
+        control: control.as_mut_ptr() as *mut c_void,
+        control_len: control.len(),
+        flags: 0,
+    };
+    let n = recvmsg(stream.as_raw_fd(), &mut msg, 0);
+    if n < 0 {
+        return Err(format!("recvmsg: {}", std::io::Error::last_os_error()));
+    }
+    if n == 0 {
+        return Err("peer closed the ring socket".to_string());
+    }
+    let text = String::from_utf8_lossy(&data[..n as usize])
+        .trim()
+        .to_string();
+    let mut fds = Vec::new();
+    let control_len = msg.control_len.min(control.len());
+    let mut offset = 0usize;
+    while offset + core::mem::size_of::<CmsgHdr>() <= control_len {
+        let hdr = &*(control.as_ptr().add(offset) as *const CmsgHdr);
+        if hdr.len < core::mem::size_of::<CmsgHdr>() || offset + hdr.len > control_len {
+            break;
+        }
+        if hdr.level == SOL_SOCKET && hdr.ty == SCM_RIGHTS {
+            let data_offset = offset + cmsg_align(core::mem::size_of::<CmsgHdr>());
+            let data_end = offset + hdr.len;
+            if data_offset <= data_end {
+                let count = (data_end - data_offset) / core::mem::size_of::<c_int>();
+                for i in 0..count {
+                    fds.push(
+                        (control.as_ptr().add(data_offset) as *const c_int)
+                            .add(i)
+                            .read_unaligned(),
+                    );
+                }
+            }
+        }
+        offset += cmsg_align(hdr.len);
+    }
+    crate::log(&format!(
+        "ahb|ring|recv|bytes={n}|control_len={}|fds={}|flags={:#x}|text={text}",
+        msg.control_len,
+        fds.len(),
+        msg.flags
+    ));
+    Ok((text, fds))
 }
 
 unsafe fn serve_ring_bridge(
@@ -779,7 +891,6 @@ unsafe fn serve_ring_bridge(
         }
     };
     let _ = reader_stream.set_read_timeout(Some(Duration::from_secs(60)));
-    let mut reader = BufReader::new(reader_stream);
     let Some(surface) = load_surface(lib) else {
         crate::log("ahb|ring|FAIL|surface symbols");
         let _ = std::fs::remove_file(&path);
@@ -815,34 +926,45 @@ unsafe fn serve_ring_bridge(
     let mut submitted = 0usize;
     let mut guest_done = false;
     loop {
-        let mut text = String::new();
-        match reader.read_line(&mut text) {
-            Ok(0) => {
-                crate::log("ahb|ring|EOF");
-                break;
-            }
-            Ok(_) => {}
+        let (text, received_fds) = match recv_ring_record(&reader_stream) {
+            Ok(v) => v,
             Err(e) => {
                 crate::log(&format!("ahb|ring|read|FAIL|{e}"));
                 break;
             }
-        }
-        let text = text.trim();
+        };
         if text.starts_with("DONE ") {
+            for fd in received_fds {
+                close(fd);
+            }
             crate::log(&format!("ahb|ring|GUEST_DONE|{text}"));
             guest_done = true;
             break;
         }
         let fields: Vec<&str> = text.split_whitespace().collect();
         if fields.len() != 4 || fields[0] != "READY" {
+            for fd in received_fds {
+                close(fd);
+            }
             crate::log(&format!("ahb|ring|RX|{text}"));
             continue;
         }
+        let acquire_fd = received_fds.first().copied().unwrap_or(-1);
+        for &extra in received_fds.iter().skip(1) {
+            crate::log(&format!("ahb|ring|FAIL|extra acquire fd={extra}"));
+            close(extra);
+        }
         let Ok(slot) = fields[1].parse::<usize>() else {
+            if acquire_fd >= 0 {
+                close(acquire_fd);
+            }
             crate::log(&format!("ahb|ring|FAIL|bad slot|{text}"));
             break;
         };
         if slot >= buffers.len() {
+            if acquire_fd >= 0 {
+                close(acquire_fd);
+            }
             crate::log(&format!("ahb|ring|FAIL|slot out of range|{text}"));
             break;
         }
@@ -854,9 +976,13 @@ unsafe fn serve_ring_bridge(
             window,
             slot,
             last_submitted,
+            acquire_fd,
             &stream,
             &progress,
         ) {
+            if acquire_fd >= 0 {
+                close(acquire_fd);
+            }
             break;
         }
         last_submitted = Some(slot);

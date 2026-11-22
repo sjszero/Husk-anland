@@ -1,5 +1,21 @@
 # 变更记录
 
+## 2026-11-23 — eventfd acquire bridge 连续 120 帧（非 SYNC_FD）
+
+- **evidence 55**：guest `vkQueueSubmit` 后由 Rust completion 线程等待 `VkFence`，GPU 完成后写
+  `eventfd`；`READY <slot> <frame> <expected>` 与 eventfd 通过同一次 `sendmsg(SCM_RIGHTS)` 交给
+  app，app 将 fd 交给 `ASurfaceTransaction_setBuffer`。
+- 真机 3-buffer ring 连续 120 帧通过：app `submitted=120 completed=120 guest_done=true`，
+  guest `rendered=120/120 releases=117 done=true`，最终 `buffers_released=3`；SurfaceFlinger
+  完成 transaction，release fence 背压和 fd 回收通过。app fd 数 ring 前 141、cleanup 后 129。
+- **边界**：eventfd 是 pollable completion bridge，不是 Vulkan `SYNC_FD`，也没有
+  `sync_file` 的 signal-time / `SYNC_IOC_FILE_INFO` 语义；本次多数帧在 app 收到 READY 前已经完成，
+  不能写成“等待了 pending producer fence”。
+- **仍未完成**：kbase `STREAM_CREATE` + soft-fence trigger 或 PanVK 真实 dma-fence；持久资源池、
+  GBM / Wayland / X11、WSI / swapchain、旋转 / DPI / 多窗口、SurfaceView 重建和 10 分钟泄漏。
+- guest probe sha256 `42a1cbd79086a4bb3199cc21383ccf8c8212a43fc9b74487d2adc25c20b304e5`；
+  APK sha256 `78d97c9360e4f0489377453d8514a728f73bcf0c4564685ab122c8b9b1c2935d`。
+
 ## 2026-11-23 — 3-buffer AHB ring 连续 12 帧与 release-fence 背压
 
 - **evidence 54**：app 一次分配 3 个 AHardwareBuffer，经 `SCM_RIGHTS` 交给 guest；guest 连续 GPU

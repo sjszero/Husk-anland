@@ -1,75 +1,95 @@
-# Producer / acquire fence：当前实验、结论与最小探针
+# Producer / acquire fence：现状、可行桥和真正待办
 
-> 状态：**未通过，未验收**（2026-11-23）。本文件记录失败现场与下一步可复现实验，
-> 不把 `vkGetFenceFdKHR` 返回过 `rc=0` 当作 acquire fence 已打通。
+> 状态：**部分通过（2026-11-23）**。eventfd 作为 SurfaceControl 的 pollable acquire fd
+> 已连续跑完 120 帧；Vulkan `SYNC_FD` / 真正 pending producer fence 仍未打通。
+> 不把 `vkGetFenceFdKHR` 返回过 `rc=0` 当作可用 fence，也不把 eventfd 写成 `SYNC_FD`。
 
-## 1. 要解决的问题
+## 1. 根因（FACT）
 
-evidence 54 已证明 app→guest 的 AHB ring、GPU 渲染、SurfaceControl 上屏和
-SurfaceFlinger→guest 的 release-fence 背压可用。当前 guest 在发送 `READY` 前仍先执行
-`vkWaitForFences`，因此 app 拿不到“GPU 尚未完成”的 producer fence；GUI 合成器只能默认
-buffer 已就绪，或者在 guest 侧先付出一次 CPU 等待。
+当前安装的 FristOneRR PanVK（commit `0c9dce35094dbe89c412b79bf57c6067c7b97e59`）使用 kbase
+CPU-sync 后端。真机探针确认：
 
-目标协议：
+```text
+vk|fence_probe|status|after_submit=1
+vk|fence_probe|export|rc=0 fd=-1 elapsed_us=49214
+vk|fence_probe|status|after_export=1
+```
 
-1. guest `vkQueueSubmit` 后，不先 CPU wait；
-2. 立即把同一个 `VkFence` 导出为 `SYNC_FD`；
-3. guest 用 `sendmsg(SCM_RIGHTS)` 把 fd 与 `READY <slot> <frame> <expected>` 一起发给 app；
-4. app 用 `recvmsg` 收 payload + fd，并作为
-   `ASurfaceTransaction_setBuffer(..., acquire_fd)` 的 acquire fence 交给 SurfaceFlinger；
-5. app→guest 的 `RELEASE <slot>` 仍由 SF release fence 驱动，不能省。
+`kbase_cpu_sync_export_sync_file()` 先 CPU 等待 GPU seqno，然后返回 `fd=-1`；Vulkan
+`vk_common_GetFenceFdKHR()` 按 `SYNC_FD` 规范重置原 fence。因此“导出后继续 wait 同一个
+VkFence”会挂起，这是预期行为，不是随机驱动 bug。不要重跑那个组合。
 
-验收至少要有一次真实的 pending `SYNC_FD >= 0` 被 SurfaceFlinger 接收；如果 workload
-太快、导出时 fence 已完成，`-1` 可以作为诊断事实记录，但不能替代上述验收。
+## 2. 当前可用桥（evidence 55）
 
-## 2. 已观察事实（FACT）
+协议：
 
-- PanVK 实例/设备扩展枚举包含 `VK_KHR_external_fence` 与
-  `VK_KHR_external_fence_fd`。
-- 直接 `dlsym("vkGetFenceFdKHR")` 不存在；通过
-  `vkGetDeviceProcAddr(device, "vkGetFenceFdKHR")` 可以取得函数指针。
-- 在 `vkQueueSubmit` 成功后、`vkWaitForFences` 之前调用导出，日志为：
+1. guest `vkQueueSubmit` 后立即返回，不阻塞 ring 主循环；
+2. 创建 `eventfd`，复制一个写端给 Rust completion 线程；
+3. completion 线程等待该帧 `VkFence`；
+4. GPU 完成后向 eventfd 写 8 字节并关闭写端；
+5. `READY <slot> <frame> <expected>` 与 eventfd 同一次 `sendmsg(SCM_RIGHTS)` 发给 app；
+6. app 用 `recvmsg` 同时收 payload + fd，交给
+   `ASurfaceTransaction_setBuffer(..., acquire_fd)`；
+7. SurfaceFlinger 继续通过 `ASurfaceTransaction_setOnComplete` 返回上一 buffer 的 release
+   fence，app 等它 signal 后再发 `RELEASE <slot>`。
 
-  ```text
-  vk|dmabuf|fence_export|rc=0 fd=-1
-  ```
+实测结果：
 
-- 在上述导出返回后继续原先的 `vkWaitForFences`，探针挂起，未继续到
-  `image_submit/wait`。因此该组合不能直接进入正式 ring 协议。
-- 早先“先 `vkWaitForFences`，完成后再导出”的实验同样得到 `rc=0 fd=-1`；这只能证明
-  fence 已经 signal，不能证明 acquire fence 路径可用。
-- 当前没有足够证据把挂起归因于 PanVK、Vulkan 调用顺序、同一 fence 被导出后状态变化，
-  或测试 workload；根因仍是 **UNKNOWN**。
+```text
+app : ahb|ring|SUMMARY|submitted=120|completed=120|guest_done=true
+app : ahb|ring|DONE|ok=true|buffers_released=3
+guest: vk|ring|PASS|rendered=120/120 releases=117 done=true
+```
 
-## 3. 安全的最小探针
+3 个 slot、120 帧、release fence 背压、fd 回收和最后一次蓝色截图均通过。app fd 数在 ring
+run 前为 141，cleanup 后为 129；没有按帧增长。详细日志、截图和哈希见
+`docs/design/evidence/55-eventfd-acquire-fence.md`。
 
-不要再次运行“导出后无限 wait 同一个 fence”的组合。先做一个独立、单向、可超时的 fence
-探针，每一步单独记录，并按以下顺序执行：
+## 3. 边界（不要混淆）
 
-1. 创建带 `VkExportFenceCreateInfo`（`SYNC_FD`）的 fence；
-2. submit 前记录 `vkGetFenceStatus`；
-3. submit 后记录 `vkGetFenceStatus`；
-4. 通过 `vkGetDeviceProcAddr` 调 `vkGetFenceFdKHR`，记录 rc 与 fd；
-5. 若 fd >= 0，用 `poll(POLLIN)` 记录其完成状态，不阻塞主线程；
-6. 再次记录 `vkGetFenceStatus`；
-7. 对同一 fence 的 wait 只允许放在子进程或受硬超时保护，并记录是否挂起；
-8. 清理 fd / fence，输出一条机器可读结果。
+- **FACT**：SurfaceFlinger 在当前 Android 13 / RMX3357 路径上接受 eventfd 并完成 transaction。
+- **FACT**：eventfd 是 pollable completion bridge，不是 Vulkan `SYNC_FD`；它没有
+  `sync_file` 的 `SYNC_IOC_FILE_INFO` / signal-time 语义。
+- **FACT**：本次大多数帧在 app 收到 READY 前 GPU 已完成，因此 eventfd 往往是已 signal 的；
+  不能把它说成“SF 等待了一个 pending producer fence 的真实测量”。
+- **INFERENCE**：只依赖 poll(fd) 的 Android 合成路径可使用这个桥；要求真正 sync_file 的
+  消费者或未来 Android 版本不能外推。
+- **UNKNOWN**：kbase `STREAM_CREATE` + `BASE_JD_REQ_SOFT_FENCE_TRIGGER` 是否能在这台 r32p1
+  JM 内核上生成真正的 dma-fence/sync_file；需要用真实 atom 布局和最小合法参数做上机实验。
+- **UNKNOWN**：修 PanVK kbase 后端直接返回真实 sync_file 的可行性和成本。
 
-若第 7 步可稳定复现挂起，应改用“不导出就是普通 fence”与“导出后使用独立第二 fence”
-两条对照，确认是否是导出操作改变了原 fence 的可等待性。不要在未确认前扩大进 ring 代码。
+## 4. 下一阶段
 
-## 4. 通过后的接入顺序
+### 4.1 真正 pending fence 的验收
 
-1. 将 fence 探针接入单 slot 的 READY 消息，fd 与文本 payload 同一次 `sendmsg` 发出；
-2. app 侧 `recvmsg` 收 fd，记录 fd 生命周期，交给 `ASurfaceTransaction_setBuffer`；
-3. 保留 release fence 背压，确认 3 个 slot 不串帧；
-4. 增加 GPU 重 workload，至少取得一次 pending fd >= 0 的截图与日志；
-5. 新建 evidence 55，记录 APK / guest probe / 日志 / 截图哈希；
-6. 再做持久资源池、窗口生命周期、旋转 / DPI、多窗口和 10 分钟 fd / 内存泄漏测试。
+需要一个在 `sendmsg` 时仍 pending、GPU 完成后才 readable 的 fd，且 SurfaceFlinger 能读取。
+至少记录：
 
-## 5. 与 evidence 54 的边界
+1. `submit` 后 `vkGetFenceStatus == VK_NOT_READY`；
+2. 发出的 fd `>= 0`；
+3. app/SF 侧 poll 在 GPU 完成前超时或 pending；
+4. GPU 完成后同一 fd readable；
+5. release backpressure 和截图仍通过。
 
-- evidence 54 的产物和哈希只对应“连续帧 + release fence 背压”；
-- 本文件中的失败实验不得覆盖或重写 evidence 54；
-- producer / acquire fence 未通过前，`docs/GOALS.md` 和 `docs/STATUS.md` 必须继续把它写成
-  `UNKNOWN / 未完成`。
+### 4.2 优先尝试方向
+
+1. 从 MTK / Arm r32p1 的 `base_jd_atom_v2`、soft fence trigger 和 `STREAM_CREATE` 真实布局，
+   做一个只产生 completion fence 的最小 atom；全部参数取自厂商客户端或源码，不盲扫。
+2. 若 kbase 用户态接口不能直接给 sync_file，评估修 FristOneRR PanVK 的 kbase 后端，让
+   `vkGetFenceFdKHR` 返回真实 dma-fence；不把 CPU wait 后伪造 fd 当成完成。
+3. 在真 fence 打通前，eventfd 桥保留为当前可用 fallback，并在日志中标记其非 `SYNC_FD` 性质。
+
+### 4.3 不做什么
+
+- 不再运行“导出后无限 wait 同一个 VkFence”的组合；
+- 不用 `vkGetFenceFdKHR` 的 `fd=-1` 替代 acquire fence；
+- 不把 eventfd 写成 Vulkan 外部 fence；
+- 不为了通过测试删除 release fence 背压。
+
+## 5. 与旧 evidence 的边界
+
+- evidence 54 的产物只对应 12 帧 ring 和 release fence 背压；
+- evidence 55 的产物只对应 eventfd acquire bridge 的 120 帧；
+- 旧的失败实验和哈希不改写；
+- 在真正 pending `SYNC_FD` 验收前，`docs/GOALS.md` 和 `docs/STATUS.md` 必须继续把
+  “真正 producer fence”写成未完成。

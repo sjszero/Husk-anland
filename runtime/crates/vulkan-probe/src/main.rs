@@ -53,6 +53,8 @@ const VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO: u32 = 40;
 const VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO: u32 = 42;
 const VK_STRUCTURE_TYPE_SUBMIT_INFO: u32 = 4;
 const VK_STRUCTURE_TYPE_FENCE_CREATE_INFO: u32 = 8;
+const VK_STRUCTURE_TYPE_EXPORT_FENCE_CREATE_INFO: u32 = 1_000_113_000;
+const VK_STRUCTURE_TYPE_FENCE_GET_FD_INFO_KHR: u32 = 1_000_115_001;
 const VK_QUEUE_GRAPHICS_BIT: u32 = 1 << 0;
 const VK_QUEUE_COMPUTE_BIT: u32 = 1 << 1;
 const VK_QUEUE_TRANSFER_BIT: u32 = 1 << 2;
@@ -69,6 +71,9 @@ const VK_SHARING_MODE_EXCLUSIVE: u32 = 0;
 const VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT: u32 = 1 << 1;
 const VK_MEMORY_PROPERTY_HOST_COHERENT_BIT: u32 = 1 << 2;
 const VK_API_VERSION_1_3: u32 = (1 << 22) | (3 << 12);
+const VK_NOT_READY: VkResult = 1;
+const VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT: u32 = 0x8;
+const POLLIN: i16 = 0x1;
 
 #[repr(C)]
 struct VkApplicationInfo {
@@ -290,6 +295,28 @@ struct VkFenceCreateInfo {
 }
 
 #[repr(C)]
+struct VkExportFenceCreateInfo {
+    s_type: u32,
+    p_next: *const c_void,
+    handle_types: u32,
+}
+
+#[repr(C)]
+struct VkFenceGetFdInfoKhr {
+    s_type: u32,
+    p_next: *const c_void,
+    fence: VkFence,
+    handle_type: u32,
+}
+
+#[repr(C)]
+struct PollFd {
+    fd: c_int,
+    events: i16,
+    revents: i16,
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Default)]
 struct VkMemoryRequirements {
     size: VkDeviceSize,
@@ -469,13 +496,19 @@ type FnCreateFence = unsafe extern "C" fn(
     *mut VkFence,
 ) -> VkResult;
 type FnDestroyFence = unsafe extern "C" fn(VkDevice, VkFence, *const c_void);
+type FnGetFenceStatus = unsafe extern "C" fn(VkDevice, VkFence) -> VkResult;
 type FnWaitForFences = unsafe extern "C" fn(VkDevice, u32, *const VkFence, u32, u64) -> VkResult;
 type FnQueueSubmit = unsafe extern "C" fn(VkQueue, u32, *const VkSubmitInfo, VkFence) -> VkResult;
+type FnGetDeviceProcAddr = unsafe extern "C" fn(VkDevice, *const c_char) -> *mut c_void;
+type FnGetFenceFdKhr =
+    unsafe extern "C" fn(VkDevice, *const VkFenceGetFdInfoKhr, *mut c_int) -> VkResult;
 
 extern "C" {
     fn dlopen(filename: *const c_char, flags: c_int) -> *mut c_void;
     fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
     fn dlclose(handle: *mut c_void) -> c_int;
+    fn poll(fds: *mut PollFd, nfds: usize, timeout: c_int) -> c_int;
+    fn close(fd: c_int) -> c_int;
 }
 
 const RTLD_NOW: c_int = 2;
@@ -655,6 +688,12 @@ unsafe fn report_extensions(lib: *mut c_void, instance: VkInstance, physical: Vk
 
 const COMPUTE_SPV: &[u8] = include_bytes!("../shaders/compute.spv");
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum FenceMode {
+    Wait,
+    ProbeExport,
+}
+
 unsafe fn submit_compute(
     lib: *mut c_void,
     device: VkDevice,
@@ -662,6 +701,7 @@ unsafe fn submit_compute(
     queue_family_index: u32,
     buffer: VkBuffer,
     memory: VkDeviceMemory,
+    fence_mode: FenceMode,
 ) -> bool {
     let create_shader: FnCreateShaderModule = match symbol(lib, "vkCreateShaderModule") {
         Some(f) => f,
@@ -819,6 +859,13 @@ unsafe fn submit_compute(
         Some(f) => f,
         None => {
             line("compute", "FAIL", "vkDestroyFence missing");
+            return false;
+        }
+    };
+    let get_fence_status: FnGetFenceStatus = match symbol(lib, "vkGetFenceStatus") {
+        Some(f) => f,
+        None => {
+            line("compute", "FAIL", "vkGetFenceStatus missing");
             return false;
         }
     };
@@ -1110,7 +1157,15 @@ unsafe fn submit_compute(
         0,
         ptr::null(),
     );
-    dispatch(command_buffer, 1, 1, 1);
+    if fence_mode == FenceMode::ProbeExport {
+        // Keep a real GPU payload pending long enough to observe the export
+        // transition. The normal compute gate stays at one dispatch.
+        for _ in 0..32 {
+            dispatch(command_buffer, 65_535, 1, 1);
+        }
+    } else {
+        dispatch(command_buffer, 1, 1, 1);
+    }
     let r = end_command(command_buffer);
     if r != VK_SUCCESS {
         line("compute", "FAIL", format!("end {}", api_result(r)));
@@ -1124,9 +1179,18 @@ unsafe fn submit_compute(
     }
     line("compute", "PASS", "commands");
 
+    let export_fence = VkExportFenceCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_EXPORT_FENCE_CREATE_INFO,
+        p_next: ptr::null(),
+        handle_types: VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT,
+    };
     let fence_info = VkFenceCreateInfo {
         s_type: VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-        p_next: ptr::null(),
+        p_next: if fence_mode == FenceMode::ProbeExport {
+            &export_fence as *const _ as *const c_void
+        } else {
+            ptr::null()
+        },
         flags: 0,
     };
     let mut fence: VkFence = ptr::null_mut();
@@ -1164,17 +1228,118 @@ unsafe fn submit_compute(
         destroy_shader(device, shader, ptr::null());
         return false;
     }
-    let r = wait_fences(device, 1, &fence, VK_TRUE, 5_000_000_000);
-    if r != VK_SUCCESS {
-        line("compute", "FAIL", format!("wait_fence {}", api_result(r)));
-        destroy_fence(device, fence, ptr::null());
-        destroy_command_pool(device, command_pool, ptr::null());
-        destroy_pool(device, descriptor_pool, ptr::null());
-        destroy_pipeline(device, pipeline, ptr::null());
-        destroy_pipeline_layout(device, pipeline_layout, ptr::null());
-        destroy_set_layout(device, set_layout, ptr::null());
-        destroy_shader(device, shader, ptr::null());
-        return false;
+    if fence_mode == FenceMode::ProbeExport {
+        let before = get_fence_status(device, fence);
+        line("fence_probe", "status", format!("after_submit={before}"));
+
+        let get_proc: FnGetDeviceProcAddr = match symbol(lib, "vkGetDeviceProcAddr") {
+            Some(f) => f,
+            None => {
+                line("fence_probe", "FAIL", "vkGetDeviceProcAddr missing");
+                destroy_fence(device, fence, ptr::null());
+                destroy_command_pool(device, command_pool, ptr::null());
+                destroy_pool(device, descriptor_pool, ptr::null());
+                destroy_pipeline(device, pipeline, ptr::null());
+                destroy_pipeline_layout(device, pipeline_layout, ptr::null());
+                destroy_set_layout(device, set_layout, ptr::null());
+                destroy_shader(device, shader, ptr::null());
+                return false;
+            }
+        };
+        let name = CString::new("vkGetFenceFdKHR").unwrap();
+        let raw = get_proc(device, name.as_ptr());
+        if raw.is_null() {
+            line(
+                "fence_probe",
+                "FAIL",
+                "vkGetDeviceProcAddr(vkGetFenceFdKHR) returned null",
+            );
+            destroy_fence(device, fence, ptr::null());
+            destroy_command_pool(device, command_pool, ptr::null());
+            destroy_pool(device, descriptor_pool, ptr::null());
+            destroy_pipeline(device, pipeline, ptr::null());
+            destroy_pipeline_layout(device, pipeline_layout, ptr::null());
+            destroy_set_layout(device, set_layout, ptr::null());
+            destroy_shader(device, shader, ptr::null());
+            return false;
+        }
+        let get_fence_fd: FnGetFenceFdKhr = std::mem::transmute(raw);
+        let info = VkFenceGetFdInfoKhr {
+            s_type: VK_STRUCTURE_TYPE_FENCE_GET_FD_INFO_KHR,
+            p_next: ptr::null(),
+            fence,
+            handle_type: VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT,
+        };
+        let mut fd = -1;
+        let started = std::time::Instant::now();
+        let export_rc = get_fence_fd(device, &info, &mut fd);
+        line(
+            "fence_probe",
+            "export",
+            format!(
+                "rc={export_rc} fd={fd} elapsed_us={}",
+                started.elapsed().as_micros()
+            ),
+        );
+        if export_rc != VK_SUCCESS {
+            destroy_fence(device, fence, ptr::null());
+            destroy_command_pool(device, command_pool, ptr::null());
+            destroy_pool(device, descriptor_pool, ptr::null());
+            destroy_pipeline(device, pipeline, ptr::null());
+            destroy_pipeline_layout(device, pipeline_layout, ptr::null());
+            destroy_set_layout(device, set_layout, ptr::null());
+            destroy_shader(device, shader, ptr::null());
+            return false;
+        }
+        let after = get_fence_status(device, fence);
+        line("fence_probe", "status", format!("after_export={after}"));
+        line(
+            "fence_probe",
+            "reset_rule",
+            if after == VK_NOT_READY {
+                "CONFIRMED|fence reset while GPU payload was exported"
+            } else {
+                "UNEXPECTED|fence status did not become not-ready"
+            },
+        );
+        if fd >= 0 {
+            let mut pfd = PollFd {
+                fd,
+                events: POLLIN,
+                revents: 0,
+            };
+            let poll_rc = poll(&mut pfd, 1, 0);
+            line(
+                "fence_probe",
+                "poll",
+                format!("rc={poll_rc} revents={:#x}", pfd.revents),
+            );
+            close(fd);
+        } else {
+            line(
+                "fence_probe",
+                "poll",
+                "SKIP|fd=-1 means already signaled or no exported payload",
+            );
+        }
+        line(
+            "fence_probe",
+            "warning",
+            "Do not wait this exported fence: SYNC_FD export resets it by spec",
+        );
+    } else {
+        let r = wait_fences(device, 1, &fence, VK_TRUE, 5_000_000_000);
+        if r != VK_SUCCESS {
+            line("compute", "FAIL", format!("wait_fence {}", api_result(r)));
+            destroy_fence(device, fence, ptr::null());
+            destroy_command_pool(device, command_pool, ptr::null());
+            destroy_pool(device, descriptor_pool, ptr::null());
+            destroy_pipeline(device, pipeline, ptr::null());
+            destroy_pipeline_layout(device, pipeline_layout, ptr::null());
+            destroy_set_layout(device, set_layout, ptr::null());
+            destroy_shader(device, shader, ptr::null());
+            return false;
+        }
     }
     line("compute", "PASS", "queue_submit+fence");
 
@@ -1218,6 +1383,7 @@ unsafe fn submit_compute(
 }
 
 unsafe fn run() -> i32 {
+    let fence_probe = std::env::args().any(|arg| arg == "--fence-probe");
     let lib_name = CString::new("libvulkan.so.1").unwrap();
     let lib = dlopen(lib_name.as_ptr(), RTLD_NOW);
     if lib.is_null() {
@@ -1492,16 +1658,21 @@ unsafe fn run() -> i32 {
     );
 
     let priority: f32 = 1.0;
-    let device_ext_names = if ahb_socket.is_some() {
-        vec![
+    let mut device_ext_names = Vec::new();
+    if ahb_socket.is_some() {
+        device_ext_names.extend([
             CString::new("VK_KHR_external_memory").unwrap(),
             CString::new("VK_KHR_external_memory_fd").unwrap(),
             CString::new("VK_EXT_external_memory_dma_buf").unwrap(),
             CString::new("VK_EXT_image_drm_format_modifier").unwrap(),
-        ]
-    } else {
-        Vec::new()
-    };
+        ]);
+    }
+    if fence_probe {
+        device_ext_names.extend([
+            CString::new("VK_KHR_external_fence").unwrap(),
+            CString::new("VK_KHR_external_fence_fd").unwrap(),
+        ]);
+    }
     let device_ext_ptrs: Vec<*const c_char> = device_ext_names.iter().map(|s| s.as_ptr()).collect();
     let queue_info = VkDeviceQueueCreateInfo {
         s_type: VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -1648,12 +1819,27 @@ unsafe fn run() -> i32 {
         );
     }
 
-    let compute_ok = map_ok && submit_compute(lib, device, queue, family_index, buffer, memory);
-    let graphics_ok = compute_ok && graphics::run_graphics(lib, dev, device, queue, family_index);
-    let dmabuf_ok = match ahb_socket.as_deref() {
-        Some(path) => dmabuf::run(lib, dev, device, queue, family_index, path),
-        None => true,
-    };
+    let compute_ok = map_ok
+        && submit_compute(
+            lib,
+            device,
+            queue,
+            family_index,
+            buffer,
+            memory,
+            if fence_probe {
+                FenceMode::ProbeExport
+            } else {
+                FenceMode::Wait
+            },
+        );
+    let graphics_ok = fence_probe
+        || (compute_ok && graphics::run_graphics(lib, dev, device, queue, family_index));
+    let dmabuf_ok = fence_probe
+        || match ahb_socket.as_deref() {
+            Some(path) => dmabuf::run(lib, dev, device, queue, family_index, path),
+            None => true,
+        };
 
     free_memory(device, memory, ptr::null());
     destroy_buffer(device, buffer, ptr::null());
