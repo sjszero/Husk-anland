@@ -1,0 +1,162 @@
+LinuxHub native runtime - evidence 14: the path shim now lives inside the guest loader
+Date: 2026-11-22   Device: PLE110 (OPPO, Android 16 / kernel 6.6.118)   Page size: 4096
+SELinux domain: untrusted_app (uid 10512)   Rootfs: Ubuntu 24.04, glibc 2.39
+Task item: 1 of docs/design/runtime.md - sink path resolution into
+           the loader and remove LD_PRELOAD.
+
+WHAT CHANGED (all of it is build-time; nothing is intercepted at run time)
+  * the Rust path shim is no longer a preloaded DSO: it is embedded in ld.so as one
+    extra R|E PT_LOAD (vaddr 0x42000 / file 0x32000), and it is entered from a hook
+    on `bl _dl_init` inside the loader's own _start.
+  * ptrace: none. seccomp notification: none. FUSE: none. chroot/namespace: none.
+    No resident helper process, no software rendering layer.
+  * libc is untouched in this run except for two build-time `nop`s that were already
+    there (evidence/12). Everything else is the stock Ubuntu 24.04 rootfs.
+
+HOW IT WORKS (FACT, verified by the output below)
+  1. entry: kernel maps ld.so; _start runs normally (e_entry untouched - glibc tells
+     "program vs interpreter" by comparing auxv AT_ENTRY with &_start).
+  2. one `svc` in ld.so (0x106cc) is `nop`ed at build time, so the optional
+     set_robust_list/rseq accelerators never reach the trapped syscall.
+  3. _start's `bl _dl_init` is repointed at the 208-byte hook in the embedded page.
+     The hook mprotects the shim's own writable window, then calls nr_boot.
+  4. nr_boot (Rust, no external symbol): (a) adds the load bias to its own
+     R_AARCH64_RELATIVE targets, (b) resolves its 12 imports by walking the link_map
+     chain with a built-in GNU-hash lookup (IFUNCs are called, as the loader would),
+     (c) walks every object's .rela.dyn/.rela.plt and rewrites the GOT slots of the
+     45 symbol names the shim implements. That is symbol interposition with the
+     preload object absent - the effect of LD_PRELOAD, done by hand, once, before any
+     constructor runs.
+  5. execve stays a normal kernel execve: the shim resolves the guest path and re-enters
+     this same loader, so every child process boots with the shim already inside.
+
+BUILD (reproducible; deterministic output)
+  tools/loader/build-embedded-loader.sh
+    cargo build (path-shim, no_std, -z max-page-size=4096 -z separate-loadable-segments)
+    clang init-hook.S            -> 208-byte blob, no relocations
+    nr-nop-syscall.py .orig      -> 0x106cc nop     (asserts `svc #0` at that vaddr)
+    nr-embed.py                  -> ld-embedded.so  (asserts loader identity, phdr
+                                    congruence, free space, branch range; refuses to
+                                    patch a different glibc build)
+
+  sha256 ld-linux-aarch64.so.1.orig  bd29514c1b45cc29b152011dd7c504e00dce240c19e4dd120196053873af9180
+  sha256 libpath_shim.so             5925555d191424ac51f91038801bd8c1f60f847d5dc0a588c1ac5f7be27537ed
+  sha256 ld-embedded.so              10c3382d04997b053c0dfaf158c629f63a3d718cf927307ef2bc30585cc6ae4c
+  two independent runs of nr-embed.py produced byte-identical output (10c3382d...).
+
+  The produced loader, program headers:
+    LOAD 0x000000 0x000000 0x02672c R E 0x10000     <- glibc's own code
+    LOAD 0x02e988 0x03e988 0x002814 RW  0x10000     <- glibc's own data
+    LOAD 0x032000 0x042000 0x012000 R E 0x1000      <- the shim + hook + tables
+  PT_NOTE (the build-id note, debug-only) is the slot that carried the new PT_LOAD:
+  the loader has no spare program header and no room for a third segment otherwise.
+  The shim's own four segments keep their internal offsets, so moving it is a plain
+  block move; only its R_AARCH64_RELATIVE targets need the bias, and nr_boot adds it.
+
+PROOF THAT LD_PRELOAD IS GONE
+  * tools/probe-app/.../MainActivity.java no longer sets LD_PRELOAD.
+  * the APK does not contain the shim at all:
+      lib/arm64-v8a/libnativetrue.so  4384
+      lib/arm64-v8a/libnoop.so        3840
+      lib/arm64-v8a/libprobe.so      405360
+      lib/arm64-v8a/libld.so         281376     <- the loader WITH the shim inside
+    (libpathshim.so was moved to tools/loader/ldpreload-shim-reference.so;
+     a run cannot accidentally use it because it is not installed.)
+  * with NR_BOOT_DEBUG=1 the loader reports what it interposed itself, per process.
+
+30. RUN: the 31-item functional matrix, in-process + child execs
+  cmd: libld.so --library-path <root>/usr/lib/aarch64-linux-gnu <root>/usr/bin/bash /m.sh
+       env: NR_ROOTFS=<root> NR_LD=<libdir>/libld.so PATH=/usr/bin:/bin
+            GLIBC_TUNABLES=glibc.pthread.rseq=0          [no LD_PRELOAD]
+  result: 31 PASS / 0 FAIL / exit 0
+  PASS mkdirp
+  PASS mkdirp-place
+  PASS deepwrite
+  PASS redirect
+  PASS cp
+  PASS mv
+  PASS chmod
+  PASS readlink
+  PASS symlink-follow
+  PASS symlink-abs
+  PASS symlink-dotdot
+  /data/data/com.linuxhub.probe/files/nrfull/root/usr/bin/find: Failed to restore initial working directory: /data/data/com.linuxhub.probe/files: No such file or directory
+  PASS find-files
+  /data/data/com.linuxhub.probe/files/nrfull/root/usr/bin/find: Failed to restore initial working directory: /data/data/com.linuxhub.probe/files: No such file or directory
+  PASS find-links
+  PASS readdir
+  PASS ls-long
+  PASS pwd
+  PASS pwd-root
+  PASS dotdot
+  PASS dotdot-read
+  PASS escape-link
+  PASS escape-write
+  PASS rm-rf
+  PASS sort
+  PASS sha256
+  PASS glob
+  PASS stdin
+  PASS subshell
+  PASS exec-abs
+  PASS exec-rel
+  /data/data/com.linuxhub.probe/files/nrfull/root/usr/bin/yes: standard output: Broken pipe
+  PASS bigio
+  PASS write-read
+  
+  #exit=0
+  ---spawn---
+
+31. RUN: the same matrix with the loader's own boot diagnostics on (NR_BOOT_DEBUG=1)
+  Every line is one process: the loader reporting what it resolved and rewrote.
+  A three-process command (bash -> cat -> head) shows three boots.
+  cmd: cd /etc && cat os-release | head -2 && pwd -P
+  nr-boot: imports=0xc objects=0x5 slots=0x10
+  nr-boot: imports=0xc objects=0x4 slots=0x1
+  nr-boot: imports=0xc objects=0x4 slots=0x1
+  NAME="Ubuntu"
+  VERSION="24.04.4 LTS (Noble Numbat)"
+  /etc
+  
+  #exit=0
+  ---spawn---
+
+32. BENCHMARK: native bionic vs guest through the embedded shim, same process/uid/domain
+  Method: both sides are a shell `time` loop run as a child of com.linuxhub.probe, i.e.
+  untrusted_app, same uid, same device, same run. The native side runs /system/bin/sh
+  (bionic) via the harness "hostexe" extra; the guest side is <root>/usr/bin/bash over
+  libld.so. min of 3 iterations (the first is cold; it is reported too, in the raw logs
+  above). "fork" is a subshell, "exec" is fork+exec of `true`, "path" is 2000 `test -e`
+  in one process.
+
+  | metric                          | native (bionic) | guest (embedded shim)  |
+  |---------------------------------|-----------------|------------------------|
+  | fork + exit, 40x                | 0.040s  1.00ms  | 0.069s  1.73ms         |
+  | fork + exec + exit, 40x (true)  | 0.320s  8.00ms  | 0.103s  2.58ms         |
+  | 2000x test -e /etc/os-release   | 0.010s  5.0us   | 0.013s  6.5us          |
+  | 2000x test -e deep path         | (n/a)           | 0.022s  11.0us         |
+
+  Reading: exec of a guest binary is the same order as a native exec - in this
+  configuration it is actually cheaper (2.6ms vs 8.0ms), because the guest side maps
+  one loader + libc and does no relocation work of its own, while the bionic path maps
+  linker64 + libc per exec. Path calls cost +1.5us over a native stat in the same
+  process, which is inside the +5~20us budget of the plan, before any fd->path cache.
+  The fork-only delta (1.73ms vs 1.00ms) is the cost of copying page tables for a
+  process that has the 278KB loader + shim mapped - it is fork, not exec.
+
+33. LIMITS AND WHAT IS NOT CLAIMED
+  FACT   everything above was produced by the commands shown, on PLE110, in
+         untrusted_app. Nothing here is a projection.
+  FACT   the loader is tied to glibc 2.39 aarch64: nr-embed.py asserts the entry
+         address, the `bl _dl_init` site, the phdr shape and the free space, and
+         refuses to emit an image otherwise. A different glibc needs re-checking.
+  FACT   the `svc` to `nop` sites are still found by hand-written vaddr today; item 2
+         of the plan replaces that with a pattern scan plus a version self-check.
+  INFERENCE  the 4K page assumption. The hook mprotects a 4K-aligned window and the
+         extra PT_LOAD uses p_align 0x1000. PLE110 reports PAGE_SIZE 4096; a 16K-page
+         kernel is untested (the page_size probe degrades to a failed mprotect rather
+         than corruption, but it has not been run).
+  UNKNOWN   the guest start cwd is still inherited from the host (item 5), which is
+         why `find` prints "Failed to restore initial working directory".
+  UNKNOWN   seccomp-trap simulated as -ENOSYS is still not trustworthy (item 5). The
+         working configuration relies on the build-time nops only.

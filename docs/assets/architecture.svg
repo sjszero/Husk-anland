@@ -40,8 +40,8 @@
   <text x="646" y="258" class="mono">no_std · 零依赖</text>
   <text x="646" y="278" class="mono">嵌入为一个额外 PT_LOAD</text>
 
-  <text x="50" y="330" class="tag">T1 构建期静态改写</text>
-  <text x="330" y="330" class="tag">T2 用户态路径解析</text>
+  <text x="50" y="330" class="tag">构建期静态改写</text>
+  <text x="330" y="330" class="tag">用户态路径解析</text>
   <text x="630" y="330" class="tag">两者合成一个文件</text>
 
   <rect class="box" x="50" y="344" width="860" height="60" fill="#f6f9fc"/>
@@ -60,5 +60,5 @@
   <rect class="box" x="30" y="545" width="900" height="52" rx="10" fill="#fdf3f3" stroke="#eccfcf"/>
   <text x="50" y="568" class="lbl" font-weight="600">明确不做：</text>
   <text x="126" y="568" class="mono">ptrace · seccomp supervisor · FUSE · namespace · 虚拟机 · 常驻翻译进程 · 软件图形加速层</text>
-  <text x="50" y="587" class="tag">排除它们的原因与实测代价见表 docs/native-runtime/06 §1</text>
+  <text x="50" y="587" class="tag">排除它们的原因与实测代价见表 docs/design/runtime.md §1</text>
 </svg>

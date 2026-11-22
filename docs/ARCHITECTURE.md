@@ -32,7 +32,7 @@ guest loader  ← 这是我们唯一改过的文件（ld.so）
 `SECCOMP_RET_TRAP`，而 glibc 是在 `__pthread_initialize_minimal_internal` 里调它们的——
 **在 loader 内部，早于任何 preload 构造函数**。所以：
 
-- 这两处 `svc` 只能构建期 `nop`（T1）；
+- 这两处 `svc` 只能构建期 `nop`；
 - 用户态第一个能安全接管的点是 `_dl_init`（全部对象重定位完成、构造函数未跑）。
 
 这也决定了不能靠 `LD_PRELOAD`：preload 对象在 `_dl_init` 之前就已经需要 libc 服务。
@@ -78,7 +78,7 @@ GOT 补丁看不见。所以除 POSIX 入口外还补了：
 - `posix_spawn` / `eaccess`
 - `_FORTIFY_SOURCE=3` 生成的 `__*_chk` 与 `*64` 孪生
 
-每条都能指到触发它的具体程序（`docs/native-runtime/evidence/16`）。
+每条都能指到触发它的具体程序（`docs/design/evidence/16`）。
 
 ## 6. 已知绕过与缺口（诚实清单）
 
@@ -94,5 +94,5 @@ GOT 补丁看不见。所以除 POSIX 入口外还补了：
 不 ptrace、不 seccomp supervisor、不 FUSE、不 namespace、不虚拟机、不常驻翻译进程、
 不做图形/硬件的软件加速层。
 
-`crates/capability-probe` 里出现的 `ptrace`/`unshare`/`mount` 是**诊断探针**，
+`runtime/crates/capability-probe` 里出现的 `ptrace`/`unshare`/`mount` 是**诊断探针**，
 只回答"这台机器允许什么"，运行时路径里一行都不参与。

@@ -3,14 +3,15 @@
 面向需要改动、复现或审计这份代码的读者。产品层面的介绍见 [README](../README.md)，
 机制说明见 [ARCHITECTURE](ARCHITECTURE.md)。
 
-## 1. 术语
+## 1. 组件划分
 
-| 代号 | 含义 | 位置 |
+| 组件 | 位置 | 作用 |
 |---|---|---|
-| **T1** | 构建期静态改写 | `tools/nr-loader-hook/`、`crates/nr-tools` |
-| **T2** | 用户态路径解析，构建期嵌入动态链接器 | `crates/path-shim`、`crates/runtime-core` |
-
-T1/T2 是内部编号，不出现在产品文案里；对外统一称 Husk 运行时。
+| 运行期路径层 | `runtime/crates/path-shim`、`runtime/crates/runtime-core` | `no_std` Rust，只解析路径；构建期嵌进动态链接器 |
+| 构建期改写 | `tools/loader/`、`runtime/crates/nr-tools` | 入口桩、调用点 `nop`、把路径层嵌进 loader |
+| 产品壳 | `app/` | Android 应用：会话、PTY、终端渲染 |
+| 设备测试 | `tools/device-tests/` | `run-as` 下跑功能矩阵、越界测试、gcc/make 验收 |
+| 探针应用 | `tools/probe-app/` | 最小验证载体，不面向用户 |
 
 ## 2. 语言构成
 
@@ -45,7 +46,7 @@ T1/T2 是内部编号，不出现在产品文案里；对外统一称 Husk 运�
 - 标准 I/O 入口（`fopen`、`creat`）与路径规范化（`realpath`、`canonicalize_file_name`）；
 - 强制源码审计（`_FORTIFY_SOURCE=3`）生成的 `__*_chk` 与 64 位孪生函数。
 
-每一项的触发用例记录在 `native-runtime/evidence/16`。
+每一项的触发用例记录在 `design/evidence/16`。
 
 ## 5. 构建工具
 
@@ -68,7 +69,7 @@ T1/T2 是内部编号，不出现在产品文案里；对外统一称 Husk 运�
 | `libc-nop.so.6`（guest 使用） | `18acad63e69559c974c0ae093333d9cfa661c18ba4ad04a48268d8d1405e1bcc` |
 | `libpath_shim.so`（嵌入前） | `73106ac673ea28c56f28cab56b6dd07b9c2415bb1cf801a8ab2f219906e16c1a` |
 
-在本仓库执行 `tools/nr-loader-hook/build-embedded-loader.sh`，产出应与第一行一致。
+在本仓库执行 `tools/loader/build-embedded-loader.sh`，产出应与第一行一致。
 
 ## 7. 环境
 
@@ -81,6 +82,6 @@ T1/T2 是内部编号，不出现在产品文案里；对外统一称 Husk 运�
 
 ## 8. 维护约定
 
-- 未实测不写通过；证据保存在 `native-runtime/evidence/`，编号被方案与文档引用。
+- 未实测不写通过；证据保存在 `design/evidence/`，编号被方案与文档引用。
 - 每条结论标注为事实、推断或未知。
 - 构建工具的任何改动必须与参考实现逐字节一致，否则视为回归。

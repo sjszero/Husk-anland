@@ -1,0 +1,58 @@
+# LinuxHub native runtime - evidence 13: where the exec cost actually goes
+# PLE110 (Android 16, 6.6.118), real untrusted_app process, 2026-11-22
+#
+# Question: evidence/10 said "any LD_PRELOAD under /data costs ~10ms per exec".
+# The product layout puts the shim in nativeLibraryDir (/data/app/...), never in
+# the app-private files dir, so that number had to be re-measured in the real
+# domain and the real location before anyone optimised it.
+#
+# METHOD
+#  A. capability-probe --execbench <path> --n 60 : fork+execve the given ELF N
+#     times in an untrusted_app process, report mean/best wall time per exec.
+#     The child exits immediately (--child-ok). LD_PRELOAD is applied through the
+#     environment, so the delta isolates "one extra pre-loaded object".
+#  B. guest loop inside one process: bash TIMEFORMAT timing around 40 x
+#     /usr/bin/true (each iteration = fork + our execve interception + loader +
+#     libc + program) and 2000 x stat-like builtins.
+
+## A. process creation, native binaries (same directory, /data/app/.../lib/arm64)
+native tiny ELF 5.7KB, no preload      mean 6.79ms  best 4.54ms
+native tiny ELF 5.7KB + 3.8KB preload  mean 6.16ms  best 5.21ms
+-> adding a pre-loaded object costs nothing measurable (the difference is noise,
+   and it is negative in this run).
+/probe ELF 400KB, no preload           mean 6.60ms  best 4.61ms
+/probe ELF 400KB + 3.8KB preload       mean 6.43ms  best 5.29ms
+/system/bin/true, no preload           mean 7.74ms  best 6.23ms
+
+FACT: bionic executables are expensive to create here (6-8ms) because every one of
+them pulls in /system/bin/linker64 and /system/lib64/libc.so from the dm-verity
+mounted system image, and every exec of a system_file emits an SELinux audit
+record (visible in logcat as "avc: granted { execute }" per exec).
+
+## B. the guest path, in-process (one bash process, loop inside it)
+2000 x noop (loop overhead baseline)          real 0.003s
+2000 x test -e /etc/os-release                real 0.013s   -> ~5us/op net
+2000 x test -e /usr/lib/aarch64-linux-gnu/... real 0.027s   -> ~12us/op net
+ 40 x exec /usr/bin/true                      real 0.054s   -> 1.35ms/exec
+ 40 x exec /usr/bin/true (second pass)        real 0.050s   -> 1.25ms/exec
+
+FACT: the full guest path (fork + execve interception + guest ld.so + libc +
+libtinfo + the program) is 1.25-1.35ms per process, i.e. ~5x FASTER than a native
+bionic exec of a 5.7KB binary in the same directory, and ~5x faster than
+/system/bin/true. The runtime is not slower than native process creation here.
+
+## Conclusion recorded in runtime.md
+The "~10ms per exec from LD_PRELOAD" in evidence/10 was a property of the old
+harness (shim in the app-private files dir, which evidence/10 already flagged:
+"/data/local/tmp gave 2.2s/200 vs 3.9s/200"). In nativeLibraryDir the extra
+pre-load costs nothing measurable, and the whole guest exec is already faster than
+a native exec in this domain. Sinking the resolver into the loader is therefore
+justified by robustness (no dependence on LD_PRELOAD being honoured, no second
+object to relocate), not by an exec-time win that no longer exists.
+
+## Noise / caveats
+- Whole-run numbers swing ~1.5x between runs (thermal, background load); the two
+  guest passes above were 0.054s and 0.050s, so the guest figure is stable.
+- execbench mean includes fork + waitpid; best_ms is the fastest single sample.
+- Every exec in the app domain also writes SELinux audit records; that cost is
+  inside all numbers above and is not attributable to the runtime.

@@ -1,6 +1,6 @@
 # 实测结果
 
-所有数字都来自设备原始输出，文件在 `docs/native-runtime/evidence/`，编号在每节末尾标出。
+所有数字都来自设备原始输出，文件在 `docs/design/evidence/`，编号在每节末尾标出。
 **FACT** = 命令输出直接可见；**INFERENCE** = 由输出推出；**UNKNOWN** = 没测。
 
 设备：PLE110（OPPO）/ Android 16 / kernel 6.6.118 / PAGE_SIZE 4096 / `untrusted_app`（uid 10512）
@@ -11,7 +11,7 @@ Guest：Ubuntu 24.04 / glibc 2.39
 
 ## 1. 功能矩阵：31 / 31
 
-`tools/native-runtime-tests/01-functional-matrix.sh`，最终 loader 上复跑（evidence 17）：
+`tools/device-tests/01-functional-matrix.sh`，最终 loader 上复跑（evidence 17）：
 
 ```
 PASS mkdirp          PASS mkdirp-place    PASS deepwrite      PASS redirect
@@ -74,7 +74,7 @@ ok      host-dev-null        : > /dev/null
 | dma-buf / DRM 映射 | 原生 | 极脆弱 |
 
 PRoot 的 5000×stat 数字来自 RMX3357（Android 13）上的同一 harness；PLE110 上 PRoot 连
-宿主 bionic 二进制都起不来，所以那张表在双机条件下分开列。（evidence 11、19；07-proot-comparison.md）
+宿主 bionic 二进制都起不来，所以那张表在双机条件下分开列。（evidence 11、19；proot-comparison.md）
 
 ## 5. 真实构建：gcc 13.3 + make
 
@@ -95,7 +95,7 @@ PRoot 的 5000×stat 数字来自 RMX3357（Android 13）上的同一 harness；
 | `nr-tools embed` | Rust | 与 `nr-embed.py` 产物 sha256 | 一致 `1600a850…1cbee`（evidence 22） |
 | `nr-tools provision` | Rust | 与 sh+python 版阶段目录逐文件 sha256 | 2866 项，内容差异 0（evidence 23） |
 
-在本仓库里直接跑 `tools/nr-loader-hook/build-embedded-loader.sh`，产出的 loader
+在本仓库里直接跑 `tools/loader/build-embedded-loader.sh`，产出的 loader
 就是被测的那个 sha256（2026-11-22 复验）。
 
 ## 7. 没测 / 不知道

@@ -42,7 +42,7 @@ app-private 目录不可执行但**可读**，这正好够用：loader 从 `nati
 
 ```sh
 export NDK=$ANDROID_HOME/ndk/<ver>/toolchains/llvm/prebuilt/<host>/bin
-./tools/nr-loader-hook/build-embedded-loader.sh
+./tools/loader/build-embedded-loader.sh
 ```
 
 它做三件事，并打印它断言过的数字（76 个介入名 / 31 个外部符号 / 24 个自相对槽位）：
@@ -51,16 +51,16 @@ export NDK=$ANDROID_HOME/ndk/<ver>/toolchains/llvm/prebuilt/<host>/bin
 2. 编译 `init-hook.S`，把 `svc` 调用点按模式定位并 `nop`
 3. `nr-tools embed` 把 shim 作为额外 `PT_LOAD` 嵌进 `ld.so`
 
-产物：`tools/native-runtime-probe-apk/app/src/main/jniLibs/arm64-v8a/libld.so`
+产物：`tools/probe-app/app/src/main/jniLibs/arm64-v8a/libld.so`
 期望 sha256：`1600a850985624b05c8b1c1f9cee5fe8185462da91d0de369dcb9ff30f21cbee`
 
-> 想验证 Rust 移植没跑偏：`NR_TOOLS=python ./tools/nr-loader-hook/build-embedded-loader.sh`
+> 想验证 Rust 移植没跑偏：`NR_TOOLS=python ./tools/loader/build-embedded-loader.sh`
 > 两条路径必须产出同一个 sha256。
 
 ## 3. 装工具链进 rootfs（可选，但这是最好玩的部分）
 
 ```sh
-./tools/native-runtime-tests/provision-toolchain.sh
+./tools/device-tests/provision-toolchain.sh
 ```
 
 纯 Rust 实现：解析 `ports.ubuntu.com` 的 Packages 索引 → 下载 53 个 deb →
@@ -72,7 +72,7 @@ export NDK=$ANDROID_HOME/ndk/<ver>/toolchains/llvm/prebuilt/<host>/bin
 
 ```sh
 export DEV=<你的 adb 序列号>          # adb devices 第一列
-cd tools/native-runtime-tests
+cd tools/device-tests
 DEV=$DEV ./run-guest.sh 01-functional-matrix.sh   # 期望 31 PASS / 0 FAIL
 DEV=$DEV ./run-guest.sh 03-containment.sh         # 期望 #escapes=0
 DEV=$DEV ./run-guest.sh accept-gcc-make.sh        # gcc + make 全链
@@ -82,7 +82,33 @@ DEV=$DEV ./run-guest.sh accept-gcc-make.sh        # gcc + make 全链
 `am start` 让 APK 在自己的进程里 exec `libld.so`（也就是改过的 loader）→
 把输出拉回来。
 
-## 5. 换自己的命令
+## 5. 跑到壳应用里
+
+`app/` 是当前的产品入口：单会话终端，启动 rootfs 里的交互式 `bash`。
+
+```sh
+export NDK=$ANDROID_HOME/ndk/<ver>/toolchains/llvm/prebuilt/<host>/bin
+J=app/app/src/main/jniLibs/arm64-v8a
+
+# 1) 改过的 loader 进 jniLibs
+NDK=$NDK OUT=$PWD/$J ./tools/loader/build-embedded-loader.sh
+
+# 2) PTY 辅助库
+$NDK/aarch64-linux-android24-clang -shared -fPIC -O2 -o $J/libhuskpty.so \
+  app/app/src/main/jni/pty.c -llog
+
+# 3) 构建安装（app/local.properties 被 .gitignore 忽略，需要自己写一行 sdk.dir）
+echo "sdk.dir=$ANDROID_HOME" > app/local.properties
+cd app && JAVA_HOME="<JDK 17+>" ./gradlew :app:assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk && cd ..
+
+# 4) 导入 rootfs 到应用私有目录（约 155 MB）
+adb shell "run-as com.linuxhub.husk sh -c 'mkdir -p files/rootfs && cd files/rootfs && tar -xf /data/local/tmp/husk-rootfs.tar'"
+```
+
+打开应用会先跑一次自检（`bash -c 'echo HI; id; pwd; ls /'`），然后进入交互会话。
+
+## 6. 换自己的命令
 
 ```sh
 DEV=$DEV ENV="FOO=bar" EXTRA=my.c ./run-guest.sh my-script.sh

@@ -7,7 +7,7 @@ from the copyright holder.
 --------------------------------------------------------------------------------
 THIRD-PARTY MATERIAL
 
-binaries/ and tools/nr-loader-hook/ contain byte-patched derivatives of Ubuntu
+binaries/ and tools/loader/ contain byte-patched derivatives of Ubuntu
 24.04 (glibc 2.39) binaries:
 
   ld-linux-aarch64.so.1.orig   unmodified Ubuntu arm64 ld.so
@@ -18,9 +18,9 @@ binaries/ and tools/nr-loader-hook/ contain byte-patched derivatives of Ubuntu
 glibc is distributed under the GNU LGPL v2.1 (and GPL v2 for parts); the
 corresponding source is the Ubuntu 24.04 source package for glibc 2.39, and the
 modifications made here are limited to the byte edits described in
-docs/native-runtime/06-sole-plan-t2t1.md and the evidence files. These binaries
+docs/design/runtime.md and the evidence files. These binaries
 exist in this repository only to pin the identity (sha256) of the artefacts under
 test. They are not distributed to anyone outside this private repository.
 
-tools/native-runtime-probe-apk/gradle/ contains the Gradle wrapper
+tools/probe-app/gradle/ contains the Gradle wrapper
 (Apache License 2.0, Copyright the Gradle authors).

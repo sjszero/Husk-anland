@@ -1,0 +1,53 @@
+LinuxHub native runtime - evidence 12: glibc distro inside a real untrusted_app process
+Date: 2026-11-22   Device: PLE110 (Android 16, kernel 6.6.118)   SELinux domain: untrusted_app
+
+Harness: com.linuxhub.probe (nativeLibraryDir holds libld.so + libpathshim.so),
+MainActivity runs the guest loader from the APK's lib dir; the rootfs lives in
+files/nrfull/root and is only mmapped, never exec'd.
+
+cmd: libld.so --library-path <root>/usr/lib/aarch64-linux-gnu <root>/usr/bin/bash /tmp/m.sh
+     env: LD_PRELOAD=<libdir>/libpathshim.so NR_ROOTFS=<root> NR_LD=<libdir>/libld.so
+          GLIBC_TUNABLES=glibc.pthread.rseq=0
+
+matrix = the 31 checks from tools/device-tests/01-functional-matrix.sh,
+run in-process (single exec) instead of nested loaders, because the rootfs itself
+is not executable in this domain.
+-------------------------------------------------------------
+PASS mkdirp
+PASS mkdirp-place
+PASS deepwrite
+PASS redirect
+PASS cp
+PASS mv
+PASS chmod
+PASS readlink
+PASS symlink-follow
+PASS symlink-abs
+PASS symlink-dotdot
+<root>/usr/bin/find: Failed to restore initial working directory: /data/data/com.linuxhub.probe/files: No such file or directory
+PASS find-files
+<root>/usr/bin/find: Failed to restore initial working directory: /data/data/com.linuxhub.probe/files: No such file or directory
+PASS find-links
+PASS readdir
+PASS ls-long
+PASS pwd
+PASS pwd-root
+PASS dotdot
+PASS dotdot-read
+PASS escape-link
+PASS escape-write
+PASS rm-rf
+PASS sort
+PASS sha256
+PASS glob
+PASS stdin
+PASS subshell
+PASS exec-abs
+PASS exec-rel
+<root>/usr/bin/yes: standard output: Broken pipe
+PASS bigio
+PASS write-read
+
+#exit=0
+-------------------------------------------------------------
+summary: 31 PASS, 0 FAIL, exit=0

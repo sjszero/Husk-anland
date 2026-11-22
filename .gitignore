@@ -5,5 +5,9 @@ local.properties
 *.iml
 target/
 *.o
-tools/nr-loader-hook/init-hook.bin
-tools/native-runtime-probe-apk/app/src/main/jniLibs/
+tools/loader/init-hook.bin
+tools/probe-app/app/src/main/jniLibs/
+
+# 本地构建产物
+app/local.properties
+dist/*.apk

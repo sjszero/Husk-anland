@@ -83,19 +83,12 @@ bionic 侧进程 → EGL → Android Surface → 屏幕
 
 ---
 
-## 3. 发行形态（未定，两轨可并行）
+## 3. 发行形态（已定：独立 App）
 
-| 形态 | 优点 | 缺点 |
-|---|---|---|
-| 独立 App（当前主线） | 自有 UI/会话/图形能力，可上架 | 分发与更新自己解决 |
-| Termux 包 + 自有 apt 源 | 安装门槛低、apt 自动更新、无需商店审核 | 沦为 Termux 插件；Termux 提高 targetSdk 后通道失效；无法上 Play |
+只做独立 App 一种形态：自有界面、自有会话管理、自有图形与音频桥，可正常上架与更新。
 
-Termux 包形态的技术前提（**均未验证**）：
-
-1. Termux prefix 内能否 exec 我们改过的 loader（我们的探针 `targetSdk=33`，
-   Android 10+ 禁止私有目录执行；Termux 为 28，因而可行——推断）；
-2. 包内容：loader + `husk` 包装脚本 + rootfs 引导脚本；架构 aarch64；
-3. 源：静态托管（GitHub Pages 即可）+ `deb [signed-by=...]` 一行。
+不做 Termux 插件形态。原因：它把可执行性寄托在第三方的 targetSdk 政策上，
+无法提供自己的界面与图形能力，也与"运行时是产品的地基"这一定位冲突。
 
 ---
 
@@ -119,4 +112,4 @@ Termux 包形态的技术前提（**均未验证**）：
 | `/dev/dri/renderD128` 能否打开 | 决定图形走 dmabuf 共享还是更绕的路 | **已测：拒绝**；`/dev/kgsl-3d0` 反而已开放（evidence 24） |
 | `/dev/fastrpc-cdsp` 访问权 | 决定 NPU 是否只剩 NNAPI | 本机该节点不存在（高通平台） |
 | 16K 页内核 | 只保证 4K | 未测 |
-| Termux prefix 可执行性 | 决定 Termux 发行形态是否成立 | 未测 |
+| 多设备一致性 | 决定能否宣称"任意 aarch64 设备" | 仅一台验证 |
