@@ -2,11 +2,15 @@
 //! middle: the child is the guest loader, so bash runs as a plain Android process.
 
 use crate::sys::*;
+use std::collections::VecDeque;
 use std::ffi::{CStr, CString};
 
 /// Filled block, drawn as the cursor.  Not a font glyph: the atlas gets it for
 /// free so the renderer has one draw path for everything on screen.
 pub const BLOCK: u8 = 127;
+
+/// How many scrolled-off lines we keep for scrollback.
+const HISTORY: usize = 2000;
 
 pub struct Term {
     pub fd: i32,
@@ -17,6 +21,7 @@ pub struct Term {
     pub cx: usize,
     pub cy: usize,
     pub dead: bool,
+    history: VecDeque<Vec<u8>>,
     esc: u8,
     params: Vec<u32>,
     cur: u32,
@@ -34,6 +39,7 @@ impl Term {
             cx: 0,
             cy: 0,
             dead: true,
+            history: VecDeque::with_capacity(HISTORY),
             esc: 0,
             params: Vec::new(),
             cur: 0,
@@ -204,6 +210,12 @@ impl Term {
         self.cy += 1;
         if self.cy >= self.rows {
             let (cols, rows) = (self.cols, self.rows);
+            // the line about to scroll off becomes scrollback
+            let top: Vec<u8> = self.cells[..cols].to_vec();
+            if self.history.len() == HISTORY {
+                self.history.pop_front();
+            }
+            self.history.push_back(top);
             self.cells.copy_within(cols.., 0);
             for i in 0..cols {
                 self.cells[(rows - 1) * cols + i] = b' ';
@@ -339,6 +351,32 @@ impl Term {
         }
     }
 
+    /// Rows for the current view: `back` lines of scrollback above the grid.
+    pub fn snapshot(&self, back: usize) -> Vec<u8> {
+        let back = back.min(self.history.len());
+        if back == 0 {
+            return self.cells.clone();
+        }
+        let (cols, rows) = (self.cols, self.rows);
+        let mut out = vec![b' '; cols * rows];
+        let from_hist = back.min(rows);
+        let mut r = 0;
+        for line in self.history.iter().skip(self.history.len() - from_hist) {
+            out[r * cols..r * cols + cols].copy_from_slice(&line[..cols]);
+            r += 1;
+        }
+        for g in 0..(rows - from_hist) {
+            let src = g * cols;
+            out[r * cols..r * cols + cols].copy_from_slice(&self.cells[src..src + cols]);
+            r += 1;
+        }
+        out
+    }
+
+    pub fn max_scroll(&self) -> usize {
+        self.history.len().min(self.rows.saturating_sub(1))
+    }
+
     #[cfg(test)]
     fn row(&self, r: usize) -> String {
         let s: Vec<u8> = self.cells[r * self.cols..(r + 1) * self.cols].to_vec();
@@ -414,6 +452,25 @@ mod tests {
         let mut t = Term::blank(8, 1);
         t.feed(b"\x1b]0;title\x07a\x1b[38;5;9mb");
         assert_eq!(t.row(0), "ab");
+    }
+
+    #[test]
+    fn scrollback_holds_lines_that_left_the_screen() {
+        let mut t = Term::blank(4, 2);
+        t.feed(b"a\r\nb\r\nc\r\n");
+        // "a" and "b" scrolled off; the grid shows "c" and an empty line.
+        assert_eq!(t.row(0), "c");
+        assert!(t.max_scroll() >= 1);
+        let view = t.snapshot(2);
+        assert_eq!(String::from_utf8_lossy(&view[0..4]).trim_end(), "a");
+        assert_eq!(String::from_utf8_lossy(&view[4..8]).trim_end(), "b");
+    }
+
+    #[test]
+    fn snapshot_is_the_grid_when_not_scrolled() {
+        let mut t = Term::blank(4, 2);
+        t.feed(b"xy");
+        assert_eq!(t.snapshot(0), t.cells);
     }
 
     #[test]

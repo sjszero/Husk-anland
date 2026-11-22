@@ -98,6 +98,15 @@ PRoot 的 5000×stat 数字来自 RMX3357（Android 13）上的同一 harness；
 在本仓库里直接跑 `tools/loader/build-embedded-loader.sh`，产出的 loader
 就是被测的那个 sha256（2026-11-22 复验）。
 
+## 6.5 rootfs 生成（2026-11-22 夜，主机侧）
+
+`nr-tools rootfs` 从 noble 索引解析并解包 61 个包，产出 253 个 `usr/bin` 程序、usr-merge 链接、
+61 条 dpkg 状态、`nop` 掉两处可选加速器调用的 libc，tar 25 MB。
+
+**注意指纹随镜像走**：本次生成的 libc 是 `cc44c6a9…`、loader `fb632800…`，
+与白天 PLE110 镜像（`18acad63…` / `1600a850…`）不同——它们是同一 suite 的不同补丁级。
+loader 必须与镜像同源，所以 `--loader-out` 是从镜像自己的 `ld.so` 现做的。
+
 ## 7. 没测 / 不知道
 
 - **UNKNOWN**：16K 页内核。只保证 4K。

@@ -56,11 +56,14 @@ struct App {
     /// Screen size the terminal was last laid out for, so a resize is a diff and
     /// not a repaint storm.
     laid_out: (usize, usize),
+    /// Scrollback offset in lines, 0 = bottom.
+    scroll: usize,
+    drag: i32,
 }
 
 impl App {
     fn new() -> App {
-        App { term: None, gfx: None, attached_queue: 0, win_ptr: 0, dirty: true, laid_out: (0, 0) }
+        App { term: None, gfx: None, attached_queue: 0, win_ptr: 0, dirty: true, laid_out: (0, 0), scroll: 0, drag: 0 }
     }
 
     fn paths(&self) -> Option<(String, String, String)> {
@@ -308,7 +311,10 @@ fn run() {
                 if app.dirty {
                     let focused = FOCUSED.load(Ordering::SeqCst);
                     if let (Some(gfx), Some(t)) = (app.gfx.as_mut(), app.term.as_ref()) {
-                        gfx.draw(&t.cells, t.cols, t.rows, t.cx, t.cy, focused);
+                        let back = app.scroll.min(t.max_scroll());
+                        let view = t.snapshot(back);
+                        let cursor = if back > 0 { (t.cols, t.rows) } else { (t.cx, t.cy) };
+                        gfx.draw(&view, t.cols, t.rows, cursor.0, cursor.1, focused && back == 0);
                     } else {
                         app.dirty = false;
                         continue;
@@ -343,6 +349,7 @@ fn drain_input(q: *mut c_void, app: &mut App) -> bool {
                         let meta = AKeyEvent_getMetaState(ev);
                         let code = AKeyEvent_getKeyCode(ev);
                         let uni = AKeyEvent_getUnicodeChar(ev, meta);
+                        app.scroll = 0;
                         if let Some(t) = app.term.as_mut() {
                             match code {
                                 AKEYCODE_DEL => t.send(&[0x7f]),
@@ -367,19 +374,41 @@ fn drain_input(q: *mut c_void, app: &mut App) -> bool {
                     }
                 } else if ty == AINPUT_EVENT_TYPE_MOTION {
                     let action = AMotionEvent_getAction(ev) & AMOTION_EVENT_ACTION_MASK;
-                    if action == AMOTION_EVENT_ACTION_DOWN {
-                        // Tap: ask for the keyboard, and bring a dead shell back.
-                        if let Some(t) = &app.term {
-                            if t.dead {
-                                app.term = None;
-                                app.ensure_term();
+                    match action {
+                        AMOTION_EVENT_ACTION_DOWN => {
+                            app.drag = AMotionEvent_getY(ev, 0) as i32;
+                            if let Some(t) = &app.term {
+                                if t.dead {
+                                    app.term = None;
+                                    app.ensure_term();
+                                }
+                            }
+                            let act = ACTIVITY.load(Ordering::SeqCst);
+                            if !act.is_null() {
+                                ANativeActivity_showSoftInput(act, 0);
+                            }
+                            handled = 1;
+                        }
+                        AMOTION_EVENT_ACTION_MOVE => {
+                            let y = AMotionEvent_getY(ev, 0) as i32;
+                            let dy = y - app.drag;
+                            // ~40 px per line: finger down = scroll back in time
+                            if dy.abs() >= 40 {
+                                let step = (dy / 40) as usize;
+                                let max = app.term.as_ref().map(|t| t.max_scroll()).unwrap_or(0);
+                                if dy > 0 {
+                                    app.scroll = (app.scroll + step).min(max);
+                                } else {
+                                    app.scroll = app.scroll.saturating_sub(step);
+                                }
+                                app.drag = y;
+                                handled = 1;
                             }
                         }
-                        let act = ACTIVITY.load(Ordering::SeqCst);
-                        if !act.is_null() {
-                            ANativeActivity_showSoftInput(act, 0);
+                        AMOTION_EVENT_ACTION_UP => {
+                            app.drag = 0;
                         }
-                        handled = 1;
+                        _ => {}
                     }
                 }
                 AInputQueue_finishEvent(q, ev, handled);

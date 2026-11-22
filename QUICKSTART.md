@@ -16,7 +16,7 @@ Android 的 `untrusted_app` 域里正常工作。
 | NDK | r27+（设置 `NDK=<...>/toolchains/llvm/prebuilt/<host>/bin`） |
 | JDK | 17+（Android Studio 自带 jbr 即可） |
 | 设备 | 任意能 `adb` 的 Android 手机，**不需要 root、不需要解 BL、不需要开虚拟化** |
-| rootfs | 一份 glibc 发行版目录树（本文以 Ubuntu 24.04 arm64 为例） |
+| rootfs | 由 `nr-tools rootfs` 生成（第 1 步），或自备一份 glibc 2.39 aarch64 目录树 |
 
 检查：
 
@@ -25,36 +25,55 @@ rustup target list --installed | grep aarch64
 adb devices
 ```
 
-## 1. 准备 rootfs 的位置
+## 1. 生成 rootfs（主机上，一条命令）
 
-探针 APK（`com.linuxhub.probe`）把 rootfs 放在自己的私有目录：
-
+```sh
+cargo build --release -p nr-tools --manifest-path runtime/Cargo.toml
+./runtime/target/release/nr-tools rootfs \
+  --out /tmp/husk-rootfs --tar /tmp/husk-rootfs.tar.gz
 ```
-/data/data/com.linuxhub.probe/files/nrfull/root
-```
 
-app-private 目录不可执行但**可读**，这正好够用：loader 从 `nativeLibraryDir` 读，rootfs 只当数据。
+它解析 `ports.ubuntu.com` 上的 noble 索引 → 下载 61 个包 → 解包成目录 →
+补 usr-merge 符号链接、`/etc/passwd`、`dpkg` 状态库、`apt` 源 →
+把 guest libc 里两个可选加速器调用 `nop` 掉（拒绝时直接失败）→ 打 tar。
+产物约 25 MB、`usr/bin` 里有 253 个程序，`bash`、`coreutils`、`dpkg`、`apt` 都在。
 
-> 你的 rootfs 从哪来不重要（debootstrap / 官方 rootfs tarball 都行），只要
-> `usr/lib/aarch64-linux-gnu/libc.so.6` 与 `ld-linux-aarch64.so.1` 是 glibc 2.39 这一代。
+> 已经有别处做的 rootfs tarball 也能用，只要 libc 是 glibc 2.39 这一代；
+> 但 loader 必须和镜像同源（见下一节）。
 
 ## 2. 改出带 shim 的 loader
 
 ```sh
 export NDK=$ANDROID_HOME/ndk/<ver>/toolchains/llvm/prebuilt/<host>/bin
-./tools/loader/build-embedded-loader.sh
+J=app/app/src/main/jniLibs/arm64-v8a
+
+# a) 先编出 shim 与钩子（这条命令同时会用固定镜像产出一份 loader 作为回归基准）
+OUT=/tmp/loader-check ./tools/loader/build-embedded-loader.sh
+
+# b) 用刚才那份 rootfs 自己的 ld.so 产出配套 loader
+./runtime/target/release/nr-tools rootfs \
+  --out /tmp/husk-rootfs --cache /tmp/nr-rootfs/deb \
+  --shim runtime/target/aarch64-unknown-linux-gnu/release/libpath_shim.so \
+  --hook tools/loader/init-hook.bin \
+  --loader-out $J/libld.so
 ```
 
-它做三件事，并打印它断言过的数字（76 个介入名 / 31 个外部符号 / 24 个自相对槽位）：
+为什么不用一份 loader 配所有镜像：loader 和它加载的 libc 必须是同一个 glibc 构建。
+`--loader-out` 就是在镜像自己的 `ld-linux-aarch64.so.1` 上做同样的三处改动，
+产出 `libld.so`（约 290,816 B）。
 
-1. `cargo build` 出 `path-shim`（4K 段对齐）
-2. 编译 `init-hook.S`，把 `svc` 调用点按模式定位并 `nop`
-3. `nr-tools embed` 把 shim 作为额外 `PT_LOAD` 嵌进 `ld.so`
+固定镜像的回归基准：`OUT=/tmp/x ./tools/loader/build-embedded-loader.sh` 的产物应为
+sha256 `1600a850985624b05c8b1c1f9cee5fe8185462da91d0de369dcb9ff30f21cbee`；
+换了镜像，这个值自然不同，这不是退化。
 
-产物：`tools/probe-app/app/src/main/jniLibs/arm64-v8a/libld.so`
-期望 sha256：`1600a850985624b05c8b1c1f9cee5fe8185462da91d0de369dcb9ff30f21cbee`
+## 2.5 把 rootfs 放进 app
 
-> 产物必须与上面这个 sha256 一致；不一致说明输入或工具被改过。
+```sh
+adb push /tmp/husk-rootfs.tar.gz /data/local/tmp/
+adb shell "run-as com.linuxhub.husk sh -c 'mkdir -p files/rootfs && cd files/rootfs && tar -xzf /data/local/tmp/husk-rootfs.tar.gz'"
+```
+
+探针 APK（`com.linuxhub.probe`）的路径是 `files/nrfull/root`，测试脚本按它找。
 
 ## 3. 装工具链进 rootfs（可选，但这是最好玩的部分）
 
@@ -105,8 +124,8 @@ echo "sdk.dir=$ANDROID_HOME" > app/local.properties
 cd app && JAVA_HOME="<JDK 17+>" ./gradlew :app:assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk && cd ..
 
-# 4) 导入 rootfs 到应用私有目录（约 155 MB）
-adb shell "run-as com.linuxhub.husk sh -c 'mkdir -p files/rootfs && cd files/rootfs && tar -xf /data/local/tmp/husk-rootfs.tar'"
+# 4) 导入 rootfs 到应用私有目录（第 2.5 步已经推过就跳过）
+adb shell "run-as com.linuxhub.husk sh -c 'mkdir -p files/rootfs && cd files/rootfs && tar -xzf /data/local/tmp/husk-rootfs.tar.gz'"
 ```
 
 终端解析器有单元测试，可以在主机上直接跑：`cd app-rs && cargo test`。

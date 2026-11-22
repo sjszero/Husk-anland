@@ -132,6 +132,8 @@ pub const AINPUT_EVENT_TYPE_MOTION: i32 = 2;
 pub const AKEY_EVENT_ACTION_DOWN: i32 = 0;
 pub const AMOTION_EVENT_ACTION_MASK: i32 = 0xff;
 pub const AMOTION_EVENT_ACTION_DOWN: i32 = 0;
+pub const AMOTION_EVENT_ACTION_MOVE: i32 = 2;
+pub const AMOTION_EVENT_ACTION_UP: i32 = 1;
 
 pub const AKEYCODE_DEL: i32 = 67;
 pub const AKEYCODE_ENTER: i32 = 66;

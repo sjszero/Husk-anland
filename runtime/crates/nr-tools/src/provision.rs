@@ -23,12 +23,12 @@ const POOL: &str = "/ubuntu-ports/";
 const COMPS: [&str; 2] = ["main", "universe"];
 
 #[derive(Clone, Debug)]
-struct Pkg {
-    name: String,
-    version: String,
-    filename: String,
-    size: u64,
-    depends: String,
+pub(crate) struct Pkg {
+    pub(crate) name: String,
+    pub(crate) version: String,
+    pub(crate) filename: String,
+    pub(crate) size: u64,
+    pub(crate) depends: String,
 }
 
 fn die(msg: impl AsRef<str>) -> ! {
@@ -38,7 +38,7 @@ fn die(msg: impl AsRef<str>) -> ! {
 
 // ------------------------------------------------------------------ transport
 
-fn http_get(path: &str) -> Option<Vec<u8>> {
+pub(crate) fn http_get(path: &str) -> Option<Vec<u8>> {
     let mut stream = TcpStream::connect((HOST, 80)).ok()?;
     stream.set_read_timeout(Some(std::time::Duration::from_secs(180))).ok()?;
     let req = format!("GET {path} HTTP/1.0\r\nHost: {HOST}\r\nUser-Agent: nr-tools\r\nConnection: close\r\n\r\n");
@@ -84,11 +84,11 @@ fn pipe(cmd: &mut Command, input: &[u8]) -> Vec<u8> {
     out
 }
 
-fn gunzip(d: &[u8]) -> Vec<u8> { pipe(Command::new("gzip").arg("-dc"), d) }
+pub(crate) fn gunzip(d: &[u8]) -> Vec<u8> { pipe(Command::new("gzip").arg("-dc"), d) }
 
 // -------------------------------------------------------------- index + deps
 
-fn parse_index(text: &str, merge: &mut BTreeMap<String, Pkg>) {
+pub(crate) fn parse_index(text: &str, merge: &mut BTreeMap<String, Pkg>) {
     for block in text.split("\n\n") {
         let mut name = None;
         let mut version = String::new();
@@ -133,7 +133,7 @@ fn dep_names(depends: &str) -> Vec<Vec<String>> {
     out
 }
 
-fn resolve(index: &BTreeMap<String, Pkg>, wanted: &[String], skip: &HashSet<String>) -> Vec<Pkg> {
+pub(crate) fn resolve(index: &BTreeMap<String, Pkg>, wanted: &[String], skip: &HashSet<String>) -> Vec<Pkg> {
     let mut queue: Vec<String> = wanted.to_vec();
     let mut seen: HashSet<String> = HashSet::new();
     let mut out: Vec<Pkg> = Vec::new();
@@ -181,7 +181,7 @@ fn extract_tar_bytes(tar: &[u8], stage: &Path) {
     if !st.success() { die("tar failed (absolute symlink or hardlink?)"); }
 }
 
-fn unpack_deb(deb: &[u8], stage: &Path) {
+pub(crate) fn unpack_deb(deb: &[u8], stage: &Path) {
     let m = ar_members(deb);
     if let Some(xz) = m.get("data.tar.xz") {
         let tar = pipe(Command::new("xz").arg("-dc"), xz);

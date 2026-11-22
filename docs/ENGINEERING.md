@@ -61,6 +61,7 @@
 |---|---|---|
 | `nr-tools scan-syscalls` | 定位并改写启动期系统调用点 | 迁移时与 Python 参考实现逐行一致、产物同哈希（evidence 22） |
 | `nr-tools embed` | 生成成品动态链接器 | 迁移时与 Python 参考实现产物同哈希（evidence 22） |
+| `nr-tools rootfs` | 在主机上生成 guest rootfs（包集 → 目录 → 打补丁的 libc → tar），并可用同一镜像的 `ld.so` 产出配套 loader | 产物可结构校验：253 个 `usr/bin`、usr-merge 链接、`dpkg` 状态库 61 项、libc 两处 `nop` |
 | `nr-tools provision` | 供应 gcc / make 工具链 | 迁移时与 sh+Python 版本阶段目录逐文件比对，2,866 项内容差异为零（evidence 23） |
 
 三个工具都是唯一实现。迁移期间的 Python / sh 参考实现在逐字节对拍通过后已从工作树删除

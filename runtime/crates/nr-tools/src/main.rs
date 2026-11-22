@@ -15,6 +15,7 @@
 //! Every expectation below is an assertion; a different glibc must fail loudly.
 
 mod provision;
+mod rootfs;
 
 use std::fs;
 use std::process::ExitCode;
@@ -260,7 +261,7 @@ fn scan(elf: &Elf) -> Vec<Site> {
 
 fn hex8(v: u32) -> String { format!("{v:#010x}") }
 
-fn scan_main(args: &[String]) -> ExitCode {
+pub(crate) fn scan_main(args: &[String]) -> ExitCode {
     if args.len() < 2 { die("usage: nr-tools scan-syscalls {report|patch} <elf> [out] [--version V] [--expect NAME=COUNT ...]"); }
     let mode = args[0].as_str();
     let path = args[1].clone();
@@ -640,12 +641,13 @@ fn print_summary(s: &EmbedSummary) {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(cmd) = args.first() else {
-        eprintln!("usage: nr-tools {{scan-syscalls|embed|provision}} ...");
+        eprintln!("usage: nr-tools {{scan-syscalls|embed|provision|rootfs}} ...");
         return ExitCode::from(2);
     };
     match cmd.as_str() {
         "scan-syscalls" => scan_main(&args[1..]),
         "provision" => { provision::main(&args[1..]); ExitCode::SUCCESS }
+        "rootfs" => { rootfs::main(&args[1..]); ExitCode::SUCCESS }
         "embed" => {
             if args.len() < 5 { die("usage: nr-tools embed <shim.so> <loader.orig> <hook.bin> <out.so>"); }
             if V_BASE < align(LD_TEXT_END, PAGE) { die("shim would overlap the loader's own segments"); }
