@@ -11,6 +11,8 @@ use core::ffi::{c_int, c_uint, c_void};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::thread::JoinHandle;
 
 const SOL_SOCKET: c_int = 1;
@@ -59,6 +61,89 @@ impl Default for AsyncCompletion {
         Self {
             acquire_fd: -1,
             join: None,
+        }
+    }
+}
+
+struct RingFns {
+    create_image: FnCreateImage,
+    destroy_image: FnDestroyImage,
+    get_image_requirements: FnGetImageRequirements2,
+    bind_image: FnBindImageMemory,
+    allocate_memory: FnAllocateMemory,
+    free_memory: FnFreeMemory,
+    get_memory_props: FnGetPhysicalDeviceMemoryProperties,
+    create_buffer: FnCreateBuffer,
+    destroy_buffer: FnDestroyBuffer,
+    get_buffer_requirements: FnGetBufferMemoryRequirements,
+    bind_buffer: FnBindBufferMemory,
+    map_memory: FnMapMemory,
+    unmap_memory: FnUnmapMemory,
+    create_pool: FnCreateCommandPool,
+    destroy_pool: FnDestroyCommandPool,
+    allocate_commands: FnAllocateCommandBuffers,
+    begin_command: FnBeginCommandBuffer,
+    end_command: FnEndCommandBuffer,
+    pipeline_barrier: FnCmdPipelineBarrier,
+    clear_color: FnCmdClearColorImage,
+    copy_image_to_buffer: FnCmdCopyImageToBuffer,
+    create_fence: FnCreateFence,
+    destroy_fence: FnDestroyFence,
+    wait_fences: FnWaitForFences,
+    queue_submit: FnQueueSubmit,
+    reset_pool: FnResetCommandPool,
+    reset_fences: FnResetFences,
+    get_fence_fd: FnGetFenceFdKhr,
+}
+
+struct PooledSlot {
+    image: VkImage,
+    image_memory: VkDeviceMemory,
+    readback: VkBuffer,
+    readback_memory: VkDeviceMemory,
+    command_pool: VkCommandPool,
+    command: VkCommandBuffer,
+    fence: VkFence,
+    readback_size: u64,
+    pitch: u64,
+    width: u32,
+    height: u32,
+}
+
+#[derive(Default)]
+struct RingStats {
+    export_pending: AtomicUsize,
+    export_signaled: AtomicUsize,
+    completion_ok: AtomicUsize,
+    completion_fail: AtomicUsize,
+    readback_ok: AtomicUsize,
+    readback_fail: AtomicUsize,
+    fallback: AtomicUsize,
+}
+
+struct PooledCompletion {
+    device: usize,
+    readback_memory: usize,
+    readback_size: u64,
+    pitch: u64,
+    width: u32,
+    height: u32,
+    expected_pixel: u32,
+    frame: usize,
+    slot: usize,
+    completion_fd: c_int,
+    map_memory: FnMapMemory,
+    unmap_memory: FnUnmapMemory,
+    verbose: bool,
+    stats: Arc<RingStats>,
+}
+
+impl Drop for PooledCompletion {
+    fn drop(&mut self) {
+        unsafe {
+            if self.completion_fd >= 0 {
+                close(self.completion_fd);
+            }
         }
     }
 }
@@ -371,6 +456,835 @@ unsafe fn probe_linear_dmabuf(fd: c_int, meta: &AhbMeta) -> bool {
         ),
     );
     ok
+}
+
+unsafe fn load_ring_fns(lib: *mut c_void, device: VkDevice) -> Option<RingFns> {
+    let get_proc: FnGetDeviceProcAddr = symbol(lib, "vkGetDeviceProcAddr")?;
+    let name = std::ffi::CString::new("vkGetFenceFdKHR").unwrap();
+    let raw = get_proc(device, name.as_ptr());
+    if raw.is_null() {
+        line("ring", "FAIL", "vkGetDeviceProcAddr(vkGetFenceFdKHR)");
+        return None;
+    }
+    Some(RingFns {
+        create_image: symbol(lib, "vkCreateImage")?,
+        destroy_image: symbol(lib, "vkDestroyImage")?,
+        get_image_requirements: symbol(lib, "vkGetImageMemoryRequirements2")?,
+        bind_image: symbol(lib, "vkBindImageMemory")?,
+        allocate_memory: symbol(lib, "vkAllocateMemory")?,
+        free_memory: symbol(lib, "vkFreeMemory")?,
+        get_memory_props: symbol(lib, "vkGetPhysicalDeviceMemoryProperties")?,
+        create_buffer: symbol(lib, "vkCreateBuffer")?,
+        destroy_buffer: symbol(lib, "vkDestroyBuffer")?,
+        get_buffer_requirements: symbol(lib, "vkGetBufferMemoryRequirements")?,
+        bind_buffer: symbol(lib, "vkBindBufferMemory")?,
+        map_memory: symbol(lib, "vkMapMemory")?,
+        unmap_memory: symbol(lib, "vkUnmapMemory")?,
+        create_pool: symbol(lib, "vkCreateCommandPool")?,
+        destroy_pool: symbol(lib, "vkDestroyCommandPool")?,
+        allocate_commands: symbol(lib, "vkAllocateCommandBuffers")?,
+        begin_command: symbol(lib, "vkBeginCommandBuffer")?,
+        end_command: symbol(lib, "vkEndCommandBuffer")?,
+        pipeline_barrier: symbol(lib, "vkCmdPipelineBarrier")?,
+        clear_color: symbol(lib, "vkCmdClearColorImage")?,
+        copy_image_to_buffer: symbol(lib, "vkCmdCopyImageToBuffer")?,
+        create_fence: symbol(lib, "vkCreateFence")?,
+        destroy_fence: symbol(lib, "vkDestroyFence")?,
+        wait_fences: symbol(lib, "vkWaitForFences")?,
+        queue_submit: symbol(lib, "vkQueueSubmit")?,
+        reset_pool: symbol(lib, "vkResetCommandPool")?,
+        reset_fences: symbol(lib, "vkResetFences")?,
+        get_fence_fd: std::mem::transmute_copy(&raw),
+    })
+}
+
+unsafe fn destroy_pooled_slot(api: &RingFns, device: VkDevice, slot: &PooledSlot) {
+    (api.destroy_fence)(device, slot.fence, ptr::null());
+    (api.destroy_pool)(device, slot.command_pool, ptr::null());
+    (api.destroy_buffer)(device, slot.readback, ptr::null());
+    (api.free_memory)(device, slot.readback_memory, ptr::null());
+    (api.destroy_image)(device, slot.image, ptr::null());
+    (api.free_memory)(device, slot.image_memory, ptr::null());
+}
+
+unsafe fn create_pooled_slot(
+    api: &RingFns,
+    physical: VkPhysicalDevice,
+    device: VkDevice,
+    family_index: u32,
+    fd: c_int,
+    meta: &AhbMeta,
+    slot_index: usize,
+) -> Option<PooledSlot> {
+    let pitch = meta.stride as u64 * 4;
+    let image_bytes = pitch * meta.height as u64;
+    let mut mem_props: VkPhysicalDeviceMemoryProperties = std::mem::zeroed();
+    (api.get_memory_props)(physical, &mut mem_props);
+
+    let layout = VkSubresourceLayout {
+        offset: 0,
+        size: image_bytes,
+        row_pitch: pitch,
+        array_pitch: 0,
+        depth_pitch: 0,
+    };
+    let external = VkExternalMemoryImageCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+        p_next: ptr::null(),
+        handle_types: VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+    };
+    let explicit = VkImageDrmFormatModifierExplicitCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_EXPLICIT_CREATE_INFO_EXT,
+        p_next: &external as *const _ as *const c_void,
+        drm_format_modifier: DRM_FORMAT_MOD_LINEAR,
+        drm_format_modifier_plane_count: 1,
+        p_plane_layouts: &layout,
+    };
+    let image_info = VkImageCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        p_next: &explicit as *const _ as *const c_void,
+        flags: 0,
+        image_type: VK_IMAGE_TYPE_2D,
+        format: VK_FORMAT_R8G8B8A8_UNORM,
+        extent: VkExtent3D {
+            width: meta.width,
+            height: meta.height,
+            depth: 1,
+        },
+        mip_levels: 1,
+        array_layers: 1,
+        samples: 1,
+        tiling: VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT,
+        usage: VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        sharing_mode: VK_SHARING_MODE_EXCLUSIVE,
+        queue_family_index_count: 0,
+        p_queue_family_indices: ptr::null(),
+        initial_layout: VK_IMAGE_LAYOUT_UNDEFINED,
+    };
+    let mut image: VkImage = ptr::null_mut();
+    let r = (api.create_image)(device, &image_info, ptr::null(), &mut image);
+    if r != VK_SUCCESS {
+        line(
+            "pool",
+            "FAIL",
+            format!("slot={slot_index} create image {r}"),
+        );
+        return None;
+    }
+
+    let req_info = VkImageMemoryRequirementsInfo2 {
+        s_type: VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2,
+        p_next: ptr::null(),
+        image,
+    };
+    let mut req2 = VkMemoryRequirements2 {
+        s_type: VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2,
+        p_next: ptr::null_mut(),
+        requirements: VkMemoryRequirements::default(),
+    };
+    (api.get_image_requirements)(device, &req_info, &mut req2);
+    let req = req2.requirements;
+    let Some(image_type_index) = choose_memory_type(&mem_props, req.memory_type_bits) else {
+        line(
+            "pool",
+            "FAIL",
+            format!("slot={slot_index} image memory type"),
+        );
+        (api.destroy_image)(device, image, ptr::null());
+        return None;
+    };
+    let mut import = VkImportMemoryFdInfo {
+        s_type: VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
+        p_next: ptr::null(),
+        handle_type: VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+        fd: dup(fd),
+    };
+    if import.fd < 0 {
+        line("pool", "FAIL", format!("slot={slot_index} dup image fd"));
+        (api.destroy_image)(device, image, ptr::null());
+        return None;
+    }
+    let alloc = VkMemoryAllocateInfo {
+        s_type: VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        p_next: &mut import as *mut _ as *const c_void,
+        allocation_size: req.size,
+        memory_type_index: image_type_index,
+    };
+    let mut image_memory: VkDeviceMemory = ptr::null_mut();
+    let r = (api.allocate_memory)(device, &alloc, ptr::null(), &mut image_memory);
+    close(import.fd);
+    if r != VK_SUCCESS {
+        line(
+            "pool",
+            "FAIL",
+            format!("slot={slot_index} image import {r}"),
+        );
+        (api.destroy_image)(device, image, ptr::null());
+        return None;
+    }
+    let r = (api.bind_image)(device, image, image_memory, 0);
+    if r != VK_SUCCESS {
+        line("pool", "FAIL", format!("slot={slot_index} bind image {r}"));
+        (api.destroy_image)(device, image, ptr::null());
+        (api.free_memory)(device, image_memory, ptr::null());
+        return None;
+    }
+
+    let buffer_info = VkBufferCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        p_next: ptr::null(),
+        flags: 0,
+        size: image_bytes,
+        usage: VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        sharing_mode: VK_SHARING_MODE_EXCLUSIVE,
+        queue_family_index_count: 0,
+        p_queue_family_indices: ptr::null(),
+    };
+    let mut readback: VkBuffer = ptr::null_mut();
+    let r = (api.create_buffer)(device, &buffer_info, ptr::null(), &mut readback);
+    if r != VK_SUCCESS {
+        line(
+            "pool",
+            "FAIL",
+            format!("slot={slot_index} readback buffer {r}"),
+        );
+        (api.destroy_image)(device, image, ptr::null());
+        (api.free_memory)(device, image_memory, ptr::null());
+        return None;
+    }
+    let mut readback_req = VkMemoryRequirements::default();
+    (api.get_buffer_requirements)(device, readback, &mut readback_req);
+    let Some(readback_type_index) = choose_memory_type(&mem_props, readback_req.memory_type_bits)
+    else {
+        line(
+            "pool",
+            "FAIL",
+            format!("slot={slot_index} readback memory type"),
+        );
+        (api.destroy_buffer)(device, readback, ptr::null());
+        (api.destroy_image)(device, image, ptr::null());
+        (api.free_memory)(device, image_memory, ptr::null());
+        return None;
+    };
+    let readback_alloc = VkMemoryAllocateInfo {
+        s_type: VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        p_next: ptr::null(),
+        allocation_size: readback_req.size,
+        memory_type_index: readback_type_index,
+    };
+    let mut readback_memory: VkDeviceMemory = ptr::null_mut();
+    let r = (api.allocate_memory)(device, &readback_alloc, ptr::null(), &mut readback_memory);
+    if r != VK_SUCCESS || (api.bind_buffer)(device, readback, readback_memory, 0) != VK_SUCCESS {
+        line(
+            "pool",
+            "FAIL",
+            format!("slot={slot_index} readback allocation/bind"),
+        );
+        (api.destroy_buffer)(device, readback, ptr::null());
+        if r == VK_SUCCESS {
+            (api.free_memory)(device, readback_memory, ptr::null());
+        }
+        (api.destroy_image)(device, image, ptr::null());
+        (api.free_memory)(device, image_memory, ptr::null());
+        return None;
+    }
+
+    let pool_info = VkCommandPoolCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        p_next: ptr::null(),
+        flags: 0,
+        queue_family_index: family_index,
+    };
+    let mut command_pool: VkCommandPool = ptr::null_mut();
+    let r = (api.create_pool)(device, &pool_info, ptr::null(), &mut command_pool);
+    if r != VK_SUCCESS {
+        line(
+            "pool",
+            "FAIL",
+            format!("slot={slot_index} command pool {r}"),
+        );
+        (api.destroy_buffer)(device, readback, ptr::null());
+        (api.free_memory)(device, readback_memory, ptr::null());
+        (api.destroy_image)(device, image, ptr::null());
+        (api.free_memory)(device, image_memory, ptr::null());
+        return None;
+    }
+    let cmd_alloc = VkCommandBufferAllocateInfo {
+        s_type: VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        p_next: ptr::null(),
+        command_pool,
+        level: VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        command_buffer_count: 1,
+    };
+    let mut command: VkCommandBuffer = ptr::null_mut();
+    let r = (api.allocate_commands)(device, &cmd_alloc, &mut command);
+    if r != VK_SUCCESS {
+        line("pool", "FAIL", format!("slot={slot_index} command {r}"));
+        (api.destroy_pool)(device, command_pool, ptr::null());
+        (api.destroy_buffer)(device, readback, ptr::null());
+        (api.free_memory)(device, readback_memory, ptr::null());
+        (api.destroy_image)(device, image, ptr::null());
+        (api.free_memory)(device, image_memory, ptr::null());
+        return None;
+    }
+
+    let export_info = VkExportFenceCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_EXPORT_FENCE_CREATE_INFO,
+        p_next: ptr::null(),
+        handle_types: VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT,
+    };
+    let fence_info = VkFenceCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        p_next: &export_info as *const _ as *const c_void,
+        flags: 0,
+    };
+    let mut fence: VkFence = ptr::null_mut();
+    let r = (api.create_fence)(device, &fence_info, ptr::null(), &mut fence);
+    if r != VK_SUCCESS {
+        line("pool", "FAIL", format!("slot={slot_index} fence {r}"));
+        (api.destroy_pool)(device, command_pool, ptr::null());
+        (api.destroy_buffer)(device, readback, ptr::null());
+        (api.free_memory)(device, readback_memory, ptr::null());
+        (api.destroy_image)(device, image, ptr::null());
+        (api.free_memory)(device, image_memory, ptr::null());
+        return None;
+    }
+
+    line(
+        "pool",
+        "INIT",
+        format!(
+            "slot={slot_index} fd={fd} image={:?} readback={:?} fence={:?}",
+            image, readback, fence
+        ),
+    );
+    Some(PooledSlot {
+        image,
+        image_memory,
+        readback,
+        readback_memory,
+        command_pool,
+        command,
+        fence,
+        readback_size: readback_req.size,
+        pitch,
+        width: meta.width,
+        height: meta.height,
+    })
+}
+
+unsafe fn verify_readback_region(
+    map_memory: FnMapMemory,
+    unmap_memory: FnUnmapMemory,
+    device: VkDevice,
+    memory: VkDeviceMemory,
+    size: u64,
+    pitch: u64,
+    width: u32,
+    height: u32,
+    expected_pixel: u32,
+    frame: usize,
+    slot: usize,
+    verbose: bool,
+) -> bool {
+    let mut mapped: *mut c_void = ptr::null_mut();
+    let map_rc = map_memory(device, memory, 0, size, 0, &mut mapped);
+    if map_rc != VK_SUCCESS || mapped.is_null() {
+        line(
+            "dmabuf",
+            "image_readback",
+            format!("frame={frame} slot={slot} FAIL|map {map_rc}"),
+        );
+        return false;
+    }
+    let base = mapped as *const u8;
+    let mut checked = 0usize;
+    let mut matched = 0usize;
+    for (x, y) in probe_points(width, height) {
+        let off = (y as usize * pitch as usize) + x as usize * 4;
+        let pixel = (base.add(off) as *const u32).read_unaligned();
+        checked += 1;
+        if pixel == expected_pixel {
+            matched += 1;
+        }
+    }
+    let ok = checked == 9 && matched == 9;
+    if verbose || !ok {
+        line(
+            "dmabuf",
+            "image_readback",
+            format!(
+                "frame={frame} slot={slot} {}|match={matched}/{checked} expected={expected_pixel:#010x}",
+                if ok { "PASS" } else { "FAIL" }
+            ),
+        );
+    }
+    unmap_memory(device, memory);
+    ok
+}
+
+unsafe fn record_pooled_frame(
+    api: &RingFns,
+    device: VkDevice,
+    slot: &PooledSlot,
+    color: [f32; 4],
+) -> bool {
+    let r = (api.reset_pool)(device, slot.command_pool, 0);
+    if r != VK_SUCCESS {
+        line("pool", "FAIL", format!("reset command pool {r}"));
+        return false;
+    }
+    let begin_info = VkCommandBufferBeginInfo {
+        s_type: VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        p_next: ptr::null(),
+        flags: VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        p_inheritance_info: ptr::null(),
+    };
+    let r = (api.begin_command)(slot.command, &begin_info);
+    if r != VK_SUCCESS {
+        line("pool", "FAIL", format!("begin command {r}"));
+        return false;
+    }
+    let range = VkImageSubresourceRange {
+        aspect_mask: VK_IMAGE_ASPECT_COLOR_BIT,
+        base_mip_level: 0,
+        level_count: 1,
+        base_array_layer: 0,
+        layer_count: 1,
+    };
+    let to_dst = VkImageMemoryBarrier {
+        s_type: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        p_next: ptr::null(),
+        src_access_mask: 0,
+        dst_access_mask: VK_ACCESS_TRANSFER_WRITE_BIT,
+        old_layout: VK_IMAGE_LAYOUT_UNDEFINED,
+        new_layout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        src_queue_family_index: VK_QUEUE_FAMILY_IGNORED,
+        dst_queue_family_index: VK_QUEUE_FAMILY_IGNORED,
+        image: slot.image,
+        subresource_range: range,
+    };
+    (api.pipeline_barrier)(
+        slot.command,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0,
+        0,
+        ptr::null(),
+        0,
+        ptr::null(),
+        1,
+        &to_dst,
+    );
+    let clear = VkClearColorValue { float32: color };
+    (api.clear_color)(
+        slot.command,
+        slot.image,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        &clear,
+        1,
+        &range,
+    );
+    let to_src = VkImageMemoryBarrier {
+        s_type: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        p_next: ptr::null(),
+        src_access_mask: VK_ACCESS_TRANSFER_WRITE_BIT,
+        dst_access_mask: VK_ACCESS_TRANSFER_READ_BIT,
+        old_layout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        new_layout: VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        src_queue_family_index: VK_QUEUE_FAMILY_IGNORED,
+        dst_queue_family_index: VK_QUEUE_FAMILY_IGNORED,
+        image: slot.image,
+        subresource_range: range,
+    };
+    (api.pipeline_barrier)(
+        slot.command,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0,
+        0,
+        ptr::null(),
+        0,
+        ptr::null(),
+        1,
+        &to_src,
+    );
+    let copy = VkBufferImageCopy {
+        buffer_offset: 0,
+        buffer_row_length: 0,
+        buffer_image_height: 0,
+        image_subresource: VkImageSubresourceLayers {
+            aspect_mask: VK_IMAGE_ASPECT_COLOR_BIT,
+            mip_level: 0,
+            base_array_layer: 0,
+            layer_count: 1,
+        },
+        image_offset: VkOffset3D::default(),
+        image_extent: VkExtent3D {
+            width: slot.width,
+            height: slot.height,
+            depth: 1,
+        },
+    };
+    (api.copy_image_to_buffer)(
+        slot.command,
+        slot.image,
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        slot.readback,
+        1,
+        &copy,
+    );
+    let host_barrier = VkMemoryBarrier {
+        s_type: VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+        p_next: ptr::null(),
+        src_access_mask: VK_ACCESS_TRANSFER_WRITE_BIT,
+        dst_access_mask: VK_ACCESS_HOST_READ_BIT,
+    };
+    (api.pipeline_barrier)(
+        slot.command,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_PIPELINE_STAGE_HOST_BIT,
+        0,
+        1,
+        &host_barrier as *const _ as *const c_void,
+        0,
+        ptr::null(),
+        0,
+        ptr::null(),
+    );
+    let r = (api.end_command)(slot.command);
+    if r != VK_SUCCESS {
+        line("pool", "FAIL", format!("end command {r}"));
+        return false;
+    }
+    true
+}
+
+unsafe fn export_fence_sync_fd_via(
+    get_fence_fd: FnGetFenceFdKhr,
+    device: VkDevice,
+    fence: VkFence,
+) -> Result<c_int, String> {
+    let info = VkFenceGetFdInfoKhr {
+        s_type: VK_STRUCTURE_TYPE_FENCE_GET_FD_INFO_KHR,
+        p_next: ptr::null(),
+        fence,
+        handle_type: VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT,
+    };
+    let mut fd = -1;
+    let rc = get_fence_fd(device, &info, &mut fd);
+    if rc != VK_SUCCESS {
+        return Err(format!("vkGetFenceFdKHR rc={rc}"));
+    }
+    Ok(fd)
+}
+
+unsafe fn render_pooled_frame(
+    api: &RingFns,
+    device: VkDevice,
+    queue: VkQueue,
+    slot: &PooledSlot,
+    color: [f32; 4],
+    expected_pixel: u32,
+    frame: usize,
+    slot_index: usize,
+    verbose: bool,
+    stats: &Arc<RingStats>,
+) -> Option<AsyncCompletion> {
+    if !record_pooled_frame(api, device, slot, color) {
+        return None;
+    }
+    let reset_rc = (api.reset_fences)(device, 1, &slot.fence);
+    if reset_rc != VK_SUCCESS {
+        line(
+            "pool",
+            "FAIL",
+            format!("frame={frame} slot={slot_index} reset fence {reset_rc}"),
+        );
+        return None;
+    }
+    let submit = VkSubmitInfo {
+        s_type: VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        p_next: ptr::null(),
+        wait_semaphore_count: 0,
+        p_wait_semaphores: ptr::null(),
+        p_wait_dst_stage_mask: ptr::null(),
+        command_buffer_count: 1,
+        p_command_buffers: &slot.command,
+        signal_semaphore_count: 0,
+        p_signal_semaphores: ptr::null(),
+    };
+    let submit_rc = (api.queue_submit)(queue, 1, &submit, slot.fence);
+    if submit_rc != VK_SUCCESS {
+        line(
+            "pool",
+            "FAIL",
+            format!("frame={frame} slot={slot_index} submit {submit_rc}"),
+        );
+        return None;
+    }
+
+    match export_fence_sync_fd_via(api.get_fence_fd, device, slot.fence) {
+        Ok(acquire_fd) if acquire_fd >= 0 => {
+            if verbose {
+                super::sync_file_info(
+                    &format!("dmabuf|sync_file(export frame={frame} slot={slot_index})"),
+                    acquire_fd,
+                );
+            }
+            let mut pfd = PollFd {
+                fd: acquire_fd,
+                events: POLLIN,
+                revents: 0,
+            };
+            let initial_rc = poll(&mut pfd, 1, 0);
+            if initial_rc == 0 {
+                stats.export_pending.fetch_add(1, Ordering::Relaxed);
+                if verbose {
+                    line("dmabuf", "sync_file(export poll)", "PENDING");
+                }
+            } else if initial_rc > 0 && pfd.revents & POLLIN != 0 {
+                stats.export_signaled.fetch_add(1, Ordering::Relaxed);
+                if verbose {
+                    line("dmabuf", "sync_file(export poll)", "ALREADY_SIGNALED");
+                }
+            } else {
+                line(
+                    "dmabuf",
+                    "FAIL",
+                    format!(
+                        "frame={frame} slot={slot_index} export poll rc={initial_rc} revents={:#x}",
+                        pfd.revents
+                    ),
+                );
+                close(acquire_fd);
+                return None;
+            }
+            let completion_fd = dup(acquire_fd);
+            if completion_fd < 0 {
+                line(
+                    "dmabuf",
+                    "FAIL",
+                    format!("frame={frame} slot={slot_index} dup sync_file"),
+                );
+                close(acquire_fd);
+                return None;
+            }
+            let completion = PooledCompletion {
+                device: device as usize,
+                readback_memory: slot.readback_memory as usize,
+                readback_size: slot.readback_size,
+                pitch: slot.pitch,
+                width: slot.width,
+                height: slot.height,
+                expected_pixel,
+                frame,
+                slot: slot_index,
+                completion_fd,
+                map_memory: api.map_memory,
+                unmap_memory: api.unmap_memory,
+                verbose,
+                stats: Arc::clone(stats),
+            };
+            let join = std::thread::Builder::new()
+                .name(format!("husk-pool-frame-{frame}"))
+                .spawn(move || {
+                    let completion = completion;
+                    let mut pfd = PollFd {
+                        fd: completion.completion_fd,
+                        events: POLLIN,
+                        revents: 0,
+                    };
+                    let started = std::time::Instant::now();
+                    let poll_rc = poll(&mut pfd, 1, 30_000);
+                    let complete = poll_rc > 0 && pfd.revents & POLLIN != 0;
+                    if complete {
+                        completion
+                            .stats
+                            .completion_ok
+                            .fetch_add(1, Ordering::Relaxed);
+                        if completion.verbose {
+                            super::sync_file_info(
+                                &format!(
+                                    "dmabuf|sync_file(signaled frame={} slot={})",
+                                    completion.frame, completion.slot
+                                ),
+                                completion.completion_fd,
+                            );
+                            line(
+                                "dmabuf",
+                                "image_complete",
+                                format!(
+                                    "frame={} slot={} sync_file=READABLE elapsed_us={}",
+                                    completion.frame,
+                                    completion.slot,
+                                    started.elapsed().as_micros()
+                                ),
+                            );
+                        }
+                        let ok = verify_readback_region(
+                            completion.map_memory,
+                            completion.unmap_memory,
+                            completion.device as VkDevice,
+                            completion.readback_memory as VkDeviceMemory,
+                            completion.readback_size,
+                            completion.pitch,
+                            completion.width,
+                            completion.height,
+                            completion.expected_pixel,
+                            completion.frame,
+                            completion.slot,
+                            completion.verbose,
+                        );
+                        if ok {
+                            completion.stats.readback_ok.fetch_add(1, Ordering::Relaxed);
+                        } else {
+                            completion
+                                .stats
+                                .readback_fail
+                                .fetch_add(1, Ordering::Relaxed);
+                        }
+                    } else {
+                        completion
+                            .stats
+                            .completion_fail
+                            .fetch_add(1, Ordering::Relaxed);
+                        line(
+                            "dmabuf",
+                            "FAIL",
+                            format!(
+                                "frame={} slot={} sync_file poll={poll_rc} revents={:#x}",
+                                completion.frame, completion.slot, pfd.revents
+                            ),
+                        );
+                    }
+                });
+            match join {
+                Ok(join) => {
+                    if verbose {
+                        line(
+                            "dmabuf",
+                            "image_async",
+                            format!(
+                                "frame={frame} slot={slot_index} acquire_fd={acquire_fd} kind=SYNC_FD submit=PASS"
+                            ),
+                        );
+                    }
+                    Some(AsyncCompletion {
+                        acquire_fd,
+                        join: Some(join),
+                    })
+                }
+                Err(e) => {
+                    close(acquire_fd);
+                    line(
+                        "dmabuf",
+                        "FAIL",
+                        format!("frame={frame} slot={slot_index} spawn completion: {e}"),
+                    );
+                    None
+                }
+            }
+        }
+        Ok(_) | Err(_) => {
+            stats.fallback.fetch_add(1, Ordering::Relaxed);
+            if verbose {
+                line(
+                    "dmabuf",
+                    "WARN",
+                    format!(
+                        "frame={frame} slot={slot_index} SYNC_FD unavailable; eventfd fallback"
+                    ),
+                );
+            }
+            let acquire_fd = eventfd(0, 0);
+            let write_fd = if acquire_fd >= 0 { dup(acquire_fd) } else { -1 };
+            if acquire_fd < 0 || write_fd < 0 {
+                if acquire_fd >= 0 {
+                    close(acquire_fd);
+                }
+                if write_fd >= 0 {
+                    close(write_fd);
+                }
+                line(
+                    "dmabuf",
+                    "FAIL",
+                    format!("frame={frame} slot={slot_index} eventfd fallback"),
+                );
+                return None;
+            }
+            let stats_thread = Arc::clone(stats);
+            let device_addr = device as usize;
+            let wait_fences = api.wait_fences;
+            let map_memory = api.map_memory;
+            let unmap_memory = api.unmap_memory;
+            let fence_addr = slot.fence as usize;
+            let readback_memory_addr = slot.readback_memory as usize;
+            let readback_size = slot.readback_size;
+            let pitch = slot.pitch;
+            let width = slot.width;
+            let height = slot.height;
+            let join = std::thread::Builder::new()
+                .name(format!("husk-pool-eventfd-{frame}"))
+                .spawn(move || {
+                    let device = device_addr as VkDevice;
+                    let fence = fence_addr as VkFence;
+                    let wait_rc = wait_fences(device, 1, &fence, VK_TRUE, u64::MAX);
+                    if wait_rc == VK_SUCCESS {
+                        let one = 1u64;
+                        let wrote = write(write_fd, &one as *const u64 as *const c_void, 8);
+                        close(write_fd);
+                        if wrote == 8 {
+                            let ok = verify_readback_region(
+                                map_memory,
+                                unmap_memory,
+                                device,
+                                readback_memory_addr as VkDeviceMemory,
+                                readback_size,
+                                pitch,
+                                width,
+                                height,
+                                expected_pixel,
+                                frame,
+                                slot_index,
+                                verbose,
+                            );
+                            if ok {
+                                stats_thread.readback_ok.fetch_add(1, Ordering::Relaxed);
+                            } else {
+                                stats_thread.readback_fail.fetch_add(1, Ordering::Relaxed);
+                            }
+                        }
+                    } else {
+                        close(write_fd);
+                        line(
+                            "dmabuf",
+                            "FAIL",
+                            format!(
+                                "frame={frame} slot={slot_index} fallback wait={}",
+                                api_result(wait_rc)
+                            ),
+                        );
+                    }
+                });
+            match join {
+                Ok(join) => Some(AsyncCompletion {
+                    acquire_fd,
+                    join: Some(join),
+                }),
+                Err(e) => {
+                    close(acquire_fd);
+                    close(write_fd);
+                    line(
+                        "dmabuf",
+                        "FAIL",
+                        format!("frame={frame} slot={slot_index} spawn eventfd: {e}"),
+                    );
+                    None
+                }
+            }
+        }
+    }
 }
 
 unsafe fn render_linear_image(
@@ -1499,6 +2413,8 @@ type FnCmdClearColorImage = unsafe extern "C" fn(
 );
 type FnCmdCopyImageToBuffer =
     unsafe extern "C" fn(VkCommandBuffer, VkImage, u32, VkBuffer, u32, *const VkBufferImageCopy);
+type FnResetCommandPool = unsafe extern "C" fn(VkDevice, VkCommandPool, u32) -> VkResult;
+type FnResetFences = unsafe extern "C" fn(VkDevice, u32, *const VkFence) -> VkResult;
 
 type FnGetExternalBufferProperties = unsafe extern "C" fn(
     VkPhysicalDevice,
@@ -1626,6 +2542,19 @@ unsafe fn find_dmabuf(fds: &[c_int]) -> Option<c_int> {
     None
 }
 
+fn ring_log_every() -> usize {
+    std::env::args()
+        .find_map(|arg| arg.strip_prefix("--log-every=")?.parse().ok())
+        .unwrap_or(1)
+}
+
+fn ring_pace() -> std::time::Duration {
+    let ms = std::env::args()
+        .find_map(|arg| arg.strip_prefix("--pace-ms=")?.parse().ok())
+        .unwrap_or(0u64);
+    std::time::Duration::from_millis(ms)
+}
+
 fn frame_color(frame: usize) -> ([f32; 4], u32) {
     match frame % 3 {
         0 => ([1.0, 0.0, 0.0, 1.0], 0xff00_00ff),
@@ -1746,12 +2675,19 @@ unsafe fn run_ring(
     handles: &[Vec<c_int>],
     stream: UnixStream,
 ) -> bool {
+    let started = std::time::Instant::now();
+    let log_every = ring_log_every().max(1);
+    let pace = ring_pace();
     line(
         "ring",
         "BEGIN",
         format!(
-            "buffers={} frames={} {}x{}",
-            meta.count, meta.frames, meta.width, meta.height
+            "buffers={} frames={} {}x{} log_every={log_every} pace_ms={}",
+            meta.count,
+            meta.frames,
+            meta.width,
+            meta.height,
+            pace.as_millis()
         ),
     );
     if handles.len() != meta.count {
@@ -1762,6 +2698,15 @@ unsafe fn run_ring(
         );
         return false;
     }
+    let Some(api) = load_ring_fns(lib, device) else {
+        line("ring", "FAIL", "load pooled Vulkan symbols");
+        for fds in handles {
+            for &fd in fds {
+                close(fd);
+            }
+        }
+        return false;
+    };
 
     let mut dmabufs = Vec::with_capacity(handles.len());
     let mut linear_ok = true;
@@ -1785,10 +2730,42 @@ unsafe fn run_ring(
         return false;
     }
 
+    let mut slots = Vec::with_capacity(meta.count);
+    for (slot_index, &fd) in dmabufs.iter().enumerate() {
+        match create_pooled_slot(&api, physical, device, family_index, fd, meta, slot_index) {
+            Some(slot) => slots.push(slot),
+            None => {
+                line("pool", "FAIL", format!("create slot={slot_index}"));
+                for slot in &slots {
+                    destroy_pooled_slot(&api, device, slot);
+                }
+                for fds in handles {
+                    for &fd in fds {
+                        close(fd);
+                    }
+                }
+                return false;
+            }
+        }
+    }
+    line(
+        "pool",
+        "SUMMARY",
+        format!(
+            "slots={} image_imports={} readback_allocations={}",
+            slots.len(),
+            slots.len(),
+            slots.len()
+        ),
+    );
+
     let reader_stream = match stream.try_clone() {
         Ok(v) => v,
         Err(e) => {
             line("ring", "FAIL", format!("clone reader: {e}"));
+            for slot in &slots {
+                destroy_pooled_slot(&api, device, slot);
+            }
             for fds in handles {
                 for &fd in fds {
                     close(fd);
@@ -1802,16 +2779,24 @@ unsafe fn run_ring(
     }
     let mut reader = BufReader::new(reader_stream);
     let writer = stream;
+    let stats = Arc::new(RingStats::default());
     let mut used = vec![false; meta.count];
+    let mut slot_joins: Vec<Option<JoinHandle<()>>> = (0..meta.count).map(|_| None).collect();
     let mut rendered = 0usize;
     let mut releases = 0usize;
     let mut ok = true;
-    let mut completion_joins = Vec::with_capacity(meta.frames);
 
     for frame in 0..meta.frames {
-        let slot = frame % meta.count;
-        if used[slot] {
-            line("ring", "WAIT_RELEASE", format!("frame={frame} slot={slot}"));
+        let slot_index = frame % meta.count;
+        let verbose = frame % log_every == 0 || frame + 1 == meta.frames;
+        if used[slot_index] {
+            if verbose {
+                line(
+                    "ring",
+                    "WAIT_RELEASE",
+                    format!("frame={frame} slot={slot_index}"),
+                );
+            }
             loop {
                 let mut response = String::new();
                 match reader.read_line(&mut response) {
@@ -1822,18 +2807,38 @@ unsafe fn run_ring(
                     }
                     Ok(_) => {
                         let response = response.trim();
-                        if response == format!("RELEASE {slot}") {
+                        if response == format!("RELEASE {slot_index}") {
                             releases += 1;
-                            line("ring", "RELEASE", format!("frame={frame} slot={slot}"));
+                            if verbose {
+                                line(
+                                    "ring",
+                                    "RELEASE",
+                                    format!("frame={frame} slot={slot_index}"),
+                                );
+                            }
                             break;
                         }
                         line("ring", "RX", response);
                     }
                     Err(e) => {
-                        line("ring", "FAIL", format!("wait release slot={slot}: {e}"));
+                        line(
+                            "ring",
+                            "FAIL",
+                            format!("wait release slot={slot_index}: {e}"),
+                        );
                         ok = false;
                         break;
                     }
+                }
+            }
+            if let Some(join) = slot_joins[slot_index].take() {
+                if join.join().is_err() {
+                    line(
+                        "ring",
+                        "FAIL",
+                        format!("slot={slot_index} completion panic"),
+                    );
+                    ok = false;
                 }
             }
         }
@@ -1842,32 +2847,38 @@ unsafe fn run_ring(
         }
 
         let (color, expected) = frame_color(frame);
-        line(
-            "ring",
-            "RENDER",
-            format!("frame={frame} slot={slot} expected={expected:#010x}",),
-        );
-        let mut completion = AsyncCompletion::default();
-        let rendered_ok = render_linear_image(
-            lib,
-            physical,
+        if verbose {
+            line(
+                "ring",
+                "RENDER",
+                format!("frame={frame} slot={slot_index} expected={expected:#010x}"),
+            );
+        }
+        let Some(mut completion) = render_pooled_frame(
+            &api,
             device,
             queue,
-            family_index,
-            dmabufs[slot],
-            meta,
+            &slots[slot_index],
             color,
             expected,
             frame,
-            slot,
-            Some(&mut completion),
-        );
+            slot_index,
+            verbose,
+            &stats,
+        ) else {
+            line(
+                "ring",
+                "FAIL",
+                format!("frame={frame} slot={slot_index} pooled render"),
+            );
+            ok = false;
+            break;
+        };
         let acquire_fd = completion.acquire_fd;
-        let ready = rendered_ok
-            && acquire_fd >= 0
+        let ready = acquire_fd >= 0
             && send_ready_with_fd(
                 &writer,
-                &format!("READY {slot} {frame} {expected:08x}\n"),
+                &format!("READY {slot_index} {frame} {expected:08x}\n"),
                 acquire_fd,
             );
         if acquire_fd >= 0 {
@@ -1875,37 +2886,77 @@ unsafe fn run_ring(
             completion.acquire_fd = -1;
         }
         if let Some(join) = completion.join.take() {
-            completion_joins.push(join);
+            slot_joins[slot_index] = Some(join);
         }
-        line(
-            "ring",
-            "READY",
-            format!("frame={frame} slot={slot} rendered={rendered_ok} acquire_fd={acquire_fd} sent={ready}"),
-        );
+        if verbose || !ready {
+            line(
+                "ring",
+                "READY",
+                format!(
+                    "frame={frame} slot={slot_index} rendered=true acquire_fd={acquire_fd} sent={ready}"
+                ),
+            );
+        }
         if !ready {
             ok = false;
             break;
         }
-        used[slot] = true;
+        used[slot_index] = true;
         rendered += 1;
-    }
-
-    for join in completion_joins {
-        if join.join().is_err() {
-            line("ring", "FAIL", "GPU completion thread panicked");
-            ok = false;
+        if !pace.is_zero() && frame + 1 < meta.frames {
+            std::thread::sleep(pace);
         }
     }
+
+    for (slot_index, join) in slot_joins.into_iter().enumerate() {
+        if let Some(join) = join {
+            if join.join().is_err() {
+                line(
+                    "ring",
+                    "FAIL",
+                    format!("slot={slot_index} completion panic"),
+                );
+                ok = false;
+            }
+        }
+    }
+    for slot in &slots {
+        destroy_pooled_slot(&api, device, slot);
+    }
+    line("pool", "teardown", "all pooled Vulkan slots destroyed");
+
     let done = send_text(&writer, &format!("DONE {rendered}\n"));
+    let elapsed_s = started.elapsed().as_secs_f64();
+    let fps = if elapsed_s > 0.0 {
+        rendered as f64 / elapsed_s
+    } else {
+        0.0
+    };
+    let pending = stats.export_pending.load(Ordering::Relaxed);
+    let already_signaled = stats.export_signaled.load(Ordering::Relaxed);
+    let completion_ok = stats.completion_ok.load(Ordering::Relaxed);
+    let completion_fail = stats.completion_fail.load(Ordering::Relaxed);
+    let readback_ok = stats.readback_ok.load(Ordering::Relaxed);
+    let readback_fail = stats.readback_fail.load(Ordering::Relaxed);
+    let fallback = stats.fallback.load(Ordering::Relaxed);
+    let stats_ok = completion_ok == rendered
+        && readback_ok == rendered
+        && completion_fail == 0
+        && readback_fail == 0
+        && fallback == 0;
+    let stats_line = format!(
+        "pending={pending} already_signaled={already_signaled} completion_ok={completion_ok} completion_fail={completion_fail} readback_ok={readback_ok} readback_fail={readback_fail} fallback={fallback} stats_ok={stats_ok}"
+    );
+    line("ring", "STATS", stats_line);
     line(
         "ring",
-        if ok && rendered == meta.frames && done {
+        if ok && rendered == meta.frames && done && stats_ok {
             "PASS"
         } else {
             "FAIL"
         },
         format!(
-            "rendered={rendered}/{} releases={releases} done={done}",
+            "rendered={rendered}/{} releases={releases} done={done} elapsed_s={elapsed_s:.3} fps={fps:.3} stats_ok={stats_ok}",
             meta.frames
         ),
     );

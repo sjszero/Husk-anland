@@ -108,8 +108,11 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
    同一 fd readable / status=1。**已完成（evidence 58）**：FristOneRR kbase 后端已让
    `vkGetFenceFdKHR(SYNC_FD)` 返回真实 sync_file；同一 3-buffer SurfaceControl ring 连续
    120 帧全部使用 `SYNC_FD`，其中 11 帧导出时 pending，app `120/120` transaction complete，
-   eventfd fallback 为 0。持久 Vulkan 资源池、GBM/Wayland/X11、WSI/swapchain、窗口生命周期
-   和 10 分钟长稳仍未完成；连续短跑不等于完整窗口系统验收。
+   eventfd fallback 为 0。**已完成（evidence 59）**：3-slot 持久 Vulkan 资源池连续
+   10,000 帧 / 665.385 秒；真实 `SYNC_FD` 10,000/10,000，7,106 帧导出时 pending，
+   completion/GPU 回读 10,000/10,000，eventfd fallback 为 0，app transaction
+   10,000/10,000；采样期间 app/guest fd 与 RSS 无累积增长。GBM/Wayland/X11、
+   WSI/swapchain、SurfaceFlinger 等待 trace 与窗口生命周期仍未完成。
 5. `funnymdzz/mesa` 的 `kbase-v0.1.2` 已实测卡在 `drmSyncobjCreate()`，保留为失败证据和对照，
    不再作为唯一主动路线。
 6. DRM 语义层代码保留：它是已经完成的 M1/M2 资产，也是 panfrost 路线的后备，不删除。
@@ -143,10 +146,11 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
    app 取得上一 buffer 的 release fence，poll 到 signal 后才向 guest 发 RELEASE。
   evidence 55 已用 eventfd completion bridge 连续跑 120 帧并把 acquire fd 交给 SurfaceFlinger；
    它由 guest 的 Rust completion 线程等待 VkFence 后 signal，不是 Vulkan `SYNC_FD`；
-   evidence 56 已把同一路径跑到 5,600 帧 / 134 秒，但仍未达到 10 分钟门禁。evidence 57 已证明
-   kbase soft event + soft fence trigger 能生成真实 pending sync_file；evidence 58 已让 PanVK
-   `vkGetFenceFdKHR` 返回真实 fd，并在 3-buffer SurfaceControl ring 连续跑通 120 帧。下一步是
-   持久资源池、SurfaceFlinger 等待 trace、窗口生命周期和 WSI；
+   evidence 56 已把同一路径跑到 5,600 帧 / 134 秒。evidence 57 已证明 kbase soft event +
+   soft fence trigger 能生成真实 pending sync_file；evidence 58 已让 PanVK `vkGetFenceFdKHR`
+   返回真实 fd，并在 3-buffer SurfaceControl ring 连续跑通 120 帧；evidence 59 已改为 3-slot
+   持久资源池并完成 10,000 帧 / 665.385 秒长稳，fd/RSS 无累积增长。下一步是
+   SurfaceFlinger 等待 trace、窗口生命周期和 WSI；
 - 同一块 buffer 由 app `queueBuffer` 给 SurfaceFlinger，目标是零拷贝；
 - kbase 没有 export，所以方向必须是 app → guest 导入，不能假装有 kbase 导出。
 - 退化路径可以 CPU 拷贝，但必须记录原因和实测开销。
@@ -234,13 +238,13 @@ eglinfo 报 Mali-G77；音频出声并有延迟数字；H.264/HEVC 硬解、AV �
 3. 继续显示主线：FristOneRR glibc PanVK 已完成 compute job、离屏 graphics、surfaceless Zink
    （evidence 46–47）、AHB LINEAR 2D image GPU 写入（evidence 51）、EGLImage 回退（evidence 52）、
    SurfaceControl 静态单帧零拷贝（evidence 53）、3-buffer ring 连续 12 帧 + release-fence 背压
-   （evidence 54）、eventfd acquire bridge 连续 120 帧（evidence 55）、5,600 帧短 soak
-   （evidence 56）、真实 pending kbase sync_file（evidence 57），以及 PanVK 真实 `SYNC_FD`
-   接入 SurfaceControl ring 120 帧（evidence 58）。下一步做持久资源池、SurfaceFlinger 等待
-   trace、GBM / Wayland / X11、WSI、旋转 / DPI / 多窗口和 10 分钟泄漏。
+   （evidence 54）、eventfd acquire bridge 连续 120 帧（evidence 55）、真实 pending kbase
+   sync_file（evidence 57）、PanVK 真实 `SYNC_FD` 接入 SurfaceControl ring 120 帧（evidence 58），
+   以及 3-slot 持久资源池 10,000 帧 / 665.385 秒长稳（evidence 59）。下一步做 SurfaceFlinger
+   等待 trace、GBM / Wayland / X11、WSI、旋转 / DPI / 多窗口。
 4. 每次失败也写清楚失败点和下一假设；证据放 `docs/design/evidence/`。
-5. 显示主线已完成 SurfaceControl 3-buffer ring、eventfd fallback、5,600 帧短 soak、真实
-   pending kbase sync_file，以及 PanVK `vkGetFenceFdKHR(SYNC_FD)` 到 SF ring 的 120 帧链路；
-   下一步做持久资源池，再推进 GBM / Wayland / X11、WSI、窗口生命周期和 10 分钟长稳；视频、
-   音频按第 5 节并行设计但不能跳过硬解验收。
+5. 显示主线已完成 SurfaceControl 3-buffer ring、eventfd fallback、真实 pending kbase
+   sync_file、PanVK `vkGetFenceFdKHR(SYNC_FD)` 到 SF ring 的 120 帧链路，以及 3-slot
+   持久资源池的 10,000 帧 / 665.385 秒长稳；下一步推进 SurfaceFlinger 等待 trace、
+   GBM / Wayland / X11、WSI 和窗口生命周期；视频、音频按第 5 节并行设计但不能跳过硬解验收。
 6. 最后做 2.0 proot 替换与补丁清除。
