@@ -1,0 +1,331 @@
+diff --git a/app/src/main/java/com/terminal/NativeTerminalRenderer.kt b/app/src/main/java/com/terminal/NativeTerminalRenderer.kt
+index 634db6a..1dbc25b 100644
+--- a/app/src/main/java/com/terminal/NativeTerminalRenderer.kt
++++ b/app/src/main/java/com/terminal/NativeTerminalRenderer.kt
+@@ -7,6 +7,8 @@ import android.graphics.Color
+ import android.graphics.Canvas
+ import android.graphics.Paint
+ import android.os.Looper
++import android.os.Build
++import android.os.Environment
+ import android.view.KeyEvent
+ import android.view.ActionMode
+ import android.view.Menu
+@@ -19,7 +21,9 @@ import jackpal.androidterm.emulatorview.ColorScheme
+ import jackpal.androidterm.emulatorview.EmulatorView
+ import jackpal.androidterm.emulatorview.NativeTerminalSession
+ import java.nio.charset.StandardCharsets
++import java.util.UUID
+ import java.io.File
++import java.io.ByteArrayOutputStream
+ import kotlin.math.roundToInt
+ import kotlin.math.abs
+ 
+@@ -27,11 +31,21 @@ import kotlin.math.abs
+ class NativeTerminalRenderer private constructor(
+     context: Context,
+     private val nativeSession: NativeTerminalSession,
+-    private val promptAnsiColor: Int
++    private val promptAnsiColor: Int,
++    private val commandSocketPath: String?,
++    private val onInterrupt: (() -> Unit)?
+ ) : EmulatorView(context, nativeSession, context.resources.displayMetrics) {
+-    constructor(context: Context, promptAnsiColor: Int = 32) : this(context, NativeTerminalSession(), promptAnsiColor)
++    constructor(
++        context: Context,
++        promptAnsiColor: Int = 32,
++        commandSocketPath: String? = null,
++        onInterrupt: (() -> Unit)? = null
++    ) : this(context, NativeTerminalSession(), promptAnsiColor, commandSocketPath, onInterrupt)
+ 
+     private var pty: NativePty? = null
++    private var startupFile: File? = null
++    private val pastedInput = ByteArrayOutputStream()
++    private var waitingForPastePrompt = false
+     private var started = false
+     private val preferences = context.getSharedPreferences("terminal_display", Context.MODE_PRIVATE)
+     // Matches the size currently selected on the reference device.
+@@ -44,8 +58,6 @@ class NativeTerminalRenderer private constructor(
+     private var draggedSelectionHandle: Boolean? = null
+     private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(38, 132, 255) }
+     private var selectionActionMode: ActionMode? = null
+-    private var builtInCommandHandler: ((String) -> Unit)? = null
+-    private val currentShellLine = StringBuilder()
+     private val scaleDetector = ScaleGestureDetector(context,
+         object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+             override fun onScale(detector: ScaleGestureDetector): Boolean {
+@@ -57,12 +69,20 @@ class NativeTerminalRenderer private constructor(
+ 
+     init {
+         setBackgroundColor(Color.rgb(35, 35, 35))
+-        setColorScheme(ColorScheme(
++        val terminalColors = ColorScheme(
+             Color.rgb(238, 238, 238), Color.rgb(35, 35, 35),
+             Color.rgb(238, 238, 238), Color.rgb(110, 110, 110)
+-        ))
++        )
++        // EmulatorView paints the canvas, while NativeTerminalSession owns
++        // transcript cell styles. Both must use the same background.
++        nativeSession.setColorScheme(terminalColors)
++        setColorScheme(terminalColors)
+         nativeSession.setDefaultUTF8Mode(true)
+-        nativeSession.setInputInterceptor { bytes, offset, count -> interceptTerminalInput(bytes, offset, count) }
++        nativeSession.setInputInterceptor { bytes, offset, count ->
++            routePtyInput(bytes, offset, count)
++        }
++        nativeSession.setPromptListener { post(::releaseNextPastedLine) }
++        nativeSession.setWindowSizeListener { columns, rows -> pty?.resize(columns, rows) }
+         setUseCookedIME(true)
+         isFocusable = true
+         isFocusableInTouchMode = true
+@@ -73,35 +93,129 @@ class NativeTerminalRenderer private constructor(
+         if (started) return
+         started = true
+         try {
+-            val home = context.filesDir.absolutePath
+-            val startupFile = File(home, ".terminal_shrc")
+-            startupFile.writeText(
++            NativePackageManager(context).prepare()
++            val home = terminalHome()
++            val startupFile = writeStartupFile(home)
++            // A guest rootfs turns this terminal into a Husk session: the guest
++            // loader takes over the PTY and the shell inside it is the distro's.
++            val husk = HuskSession.resolve(context)
++            val activePty = if (husk != null) {
++                NativePty.start(
++                    husk.command, husk.arguments, husk.environment, husk.workingDirectory
++                )
++            } else {
++                NativePty.start(
++                    "/system/bin/sh", arrayOf("-i"),
++                    androidShellEnvironment(
++                        home.absolutePath,
++                        context.filesDir,
++                        context.applicationInfo.nativeLibraryDir
++                    ) + arrayOf("ENV=${startupFile.absolutePath}"),
++                    home.absolutePath
++                )
++            }
++            pty = activePty
++            activePty.resize(visibleColumns, visibleRows)
++            nativeSession.setTermIn(activePty.input)
++            nativeSession.setTermOut(activePty.output)
++        } catch (error: Throwable) {
++            nativeSession.appendOutput(("Terminal failed to start: ${error.message}\r\n")
++                .toByteArray(StandardCharsets.UTF_8))
++        }
++    }
++
++    private fun terminalHome(): File = if (
++        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()
++    ) Environment.getExternalStorageDirectory() else context.filesDir
++
++    /** The interactive shell has exactly one prompt definition. */
++    private fun writeStartupFile(home: File): File {
++        PackageStore.rootForHome(home)
++        val sessionId = UUID.randomUUID().toString()
++        return File(context.cacheDir, "terminal-shrc-$sessionId").also { startupFile = it }.apply {
++            val bridge = commandSocketPath?.let {
++                """
++                export TERMINAL_SOCKET='${it.replace("'", "'\\\"'\\\"'")}'
++                _terminal_call() {
++                    _terminal_request="${'$'}(printf '%s\0' "${'$'}@" | toybox base64 -w 0)"
++                    printf '%s\n' "${'$'}_terminal_request" | toybox nc -U "${'$'}TERMINAL_SOCKET"
++                }
++                help() { _terminal_call help "${'$'}@"; }
++                doctor() { _terminal_call doctor "${'$'}@"; }
++                mode() { _terminal_call mode "${'$'}@"; }
++                storage() { _terminal_call storage "${'$'}@"; }
++                files() { _terminal_call files "${'$'}@"; }
++                apk() {
++                    if [ "${'$'}1" = install ]; then
++                        _terminal_call apk "${'$'}@" || return "${'$'}?"
++                        IFS= read -r _terminal_reply
++                        _terminal_call "${'$'}{_terminal_reply:-y}"
++                    else
++                        _terminal_call apk "${'$'}@"
++                    fi
++                }
++                adb() { _terminal_call adb "${'$'}@"; }
++                su() { _terminal_call su "${'$'}@"; }
++                python() { /system/bin/sh "${'$'}PREFIX/bin/python" "${'$'}@"; }
++                python3() { /system/bin/sh "${'$'}PREFIX/bin/python3" "${'$'}@"; }
++                ninja() { "${'$'}TERMINAL_NATIVE_LIB_DIR/libterminal_ninja.so" "${'$'}@"; }
++                """.trimIndent()
++            }.orEmpty()
++            writeText(
+                 """
+                 _terminal_dollar='${'$'}'
+                 _terminal_prompt() {
+-                    PS1="${'$'}(pwd) ${'$'}(printf '\033[${promptAnsiColor}m')${'$'}{_terminal_dollar}${'$'}(printf '\033[0m') "
++                    PS1="${'$'}(printf '\001\r\001\033[${promptAnsiColor}m\001')${'$'}(id -un)@Android${'$'}(printf '\001\033[0m\001') ${'$'}(pwd) ${'$'}(printf '\001\033[${promptAnsiColor}m\001')${'$'}{_terminal_dollar}${'$'}(printf '\001\033[0m\033]133;A\007\001') "
+                 }
+                 cd() { command cd "${'$'}@" && _terminal_prompt; }
++                $bridge
+                 _terminal_prompt
+                 """.trimIndent() + "\n"
+             )
+-            val activePty = NativePty.start(
+-                "/system/bin/sh", arrayOf("-i"),
+-                // HOME controls bare `cd`; keep it at the real filesystem root.
+-                defaultEnvironment("/") + "ENV=${startupFile.absolutePath}", "/"
+-            )
+-            pty = activePty
+-            nativeSession.setTermIn(activePty.input)
+-            nativeSession.setTermOut(activePty.output)
+-        } catch (error: Throwable) {
+-            nativeSession.appendOutput(("Terminal failed to start: ${error.message}\r\n")
+-                .toByteArray(StandardCharsets.UTF_8))
+         }
+     }
+ 
+-    fun sendEscapeSequence(sequence: String) {
+-        nativeSession.write(sequence)
+-        requestFocus()
++    private fun routePtyInput(bytes: ByteArray, offset: Int, count: Int): Boolean {
++        val activePty = pty ?: return false
++        if ((offset until offset + count).any { bytes[it] == 0x03.toByte() }) {
++            onInterrupt?.invoke()
++        }
++        if (waitingForPastePrompt) {
++            pastedInput.write(bytes, offset, count)
++            return true
++        }
++        val end = offset + count
++        val newline = (offset until end).firstOrNull { bytes[it] == '\r'.code.toByte() || bytes[it] == '\n'.code.toByte() }
++        val isMultilinePaste = newline != null && newline + 1 < end
++        return runCatching {
++            if (isMultilinePaste) {
++                activePty.output.write(bytes, offset, newline - offset + 1)
++                activePty.output.flush()
++                pastedInput.write(bytes, newline + 1, end - newline - 1)
++                waitingForPastePrompt = true
++            } else {
++                activePty.output.write(bytes, offset, count)
++                activePty.output.flush()
++            }
++            true
++        }.getOrDefault(false)
++    }
++
++    private fun releaseNextPastedLine() {
++        if (!waitingForPastePrompt) return
++        waitingForPastePrompt = false
++        val pending = pastedInput.toByteArray()
++        pastedInput.reset()
++        if (pending.isEmpty()) return
++        val newline = pending.indexOfFirst { it == '\r'.code.toByte() || it == '\n'.code.toByte() }
++        val count = if (newline >= 0) newline + 1 else pending.size
++        val activePty = pty ?: return
++        runCatching {
++            activePty.output.write(pending, 0, count)
++            activePty.output.flush()
++        }
++        if (count < pending.size) pastedInput.write(pending, count, pending.size - count)
++        waitingForPastePrompt = newline >= 0
+     }
+ 
+     /** Send an exact terminal control sequence without relying on Android key focus. */
+@@ -110,57 +224,26 @@ class NativeTerminalRenderer private constructor(
+         requestFocus()
+     }
+ 
+-    /** Registers UI-neutral built-ins while leaving every other command in the real shell. */
+-    fun setBuiltInCommandHandler(handler: (String) -> Unit) {
+-        builtInCommandHandler = handler
+-    }
+-
+-    private fun interceptTerminalInput(bytes: ByteArray, offset: Int, count: Int): Boolean {
+-        val value = String(bytes, offset, count, StandardCharsets.UTF_8)
+-        var consumed = false
+-        value.forEach { character ->
+-            when (character) {
+-                '\r', '\n' -> {
+-                    val command = currentShellLine.toString().trim()
+-                    currentShellLine.clear()
+-                    if (isBuiltIn(command)) {
+-                        // The shell has already echoed the line but has not executed it.
+-                        nativeSession.writeDirect("\u0015")
+-                        post { builtInCommandHandler?.invoke(command) }
+-                        consumed = true
+-                    }
+-                }
+-                '\b', '\u007f' -> if (currentShellLine.isNotEmpty()) currentShellLine.deleteCharAt(currentShellLine.length - 1)
+-                '\u001b' -> currentShellLine.clear()
+-                else -> if (character >= ' ') currentShellLine.append(character)
+-            }
+-        }
+-        return consumed
+-    }
+-
+-    private fun isBuiltIn(command: String): Boolean {
+-        val name = command.substringBefore(' ')
+-        return name in setOf("apk", "mode", "adb", "su", "doctor", "help", "clear")
+-    }
+ 
+     fun appendTrustedOutput(value: String) {
+         // Fastfetch and package callbacks arrive on worker threads. The emulator
+         // owns cursor state on the UI thread, just like PTY reader callbacks do.
+-        // Android's shell PTY emits CRLF. Fastfetch is embedded and emits LF;
+-        // normalize it so every information row begins at terminal column zero.
+-        val terminalText = value.replace("\r\n", "\n").replace("\n", "\r\n")
+-        val bytes = terminalText.toByteArray(StandardCharsets.UTF_8)
+         if (Looper.myLooper() == Looper.getMainLooper()) {
+-            nativeSession.appendOutput(bytes)
++            appendOutput(value)
+         } else {
+-            post { nativeSession.appendOutput(bytes) }
++            post { appendOutput(value) }
+         }
+     }
+ 
+     /** Must be called on the UI thread before the View is attached. */
+     fun preloadTrustedOutput(value: String) {
+-        val terminalText = value.replace("\r\n", "\n").replace("\n", "\r\n")
+-        nativeSession.appendOutput(terminalText.toByteArray(StandardCharsets.UTF_8))
++        appendOutput(value)
++    }
++
++    private fun appendOutput(value: String) {
++        // Android's shell PTY emits CRLF. Fastfetch and host commands emit LF.
++        val text = value.replace("\r\n", "\n").replace("\n", "\r\n")
++        nativeSession.appendOutput(text.toByteArray(StandardCharsets.UTF_8))
+     }
+ 
+     /** Render the greeting before the buffered Shell prompt is released. */
+@@ -213,7 +296,7 @@ class NativeTerminalRenderer private constructor(
+         val clipboard = context.getSystemService(ClipboardManager::class.java)
+         if (clipboard.hasPrimaryClip() && clipboard.primaryClipDescription?.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN) == true) {
+             val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+-            if (text.isNotEmpty()) nativeSession.write(text)
++            if (text.isNotEmpty()) nativeSession.writePaste(text)
+         }
+         requestFocus()
+     }
+@@ -231,17 +314,6 @@ class NativeTerminalRenderer private constructor(
+         }
+     }
+ 
+-    /** Called whenever this terminal becomes the active tab or regains window focus. */
+-    fun prepareInputConnection() {
+-        requestFocusFromTouch()
+-        post { (context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).restartInput(this) }
+-    }
+-
+-    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+-        super.onWindowFocusChanged(hasWindowFocus)
+-        if (hasWindowFocus && visibility == VISIBLE) prepareInputConnection()
+-    }
+-
+     override fun onTouchEvent(event: MotionEvent): Boolean {
+         if (getSelectingText()) {
+             val handle = selectionHandleAt(event.x, event.y)
+@@ -357,6 +429,8 @@ class NativeTerminalRenderer private constructor(
+         runCatching { nativeSession.finish() }
+         runCatching { pty?.close() }
+         pty = null
++        startupFile?.delete()
++        startupFile = null
+     }
+ 
+     private companion object {
