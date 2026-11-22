@@ -21,10 +21,13 @@ evidence 54 完成 12 帧，evidence 55 用 eventfd completion bridge 完成 120
 **10,000 帧 / 665.385 秒**：真实 `SYNC_FD` 10,000/10,000，completion 与 9 点回读均
 10,000/10,000，fallback=0，app transaction 10,000/10,000；app/guest fd 与 RSS 无累积增长。
 **eventfd 仅保留为 fallback；WSI / swapchain、窗口生命周期和 SurfaceFlinger 内部等待 trace
-仍未完成。** 可靠性审计（evidence 64）修复了路径解析 fd 泄漏、超长路径、open/stat/access 的最终 symlink
-TOCTOU、AArch64 `O_NOFOLLOW` 常量和 `faccessat(AT_SYMLINK_NOFOLLOW)` 语义；新增 Rust
-路径探针 8/8 通过。`chmod`/`chown`/`utimensat` 等 follow-final `pathop` 仍有待收口的竞态面；
-GNU Hash 完整映射校验、GOT 失败注入和 16K/64K 实机运行仍是 **UNKNOWN**。
+仍未完成。** 可靠性审计（evidence 64/65）修复了 fd 泄漏、超长路径、最终 symlink
+TOCTOU、AArch64 `O_NOFOLLOW` 常量、`faccessat(AT_SYMLINK_NOFOLLOW)`、真实 dirfd
+相对路径逃逸，以及动态表 / GNU Hash / PT_LOAD 的映射边界。`chmod`/`chown`/`utimensat`/
+`statx` 现在固定最终 inode；ET_EXEC 已由 Python 3.12.3 实机跑通。最终 loader 回归为
+功能矩阵 31/31、越界测试 0 escapes、路径可靠性 12/12、相对 dirfd 18/18。恶意 ELF 注入、
+GOT 失败注入、rootfd 并发 close/reopen、SIGSYS 帧跨设备可移植性和 16K/64K 实机运行
+仍是 **UNKNOWN**，不能写成已完成。
 
 ## acquire fence 当前实验（PanVK → SurfaceControl 已通过，WSI 未完成）
 
