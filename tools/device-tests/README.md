@@ -35,6 +35,7 @@ files/nrfull/root/            # real rootfs: glibc 2.39, bash, coreutils, grep, 
 |---|---|---|
 | `01-functional-matrix.sh` | 31 checks: mkdir -p, mv/cp/rm, chmod, symlinks (relative/absolute/`..`), stat/ls/find, glob, pipes, subshell, `pwd -P`, `..` clamping, `/evil` containment | `./run-guest.sh 01-functional-matrix.sh` |
 | `03-containment.sh` | 11 escape attempts (symlinks out, `..` climbs, `/proc/self/root`), plus the mount points that pass through by design | `./run-guest.sh 03-containment.sh` |
+| `04-path-reliability.sh` | fd stability, overlength paths, final-symlink containment, and an optional Rust `faccessat(AT_SYMLINK_NOFOLLOW)` probe | run inside the guest with the current embedded loader |
 | `02-bench.sh` + `bench.c` | per-call cost of the path layer, compiled and timed in the guest | `EXTRA=bench.c WAIT=90 ./run-guest.sh 02-bench.sh` |
 | `accept-gcc-make.sh` | gcc -> cc1 -> as -> collect2 -> ld.bfd, then `make -j4` / no-op / clean | `WAIT=60 ./run-guest.sh accept-gcc-make.sh` |
 | `provision-toolchain.sh` | host-side: resolve, unpack and push the Ubuntu gcc/make toolchain (skips libc6 on purpose). Thin wrapper over `nr-tools provision` (Rust), the only implementation | `./provision-toolchain.sh` |
@@ -42,6 +43,17 @@ files/nrfull/root/            # real rootfs: glibc 2.39, bash, coreutils, grep, 
 `run-guest.sh` environment knobs: `DEV=` device id, `ENV=K=V,K2=V2` extra environment
 (a single `--es env` value, comma separated), `EXTRA="file.c"` extra files to push,
 `WAIT=` seconds to wait for the run (default 20).
+
+The `faccessat` branch of `04-path-reliability.sh` needs the guest-side Rust probe.
+Build it against the staged Ubuntu glibc sysroot, then place the resulting binary
+at `/path-probe` inside the guest:
+
+```sh
+GLIBC_SYSROOT=/tmp/nr-toolchain/root ./build-path-probe.sh
+```
+
+The source is `path-probe.rs`. It must run through the loader's GOT interpose;
+a direct syscall would bypass the code under test.
 
 The scripts print `PASS`/`FAIL` per check and a final `#checks=`/`#escapes=` line, and
 exit non-zero if anything failed; `run-guest.sh` prints the tail of the app's output,

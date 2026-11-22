@@ -49,8 +49,10 @@ pub unsafe extern "C" fn bcmp(a: *const u8, b: *const u8, n: CSizet) -> CInt {
 const PATH_MAX: usize = 4096;
 const AT_FDCWD: CInt = -100;
 const AT_SYMLINK_NOFOLLOW: CInt = 0x100;
+const AT_EMPTY_PATH: CInt = 0x1000;
 const O_PATH: CInt = 0o10000000;
-const O_DIRECTORY: CInt = 0o200000;
+const O_NOFOLLOW: CInt = 0o100000; // AArch64 UAPI
+const O_DIRECTORY: CInt = 0o40000; // AArch64 UAPI, not asm-generic 0o200000
 const O_CLOEXEC: CInt = 0o2000000;
 
 const SYS_WRITE: usize = 64;
@@ -80,7 +82,18 @@ const SYS_UTIMENSAT: usize = 88;
 const SYS_TRUNCATE: usize = 45;
 
 #[panic_handler]
-fn panic(_: &PanicInfo) -> ! { loop {} }
+fn panic(_: &PanicInfo) -> ! {
+    // A no_std shim cannot print a formatted panic without allocating, but it
+    // must never leave a guest thread spinning forever. Exit only this thread
+    // group with a stable code so the harness can distinguish an internal shim
+    // failure from a normal guest exit.
+    const SYS_EXIT_GROUP: usize = 94;
+    unsafe {
+        core::arch::asm!("svc 0", in("x8") SYS_EXIT_GROUP, in("x0") 101usize,
+            lateout("x0") _, options(nostack));
+    }
+    loop { core::hint::spin_loop(); }
+}
 
 #[no_mangle]
 pub extern "C" fn rust_eh_personality() {}
@@ -119,6 +132,9 @@ static mut ROOT_ENV_LEN: usize = 0;
 static mut ROOT_REAL: [u8; PATH_MAX] = [0; PATH_MAX];
 static mut ROOT_REAL_LEN: usize = 0;
 static mut ROOTFD: CInt = -1;
+static mut ROOT_DEV: u64 = 0;
+static mut ROOT_INO: u64 = 0;
+static ROOT_IDENTITY_VALID: AtomicU8 = AtomicU8::new(0);
 
 static CWD_STATE: AtomicU8 = AtomicU8::new(0);
 static mut CWD_BUF: [u8; PATH_MAX] = [0; PATH_MAX];
@@ -158,6 +174,8 @@ const SYS_TGKILL: usize = 131;
 const SIGSYS_NUM: usize = 31;
 const SA_SIGINFO: usize = 0x00000004;
 const SA_RESTART: usize = 0x10000000;
+const SYS_SECCOMP: i32 = 1;
+const AUDIT_ARCH_AARCH64: u32 = 0xc000_00b7;
 
 // The aarch64 ucontext layout is *measured*, not assumed: different kernel
 // uapi and libc headers disagree on where uc_mcontext sits (we have seen 176,
@@ -250,10 +268,28 @@ extern "C" fn on_sigsys(_sig: CInt, info: *const u8, uc: *mut u8) {
             record(b"sigsys|too many traps, giving up\n");
             syscall4(SYS_EXIT_GROUP, 128 + SIGSYS_NUM, 0, 0, 0);
         }
+        if info.is_null() || uc.is_null() {
+            record(b"sigsys|missing signal context\n");
+            syscall4(SYS_EXIT_GROUP, 128 + SIGSYS_NUM, 0, 0, 0);
+        }
         let code = core::ptr::read_unaligned(info.add(8) as *const i32);
         let mut nr = core::ptr::read_unaligned(info.add(24) as *const i32);
         let arch = core::ptr::read_unaligned(info.add(28) as *const i32);
         let call_addr = core::ptr::read_unaligned(info.add(16) as *const u64);
+        // Only a seccomp-generated SIGSYS carries a syscall number and may be
+        // resumed by rewriting the frame. A bare SIGSYS, a different arch, or
+        // a malformed record must keep the kernel's fatal semantics.
+        if code != SYS_SECCOMP || arch as u32 != AUDIT_ARCH_AARCH64 {
+            let mut line = [0u8; 96];
+            let mut k = 0usize;
+            put(&mut line, &mut k, b"sigsys|unexpected source code=");
+            putnum(&mut line, &mut k, code as i64);
+            put(&mut line, &mut k, b"|arch=");
+            putnum(&mut line, &mut k, arch as i64);
+            put(&mut line, &mut k, b"\n");
+            record(&line[..k]);
+            syscall4(SYS_EXIT_GROUP, 128 + SIGSYS_NUM, 0, 0, 0);
+        }
         let mode = sigsys_mode();
         // find uc_mcontext.pc: the slot that holds si_call_addr, followed by a
         // plausible pstate (its high half is zero on every real frame)
@@ -263,7 +299,14 @@ extern "C" fn on_sigsys(_sig: CInt, info: *const u8, uc: *mut u8) {
             let v = core::ptr::read_unaligned(uc.add(o) as *const u64);
             if v == call_addr {
                 let nv = core::ptr::read_unaligned(uc.add(o + 8) as *const u64);
-                if nv >> 32 == 0 { pc_off = o; break; }
+                if nv >> 32 == 0 && call_addr > 0x1000 {
+                    let insn = core::ptr::read_unaligned(call_addr as *const u32);
+                    let prev = core::ptr::read_unaligned(call_addr.wrapping_sub(4) as *const u32);
+                    if insn == 0xD400_0001 || prev == 0xD400_0001 {
+                        pc_off = o;
+                        break;
+                    }
+                }
             }
             o += 8;
         }
@@ -542,8 +585,30 @@ unsafe fn dbgn(parts: &[&[u8]], v: i64) {
     dbg(&[&b[i..], b"\n"]);
 }
 
+const SYS_FSTAT: usize = 80;
+const S_IFMT: u32 = 0o170000;
+const S_IFDIR: u32 = 0o040000;
+
+unsafe fn root_identity(fd: CInt) -> Option<(u64, u64)> {
+    if fd < 0 { return None; }
+    if syscall4(SYS_FCNTL, fd as usize, F_GETFD, 0, 0) < 0 { return None; }
+    let mut st = [0u8; 128];
+    if syscall4(SYS_FSTAT, fd as usize, st.as_mut_ptr() as usize, 0, 0) < 0 {
+        return None;
+    }
+    let mode = core::ptr::read_unaligned(st.as_ptr().add(16) as *const u32);
+    if mode & S_IFMT != S_IFDIR { return None; }
+    let dev = core::ptr::read_unaligned(st.as_ptr() as *const u64);
+    let ino = core::ptr::read_unaligned(st.as_ptr().add(8) as *const u64);
+    Some((dev, ino))
+}
+
 unsafe fn rootfd_alive(fd: CInt) -> bool {
-    fd >= 0 && syscall4(SYS_FCNTL, fd as usize, F_GETFD, 0, 0) >= 0
+    if ROOT_IDENTITY_VALID.load(Ordering::Acquire) == 0 { return false; }
+    match root_identity(fd) {
+        Some((dev, ino)) => dev == ROOT_DEV && ino == ROOT_INO,
+        None => false,
+    }
 }
 
 /// Open the guest root at a high descriptor. Guest daemons close descriptors
@@ -564,6 +629,7 @@ unsafe fn move_root_high(fd: CInt) -> CInt {
 unsafe fn rootfd() -> CInt {
     if ROOT_STATE.load(Ordering::Acquire) == 2 {
         if rootfd_alive(ROOTFD) { return ROOTFD; }
+        ROOT_IDENTITY_VALID.store(0, Ordering::Release);
         ROOT_STATE.store(0, Ordering::Release);
     }
     if ROOT_STATE.compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire).is_err() {
@@ -576,24 +642,32 @@ unsafe fn rootfd() -> CInt {
             ROOT_ENV[..n].copy_from_slice(&r[..n]);
             ROOT_ENV_LEN = n;
             if let Ok(fd) = rc::openat(AT_FDCWD, r, O_PATH | O_DIRECTORY | O_CLOEXEC, 0) {
-                ROOTFD = move_root_high(fd);
-                let mut pl = [0u8; 64];
-                let mut i = 0;
-                for &c in b"/proc/self/fd/" { pl[i] = c; i += 1; }
-                let mut v = ROOTFD as u32;
-                let mut d = [0u8; 10];
-                let mut dn = 0;
-                if v == 0 { d[0] = b'0'; dn = 1; }
-                while v > 0 { d[dn] = b'0' + (v % 10) as u8; v /= 10; dn += 1; }
-                while dn > 0 { dn -= 1; pl[i] = d[dn]; i += 1; }
-                pl[i] = 0;
-                let mut ab = [0u8; PATH_MAX];
-                let rn = syscall4(SYS_READLINKAT, AT_FDCWD as usize, pl.as_ptr() as usize,
-                                  ab.as_mut_ptr() as usize, PATH_MAX);
-                if rn > 0 {
-                    let n2 = (rn as usize).min(PATH_MAX - 1);
-                    ROOT_REAL[..n2].copy_from_slice(&ab[..n2]);
-                    ROOT_REAL_LEN = n2;
+                let high = move_root_high(fd);
+                if let Some((dev, ino)) = root_identity(high) {
+                    ROOTFD = high;
+                    ROOT_DEV = dev;
+                    ROOT_INO = ino;
+                    ROOT_IDENTITY_VALID.store(1, Ordering::Release);
+                    let mut pl = [0u8; 64];
+                    let mut i = 0;
+                    for &c in b"/proc/self/fd/" { pl[i] = c; i += 1; }
+                    let mut v = ROOTFD as u32;
+                    let mut d = [0u8; 10];
+                    let mut dn = 0;
+                    if v == 0 { d[0] = b'0'; dn = 1; }
+                    while v > 0 { d[dn] = b'0' + (v % 10) as u8; v /= 10; dn += 1; }
+                    while dn > 0 { dn -= 1; pl[i] = d[dn]; i += 1; }
+                    pl[i] = 0;
+                    let mut ab = [0u8; PATH_MAX];
+                    let rn = syscall4(SYS_READLINKAT, AT_FDCWD as usize, pl.as_ptr() as usize,
+                                      ab.as_mut_ptr() as usize, PATH_MAX);
+                    if rn > 0 {
+                        let n2 = (rn as usize).min(PATH_MAX - 1);
+                        ROOT_REAL[..n2].copy_from_slice(&ab[..n2]);
+                        ROOT_REAL_LEN = n2;
+                    }
+                } else {
+                    rc::close(high);
                 }
             }
         }
@@ -703,10 +777,11 @@ unsafe fn abs_guest(path: *const CChar, out: &mut [u8; PATH_MAX]) -> Option<usiz
     if path.is_null() { return None; }
     let s = bytes(path);
     if s.is_empty() { return None; }
+    if s.len() >= PATH_MAX { return None; }
     if s[0] == b'/' { out[..s.len()].copy_from_slice(s); return Some(s.len()); }
     let c = cwd();
     if c.len() == 1 && c[0] == b'/' {
-        if s.len() + 1 > PATH_MAX { return None; }
+        if s.len() + 1 >= PATH_MAX { return None; }
         out[0] = b'/';
         out[1..1 + s.len()].copy_from_slice(s);
         return Some(1 + s.len());
@@ -862,6 +937,15 @@ unsafe fn stat_like(path: *const CChar, st: *mut u8, flags: CInt) -> CInt {
     ret_or_errno(syscall4(SYS_NEWFSTATAT, AT_FDCWD as usize, gp.as_ptr() as usize, st as usize, flags as usize))
 }
 
+unsafe fn accessat_nofollow(dirfd: CInt, path: *const CChar, mode: CInt) -> CInt {
+    let fd = syscall4(SYS_OPENAT, dirfd as usize, path as usize,
+                      (O_PATH | O_NOFOLLOW | O_CLOEXEC) as usize, 0);
+    if fd < 0 { return ret_or_errno(fd); }
+    let r = rc::access_fd(fd as CInt, mode, true);
+    rc::close(fd as CInt);
+    match r { Ok(()) => 0, Err(e) => set_errno(e) }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn stat(path: *const CChar, st: *mut u8) -> CInt { stat_like(path, st, 0) }
 
@@ -885,7 +969,7 @@ pub unsafe extern "C" fn access(path: *const CChar, mode: CInt) -> CInt {
         if passthrough(&gp[..n]) {
             return ret_or_errno(syscall4(SYS_FACCESSAT, AT_FDCWD as usize, gp.as_ptr() as usize, mode as usize, 0));
         }
-        return match rc::resolve_access(rfd, &gp[..n], mode) {
+        return match rc::resolve_access(rfd, &gp[..n], mode, 0) {
             Ok(()) => 0,
             Err(e) => set_errno(e),
         };
@@ -2467,7 +2551,6 @@ pub unsafe extern "C" fn __openat64_2(dirfd: CInt, path: *const CChar, flags: CI
 // names, and a program picks whichever its headers chose: dash(1) asks for
 // stat64/lstat64/faccessat, gcc for stat, ls for statx. Missing one of the twins
 // means those calls fall into libc and resolve the guest path against the host.
-const SYS_FSTAT: usize = 80;
 const AT_EACCESS: CInt = 0x200;
 
 #[no_mangle]
@@ -2489,26 +2572,36 @@ pub unsafe extern "C" fn fstat64(fd: CInt, st: *mut u8) -> CInt {
 #[no_mangle]
 pub unsafe extern "C" fn faccessat(dirfd: CInt, path: *const CChar, mode: CInt, flags: CInt) -> CInt {
     if path.is_null() { return set_errno(EFAULT); }
+    if *path == 0 && flags & AT_EMPTY_PATH != 0 {
+        let nofollow = flags & AT_SYMLINK_NOFOLLOW != 0;
+        return match rc::access_fd(dirfd, mode, nofollow) {
+            Ok(()) => 0,
+            Err(e) => set_errno(e),
+        };
+    }
     let absolute = *path == b'/' as CChar;
+    let nofollow = flags & AT_SYMLINK_NOFOLLOW != 0;
     let rfd = rootfd();
-    if rfd >= 0 && (dirfd == AT_FDCWD || absolute) && flags & AT_SYMLINK_NOFOLLOW == 0 {
+    if rfd >= 0 && (dirfd == AT_FDCWD || absolute) && !nofollow {
         // AT_EACCESS only changes whether the effective ids are used; this
         // process is not set-id, so plain access semantics are the same thing.
         let _ = AT_EACCESS;
         return access(path, mode);
     }
     if dirfd != AT_FDCWD && !absolute {
+        if nofollow { return accessat_nofollow(dirfd, path, mode); }
         return ret_or_errno(syscall4(SYS_FACCESSAT, dirfd as usize, path as usize, mode as usize, 0));
     }
     let mut gp = [0u8; PATH_MAX];
     let n = match abs_guest(path, &mut gp) { Some(n) => n, None => return set_errno(36) };
     if rfd >= 0 && !passthrough(&gp[..n]) {
-        return match rc::resolve_access(rfd, &gp[..n], mode) {
+        return match rc::resolve_access(rfd, &gp[..n], mode, flags) {
             Ok(()) => 0,
             Err(e) => set_errno(e),
         };
     }
     gp[n] = 0;
+    if nofollow { return accessat_nofollow(AT_FDCWD, gp.as_ptr() as *const CChar, mode); }
     ret_or_errno(syscall4(SYS_FACCESSAT, AT_FDCWD as usize, gp.as_ptr() as usize, mode as usize, 0))
 }
 

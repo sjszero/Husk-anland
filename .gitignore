@@ -6,6 +6,7 @@ local.properties
 target/
 *.o
 tools/loader/init-hook.bin
+tools/device-tests/path-probe
 tools/probe-app/app/src/main/jniLibs/
 
 # 本地构建产物

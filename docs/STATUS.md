@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 05:42）
+# 当前状态（2026-11-23 06:55）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -21,7 +21,9 @@ evidence 54 完成 12 帧，evidence 55 用 eventfd completion bridge 完成 120
 **10,000 帧 / 665.385 秒**：真实 `SYNC_FD` 10,000/10,000，completion 与 9 点回读均
 10,000/10,000，fallback=0，app transaction 10,000/10,000；app/guest fd 与 RSS 无累积增长。
 **eventfd 仅保留为 fallback；WSI / swapchain、窗口生命周期和 SurfaceFlinger 内部等待 trace
-仍未完成。**
+仍未完成。** 可靠性审计（evidence 64）修复了路径解析 fd 泄漏、超长路径、最终 symlink
+TOCTOU、AArch64 `O_NOFOLLOW` 常量和 `faccessat(AT_SYMLINK_NOFOLLOW)` 语义；新增 Rust
+路径探针 8/8 通过。GNU Hash 完整映射校验、GOT 失败注入和 16K/64K 实机运行仍是 **UNKNOWN**。
 
 ## acquire fence 当前实验（PanVK → SurfaceControl 已通过，WSI 未完成）
 
@@ -187,7 +189,8 @@ evidence 54 完成 12 帧，evidence 55 用 eventfd completion bridge 完成 120
 | 提示符 / 身份（`husk@husk:/$`、`id`/`groups`） | 通过 | 29 |
 | 键盘输入 / 旋转 / 切后台恢复 / 备用屏 / 全屏 TUI | 通过 | 21:20 附录 |
 | 僵尸与重启风暴 | 零复现（唯一 reaper + subreaper + 点了才重启） | 附录 21:00 |
-| 页大小体检（`nr-tools check-elf` 4K/16K/64K） | 可用 | 30 |
+| 页大小体检（`nr-tools check-elf` 4K/16K/64K） | 工具可用；loader 静态同余通过；整机页大小无关**未完成**（`libhuskapp.so` 64K FAIL） | 30, 64 |
+| 路径边界可靠性（fd / 长路径 / 符号链接 / `faccessat`） | 当前 4K 设备通过；异常 ELF 与 GOT 失败注入仍 **UNKNOWN** | 64 |
 | guest 打开 `/dev/mali0` + kbase 建 kctx | **可用**（UAPI 11.38） | 31 |
 | 厂商 `libGLES_mali.so` 在 guest 内加载 | **不可行，已关闭**（25 个 bionic DT_NEEDED） | 31 |
 | 长稳 10 分钟（goal A1 验收） | **通过**：600 秒 / 568 tick / 11 360 次 fork-exec，同 pid、零僵尸 | 32 |

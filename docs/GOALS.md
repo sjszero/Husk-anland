@@ -3,7 +3,7 @@
 > 本文件是目标的**权威规格**。会话里的 goal 对象不可编辑，重建 goal 时以本文件为准；
 > 改目标就改这里，再把下面的「粘贴块」整段贴进去。纯文本版：`docs/goal-objective.txt`。
 
-最后更新：2026-11-23（v27：evidence 59 已完成 3-slot 持久 Vulkan 资源池；3-buffer SurfaceControl ring 连续 10,000 帧 / 665.385 秒全部使用真实 PanVK `SYNC_FD`，7,106 帧导出时仍 pending，completion/回读 10,000/10,000，eventfd fallback=0，app transaction 10,000/10,000，app/guest fd 与 RSS 无累积增长；剩余显示工作是 SurfaceFlinger 等待 trace、WSI 与窗口生命周期）
+最后更新：2026-11-23（v30：evidence 64 完成第三方可靠性审计对照——路径 fd 泄漏、超长路径、最终 symlink、AArch64 `O_NOFOLLOW` 和 `faccessat(AT_SYMLINK_NOFOLLOW)` 已修复并在 4K 真机验证；GNU Hash 完整映射校验、GOT 失败注入和 16K/64K 运行时仍标 UNKNOWN）
 
 ---
 
@@ -16,7 +16,7 @@
 【已完成 · 不再是任务，只保留回归门禁】
 · SIGSYS 全链路：interpose + ENOSYS 仿真可用，10 分钟长稳通过（600s / 11360 次 fork-exec / 零僵尸，evidence 32）。
 · 壳应用生命周期：全部回调接上，旋转 / Surface 重建 / 切后台不重启会话，唯一 reaper + subreaper，零僵尸零重启风暴（docs/design/lifecycle.md + 实测）。
-· 页大小无关：构建期 over-align + `nr-tools check-elf`（4K/16K/64K）+ embed 同余断言（evidence 30）。
+· 页大小：`nr-tools check-elf` 能做 4K/16K/64K 静态同余体检；loader 追加段通过，但 `libhuskapp.so` 64K 同余失败，16K/64K 内核实机运行仍是 UNKNOWN（evidence 30/64）。
 · 终端渲染 ANSI（SGR 颜色 / UTF-8 宽字符）：**不做**。终端壳只是演示载体，不属于运行时范围，不作为验收项。
 · GPU 计算/离屏与 surfaceless renderer：compute job、离屏 graphics draw、Zink surfaceless EGL 均在上机通过（evidence 46 / 47）；窗口/WSI 仍归 GPU/显示待办，不属于此门禁。
 · 显示零拷贝连续帧：同一 guest AHB 经 `ASurfaceControl` 直接上屏（evidence 53）；3-buffer ring、slot 复用、SF release fence + app→guest RELEASE 背压已通过（evidence 54）；eventfd completion bridge 连续 120 帧通过（evidence 55）；真实 pending kbase sync_file 已接进 FristOneRR PanVK `vkGetFenceFdKHR(SYNC_FD)`（evidence 58）；3-slot 持久 Vulkan 资源池连续 10,000 帧 / 665.385 秒通过，10,000/10,000 帧全部为真实 `SYNC_FD`，7,106 帧导出时 pending，completion/回读 10,000/10,000，fallback=0，app transaction 10,000/10,000，fd/RSS 无累积增长（evidence 59）。eventfd 只保留为 fallback；SurfaceFlinger 内部等待 trace、WSI、窗口生命周期仍归显示待办。

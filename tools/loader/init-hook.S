@@ -88,6 +88,7 @@ nr_dl_init_hook:
 	ldr	x16, [x20, #16]			/* nr_boot */
 	add	x16, x19, x16
 	blr	x16
+	cbnz	x0, .Lboot_fail
 
 	ldp	x19, x20, [sp, #48]
 	ldp	x2, x3, [sp, #32]
@@ -100,6 +101,14 @@ nr_dl_init_hook:
 	ldr	x16, nr_hook_data+24		/* real _dl_init */
 	add	x16, x9, x16
 	br	x16
+
+.Lboot_fail:
+	/* nr_boot returned a non-zero step code. Never enter the guest with a
+	 * partially interposed GOT: exit_group(x0) makes the failure visible and
+	 * prevents an unpatched path from escaping the guest root. */
+	mov	x8, #94				/* exit_group */
+	svc	#0
+	b	.
 
 /* Fault reporter: x1 = siginfo*, x2 = ucontext*.
  * Writes "FAULT" + u32 signo + u32 code + u64 si_addr + 512 bytes of the saved

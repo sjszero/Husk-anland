@@ -1,7 +1,8 @@
 # 页大小（4 KiB / 16 KiB / 64 KiB）：兼容性边界与设计
 
-> 结论先行：**不需要"4K 构建 + 16K 构建"两套产物。一套 over-align 的产物通吃 4K/16K/64K 内核。**
-> 真正要做的只有两件事：构建期把对齐拉大，运行期从 `AT_PAGESZ` 读一次页大小，绝不硬编码 4096。
+> 结论先行：**原理上，满足同余约束的 over-align ELF 不需要按内核页大小拆成多套；但当前仓库还没有把这条
+> 结论变成全部产物的实测承诺。** 现在的 loader 追加段通过 4K/16K/64K 静态同余检查，
+> `libhuskapp.so` 仍在 64K 检查失败，16K/64K 内核也没有真机运行证据。
 
 ## 1. 机制（不是"设备属性"，是 ELF 与内核的对齐约定）
 
@@ -36,20 +37,22 @@ p_offset ≡ p_vaddr  (mod PAGE_SIZE)        # 每个 PT_LOAD 都要满足
 | guest `usr/bin/bash`（Ubuntu noble arm64） | `0x10000` (64K) | ✅ | ✅ | GNU ld 的 aarch64 默认 max-page-size 就是 64K |
 | guest `libc.so.6` | `0x10000` | ✅ | ✅ | 同上 |
 | guest `ld-linux-aarch64.so.1` | `0x10000` | ✅ | ✅ | 同上 |
-| 我们的 `libhuskapp.so`（NDK 29） | `0x4000` (16K) | ✅ | ✅ | NDK r28+ 默认 16K |
-| 我们的 `libld.so`（改过的 loader） | `0x10000` | ✅ | ✅ | 已由 `nr-tools embed` 断言 |
+| 我们的 `libhuskapp.so`（NDK 29） | `0x4000` (16K) | ✅ | ✅ | 64K 静态检查 `FAIL`；未在 64K 内核运行 |
+| 我们的 `libld.so`（改过的 loader） | `0x10000` | ✅ | ✅ | 4K/16K/64K 静态同余通过，64K 内核未实机运行 |
 
 校验方式（2026-11-22 起）：`nr-tools check-elf <elf|dir>…` 按同余关系逐段判定并给出
 每档页大小的结论，`embed` 内置 16 KiB 断言。见 [evidence 30](evidence/30-check-elf-20261122.md)。
 
-关键事实：**Ubuntu/Debian 的 arm64 用户态本来就 64K 对齐**，所以 16K 内核上 guest 侧不需要任何改造。
-这和"Android App 自己的 `.so` 必须 16K 对齐"是两套独立问题（后者是 Google Play 2025 的强制要求）。
+关键事实：**Ubuntu/Debian 的 arm64 用户态本来就 64K 对齐**，因此 guest 侧的常见 ELF 在 16K
+静态同余检查上通常没有问题；但“静态同余通过”不等于“已在 16K 内核跑过”。这和“Android App 自己的
+`.so` 必须 16K 对齐”也是两套独立问题（后者是 Google Play 2025 的强制要求）。
 
 ## 3. 设计
 
 ### 3.1 构建期：over-align，单产物
 
-所有我们自己产出的 ELF 统一：
+目标是对所有我们自己产出的 ELF 统一使用 over-align；当前构建脚本仍以 4K 为默认值，
+尚未全部切换成可配置的页大小构建目标：
 
 ```
 -Wl,-z,max-page-size=0x4000      # 至少 16K；想覆盖 64K 内核就写 0x10000
@@ -57,8 +60,8 @@ p_offset ≡ p_vaddr  (mod PAGE_SIZE)        # 每个 PT_LOAD 都要满足
 ```
 
 代价只有文件里段间填充；收益是不再需要 per-page-size 构建矩阵。
-`nr-tools embed` 加一条断言：输出的每个 `PT_LOAD` 必须满足 `p_offset ≡ p_vaddr (mod 0x4000)` 且 `p_align >= 0x4000`，
-不满足直接构建失败（和现有"loader 指纹/glibc 版本断言"同一风格）。
+`nr-tools embed` 已对输出做同余断言；后续应把目标页大小变成显式构建参数，并把 App 的
+`.so` 也纳入同一门禁，而不是只检查 loader。
 
 ### 3.2 运行期：只读一次 `AT_PAGESZ`
 
@@ -74,8 +77,16 @@ sp -> [argc][argv...][NULL][envp...][NULL][auxv: {type,value} ...]
 
 ### 3.3 校验期：rootfs 体检
 
-`nr-tools` 增加 `check-elf`：遍历 rootfs 里的 ELF，报告 `p_align` / 同余是否满足给定 `PAGE_SIZE`。
-provision 时对 4K 和 16K 各跑一遍，输出一张表进证据目录。这样"能不能在 16K 设备上跑"是查出来的，不是猜的。
+`nr-tools` 已提供 `check-elf`：遍历 rootfs 里的 ELF，报告 `p_align` / 同余是否满足给定 `PAGE_SIZE`。
+当前至少对 4K、16K、64K 做静态表；要判定“能不能在 16K 设备上跑”，还必须加内核实机启动、
+`mmap`、动态链接和多进程测试，不能只看这张表。见 evidence 30/64。
+
+### 3.4 当前验证边界
+
+- **FACT**：当前 loader 的追加 `PT_LOAD` 在 4K/16K/64K 静态同余检查中通过。
+- **FACT**：`libhuskapp.so` 的 64K 静态检查失败。
+- **FACT**：本机是 4K 页设备，已验证的运行时结论只覆盖 4K。
+- **UNKNOWN**：16K/64K 内核上的启动、映射、动态链接和桌面运行。
 
 ## 4. 明确否决的方案
 

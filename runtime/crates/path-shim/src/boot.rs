@@ -100,12 +100,15 @@ unsafe fn mem_eq(a: usize, b: usize, n: usize) -> bool {
 unsafe fn dyn_val(l_ld: usize, tag: i64) -> u64 {
     if l_ld == 0 { return 0; }
     let mut p = l_ld;
-    loop {
+    let mut guard = 0;
+    while guard < 1024 {
         let t = rd8(p) as i64;
         if t == DT_NULL { return 0; }
         if t == tag { return rd8(p + 8); }
         p += 16;
+        guard += 1;
     }
+    0
 }
 
 fn gnu_hash(name: usize, len: usize) -> u32 {
@@ -130,14 +133,18 @@ unsafe fn find_sym(l_addr: u64, l_ld: usize, name: usize, len: usize) -> u64 {
     let nbuckets = rd4(hash) as usize;
     let symndx = rd4(hash + 4) as usize;
     let maskwords = rd4(hash + 8) as usize;
-    if nbuckets == 0 { return 0; }
+    if nbuckets == 0 || nbuckets > (1 << 20) || maskwords > (1 << 20) || symndx > (1 << 24) {
+        return 0;
+    }
     let buckets = hash + 16 + maskwords * 8;
     let chain = buckets + nbuckets * 4;
 
     let h = gnu_hash(name, len);
     let mut idx = rd4(buckets + (h as usize % nbuckets) * 4) as usize;
     if idx < symndx { return 0; }
+    let mut guard = 0usize;
     loop {
+        if guard >= (1 << 20) { return 0; }
         let c = rd4(chain + (idx - symndx) * 4);
         if (c | 1) == (h | 1) {
             let st_name = rd4(symtab + idx * 24) as usize;
@@ -157,6 +164,7 @@ unsafe fn find_sym(l_addr: u64, l_ld: usize, name: usize, len: usize) -> u64 {
         }
         if c & 1 != 0 { return 0; }
         idx += 1;
+        guard += 1;
     }
 }
 
@@ -293,6 +301,10 @@ pub unsafe extern "C" fn nr_boot(base: usize, main_map: usize, ext: usize, inter
     // a failed first one) would be confusing.
     if BOOTED != 0 { return 0; }
     BOOTED = 1;
+    if base == 0 || main_map == 0 || ext == 0 || interp == 0 {
+        say(&[b"nr-boot: invalid descriptor\n"]);
+        return 1;
+    }
 
     // 0. finish our own relocation. The build bakes "link-time address" into
     //    every R_AARCH64_RELATIVE target; the load bias is only known now, so
@@ -323,6 +335,10 @@ pub unsafe extern "C" fn nr_boot(base: usize, main_map: usize, ext: usize, inter
 
     // 1. our own externals
     let n = Tables::count(ext);
+    if n > 1024 {
+        say(&[b"nr-boot: extern table too large\n"]);
+        return 72;
+    }
     let mut i = 0;
     while i < n {
         let (name, len) = Tables::name(ext, i);
@@ -346,25 +362,41 @@ pub unsafe extern "C" fn nr_boot(base: usize, main_map: usize, ext: usize, inter
 
     // 2. interpose by rewriting the GOT of every loaded object
     let count = Tables::count(interp);
+    if count > 4096 {
+        say(&[b"nr-boot: interpose table too large\n"]);
+        return 73;
+    }
     let mut l = main_map;
     let mut guard = 0;
     let mut objects = 0;
     let mut patched = 0;
+    let mut patch_failures = 0;
     while l != 0 && guard < 64 {
         let l_addr = rd8(l + L_ADDR);
         let l_ld = rd8(l + L_LD) as usize;
-        let n_here = patch_object(l_addr, l_ld, base, interp, count);
+        let (n_here, failed_here) = patch_object(l_addr, l_ld, base, interp, count);
         if debug2_on() {
             let nm = rd8(l + L_NAME) as usize;
             say(&[b"nr-boot: patch @"]); say_hex(l_addr as usize); say(&[b" "]);
             if nm != 0 { say(&[core::slice::from_raw_parts(nm as *const u8, strlen(nm))]); }
             else { say(&[b"?"]); }
-            say(&[b"="]); say_hex(n_here); say(&[b"\n"]);
+            say(&[b"="]); say_hex(n_here); say(&[b" failed="]); say_hex(failed_here); say(&[b"\n"]);
         }
         patched += n_here;
+        patch_failures += failed_here;
         objects += 1;
         l = rd8(l + L_NEXT) as usize;
         guard += 1;
+    }
+    if l != 0 {
+        say(&[b"nr-boot: link_map chain truncated\n"]);
+        return 70;
+    }
+    if patch_failures != 0 {
+        say(&[b"nr-boot: GOT patch incomplete: "]);
+        say_hex(patch_failures);
+        say(&[b"\n"]);
+        return 71;
     }
 
     // 2b. patch the *definition* of every path entry point inside libc.so.6.
@@ -651,12 +683,18 @@ unsafe fn patch_bodies_of(l_addr: u64, l_ld: usize, base: usize, interp: usize) 
     done
 }
 
-unsafe fn patch_object(l_addr: u64, l_ld: usize, base: usize, interp: usize, count: usize) -> usize {
+unsafe fn patch_object(l_addr: u64, l_ld: usize, base: usize, interp: usize, count: usize)
+    -> (usize, usize)
+{
     let mut done = 0;
-    if l_ld == 0 { return 0; }
+    let mut failed = 0;
+    if l_ld == 0 { return (0, 0); }
     let strtab = dyn_val(l_ld, DT_STRTAB) as usize;
     let symtab = dyn_val(l_ld, DT_SYMTAB) as usize;
-    if strtab == 0 || symtab == 0 { return 0; }
+    // A dynamic object without these tables has nothing for us to patch. A
+    // table with one missing is an ELF shape we do not understand and must not
+    // silently accept.
+    if strtab == 0 || symtab == 0 { return (0, 1); }
 
     let tables = [(DT_RELA, DT_RELASZ), (DT_JMPREL, DT_PLTRELSZ)];
     let mut t = 0;
@@ -673,6 +711,10 @@ unsafe fn patch_object(l_addr: u64, l_ld: usize, base: usize, interp: usize, cou
             say(&[b" size="]); say_hex(size); say(&[b" l_addr="]); say_hex(l_addr as usize); say(&[b"\n"]);
         }
         if addr == 0 || size == 0 { continue; }
+        if size > (1 << 28) || size % 24 != 0 {
+            failed += 1;
+            continue;
+        }
         let mut p = addr;
         while p < addr + size {
             let r_offset = rd8(p);
@@ -695,9 +737,13 @@ unsafe fn patch_object(l_addr: u64, l_ld: usize, base: usize, interp: usize, cou
                     }
                     let slot = (l_addr + r_offset) as usize;
                     let target = (base + Tables::slot(interp, i)) as u64;
-                    if rd8(slot) != target && make_writable(slot, 8) {
-                        wr8(slot, target);
-                        done += 1;
+                    if rd8(slot) != target {
+                        if make_writable(slot, 8) {
+                            wr8(slot, target);
+                            done += 1;
+                        } else {
+                            failed += 1;
+                        }
                     }
                     break;
                 }
@@ -705,7 +751,7 @@ unsafe fn patch_object(l_addr: u64, l_ld: usize, base: usize, interp: usize, cou
             }
         }
     }
-    done
+    (done, failed)
 }
 
 /// Resolve a name at runtime for the rest of the shim (replaces dlsym on the
