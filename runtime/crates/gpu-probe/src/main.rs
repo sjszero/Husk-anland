@@ -1506,6 +1506,329 @@ fn sevtf(off_hex: &str, flags_hex: &str) {
     }
 }
 
+
+const BASE_JD_REQ_SOFT_DUMP_CPU_GPU_TIME: u32 = (1 << 9) | 0x1; // 0x201
+
+/// Does *any* atom with a kernel-side memory effect run?
+///
+/// `SOFT_EVENT_SET` was a bad observable: the UAPI says the event word's address
+/// is only a *key*, and userspace is the one that writes it, so "the byte stayed
+/// 0" does not prove the atom did not run.
+///
+/// `SOFT_DUMP_CPU_GPU_TIME` is different: the driver itself writes the current
+/// CPU/GPU timestamps into the buffer at `jc`. If those bytes change, the atom was
+/// decoded and executed -- and *which* offset made it happen answers the
+/// `core_req` question at the same time.
+fn sdump(off_hex: &str) {
+    let off = usize::from_str_radix(off_hex.trim_start_matches("0x"), 16).unwrap_or(0x40);
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    let Some(va) = alloc_pages(fd, 1, 0xF) else { line("sdump/alloc", "FAIL", "flags=0xf"); return };
+    let p = unsafe { mmap(core::ptr::null_mut(), 4096, 3, 1, fd, va as i64) };
+    if p as isize == -1 {
+        let e = errno();
+        line("sdump/alloc", "FAIL", format!("mmap errno={e}"));
+        return;
+    }
+    let b = p as *mut u8;
+    unsafe { for i in 0..256 { *b.add(i) = 0 } };
+    let before: Vec<String> = unsafe { (0..16).map(|i| format!("{:02x}", *b.add(i))).collect() };
+
+    let mut atom = [0u8; ATOM_STRIDE];
+    put_u64(&mut atom, ATOM_JC, va);
+    put_u32(&mut atom, ATOM_ATOM_NUMBER as usize, 1);
+    put_u32(&mut atom, off, BASE_JD_REQ_SOFT_DUMP_CPU_GPU_TIME);
+    let mut js = JobSubmit { addr: atom.as_ptr() as u64, nr_atoms: 1, stride: ATOM_STRIDE as u32 };
+    unsafe { alarm(8) };
+    let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+    unsafe { alarm(0) };
+    line(
+        &format!("sdump/submit@{off:#x}"),
+        if e == 0 { "ACCEPTED" } else { "REFUSED" },
+        format!("core_req=0x201 errno={e} ({}) gpu_va={va:#x}", strerror_guess(e)),
+    );
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    let after: Vec<String> = unsafe { (0..16).map(|i| format!("{:02x}", *b.add(i))).collect() };
+    let changed = before != after;
+    line(
+        "sdump/read +250ms",
+        if changed { "WROTE-MEMORY" } else { "UNCHANGED" },
+        format!("before=[{}] after=[{}]", before.join(""), after.join("")),
+    );
+    unsafe {
+        munmap(p, 4096);
+        let mut v = va;
+        let _ = ioctl_errno(fd, 0x4008_8007, &mut v as *mut u64 as *mut core::ffi::c_void);
+    }
+}
+
+
+/// Field-map probe: write `val` (default 0x1) at one offset of an otherwise zero
+/// atom whose `jc` is 0, submit, print the answer. One process per offset.
+///
+/// `jc = 0` is the safety property: if the driver does accept the atom and puts it
+/// on the GPU, the job-chain fetch faults at address 0 immediately instead of
+/// running whatever the garbage fields describe. The information we want is only
+/// "did validation read this field", which the errno answers either way.
+fn crz(off_hex: &str, val_hex: &str) {
+    let off = usize::from_str_radix(off_hex.trim_start_matches("0x"), 16).unwrap_or(0);
+    let val = u32::from_str_radix(val_hex.trim_start_matches("0x"), 16).unwrap_or(1);
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    let mut atom = [0u8; ATOM_STRIDE];
+    put_u32(&mut atom, off, val);
+    let mut js = JobSubmit { addr: atom.as_ptr() as u64, nr_atoms: 1, stride: ATOM_STRIDE as u32 };
+    unsafe { alarm(6) };
+    let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+    unsafe { alarm(0) };
+    line(
+        &format!("crz@{off:#x}={val:#x}"),
+        if e == 0 { "ACCEPTED" } else { "REFUSED" },
+        format!("errno={e} ({})", strerror_guess(e)),
+    );
+    let _ = f;
+}
+
+
+/// `KBASE_IOCTL_KINSTR_JM_FD` (`0xc0088033`, nr 51, `union kbase_kinstr_jm_fd`).
+///
+/// r32's UAPI has a *real* atom-state channel: the kernel pushes
+/// QUEUE / START / STOP / COMPLETE records into a circular buffer that we read
+/// through an fd. That is the first mechanism on this device that is documented
+/// to report "atom finished" to userspace, so it replaces the timeline fd guess
+/// from evidence 40.
+///
+/// in:  {u16 count; u8 padding[6]}   count must be a power of two
+/// out: {u16 size; u8 version; u8 padding[5]}   size = record size
+#[repr(C)]
+struct KinstrFd {
+    a: u16,
+    b: u8,
+    pad: [u8; 5],
+}
+
+fn kinstr(count: u16, submit_atom: bool) {
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    let mut kfd = KinstrFd { a: count, b: 0, pad: [0; 5] };
+    let r = unsafe { ioctl(fd, 0xc008_8033u64, &mut kfd as *mut KinstrFd as *mut core::ffi::c_void) };
+    if r < 0 {
+        let e = errno();
+        line("kinstr/ioctl", "FAIL", format!("errno={e} ({})", strerror_guess(e)));
+        return;
+    }
+    line(
+        "kinstr/ioctl",
+        "PASS",
+        format!("fd={r} record_size={} version={}", kfd.a, kfd.b),
+    );
+    let rec_size = kfd.a as usize;
+    let sfd = r;
+
+    // one atom: a soft fence trigger on a stream, so the atom must reach COMPLETE
+    let mut name = [0u8; 32];
+    name[..4].copy_from_slice(b"husk");
+    let timeline = unsafe { ioctl(fd, 0x4020_8018u64, name.as_mut_ptr() as *mut core::ffi::c_void) };
+    if submit_atom && timeline >= 0 {
+        let fence = BaseFence { fd: -1, stream_fd: timeline };
+        let mut atom = [0u8; ATOM_STRIDE];
+        put_u64(&mut atom, ATOM_JC, &fence as *const BaseFence as u64);
+        put_u32(&mut atom, ATOM_ATOM_NUMBER as usize, 1);
+        put_u32(&mut atom, ATOM_CORE_REQ_STOCK_HDR, BASE_JD_REQ_SOFT_FENCE_TRIGGER);
+        let mut js = JobSubmit { addr: atom.as_ptr() as u64, nr_atoms: 1, stride: ATOM_STRIDE as u32 };
+        let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+        line("kinstr/job_submit", if e == 0 { "ACCEPTED" } else { "REFUSED" }, format!("core_req@0x34=0x202 atom_number=1 errno={e}"));
+    }
+
+    // poll, then drain
+    let mut pfd = PollFd { fd: sfd, events: 1, revents: 0 };
+    let n = unsafe { poll(&mut pfd as *mut PollFd as *mut core::ffi::c_void, 1, 1500) };
+    line("kinstr/poll", if n > 0 { "READABLE" } else { "TIMEOUT" }, format!("poll={n} revents={:#x}", pfd.revents));
+
+    let mut buf = [0u8; 512];
+    for round in 0..4 {
+        let got = unsafe { read(sfd, buf.as_mut_ptr() as *mut core::ffi::c_void, buf.len()) };
+        if got < 0 {
+            let e = errno();
+            line(&format!("kinstr/read#{round}"), "FAIL", format!("errno={e} ({})", strerror_guess(e)));
+            break;
+        }
+        if got == 0 {
+            line(&format!("kinstr/read#{round}"), "INFO", "0 bytes");
+            break;
+        }
+        let bytes: Vec<String> = buf[..got as usize].iter().map(|b| format!("{b:02x}")).collect();
+        line(&format!("kinstr/read#{round}"), "INFO", format!("{got} bytes: {}", bytes.join(" ")));
+        if rec_size > 0 {
+            let mut off = 0usize;
+            while off + rec_size <= got as usize && off < 256 {
+                line(&format!("kinstr/rec#{round}"), "INFO", decode_state(&buf[off..off + rec_size]));
+                off += rec_size;
+            }
+        }
+    }
+    unsafe {
+        close(sfd);
+        if timeline >= 0 {
+            close(timeline);
+        }
+    }
+}
+
+
+/// Decoded `struct kbase_kinstr_jm_atom_state_change` (kinstr version 2, 16 bytes):
+/// `{ u64 timestamp; s8 state; u8 atom; u8 flags; u8 reserved; u8 data[4] }`
+/// where state is 0 QUEUE / 1 START / 2 STOP / 3 COMPLETE.
+fn decode_state(b: &[u8]) -> String {
+    let ts = u64::from_le_bytes(b[0..8].try_into().unwrap_or([0; 8]));
+    let st = b[8] as i8;
+    let name = match st {
+        0 => "QUEUE",
+        1 => "START",
+        2 => "STOP",
+        3 => "COMPLETE",
+        _ => "?",
+    };
+    format!(
+        "ts={ts} state={name}({st}) atom={} flags={:#x} data={:02x?}",
+        b[9], b[10], &b[12..16]
+    )
+}
+
+/// A **hardware** atom: `core_req = BASE_JD_REQ_FS` with `jc = 0` (a GPU address
+/// that maps nothing). If the driver really dispatches hardware work, the kinstr
+/// channel must show QUEUE -> START(slot) and then STOP instead of COMPLETE, and
+/// the GPU will fault on the job-chain fetch at address 0 instead of running
+/// whatever the zeroed chain would describe.
+///
+/// This is the question that decides the whole "guest drives Mali directly" route:
+/// soft atoms only prove the JD queue works, hardware atoms prove the GPU submit
+/// path does.
+fn kinstr_hw(off_hex: &str, core_req_hex: &str, jc_hex: &str) {
+    let cr_off = usize::from_str_radix(off_hex.trim_start_matches("0x"), 16).unwrap_or(0x34);
+    let core_req = u32::from_str_radix(core_req_hex.trim_start_matches("0x"), 16).unwrap_or(1);
+    let jc = u64::from_str_radix(jc_hex.trim_start_matches("0x"), 16).unwrap_or(0);
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    let mut kfd = KinstrFd { a: 256, b: 0, pad: [0; 5] };
+    let kfd_ret = unsafe { ioctl(fd, 0xc008_8033u64, &mut kfd as *mut KinstrFd as *mut core::ffi::c_void) };
+    if kfd_ret < 0 {
+        let e = errno();
+        line("kinstr_hw/ioctl", "FAIL", format!("errno={e}"));
+        return;
+    }
+    let rec_size = kfd.a as usize;
+    line("kinstr_hw/kfd", "PASS", format!("fd={kfd_ret} record_size={rec_size} version={}", kfd.b));
+
+    let mut atom = [0u8; ATOM_STRIDE];
+    put_u64(&mut atom, ATOM_JC, jc);
+    put_u32(&mut atom, ATOM_ATOM_NUMBER as usize, 1);
+    put_u32(&mut atom, cr_off, core_req);
+    let mut js = JobSubmit { addr: atom.as_ptr() as u64, nr_atoms: 1, stride: ATOM_STRIDE as u32 };
+    line("kinstr_hw/before_submit", "INFO", format!("core_req@{cr_off:#x}={core_req:#x} jc={jc:#x}"));
+    unsafe { alarm(6) };
+    let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+    unsafe { alarm(0) };
+    line(
+        "kinstr_hw/job_submit",
+        if e == 0 { "ACCEPTED" } else { "REFUSED" },
+        format!("core_req={core_req:#x} jc={jc:#x} errno={e} ({})", strerror_guess(e)),
+    );
+    if e != 0 {
+        unsafe { close(kfd_ret) };
+        return;
+    }
+
+    // give the scheduler a moment, then drain whatever the kernel recorded
+    for round in 0..3 {
+        let mut pfd = PollFd { fd: kfd_ret, events: 1, revents: 0 };
+        let n = unsafe { poll(&mut pfd as *mut PollFd as *mut core::ffi::c_void, 1, 800) };
+        let mut buf = [0u8; 256];
+        let got = unsafe { read(kfd_ret, buf.as_mut_ptr() as *mut core::ffi::c_void, buf.len()) };
+        if got <= 0 {
+            line(
+                &format!("kinstr_hw/round{round}"),
+                "INFO",
+                format!("poll={n} revents={:#x} read={got} (no more events)", pfd.revents),
+            );
+            break;
+        }
+        let mut off = 0usize;
+        while off + rec_size <= got as usize {
+            line(&format!("kinstr_hw/rec{round}"), "INFO", decode_state(&buf[off..off + rec_size]));
+            off += rec_size;
+        }
+    }
+    unsafe { close(kfd_ret) };
+}
+
+
+/// Hardware atom whose `jc` points at a real, mapped BO (zeroed) instead of 0.
+///
+/// `jc = 0` completed without a START, which says the driver treats a null job
+/// chain as "nothing to do". A zeroed chain in real GPU memory is different: it
+/// has to be fetched, so a START (and then a STOP if the descriptor is invalid)
+/// is what a working submit path looks like.
+fn kinstr_hwbo(core_req_hex: &str, fill: u32) {
+    let core_req = u32::from_str_radix(core_req_hex.trim_start_matches("0x"), 16).unwrap_or(1);
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    let mut kfd = KinstrFd { a: 256, b: 0, pad: [0; 5] };
+    let kfd_ret = unsafe { ioctl(fd, 0xc008_8033u64, &mut kfd as *mut KinstrFd as *mut core::ffi::c_void) };
+    if kfd_ret < 0 {
+        let e = errno();
+        line("hwbo/kinstr", "FAIL", format!("errno={e}"));
+        return;
+    }
+    let rec_size = kfd.a as usize;
+    let Some(va) = alloc_pages(fd, 1, 0xF) else { line("hwbo/alloc", "FAIL", "flags=0xf"); return };
+    let p = unsafe { mmap(core::ptr::null_mut(), 4096, 3, 1, fd, va as i64) };
+    if p as isize == -1 {
+        let e = errno();
+        line("hwbo/alloc", "FAIL", format!("mmap errno={e}"));
+        return;
+    }
+    // fill = 0 means "a job descriptor that cannot be valid"; anything else is a
+    // recognisable byte pattern so a fault address would be identifiable later.
+    let b = p as *mut u32;
+    unsafe { for i in 0..256 { *b.add(i) = fill } };
+    line("hwbo/chain", "INFO", format!("gpu_va={va:#x} first word={fill:#x} core_req={core_req:#x}"));
+
+    let mut atom = [0u8; ATOM_STRIDE];
+    put_u64(&mut atom, ATOM_JC, va);
+    put_u32(&mut atom, ATOM_ATOM_NUMBER as usize, 1);
+    put_u32(&mut atom, ATOM_CORE_REQ_STOCK_HDR, core_req);
+    let mut js = JobSubmit { addr: atom.as_ptr() as u64, nr_atoms: 1, stride: ATOM_STRIDE as u32 };
+    unsafe { alarm(8) };
+    let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+    unsafe { alarm(0) };
+    line(
+        "hwbo/job_submit",
+        if e == 0 { "ACCEPTED" } else { "REFUSED" },
+        format!("errno={e} ({})", strerror_guess(e)),
+    );
+
+    for round in 0..4 {
+        let mut pfd = PollFd { fd: kfd_ret, events: 1, revents: 0 };
+        let n = unsafe { poll(&mut pfd as *mut PollFd as *mut core::ffi::c_void, 1, 1000) };
+        let mut buf = [0u8; 256];
+        let got = unsafe { read(kfd_ret, buf.as_mut_ptr() as *mut core::ffi::c_void, buf.len()) };
+        if got <= 0 {
+            line(&format!("hwbo/round{round}"), "INFO", format!("poll={n} revents={:#x} read={got}", pfd.revents));
+            break;
+        }
+        let mut off = 0usize;
+        while off + rec_size <= got as usize {
+            line(&format!("hwbo/rec{round}"), "INFO", decode_state(&buf[off..off + rec_size]));
+            off += rec_size;
+        }
+    }
+    unsafe {
+        close(kfd_ret);
+        munmap(p, 4096);
+    }
+}
+
 // ------------------------------------------------------------- ioctl surface
 
 /// Walk (nr, size) for the kbase command word with a zeroed 64-byte buffer and
@@ -1583,6 +1906,66 @@ fn ver() {
     let _ = fd;
 }
 
+/// CS_GET_GLB_IFACE (nr 51, size 24 → 0xc0188033). JM 的 KINSTR_JM_FD 也是 nr 51，
+/// 但 size 8（0xc0088033）。两个都活了才说明这棵树同时编进了 JM 和 CSF。
+/// 判据：返回 0 且 glb_version != 0 → CSF 真的活着（可以走 Mesa panthor）。
+fn csf() {
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    let mut buf = [0u64; 3]; // 24 bytes: in{2×u32} + 2 pointers, 输出按 u32 解读
+    let r = unsafe { ioctl(fd, 0xc018_8033u64, buf.as_mut_ptr() as *mut core::ffi::c_void) };
+    if r < 0 {
+        let e = errno();
+        line("csf/glb_iface", "FAIL", format!("errno={e} ({})  → 0xc0188033 不被接受", strerror_guess(e)));
+    } else {
+        let u = unsafe { core::slice::from_raw_parts(buf.as_ptr() as *const u32, 6) };
+        line("csf/glb_iface", "PASS", format!(
+            "ret={r} glb_version={}.{} features={:#x} group_num={} prfcnt_size={} total_stream_num={} instr_features={:#x}",
+            u[0] >> 16, u[0] & 0xffff, u[1], u[2], u[3], u[4], u[5]));
+        line("csf/verdict", if u[0] != 0 { "CSF_ALIVE" } else { "CSF_DEAD" }, "glb_version==0 视为 CSF 未启用");
+    }
+    // 对照：JM 的 KINSTR_JM_FD 同一 nr、不同 size，确认两条 ioctl 共存
+    let mut kfd = KinstrFd { a: 16, b: 0, pad: [0; 5] };
+    let r2 = unsafe { ioctl(fd, 0xc008_8033u64, &mut kfd as *mut KinstrFd as *mut core::ffi::c_void) };
+    if r2 < 0 {
+        let e = errno();
+        line("csf/kinstr_jm", "FAIL", format!("errno={e} ({})  → JM 侧不可用", strerror_guess(e)));
+    } else {
+        line("csf/kinstr_jm", "PASS", format!("fd={r2} record_size={} version={}", kfd.a, kfd.b));
+        unsafe { close(r2) };
+    }
+}
+
+/// MEM_IMPORT (nr 22, union 24B → 0xc0188016)。r32 这份 UAPI **没有** export，
+/// 只有 import：所以零拷贝方向是「app 分配 dma-buf → guest 导入 → GPU 直接写」。
+/// 这里只验命令是否存在 + 合法/非法 fd 的 errno，不假设能导。
+fn imp(arg: &str) {
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    let mut cases: Vec<(String, i64)> = vec![("fd=-1".into(), -1)];
+    if let Ok(n) = std::fs::File::open("/dev/null") {
+        use std::os::fd::AsRawFd;
+        cases.push((format!("/dev/null fd={}", n.as_raw_fd()), n.as_raw_fd() as i64));
+    }
+    if arg != "" {
+        if let Ok(v) = arg.parse::<i64>() { cases.push((format!("arg={v}"), v)); }
+    }
+    for (label, ph) in cases {
+        // in{flags,phandle,type=UMM(2),padding}
+        let mut u = [0u32; 6];
+        u[2] = ph as u32; u[3] = (ph >> 32) as u32; u[4] = 2;
+        let r = unsafe { ioctl(fd, 0xc018_8016u64, u.as_mut_ptr() as *mut core::ffi::c_void) };
+        if r < 0 {
+            let e = errno();
+            let verdict = if e == 25 { "ENOTTY(命令不存在)" } else { "REACHED" };
+            line(&format!("imp/{label}"), verdict, format!("errno={e} ({})", strerror_guess(e)));
+        } else {
+            line(&format!("imp/{label}"), "PASS", format!(
+                "flags={:#x} gpu_va={:#x} va_pages={}", u[0], u[1] as u64 | ((u[2] as u64) << 32), u[3]));
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(|s| s.as_str()).unwrap_or("") {
@@ -1610,6 +1993,26 @@ fn main() {
         "ddkver" => ddkver(),
         "sevt2" => sevt_compat(args.get(2).map(|s| s.as_str()).unwrap_or("0x40")),
         "sevtjit" => jitinit_then_sevt(args.get(2).map(|s| s.as_str()).unwrap_or("0x40")),
+        "kinstr_hwbo" => kinstr_hwbo(
+            args.get(2).map(|s| s.as_str()).unwrap_or("0x1"),
+            args.get(3).and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok()).unwrap_or(0),
+        ),
+        "kinstr_hw" => kinstr_hw(
+            args.get(2).map(|s| s.as_str()).unwrap_or("0x34"),
+            args.get(3).map(|s| s.as_str()).unwrap_or("0x1"),
+            args.get(4).map(|s| s.as_str()).unwrap_or("0x0"),
+        ),
+        "kinstr" => kinstr(
+            args.get(2).and_then(|s| s.parse::<u16>().ok()).unwrap_or(256),
+            args.get(3).map(|s| s.as_str()) != Some("nosubmit"),
+        ),
+        "csf" => csf(),
+        "imp" => imp(args.get(2).map(|s| s.as_str()).unwrap_or("")),
+        "crz" => crz(
+            args.get(2).map(|s| s.as_str()).unwrap_or("0x0"),
+            args.get(3).map(|s| s.as_str()).unwrap_or("0x1"),
+        ),
+        "sdump" => sdump(args.get(2).map(|s| s.as_str()).unwrap_or("0x40")),
         "sevtf" => sevtf(
             args.get(2).map(|s| s.as_str()).unwrap_or("0x40"),
             args.get(3).map(|s| s.as_str()).unwrap_or("0xf"),

@@ -34,6 +34,10 @@
 | 内核 kbase 版本（自报） | `K:r32p1-00bet5(GPL)`，与厂商 `libGLES_mali.so` 同代 | 40 |
 | atom 结构 | 72 字节；`stride` 必须 72（56 → EINVAL）；数组确实被 `copy_from_user`（坏指针 → EFAULT） | 40 |
 | timeline fd（`STREAM_CREATE`） | **不能当完成通道**：任何被接受的 submit 都让它 POLLIN，`read()` 返回 EINVAL | 40 |
+| CSF / panthor 可用性 | **不可用**：`CS_GET_GLB_IFACE`（`0xc0188033`）= ENOTTY，内核只编了 JM | 41 |
+| kbase dma-buf 导出 | **没有**；只有 `MEM_IMPORT`（`0xc0188016`，可达，ENOMEM）→ 零拷贝改成 app→guest 导入 | 41 |
+| 完成通道 | `KBASE_IOCTL_KINSTR_JM_FD`（`0xc0088033`，16B 记录 / version 2）；但 COMPLETE 不区分成败，只有 START 有判据 | 40/41 |
+| GPU 实现形态 | 定稿：Mesa 25.2.8 panfrost（JM/Valhall）+ guest 内 DRM 语义层（假 renderD128 → kbase） | 41 |
 | 软作业（`SOFT_EVENT_SET/WAIT`） | **本机无效果**：6 种偏移 + `compat_core_req` 双写 + 先 `MEM_JIT_INIT` + 换分配标志（CACHED_CPU / COHERENT_SYSTEM），显存里的标志字节始终为 0 | 40 |
 
 ## 本轮（21:24–21:31）做了什么

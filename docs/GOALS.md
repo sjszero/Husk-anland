@@ -3,7 +3,7 @@
 > 本文件是目标的**权威规格**。会话里的 goal 对象不可编辑，重建 goal 时以本文件为准；
 > 改目标就改这里，再把下面的「粘贴块」整段贴进去。纯文本版：`docs/goal-objective.txt`。
 
-最后更新：2026-11-22（v11：第 4 条视频补上"谁在 guest 里说 VA-API"这一段——Rust VA-API 后端驱动 `husk`，Chromium 与 GStreamer 共用一份；验收加 `vainfo` 与真实 decoder 名两项证据）
+最后更新：2026-11-23（v12：evidence 41 —— CSF 实测 ENOTTY、panthor 排除；kbase 只有 MEM_IMPORT 没有 export，第 3 条零拷贝方向改成 app→guest 导入；GPU 实现形态定稿为 Mesa panfrost + DRM 语义层）
 
 ---
 
@@ -24,8 +24,8 @@
 
 【B. 原生直连 SoC】
 环境事实（guest 侧实测）：只有 `/dev/mali0`（rw 可开，kbase UAPI 11.38）；`/dev/kgsl-3d0` 不存在；`/dev/dri` 打不开；`/dev/dma_heap` 不存在；`/dev/snd` EACCES；`/dev/ion` guest 侧 EACCES（待复核）；`/dev/video0-4` 为 `0660 media:system`（untrusted_app 打不开，且是相机采集节点、不是编解码器，guest 无法直连硬解）。厂商 libGLES_mali.so 带 25 个 bionic DT_NEEDED，不能在 glibc guest 内加载，此路线已排除。
-2）GPU：唯一路线 = guest 进程自己打开 /dev/mali0，直连厂商 kbase，不经中转服务、不留独立 GPU 进程。上游 Mesa（25.2 与 main）没有 kbase 后端（FACT，evidence 36），发行版 Mesa 无法直接驱动本机；命令字必须取自真实客户端（厂商 .so 反读，26 条），JOB_SUBMIT = 0x40108002（W,16），实测 EINVAL 而非 ENOTTY；mem_alloc + mmap（prot = flags 低两位，offset = 回写 VA）已实测可 CPU 读写显存。实现 = Rust 侧 DRM 语义层：在 guest 内拦 open("/dev/dri/renderD128") + ioctl + mmap 翻译成 kbase，Mesa 不改不重编、不写 C。验收：guest 内 eglinfo/glxinfo 报出 Mali-G77 真实 renderer；硬件 vs llvmpipe 帧率对比表；不崩、可降级。
-3）显示：guest 渲染面与 Android Surface 零拷贝。dma-buf 优先用 kbase 分配且可导出的 BO（导出能力待实测）；不支持导出则退化 CPU 拷贝并在 evidence 写明原因与开销。包成 AHardwareBuffer → ANativeWindow queueBuffer + render-done fence 交 SurfaceFlinger，全部 Rust。验收：可交互、拖动不掉帧、旋转与 DPI 正确、多窗口正常、连续 10 分钟无泄漏。
+2）GPU：唯一路线 = guest 进程自己打开 /dev/mali0，直连厂商 kbase，不经中转服务、不留独立 GPU 进程。上游 Mesa（25.2 与 main）没有 kbase 后端（FACT，evidence 36），发行版 Mesa 无法直接驱动本机；命令字必须取自真实客户端（厂商 .so 反读，26 条），JOB_SUBMIT = 0x40108002（W,16），实测 EINVAL 而非 ENOTTY；mem_alloc + mmap（prot = flags 低两位，offset = 回写 VA）已实测可 CPU 读写显存。实现 = Rust 侧 DRM 语义层：在 guest 内拦 open("/dev/dri/renderD128") + ioctl + mmap 翻译成 kbase，Mesa 不改不重编、不写 C（CSF 已实测 ENOTTY、panthor 排除；job chain 由 Mesa panfrost 生成，设计见 docs/design/gpu-drm-shim.md）。验收：guest 内 eglinfo/glxinfo 报出 Mali-G77 真实 renderer；硬件 vs llvmpipe 帧率对比表；不崩、可降级。
+3）显示：guest 渲染面与 Android Surface 零拷贝。零拷贝方向已定（evidence 41）：r32 UAPI 只有 MEM_IMPORT、没有 export——所以是 app 侧分配 AHardwareBuffer/dma-buf → 交 guest → MEM_IMPORT 拿到 GPU VA → GPU 直接渲染进去 → app 把同一块 buffer queueBuffer 给 SurfaceFlinger；kbase 自建的中间 BO 走 CPU 拷贝回 app，开销实测并写进 evidence。包成 AHardwareBuffer → ANativeWindow queueBuffer + render-done fence 交 SurfaceFlinger，全部 Rust。验收：可交互、拖动不掉帧、旋转与 DPI 正确、多窗口正常、连续 10 分钟无泄漏。
 4）视频：guest 里的播放器与 Chromium 都要出画出声，且必须是硬解，不许拿软解当完成。
    事实（evidence 39）：guest 直连硬解不可行——`/dev/video*` 是 `0660 media:system` 的相机采集节点，不是编解码器；厂商解码 .so 带 bionic DT_NEEDED，glibc guest 内加载不了。本机硬解器在 bionic 侧：`c2.mtk.avc.decoder` / `c2.mtk.hevc.decoder` / `c2.mtk.vp9.decoder` / `c2.mtk.av1.decoder`（取自 /vendor/etc/media_codecs_c2.xml），厂商自报 1080p 帧率 113–276 fps。
    形状：解复用 + 音视频同步留在 guest（ffmpeg/GStreamer 不动），压缩帧走独立通道（AF_UNIX socketpair + 共享内存 ring，不复用输入/剪贴板/音频通道）递到 app 进程里我们的 Rust 解码线程 → NDK `AMediaCodec`（dlopen libmediandk.so，纯 Rust 调用）→ 输出 AHardwareBuffer；优先经 MEM_IMPORT（0xc0188016）把 dma-buf 交回 guest，走第 3 条同一条零拷贝 Surface 路径；不能导出才退化 CPU 拷贝并写开销。不留独立解码进程、不留 gst 中转服务。
@@ -115,3 +115,8 @@ FACT：`com.linuxhub.myth` 不是 debuggable 包，`run-as` 直接拒绝（`pack
 | timeline fd | **不是完成通道**：任何被接受的 submit 都触发 POLLIN，read() → EINVAL | evidence 40 |
 | 软作业 | 本机无效果（SOFT_EVENT_SET 不写显存）；`base_fence` 也不回写 sync_file fd | evidence 40 |
 | `ro.hardware.egl` / `.vulkan` | `meow` / `mali` | evidence 26 |
+| CSF / panthor | `CS_GET_GLB_IFACE`（`0xc0188033`）= **ENOTTY** → 内核只编了 JM，panthor 排除 | evidence 41 |
+| kbase 导出 dma-buf | **不存在**（UAPI 无 export）；只有 `MEM_IMPORT`（`0xc0188016`，实测可达） | evidence 41 |
+| rootfs 的 Mesa | **25.2.8**；`dri/` 有 `panfrost_dri.so` / `panthor_dri.so` / `zink_dri.so` / `swrast_dri.so` | evidence 41 |
+| kinstr 语义 | `COMPLETE` 对"成功"和 `JOB_INVALID` **同义**；只有 `START` 能证明进了硬件槽 | evidence 41 |
+| 硬件 atom 现状 | 用真实 GPU VA 当 jc 仍只有 `QUEUE→COMPLETE`、无 `START`；手搓 atom 到此为止 | evidence 41 |
