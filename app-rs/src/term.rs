@@ -2,6 +2,7 @@
 //! middle: the child is the guest loader, so bash runs as a plain Android process.
 
 use crate::sys::*;
+use core::ffi::c_int;
 use std::collections::VecDeque;
 use std::ffi::{CStr, CString};
 
@@ -69,6 +70,8 @@ impl Term {
             unsafe { close(mfd) };
             return None;
         }
+
+        provision_identity(rootfs);
 
         // Everything the child needs is built before fork(): no allocation and no
         // logging between fork and execve.
@@ -531,4 +534,88 @@ mod tests {
         t.feed(b"a\tb");
         assert_eq!(t.row(0), "a       b");
     }
+}
+
+// --------------------------------------------------------- provisioning ---
+
+/// Mirror the Android process identity into the rootfs' passwd/group files.
+///
+/// Inside the guest we *are* uid 10302 (`u0_a302`) plus a fistful of Android
+/// supplementary groups. glibc's getpwuid/getgrgid only know what /etc/passwd
+/// and /etc/group say, so without this bash prints `I have no name!` and
+/// `groups` prints `cannot find name for group ID 20302`. The numbers differ per
+/// install and per device, so the entries are generated here on every start and
+/// only appended when missing. Nothing else in the image is touched.
+fn provision_identity(rootfs: &str) {
+    let uid = unsafe { getuid() };
+    let gid = unsafe { getgid() };
+    let mut gids = [0u32; 32];
+    let n = unsafe { getgroups(gids.len() as c_int, gids.as_mut_ptr()) };
+    let extra: Vec<u32> = if n > 0 {
+        gids[..(n as usize).min(gids.len())].to_vec()
+    } else {
+        Vec::new()
+    };
+
+    // /etc/passwd: name the uid, give it a home and a shell.
+    let passwd = format!("{rootfs}/etc/passwd");
+    let mut add = String::new();
+    if !has_id(&passwd, 2, uid) {
+        add.push_str(&format!("husk:x:{uid}:{gid}:Husk:/:/bin/bash\n"));
+    }
+    if !add.is_empty() {
+        let _ = append(&passwd, &add);
+    }
+
+    // /etc/group: name the gid and every supplementary group the Android
+    // process carries, otherwise every `groups`/`ls -l` shows a raw number.
+    let group = format!("{rootfs}/etc/group");
+    let mut add = String::new();
+    let mut all = extra.clone();
+    if !all.contains(&gid) {
+        all.push(gid);
+    }
+    for g in all {
+        if !has_id(&group, 2, g) {
+            add.push_str(&format!("husk{g}:x:{g}:\n"));
+        }
+    }
+    if !add.is_empty() {
+        let _ = append(&group, &add);
+    }
+
+    provision_prompt(rootfs);
+}
+
+/// Android's gethostname() is `localhost` for every app, so the distro prompt
+/// (`\u@\h:\w\$`) would name every container `localhost`. `\h` reads the
+/// kernel, not `$HOSTNAME`, and changing the hostname needs CAP_SYS_ADMIN -
+/// so the prompt itself is pinned once, with a marker so it is not appended
+/// twice.
+fn provision_prompt(rootfs: &str) {
+    const MARK: &str = "# husk: stable prompt";
+    let p = format!("{rootfs}/etc/bash.bashrc");
+    let existing = std::fs::read_to_string(&p).unwrap_or_default();
+    if existing.contains(MARK) {
+        return;
+    }
+    let _ = append(
+        &p,
+        "\n# husk: stable prompt\n# \\h is gethostname(), which Android pins to 'localhost' for apps.\n# \\u resolves once provision_identity() has written our uid into /etc/passwd.\nPS1='\\u@husk:\\w\\$ '\n",
+    );
+}
+
+/// True when `path` has a line whose `idx`-th (0-based) colon field equals `id`.
+fn has_id(path: &str, idx: usize, id: u32) -> bool {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    let want = id.to_string();
+    text.lines().any(|l| {
+        l.split(':').nth(idx).map(|f| f == want).unwrap_or(false)
+    })
+}
+
+fn append(path: &str, extra: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new().append(true).create(true).open(path)?;
+    f.write_all(extra.as_bytes())
 }

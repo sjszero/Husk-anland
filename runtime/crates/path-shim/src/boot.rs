@@ -233,6 +233,11 @@ pub unsafe fn at_random() -> u64 { AT_RANDOM_WORDS }
 pub unsafe fn envp() -> usize { ENVP }
 
 static mut EXECFN: usize = 0;
+static mut LOADER_BASE: usize = 0;
+static mut LIBC_BASE: u64 = 0;
+
+pub unsafe fn loader_base() -> usize { LOADER_BASE }
+pub unsafe fn libc_base() -> u64 { LIBC_BASE }
 
 unsafe fn auxv_ptr(envp: usize) -> usize {
     if envp == 0 { return 0; }
@@ -297,6 +302,7 @@ pub unsafe extern "C" fn nr_boot(base: usize, main_map: usize, ext: usize, inter
 
     MAIN_MAP = main_map;
     ENVP = envp;
+    LOADER_BASE = base;
     if AT_RANDOM_WORDS == 0 { AT_RANDOM_WORDS = read_at_random(envp); }
     if EXECFN == 0 { EXECFN = auxv_val(envp, 31) as usize; } // AT_EXECFN
     if debug2_on() {
@@ -351,6 +357,28 @@ pub unsafe extern "C" fn nr_boot(base: usize, main_map: usize, ext: usize, inter
         guard += 1;
     }
 
+    // 2b. patch the *definition* of every path entry point inside libc.so.6.
+    //     Step 2 only rewrites GOT slots, which binds calls that go through the
+    //     PLT -- i.e. calls made by the program and by other DSOs. c library
+    //     internals (_IO_file_open, nss_files' fopen, opendir, realpath, the
+    //     locale loader) call these functions directly, with no GOT slot in
+    //     between, so on this kernel they reached the *host* "/etc/passwd" and
+    //     failed: `getpwuid()` returned NULL ("I have no name!"), `groups` could
+    //     not name a single gid, even though the file is right there in the
+    //     rootfs and `cat` reads it fine.
+    //
+    //     Only wrappers that never call the original symbol are listed: ours are
+    //     built on raw syscalls and runtime-core, so no body patch can recurse
+    //     into itself. exec/fork/spawn, the signal wrappers and dlopen stay out.
+    //
+    // OFF by default: on this kernel+policy the second mprotect (back to r-x)
+    // fails with EACCES on an app domain, so a patched page loses execute and
+    // the next instruction fetch there faults. The same redirects therefore have
+    // to be baked into libc at build time, with the target address in a writable
+    // slot; see docs/design/libc-interpose.md. Kept behind NR_BODY_PATCH=1
+    // because the bisect knobs (NR_BODY_N / NR_BODY_ONLY) live here.
+    let libc_bodies = if body_patch_on() { patch_libc_bodies(base, interp, main_map) } else { 0 };
+
     // 3. the seccomp trap catcher. This device's policy answers some optional
     //    syscalls with SIGSYS, and a handler can only be installed by us: the
     //    embedded object has no .init_array of its own that the loader would run.
@@ -368,6 +396,8 @@ pub unsafe extern "C" fn nr_boot(base: usize, main_map: usize, ext: usize, inter
         say_hex(objects);
         say(&[b" slots="]);
         say_hex(patched);
+        say(&[b" bodies="]);
+        say_hex(libc_bodies);
         say(&[b"\n"]);
     }
     0
@@ -425,6 +455,190 @@ unsafe fn self_lookup(base: usize, interp: usize, name: usize, len: usize) -> u6
         i += 1;
     }
     0
+}
+
+/// Path entry points whose libc.so.6 definition is redirected into the shim.
+/// Every one of these has a standalone implementation in the shim (raw syscalls
+/// plus runtime-core), so redirecting libc's internal callers cannot recurse.
+static BODY_PATCH: [&[u8]; 62] = [
+    b"open", b"open64", b"openat", b"openat64",
+    b"__open_2", b"__open64_2", b"__openat_2", b"__openat64_2",
+    b"stat", b"stat64", b"lstat", b"lstat64", b"fstatat", b"fstatat64",
+    b"statx", b"statfs", b"access", b"faccessat", b"eaccess", b"euidaccess",
+    b"mkdir", b"mkdirat", b"rmdir", b"unlink", b"unlinkat",
+    b"rename", b"renameat", b"renameat2", b"symlink", b"symlinkat",
+    b"link", b"linkat", b"chmod", b"fchmodat", b"chown", b"lchown", b"fchownat",
+    b"truncate", b"utimensat", b"utimes", b"readlink", b"readlinkat",
+    b"__readlink_chk", b"__readlinkat_chk",
+    b"chdir", b"fchdir", b"getcwd", b"opendir", b"fopen", b"fopen64",
+    b"creat", b"creat64", b"realpath", b"__realpath_chk",
+    b"canonicalize_file_name", b"mkstemp", b"mkstemps", b"mkostemp",
+    b"mkostemps", b"mkdtemp", b"getxattr", b"lgetxattr",
+];
+
+/// `NR_BODY_N=<n>` patches only the first n names. Used to bisect which body
+/// patch breaks a program; unset means "all".
+unsafe fn body_limit() -> usize {
+    let key = b"NR_BODY_N=";
+    let env = ENVP;
+    if env == 0 { return BODY_PATCH.len(); }
+    let mut i = 0;
+    while i < 512 {
+        let e = rd8(env + i * 8) as usize;
+        if e == 0 { return BODY_PATCH.len(); }
+        if mem_eq(e, key.as_ptr() as usize, key.len()) {
+            let mut v = 0usize;
+            let mut j = key.len();
+            while rd1(e + j) >= b'0' && rd1(e + j) <= b'9' {
+                v = v * 10 + (rd1(e + j) - b'0') as usize;
+                j += 1;
+            }
+            return v.min(BODY_PATCH.len());
+        }
+        i += 1;
+    }
+    BODY_PATCH.len()
+}
+
+unsafe fn body_patch_on() -> bool { debug_var(b"NR_BODY_PATCH=1") }
+
+/// `NR_BODY_ONLY=<name>` restricts the bisect knob to a single symbol.
+unsafe fn body_only() -> Option<(usize, usize)> {
+    let key = b"NR_BODY_ONLY=";
+    let env = ENVP;
+    if env == 0 { return None; }
+    let mut i = 0;
+    while i < 512 {
+        let e = rd8(env + i * 8) as usize;
+        if e == 0 { return None; }
+        if mem_eq(e, key.as_ptr() as usize, key.len()) {
+            let mut n = 0;
+            while n < 64 && rd1(e + key.len() + n) != 0 { n += 1; }
+            if n == 0 { return None; }
+            return Some((e + key.len(), n));
+        }
+        i += 1;
+    }
+    None
+}
+
+unsafe fn in_body_list(nm: usize, len: usize) -> bool {
+    if let Some((want, wlen)) = body_only() {
+        return wlen == len && mem_eq(nm, want, len);
+    }
+    let mut i = 0;
+    while i < BODY_PATCH.len() {
+        let cand = BODY_PATCH[i];
+        if cand.len() == len && mem_eq(nm, cand.as_ptr() as usize, len) { return true; }
+        i += 1;
+    }
+    false
+}
+
+#[inline]
+unsafe fn wr4(p: usize, v: u32) { core::ptr::write_volatile(p as *mut u32, v); }
+
+/// Overwrite the first 16 bytes of a function with
+/// `ldr x16, #8 ; br x16 ; .quad target`. Callers still branch to the same
+/// address, so every internal caller is redirected at once.
+unsafe fn patch_body(at: usize, to: usize) -> bool {
+    const PROT_EXEC: usize = 4;
+    let ps = page_size();
+    let start = at & !(ps - 1);
+    let end = (at + 16 + ps - 1) & !(ps - 1);
+    let r1 = sys_mprotect(start, end - start, PROT_READ | PROT_WRITE);
+    if r1 != 0 {
+        if debug2_on() {
+            say(&[b"  body-rw-fail "]); say_hex(at); say(&[b" r="]); say_hex(r1 as usize);
+            say(&[b"\n"]);
+        }
+        return false;
+    }
+    wr4(at, 0x5800_0050); // ldr x16, #8
+    wr4(at + 4, 0xD61F_0200); // br x16
+    wr8(at + 8, to as u64);
+    flush_icache(at, 16);
+    let r2 = sys_mprotect(start, end - start, PROT_READ | PROT_EXEC);
+    if debug2_on() {
+        say(&[b"  body-rx "]); say_hex(at); say(&[b" r="]); say_hex(r2 as usize); say(&[b"\n"]);
+    }
+    true
+}
+
+/// Data-cache clean + instruction-cache invalidate for the patched range.
+/// There is no other thread yet (this runs inside _dl_init), so `ish` is enough.
+unsafe fn flush_icache(at: usize, len: usize) {
+    let ctr: u64;
+    core::arch::asm!("mrs {}, ctr_el0", out(reg) ctr, options(nomem, nostack));
+    let dline = 4u64 << (ctr & 0xf);
+    let iline = 4u64 << ((ctr >> 16) & 0xf);
+    let end = (at + len) as u64;
+    let mut p = at as u64 & !(dline - 1);
+    while p < end {
+        core::arch::asm!("dc cvau, {}", in(reg) p, options(nostack));
+        p += dline;
+    }
+    core::arch::asm!("dsb ish", options(nostack));
+    let mut p = at as u64 & !(iline - 1);
+    while p < end {
+        core::arch::asm!("ic ivau, {}", in(reg) p, options(nostack));
+        p += iline;
+    }
+    core::arch::asm!("dsb ish", "isb", options(nostack));
+}
+
+/// Walk the link map for libc.so.6 and redirect its path entry points.
+unsafe fn patch_libc_bodies(base: usize, interp: usize, main_map: usize) -> usize {
+    let mut l = main_map;
+    let mut guard = 0;
+    while l != 0 && guard < 64 {
+        let nm = rd8(l + L_NAME) as usize;
+        let len = if nm != 0 { strlen(nm) } else { 0 };
+        if len >= 9 && mem_eq(nm + len - 9, b"libc.so.6".as_ptr() as usize, 9) {
+            LIBC_BASE = rd8(l + L_ADDR);
+            return patch_bodies_of(LIBC_BASE, rd8(l + L_LD) as usize, base, interp);
+        }
+        l = rd8(l + L_NEXT) as usize;
+        guard += 1;
+    }
+    0
+}
+
+unsafe fn patch_bodies_of(l_addr: u64, l_ld: usize, base: usize, interp: usize) -> usize {
+    let mut done = 0;
+    let limit = body_limit();
+    let mut seen = 0usize;
+    let count = Tables::count(interp);
+    let mut i = 0;
+    while i < count {
+        let (name, len) = Tables::name(interp, i);
+        let nm = base + name;
+        if in_body_list(nm, len) && seen < limit {
+            seen += 1;
+            let at = find_sym(l_addr, l_ld, nm, len);
+            if at != 0 {
+                let ours = base + Tables::slot(interp, i);
+                if at as usize != ours && patch_body(at as usize, ours) {
+                    if debug2_on() {
+                        say(&[b"  body ", core::slice::from_raw_parts(nm as *const u8, len),
+                             b" at=", ]);
+                        say_hex(at as usize);
+                        say(&[b" -> "]);
+                        say_hex(ours);
+                        say(&[b"\n"]);
+                    }
+                    done += 1;
+                }
+            }
+        }
+        i += 1;
+    }
+    if debug_on() {
+        say(&[b"nr-boot: libc bodies="]);
+        say_hex(done);
+        say(&[b"\n"]);
+    }
+    done
 }
 
 unsafe fn patch_object(l_addr: u64, l_ld: usize, base: usize, interp: usize, count: usize) -> usize {

@@ -27,6 +27,9 @@ extern "C" {
     pub fn __errno() -> *mut c_int;
     pub fn dladdr(addr: *const c_void, info: *mut DlInfo) -> c_int;
     pub fn usleep(us: u32) -> c_int;
+    pub fn getuid() -> u32;
+    pub fn getgid() -> u32;
+    pub fn getgroups(size: c_int, list: *mut u32) -> c_int;
 }
 
 #[repr(C)]

@@ -149,6 +149,7 @@ unsafe fn set_errno_ptr(e: CInt, p: *mut CChar) -> *mut CChar { *__errno_locatio
 // ---------------------------------------------------------------------------
 const SYS_RT_SIGACTION: usize = 134;
 const SYS_EXIT_GROUP: usize = 94;
+const SYS_TGKILL: usize = 131;
 const SIGSYS_NUM: usize = 31;
 const SA_SIGINFO: usize = 0x00000004;
 const SA_RESTART: usize = 0x10000000;
@@ -394,6 +395,19 @@ unsafe fn install_sigsys() {
     // from a run that merely started. It stays out of the program's own stderr
     // unless NR_DEBUG is on: the launcher always sets NR_SIGSYS_LOG.
     init_note(b"nr-init|sigsys handler installed\n");
+
+    // Same pass, one more diagnostic: a guest crash prints fault/pc/x0..x8 to
+    // the log, then the default action runs as if we had never been there.
+    let segh = KSigaction {
+        handler: on_segv as usize,
+        flags: SA_SIGINFO,
+        restorer: 0,
+        mask: 0,
+    };
+    for sig in [11usize, 7, 8, 4] { // SEGV, BUS, FPE, ILL
+        let r = syscall4(SYS_RT_SIGACTION, sig, &segh as *const KSigaction as usize, 0, 8);
+        if r < 0 && sig == 11 { init_note(b"nr-init|segv handler refused\n"); }
+    }
 }
 
 /// Log-file-only note (plus the program's stderr when NR_DEBUG is on).
@@ -405,6 +419,57 @@ unsafe fn init_note(line: &[u8]) {
             write_all(fd as CInt, line);
             syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
         }
+    }
+}
+
+/// A guest crash gets one line in the log before the default action runs.
+///
+/// Without this a SIGSEGV inside the shim is a bare "Segmentation fault" with no
+/// address, which is what turned the first body-patch attempt into guesswork.
+/// The frame layout is the kernel's (installed through rt_sigaction with an
+/// 8-byte mask): ucontext.uc_mcontext sits at 160, regs[0..31] at +8, sp at +256,
+/// pc at +264, pstate at +272.
+extern "C" fn on_segv(sig: CInt, info: *const u8, uc: *mut u8) {
+    unsafe {
+        const MC: usize = 160;
+        let fa = core::ptr::read_unaligned(info.add(16) as *const u64);
+        let pc = core::ptr::read_unaligned(uc.add(MC + 264) as *const u64);
+        let lr = core::ptr::read_unaligned(uc.add(MC + 248) as *const u64);
+        let x0 = core::ptr::read_unaligned(uc.add(MC + 8) as *const u64);
+        let x1 = core::ptr::read_unaligned(uc.add(MC + 16) as *const u64);
+        let x2 = core::ptr::read_unaligned(uc.add(MC + 24) as *const u64);
+        let x8 = core::ptr::read_unaligned(uc.add(MC + 72) as *const u64);
+        let mut buf = [0u8; 224];
+        let mut k = 0usize;
+        put(&mut buf, &mut k, b"segv|sig=");
+        putnum(&mut buf, &mut k, sig as i64);
+        put(&mut buf, &mut k, b"|fa=");
+        putnum(&mut buf, &mut k, fa as i64);
+        put(&mut buf, &mut k, b"|pc=");
+        putnum(&mut buf, &mut k, pc as i64);
+        put(&mut buf, &mut k, b"|lr=");
+        putnum(&mut buf, &mut k, lr as i64);
+        put(&mut buf, &mut k, b"|x0=");
+        putnum(&mut buf, &mut k, x0 as i64);
+        put(&mut buf, &mut k, b"|x1=");
+        putnum(&mut buf, &mut k, x1 as i64);
+        put(&mut buf, &mut k, b"|x2=");
+        putnum(&mut buf, &mut k, x2 as i64);
+        put(&mut buf, &mut k, b"|x8=");
+        putnum(&mut buf, &mut k, x8 as i64);
+        put(&mut buf, &mut k, b"|ld=");
+        putnum(&mut buf, &mut k, crate::boot::loader_base() as i64);
+        put(&mut buf, &mut k, b"|lc=");
+        putnum(&mut buf, &mut k, crate::boot::libc_base() as i64);
+        put(&mut buf, &mut k, b"\n");
+        record(&buf[..k]);
+        // Real crash semantics: restore SIG_DFL and let the fault happen again,
+        // so a core dump / the platform's own reporting still happens.
+        let dfl = KSigaction { handler: 0, flags: 0, restorer: 0, mask: 0 };
+        syscall4(SYS_RT_SIGACTION, sig as usize, &dfl as *const KSigaction as usize, 0, 8);
+        let tid = syscall4(SYS_GETTID, 0, 0, 0, 0);
+        syscall4(SYS_TGKILL, tid as usize, tid as usize, sig as usize, 0);
+        syscall4(SYS_EXIT_GROUP, (128 + sig) as usize, 0, 0, 0);
     }
 }
 
@@ -2213,4 +2278,364 @@ pub unsafe extern "C" fn eaccess(path: *const CChar, mode: CInt) -> CInt {
 #[no_mangle]
 pub unsafe extern "C" fn euidaccess(path: *const CChar, mode: CInt) -> CInt {
     access(path, mode)
+}
+
+// ---------------------------------------------------------------- identity ---
+//
+// glibc's NSS module for /etc/passwd and /etc/group is compiled *into* libc:
+// nss_files opens "/etc/passwd" with a direct call, not through a GOT slot, so
+// interposition never sees it and it lands on the host file system. The result
+// is visible and embarrassing: `bash -i` prints "I have no name!", `groups`
+// says "cannot find name for group ID 20302" for every gid, `id` prints bare
+// numbers - while the very same file is readable by `cat`.
+//
+// Until the loader can redirect libc's internal calls (see docs/design: the
+// text is not writable - mprotect back to r-x is refused with EACCES on an app
+// domain, so body patching has to be baked in at build time), the identity
+// entry points are answered here, straight out of the rootfs.
+
+const SYS_READ: usize = 63;
+const ERANGE: CInt = 34;
+const O_RDONLY: CInt = 0;
+
+#[repr(C)]
+pub struct Passwd {
+    pw_name: *const CChar,
+    pw_passwd: *const CChar,
+    pw_uid: u32,
+    pw_gid: u32,
+    pw_gecos: *const CChar,
+    pw_dir: *const CChar,
+    pw_shell: *const CChar,
+}
+
+#[repr(C)]
+pub struct Group {
+    gr_name: *const CChar,
+    gr_passwd: *const CChar,
+    gr_gid: u32,
+    gr_mem: *const *const CChar,
+}
+
+static mut EMPTY_MEMBERS: [*const CChar; 1] = [core::ptr::null()];
+
+/// Raw source of whichever file is being scanned. One per process: the non-_r
+/// getpwuid()/getgrgid() in glibc are not thread safe either, and the _r forms
+/// only borrow it for the duration of a call.
+static mut ID_SRC: [u8; 16384] = [0; 16384];
+static mut ID_BUSY: AtomicU8 = AtomicU8::new(0);
+/// Scratch for the non-reentrant results.
+static mut ID_RES: [u8; 512] = [0; 512];
+
+unsafe fn id_lock() {
+    while ID_BUSY.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed).is_err() {
+        core::hint::spin_loop();
+    }
+}
+
+unsafe fn id_unlock() { ID_BUSY.store(0, Ordering::Release); }
+
+unsafe fn slurp(path: &[u8]) -> usize {
+    let mut p = [0u8; 64];
+    if path.len() + 1 > p.len() { return 0; }
+    let mut i = 0;
+    while i < path.len() { p[i] = path[i]; i += 1; }
+    p[i] = 0;
+    let fd = open(p.as_ptr() as *const CChar, O_RDONLY, 0);
+    if fd < 0 { return 0; }
+    let src = core::ptr::addr_of_mut!(ID_SRC) as usize;
+    let cap = core::mem::size_of::<[u8; 16384]>();
+    let mut n = 0usize;
+    while n < cap {
+        let r = syscall4(SYS_READ, fd as usize, src + n, cap - n, 0);
+        if r <= 0 { break; }
+        n += r as usize;
+    }
+    syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+    n
+}
+
+/// Field boundaries of one line, as (start, len) pairs into ID_SRC.
+struct Fields {
+    n: usize,
+    at: [(usize, usize); 7],
+}
+
+unsafe fn fields_of_line(start: usize, end: usize) -> Fields {
+    let src = core::ptr::addr_of!(ID_SRC) as *const u8;
+    let mut f = Fields { n: 0, at: [(0, 0); 7] };
+    let mut s = start;
+    let mut i = start;
+    while i <= end && f.n < 7 {
+        let stop = i == end || core::ptr::read_volatile(src.add(i)) == b':';
+        if stop {
+            f.at[f.n] = (s, i - s);
+            f.n += 1;
+            s = i + 1;
+        }
+        i += 1;
+    }
+    f
+}
+
+unsafe fn field_bytes(f: &Fields, idx: usize) -> &'static [u8] {
+    let src = core::ptr::addr_of!(ID_SRC) as *const u8;
+    if idx >= f.n { return &[]; }
+    let (s, l) = f.at[idx];
+    core::slice::from_raw_parts(src.add(s), l)
+}
+
+unsafe fn field_num(f: &Fields, idx: usize) -> u32 {
+    let b = field_bytes(f, idx);
+    let mut v = 0u32;
+    let mut i = 0;
+    while i < b.len() && b[i] >= b'0' && b[i] <= b'9' {
+        v = v.wrapping_mul(10).wrapping_add((b[i] - b'0') as u32);
+        i += 1;
+    }
+    v
+}
+
+/// Copy `b` plus a NUL into `dst[*used..]`, returning the pointer or null when
+/// it does not fit.
+unsafe fn put_str(dst: usize, cap: usize, used: &mut usize, b: &[u8]) -> *const CChar {
+    if *used + b.len() + 1 > cap { return core::ptr::null(); }
+    let p = dst + *used;
+    let mut i = 0;
+    while i < b.len() {
+        core::ptr::write_volatile((p + i) as *mut u8, b[i]);
+        i += 1;
+    }
+    core::ptr::write_volatile((p + i) as *mut u8, 0);
+    *used += b.len() + 1;
+    p as *const CChar
+}
+
+/// Scan `file` for a line whose `want_idx` field matches, and materialise it.
+unsafe fn scan(
+    file: &[u8],
+    want_idx: usize,
+    want_num: Option<u32>,
+    want_str: Option<&[u8]>,
+    dst: *mut u8,
+    cap: usize,
+) -> Option<Fields> {
+    let n = slurp(file);
+    if n == 0 { return None; }
+    let src = core::ptr::addr_of!(ID_SRC) as *const u8;
+    let mut i = 0usize;
+    while i < n {
+        let mut e = i;
+        while e < n && core::ptr::read_volatile(src.add(e)) != b'\n' { e += 1; }
+        if e > i {
+            let f = fields_of_line(i, e);
+            let hit = if let Some(num) = want_num {
+                field_num(&f, want_idx) == num
+            } else if let Some(s) = want_str {
+                field_bytes(&f, want_idx) == s
+            } else {
+                false
+            };
+            if hit {
+                let _ = (dst, cap);
+                return Some(f);
+            }
+        }
+        i = e + 1;
+    }
+    None
+}
+
+unsafe fn fill_passwd(f: &Fields, dst: *mut u8, cap: usize, out: *mut Passwd) -> CInt {
+    let d = dst as usize;
+    let mut used = 0usize;
+    let name = put_str(d, cap, &mut used, field_bytes(f, 0));
+    let pass = put_str(d, cap, &mut used, field_bytes(f, 1));
+    let gecos = put_str(d, cap, &mut used, field_bytes(f, 4));
+    let dir = put_str(d, cap, &mut used, field_bytes(f, 5));
+    let shell = put_str(d, cap, &mut used, field_bytes(f, 6));
+    if name.is_null() || pass.is_null() || gecos.is_null() || dir.is_null() || shell.is_null() {
+        return ERANGE;
+    }
+    core::ptr::write_volatile(out, Passwd {
+        pw_name: name,
+        pw_passwd: pass,
+        pw_uid: field_num(f, 2),
+        pw_gid: field_num(f, 3),
+        pw_gecos: gecos,
+        pw_dir: dir,
+        pw_shell: shell,
+    });
+    0
+}
+
+unsafe fn fill_group(f: &Fields, dst: *mut u8, cap: usize, out: *mut Group) -> CInt {
+    let d = dst as usize;
+    let mut used = 0usize;
+    let name = put_str(d, cap, &mut used, field_bytes(f, 0));
+    let pass = put_str(d, cap, &mut used, field_bytes(f, 1));
+    if name.is_null() || pass.is_null() { return ERANGE; }
+    core::ptr::write_volatile(out, Group {
+        gr_name: name,
+        gr_passwd: pass,
+        gr_gid: field_num(f, 2),
+        gr_mem: core::ptr::addr_of!(EMPTY_MEMBERS) as *const *const CChar,
+    });
+    0
+}
+
+unsafe fn synth_group(gid: u32, dst: *mut u8, cap: usize, out: *mut Group) -> CInt {
+    let mut nb = [0u8; 12];
+    let n = put_i64(&mut nb, 0, gid as i64);
+    // one string, "husk" + the gid: two put_str calls would insert a NUL in
+    // the middle and `groups` would print the bare prefix.
+    let mut full = [0u8; 16];
+    let mut m = 0usize;
+    let mut i = 0;
+    while i < 4 { full[i] = b"husk"[i]; m += 1; i += 1; }
+    i = 0;
+    while i < n { full[m] = nb[i]; m += 1; i += 1; }
+    let d = dst as usize;
+    let mut used = 0usize;
+    let name = put_str(d, cap, &mut used, &full[..m]);
+    if name.is_null() { return ERANGE; }
+    let pass = put_str(d, cap, &mut used, b"x");
+    if pass.is_null() { return ERANGE; }
+    core::ptr::write_volatile(out, Group {
+        gr_name: name,
+        gr_passwd: pass,
+        gr_gid: gid,
+        gr_mem: core::ptr::addr_of!(EMPTY_MEMBERS) as *const *const CChar,
+    });
+    0
+}
+
+unsafe fn pw_lookup(
+    idx: usize,
+    num: Option<u32>,
+    s: Option<&[u8]>,
+    dst: *mut u8,
+    cap: usize,
+    out: *mut Passwd,
+) -> CInt {
+    id_lock();
+    let r = match scan(b"/etc/passwd", idx, num, s, dst, cap) {
+        Some(f) => fill_passwd(&f, dst, cap, out),
+        None => 2, // ENOENT: "no such user"
+    };
+    id_unlock();
+    r
+}
+
+unsafe fn gr_lookup(
+    idx: usize,
+    num: Option<u32>,
+    s: Option<&[u8]>,
+    dst: *mut u8,
+    cap: usize,
+    out: *mut Group,
+) -> CInt {
+    id_lock();
+    let r = match scan(b"/etc/group", idx, num, s, dst, cap) {
+        Some(f) => fill_group(&f, dst, cap, out),
+        // Android hands every app a fistful of kernel group ids that no
+        // /etc/group ever lists (input, log, adb, sdcard_rw, ...). Answering
+        // NULL makes `groups` and `ls -l` print "cannot find name for group
+        // ID" for each of them; a stable synthetic name is the honest answer
+        // and it matches what the app writes into /etc/group at startup.
+        None => match num {
+            Some(g) => synth_group(g, dst, cap, out),
+            None => 2,
+        },
+    };
+    id_unlock();
+    r
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn getpwuid_r(uid: u32, pwd: *mut Passwd, buf: *mut CChar, buflen: usize,
+                                    result: *mut *mut Passwd) -> CInt {
+    if !result.is_null() { core::ptr::write_volatile(result, core::ptr::null_mut()); }
+    let r = pw_lookup(2, Some(uid), None, buf as *mut u8, buflen, pwd);
+    if r == 0 && !result.is_null() { core::ptr::write_volatile(result, pwd); }
+    r
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn getpwnam_r(name: *const CChar, pwd: *mut Passwd, buf: *mut CChar,
+                                    buflen: usize, result: *mut *mut Passwd) -> CInt {
+    if !result.is_null() { core::ptr::write_volatile(result, core::ptr::null_mut()); }
+    if name.is_null() { return 22; }
+    let r = pw_lookup(0, None, Some(bytes(name)), buf as *mut u8, buflen, pwd);
+    if r == 0 && !result.is_null() { core::ptr::write_volatile(result, pwd); }
+    r
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn getpwuid(uid: u32) -> *mut Passwd {
+    static mut RES: Passwd = Passwd {
+        pw_name: core::ptr::null(), pw_passwd: core::ptr::null(), pw_uid: 0, pw_gid: 0,
+        pw_gecos: core::ptr::null(), pw_dir: core::ptr::null(), pw_shell: core::ptr::null(),
+    };
+    let out = core::ptr::addr_of_mut!(RES);
+    let buf = core::ptr::addr_of_mut!(ID_RES) as *mut u8;
+    let cap = core::mem::size_of::<[u8; 512]>();
+    if pw_lookup(2, Some(uid), None, buf, cap, out) == 0 { out } else { core::ptr::null_mut() }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn getpwnam(name: *const CChar) -> *mut Passwd {
+    static mut RES: Passwd = Passwd {
+        pw_name: core::ptr::null(), pw_passwd: core::ptr::null(), pw_uid: 0, pw_gid: 0,
+        pw_gecos: core::ptr::null(), pw_dir: core::ptr::null(), pw_shell: core::ptr::null(),
+    };
+    if name.is_null() { return core::ptr::null_mut(); }
+    let out = core::ptr::addr_of_mut!(RES);
+    let buf = core::ptr::addr_of_mut!(ID_RES) as *mut u8;
+    let cap = core::mem::size_of::<[u8; 512]>();
+    if pw_lookup(0, None, Some(bytes(name)), buf, cap, out) == 0 { out } else { core::ptr::null_mut() }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn getgrgid_r(gid: u32, grp: *mut Group, buf: *mut CChar, buflen: usize,
+                                    result: *mut *mut Group) -> CInt {
+    if !result.is_null() { core::ptr::write_volatile(result, core::ptr::null_mut()); }
+    let r = gr_lookup(2, Some(gid), None, buf as *mut u8, buflen, grp);
+    if r == 0 && !result.is_null() { core::ptr::write_volatile(result, grp); }
+    r
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn getgrnam_r(name: *const CChar, grp: *mut Group, buf: *mut CChar,
+                                    buflen: usize, result: *mut *mut Group) -> CInt {
+    if !result.is_null() { core::ptr::write_volatile(result, core::ptr::null_mut()); }
+    if name.is_null() { return 22; }
+    let r = gr_lookup(0, None, Some(bytes(name)), buf as *mut u8, buflen, grp);
+    if r == 0 && !result.is_null() { core::ptr::write_volatile(result, grp); }
+    r
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn getgrgid(gid: u32) -> *mut Group {
+    static mut RES: Group = Group {
+        gr_name: core::ptr::null(), gr_passwd: core::ptr::null(), gr_gid: 0,
+        gr_mem: core::ptr::null(),
+    };
+    let out = core::ptr::addr_of_mut!(RES);
+    let buf = core::ptr::addr_of_mut!(ID_RES) as *mut u8;
+    let cap = core::mem::size_of::<[u8; 512]>();
+    if gr_lookup(2, Some(gid), None, buf, cap, out) == 0 { out } else { core::ptr::null_mut() }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn getgrnam(name: *const CChar) -> *mut Group {
+    static mut RES: Group = Group {
+        gr_name: core::ptr::null(), gr_passwd: core::ptr::null(), gr_gid: 0,
+        gr_mem: core::ptr::null(),
+    };
+    if name.is_null() { return core::ptr::null_mut(); }
+    let out = core::ptr::addr_of_mut!(RES);
+    let buf = core::ptr::addr_of_mut!(ID_RES) as *mut u8;
+    let cap = core::mem::size_of::<[u8; 512]>();
+    if gr_lookup(0, None, Some(bytes(name)), buf, cap, out) == 0 { out } else { core::ptr::null_mut() }
 }

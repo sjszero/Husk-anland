@@ -147,3 +147,22 @@
 界面仍待办（都是上面这次修复**之后**才看得见的问题）：
 提示符前 `I have no name!`（rootfs 里没有本 uid 的 passwd 条目）、`pwd` 是 `/root` 不是 `/`、
 `groups` 告警、软键盘要点一下才出、旋转/Surface 重建、`vim`/`htop`。
+
+---
+
+# 2026-11-22 21:10 追加：身份/提示符修好；libc 内部调用绕过 interpose（重要）
+
+**FACT**：`bash -i` 现在提示符是 `husk@husk:/$`，`groups`/`id` 不再刷
+`cannot find name for group ID`。做法见 [evidence 29](design/evidence/29-nss-identity-20261122.md)：
+身份函数（`getpwuid`/`getgrgid` 及 `_r`/`get*nam` 共 8 个）由 shim 直接读 rootfs 的
+`/etc/passwd`、`/etc/group` 回答；文件里没有的 Android 内核组 id 返回合成名 `husk<gid>`；
+app 启动时把自身 uid/gid/补充组幂等写进这两个文件，并把 `PS1` 固定成 `\u@husk:\w\$`
+（`\h` 是 `gethostname()`，Android 恒为 `localhost`）。
+
+**新发现的架构性缺口（FACT）**：shim 的 interpose 只改 GOT 槽，libc **内部**的直接调用
+绕不过去。所以 glibc 内建的 `files` NSS 读的是宿主 `/etc/passwd`；locale、`/etc/hosts`、
+apt/dpkg 的状态文件同理。运行时改 libc 文本在本机**不可行**：`mprotect(rw)` 成功，但补完
+`mprotect(r-x)` 被 EACCES 拒绝（app 域 W^X），整页失去执行权限后必崩（已在
+`_IO_file_seekoff → lseek64` 上实测到）。因此文本修补必须在**构建期**做：把入口改成
+`adrp/ldr/br`，目标地址放在新增的**可写** PT_LOAD 槽里，运行时只写数据段。
+设计写在 `docs/design/libc-interpose.md`。

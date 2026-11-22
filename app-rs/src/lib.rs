@@ -287,8 +287,15 @@ unsafe extern "C" fn on_config(_a: *mut ANativeActivity) {
     }
 }
 
-unsafe extern "C" fn on_focus(_a: *mut ANativeActivity, focused: c_int) {
+unsafe extern "C" fn on_focus(a: *mut ANativeActivity, focused: c_int) {
+    log(&format!("cb: onWindowFocusChanged focused={focused}"));
     FOCUSED.store(focused != 0, Ordering::SeqCst);
+    // Nothing in a NativeActivity owns a text field, so the IME never comes up
+    // on its own -- the old build needed a tap before the keyboard appeared.
+    // Ask for it as soon as the window has focus.
+    if focused != 0 && !a.is_null() {
+        ANativeActivity_showSoftInput(a, 0);
+    }
     if let Ok(mut g) = APP.lock() {
         if let Some(app) = g.as_mut() {
             app.dirty = true;
@@ -344,6 +351,16 @@ pub unsafe extern "C" fn ANativeActivity_onCreate(activity: *mut ANativeActivity
         return;
     }
     ACTIVITY.store(activity, Ordering::SeqCst);
+    // Publish where the native libraries live. The path carries a per-install
+    // hash, so nothing outside this process can guess it, and `run-as` cannot
+    // list /data/app to find out. Debugging a guest by hand (`files/gexec.sh`)
+    // needs exactly this.
+    if let Some(dir) = native_lib_dir() {
+        if !(*activity).internalDataPath.is_null() {
+            let files = CStr::from_ptr((*activity).internalDataPath).to_string_lossy().to_string();
+            let _ = std::fs::write(format!("{files}/libdir"), dir.as_bytes());
+        }
+    }
     // The platform hands us a callbacks struct of its own. Copying into it keeps
     // working whether the framework re-reads `activity->callbacks` on every
     // event (NDK doc model) or keeps its static struct pointer and dereferences

@@ -18,6 +18,11 @@ cd "$(dirname "$0")"
 ROOT=$(cd ../.. && pwd)
 NDK=${NDK:?set NDK to your NDK toolchain bin dir, e.g. $ANDROID_HOME/ndk/<ver>/toolchains/llvm/prebuilt/<host>/bin}
 OUT=${OUT:-$ROOT/tools/probe-app/app/src/main/jniLibs/arm64-v8a}
+# The base loader must come from the rootfs that will actually run: ld.so and
+# libc are a matched pair, and the *_dl_init/scan sites are version-checked.
+# ld-noble2404-ld.so is the untouched loader of the Ubuntu 24.04 rootfs used on
+# the test device; override with LOADER=<path> for another rootfs.
+LOADER=${LOADER:-ld-noble2404-ld.so}
 
 cd "$ROOT/runtime"
 RUSTFLAGS="-C link-arg=-z -C link-arg=max-page-size=4096 \
@@ -45,7 +50,7 @@ $NDK/llvm-objcopy -O binary init-hook.o init-hook.bin
 # every expectation below is an assertion: the glibc version, and how many sites
 # of each kind the image must have. A different glibc build fails here instead of
 # producing a loader with the wrong instructions removed.
-scan patch ld-linux-aarch64.so.1.orig ld-stage1.so \
+scan patch "$LOADER" ld-stage1.so \
     --version 2.35 --expect set_robust_list=1 --expect rseq=1
 embed "$SHIM" ld-stage1.so init-hook.bin ld-embedded.so
 
