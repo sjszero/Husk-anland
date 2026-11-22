@@ -1,0 +1,69 @@
+evidence 25 - the interactive session: one env var, and a fork/JNI bug
+2026-11-22   device PLE110, Android 16, kernel 6.6.118, untrusted_app
+rootfs Ubuntu 24.04 / glibc 2.39, loader sha256 1600a850...1cbee
+
+SYMPTOM
+  Starting bash under a PTY produced no output at all and the child died with
+  SIGSYS (signal 31) within milliseconds. Same for bash -c 'echo HI'. Two
+  different launchers (a hand-written Java shell, and the existing com.terminal
+  app with a native PTY renderer) behaved identically, so it was not a UI bug.
+  /proc showed nothing left behind: the process was gone before printing a byte.
+
+WHAT WAS RULED OUT (each measured, not assumed)
+  - /dev/ptmx unavailable .......... no, it opens (evidence 24)
+  - exec failing (EACCES/ENOENT) ... no, that yields exit 127, not SIGSYS
+  - loader mismatch ................ no, the packaged libld.so is byte-identical
+                                     in both APKs (293,664 B / b7e44812..., after
+                                     the packager's ELF rewrite; source copy is
+                                     290,816 B / 1600a850...)
+  - rootfs / libc wrong ............ no, libc.so.6 is the patched build
+                                     (18acad63...) and the same tree passes 31/31
+                                     through the probe harness
+  - interactive-vs-noninteractive .. no, both die identically
+
+ROOT CAUSE
+  glibc 2.35+ registers rseq at thread setup, very early, inside the dynamic
+  loader. Android's app seccomp policy turns rseq into SIGSYS. That happens
+  before the path shim installs its SIGSYS handler, which is why NR_SIGSYS=log
+  wrote nothing and why the exit is a bare signal 31.
+
+  The probe launcher has always exported
+      GLIBC_TUNABLES=glibc.pthread.rseq=0
+  (see tools/native-runtime-probe-apk .../MainActivity.java, "glibc 2.35+
+  registers rseq at startup; this device's seccomp policy kills rseq"). The new
+  launcher was written from scratch and omitted it.
+
+  CONTROL EXPERIMENT (FACT): the same loader, same rootfs, spawned with
+  ProcessBuilder without the tunable -> SIGSYS, no output. With the tunable ->
+  works. One variable, two outcomes.
+
+SECOND BUG (found on the way, fixed)
+  The PTY helper called JNI functions (GetStringUTFChars / GetObjectArrayElement)
+  inside the forked child. Calling into ART after fork() is undefined behaviour.
+  Now every string, argv and envp is materialised in the parent and the child
+  only does dup2 / chdir / execve.
+
+FIX
+  env for the guest session now includes:
+      GLIBC_TUNABLES=glibc.pthread.rseq=0
+      NR_ROOTFS=<rootfs>  NR_LD=<loader>  TERM=xterm-256color  LANG=C.UTF-8
+      USER=root  HOME=/root  SHELL=/usr/bin/bash  PATH=/usr/bin:/bin:/usr/sbin:/sbin
+  argv/envp built before forkpty(); child is async-signal-safe only.
+
+RESULT (FACT, screenshots taken on device)
+  self-test  bash -c 'echo HI; id; pwd; ls /'
+             -> HI / uid=10513 gid=10513 / /root / etc root usr, exit code 0
+  session    written to the pty: "echo READY; uname -a; ls"
+             -> READY
+                Linux localhost 6.6.118-android15-8-g9bc34d5b0c79-abogki537459655-4k
+                #1 SMP PREEMPT Wed Jul 22 09:32:35 UTC 2026 aarch64 aarch64
+                aarch64 GNU/Linux
+  ps -A      -> 15406 12419 libld.so  ... bash -i        (session alive)
+
+STILL OPEN
+  - The interactive prompt (PS1) is not visible; commands work but the shell does
+    not paint a prompt. Cosmetic, next thing to look at.
+  - Input focusing in the shell UI, resize (TIOCSWINSZ), background/foreground
+    lifecycle: untouched.
+  - pwd inside the session is /root because the launcher chdir()s into
+    rootfs/root; the shim reports it as a guest path. chdir(rootfs) would give /.

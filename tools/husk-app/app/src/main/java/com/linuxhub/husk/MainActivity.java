@@ -45,7 +45,7 @@ public class MainActivity extends Activity {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         setContentView(buildUi());
-        start();
+        new Thread(this::boot, "boot").start();
     }
 
     // ---------------------------------------------------------------- layout
@@ -122,44 +122,121 @@ public class MainActivity extends Activity {
 
     // ------------------------------------------------------------------ runtime
 
-    private void start() {
+    private void boot() {
         String loader = new File(getApplicationInfo().nativeLibraryDir, "libld.so").getAbsolutePath();
         File rootfs = new File(getFilesDir(), "rootfs");
         String bash = new File(rootfs, "usr/bin/bash").getAbsolutePath();
         String libs = new File(rootfs, "usr/lib/aarch64-linux-gnu").getAbsolutePath();
         String home = new File(rootfs, "root").getAbsolutePath();
+        String log = new File(getFilesDir(), "husk-child.log").getAbsolutePath();
 
+        ui(status, "检查中");
         if (!new File(loader).exists() || !new File(bash).exists()) {
-            status.setText("未就绪");
-            append("Husk 0.1\n\n"
-                    + "缺少组件：\n"
-                    + "  loader : " + loader + (new File(loader).exists() ? "  ok" : "  缺失") + "\n"
-                    + "  rootfs : " + rootfs + (new File(bash).exists() ? "  ok" : "  缺失") + "\n\n"
-                    + "rootfs 需要一个 glibc 发行版目录树，例如 Ubuntu 24.04 arm64，\n"
-                    + "放在 " + rootfs + "\n");
+            ui(status, "未就绪");
+            ui(out, "Husk 0.1\n\n缺少组件：\n  loader : " + loader
+                    + (new File(loader).exists() ? "  ok" : "  缺失")
+                    + "\n  rootfs : " + rootfs + (new File(bash).exists() ? "  ok" : "  缺失") + "\n");
             return;
         }
         new File(home).mkdirs();
 
-        int rows = 30, cols = 80;
-        String log = new File(getFilesDir(), "husk-child.log").getAbsolutePath();
-        int fd = Pty.spawn(loader, libs, bash, rootfs.getAbsolutePath(), loader, rows, cols, home, log);
-        if (fd < 0) {
-            status.setText("启动失败");
-            append("forkpty/exec 失败\n");
-            return;
+        // 0) control: same loader, spawned the way the probe harness does it
+        ui(out, probeViaProcessBuilder(loader, libs, bash, rootfs.getAbsolutePath()));
+
+        // 1) non-interactive probe over a PTY
+        ui(out, selfTest(loader, libs, bash, rootfs.getAbsolutePath(), home, log));
+
+        // 2) the session itself
+        startSession(loader, libs, bash, rootfs.getAbsolutePath(), home, log);
+    }
+
+    /** Control experiment: spawn the same loader the way the probe harness does. */
+    private String probeViaProcessBuilder(String loader, String libs, String bash, String rootfs) {
+        StringBuilder sb = new StringBuilder("== 对照：ProcessBuilder（无 PTY）==\n");
+        try {
+            ProcessBuilder pb = new ProcessBuilder(loader, "--library-path", libs, bash,
+                    "-c", "echo HI; id; ls / | head -5");
+            pb.redirectErrorStream(true);
+            pb.directory(getFilesDir());
+            pb.environment().put("NR_ROOTFS", rootfs);
+            pb.environment().put("NR_LD", loader);
+            pb.environment().put("PATH", "/usr/bin:/bin");
+            Process pr = pb.start();
+            byte[] buf = new byte[4096];
+            long deadline = System.currentTimeMillis() + 5000;
+            java.io.InputStream in = pr.getInputStream();
+            while (System.currentTimeMillis() < deadline) {
+                int n = in.read(buf);
+                if (n <= 0) break;
+                sb.append(new String(buf, 0, n, "UTF-8"));
+            }
+            sb.append("[status: ").append(describe(pr.waitFor())).append("]\n");
+        } catch (Exception e) {
+            sb.append("[exception: ").append(e).append("]\n");
         }
+        return sb.toString();
+    }
+
+    private String selfTest(String loader, String libs, String bash, String rootfs,
+                            String home, String log) {
+        StringBuilder sb = new StringBuilder("== 自检：bash -c 'echo HI; id; pwd; ls /' ==\n");
+        int fd = Pty.spawn(loader, libs, bash, rootfs, loader, 40, 100, home, log,
+                sigsysLog(), new String[]{"-c", "echo HI; id; pwd; ls / | head -8"});
+        if (fd < 0) return sb.append("spawn 失败\n").toString();
+
+        ParcelFileDescriptor pfd = ParcelFileDescriptor.adoptFd(fd);
+        try (FileInputStream in = new FileInputStream(pfd.getFileDescriptor())) {
+            byte[] buf = new byte[4096];
+            long deadline = System.currentTimeMillis() + 4000;
+            while (System.currentTimeMillis() < deadline) {
+                int n = in.read(buf);
+                if (n <= 0) break;
+                sb.append(clean(new String(buf, 0, n, "UTF-8")));
+            }
+        } catch (IOException e) {
+            sb.append("[read: ").append(e.getMessage()).append("]\n");
+        }
+        int st = Pty.waitExit(-1);
+        sb.append("[status: ").append(describe(st)).append("]\n");
+        try { pfd.close(); } catch (IOException ignored) {}
+        return sb.toString();
+    }
+
+    private void startSession(String loader, String libs, String bash, String rootfs,
+                              String home, String log) {
+        int fd = Pty.spawn(loader, libs, bash, rootfs, loader, 30, 80, home, log,
+                sigsysLog(), new String[]{"-i"});
+        if (fd < 0) { ui(status, "启动失败"); ui(out, "forkpty/exec 失败\n"); return; }
+
         pty = ParcelFileDescriptor.adoptFd(fd);
         toGuest = new FileOutputStream(pty.getFileDescriptor());
         alive = true;
-
-        status.setText("运行中 · " + rootfs.getName() + " · loader " + new File(loader).getName());
-        append("Husk 0.1 — 输入命令后按回车\n\n");
+        ui(status, "运行中 · loader " + new File(loader).getName());
+        ui(out, "\n== 交互式会话 ==\n");
 
         reader = new Thread(this::readLoop, "pty-reader");
         reader.setDaemon(true);
         reader.start();
+
+        // provocation: proves the write path and that bash answers on the pty
+        new Thread(() -> {
+            try { Thread.sleep(800); } catch (InterruptedException ignored) {}
+            send("echo READY; uname -a; ls\n");
+        }, "kick").start();
     }
+
+    private String sigsysLog() {
+        return new File(getFilesDir(), "sigsys.log").getAbsolutePath();
+    }
+
+    private static String describe(int st) {
+        if (st == -2) return "仍在运行";
+        if (st < 0) return "未知";
+        if ((st & 0x7f) != 0) return "被信号 " + (st & 0x7f) + " 终止";
+        return "退出码 " + ((st >> 8) & 0xff);
+    }
+
+    private void ui(TextView v, String s) { runOnUiThread(() -> { if (v == out) append(s); else v.setText(s); }); }
 
     private void readLoop() {
         byte[] buf = new byte[4096];
@@ -173,12 +250,8 @@ public class MainActivity extends Activity {
         }
         final int st = Pty.waitExit(-1);
         runOnUiThread(() -> {
-            String why;
-            if (st < 0) why = "状态未知";
-            else if ((st & 0x7f) != 0) why = "被信号 " + (st & 0x7f) + " 终止";
-            else why = "退出码 " + ((st >> 8) & 0xff);
-            status.setText("会话已结束 · " + why);
-            append("\n[session ended: " + why + "]\n");
+            status.setText("会话已结束 · " + describe(st));
+            append("\n[session ended: " + describe(st) + "]\n");
         });
     }
 

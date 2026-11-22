@@ -9,7 +9,7 @@ final class Pty {
     /** @return master fd, or -1 on failure */
     static native int spawn(String loader, String libraryPath, String exe,
                             String rootfs, String ld, int rows, int cols,
-                            String home, String logPath);
+                            String home, String logPath, String sigsysLog, String[] extra);
 
     static native int resize(int fd, int rows, int cols);
 
