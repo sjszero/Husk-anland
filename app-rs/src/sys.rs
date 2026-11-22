@@ -90,6 +90,8 @@ pub struct ANativeActivity {
 
 extern "C" {
     pub fn ANativeActivity_showSoftInput(activity: *mut ANativeActivity, flags: u32);
+    pub fn ANativeWindow_getWidth(window: *mut c_void) -> i32;
+    pub fn ANativeWindow_getHeight(window: *mut c_void) -> i32;
     pub fn ANativeActivity_setWindowFlags(activity: *mut ANativeActivity, addFlags: u32, removeFlags: u32);
 
     pub fn ALooper_prepare(opts: c_int) -> *mut c_void;

@@ -70,6 +70,7 @@ struct App {
     /// storm (700+ zombies on 2026-11-22).
     started: bool,
     last_spawn: Option<std::time::Instant>,
+    no_window_logged: bool,
 }
 
 impl App {
@@ -85,6 +86,7 @@ impl App {
             drag: 0,
             started: false,
             last_spawn: None,
+            no_window_logged: false,
         }
     }
 
@@ -198,6 +200,10 @@ impl App {
     fn sync_surface(&mut self) {
         let win = WINDOW.load(Ordering::SeqCst) as usize;
         if win == 0 {
+            if !self.no_window_logged {
+                self.no_window_logged = true;
+                log("sync: waiting for onNativeWindowCreated");
+            }
             if self.gfx.is_some() {
                 self.gfx = None; // Drop tears down EGL; the session keeps running.
             }
@@ -209,7 +215,7 @@ impl App {
             self.win_ptr = win;
             self.dirty = true;
             if self.gfx.is_none() {
-                log("EGL surface failed");
+                log(&format!("EGL surface failed for win={win:#x}"));
                 return;
             }
         }
@@ -270,9 +276,9 @@ static CALLBACKS: ANativeActivityCallbacks = ANativeActivityCallbacks {
     onLowMemory: None,
 };
 
-unsafe extern "C" fn on_start(_a: *mut ANativeActivity) {}
-unsafe extern "C" fn on_resume(_a: *mut ANativeActivity) {}
-unsafe extern "C" fn on_pause(_a: *mut ANativeActivity) {}
+unsafe extern "C" fn on_start(_a: *mut ANativeActivity) { log("cb: onStart"); }
+unsafe extern "C" fn on_resume(_a: *mut ANativeActivity) { log("cb: onResume"); }
+unsafe extern "C" fn on_pause(_a: *mut ANativeActivity) { log("cb: onPause"); }
 unsafe extern "C" fn on_config(_a: *mut ANativeActivity) {
     if let Ok(mut g) = APP.lock() {
         if let Some(app) = g.as_mut() {
@@ -291,15 +297,24 @@ unsafe extern "C" fn on_focus(_a: *mut ANativeActivity, focused: c_int) {
 }
 
 unsafe extern "C" fn on_window(_a: *mut ANativeActivity, w: *mut c_void) {
-    log(&format!("onNativeWindow win={:p}", w));
+    // Width/height straight from the window, so the log says whether the
+    // surface the platform handed us is a real one or a 0x0 stub.
+    let (mut ww, mut wh) = (0i32, 0i32);
+    if !w.is_null() {
+        ww = ANativeWindow_getWidth(w as *mut _);
+        wh = ANativeWindow_getHeight(w as *mut _);
+    }
+    log(&format!("cb: onNativeWindow win={:p} {ww}x{wh}", w));
     WINDOW.store(w, Ordering::SeqCst);
 }
 
-unsafe extern "C" fn on_window_gone(_a: *mut ANativeActivity, _w: *mut c_void) {
+unsafe extern "C" fn on_window_gone(_a: *mut ANativeActivity, w: *mut c_void) {
+    log(&format!("cb: onNativeWindowDestroyed win={:p}", w));
     WINDOW.store(core::ptr::null_mut(), Ordering::SeqCst);
 }
 
 unsafe extern "C" fn on_input_queue(_a: *mut ANativeActivity, q: *mut c_void) {
+    log(&format!("cb: onInputQueueCreated q={:p}", q));
     INPUTQ.store(q, Ordering::SeqCst);
     let looper = LOOPER.load(Ordering::SeqCst);
     if !looper.is_null() {
@@ -312,6 +327,7 @@ unsafe extern "C" fn on_input_queue_gone(_a: *mut ANativeActivity, _q: *mut c_vo
 }
 
 unsafe extern "C" fn on_destroy(_a: *mut ANativeActivity) {
+    log("cb: onDestroy");
     DESTROYED.store(true, Ordering::SeqCst);
     let l = LOOPER.load(Ordering::SeqCst);
     if !l.is_null() {
@@ -328,7 +344,32 @@ pub unsafe extern "C" fn ANativeActivity_onCreate(activity: *mut ANativeActivity
         return;
     }
     ACTIVITY.store(activity, Ordering::SeqCst);
-    (*activity).callbacks = &CALLBACKS as *const _ as *mut ANativeActivityCallbacks;
+    // The platform hands us a callbacks struct of its own. Copying into it keeps
+    // working whether the framework re-reads `activity->callbacks` on every
+    // event (NDK doc model) or keeps its static struct pointer and dereferences
+    // that. Replacing the pointer only works for the former; on this ROM the
+    // pointer swap produced *no* lifecycle or window callback at all, which is
+    // what a stale static pointer looks like.
+    let fw_cb = (*activity).callbacks;
+    if !fw_cb.is_null() {
+        let p = fw_cb as usize;
+        let aligned = p % core::mem::align_of::<ANativeActivityCallbacks>() == 0;
+        if aligned {
+            let bytes = core::mem::size_of::<ANativeActivityCallbacks>();
+            log(&format!("onCreate callbacks={fw_cb:p} -> in-place copy ({bytes} bytes)"));
+            core::ptr::copy_nonoverlapping(
+                &CALLBACKS as *const ANativeActivityCallbacks as *const u8,
+                fw_cb as *mut u8,
+                bytes,
+            );
+        } else {
+            log(&format!("onCreate callbacks={fw_cb:p} misaligned"));
+            (*activity).callbacks = &CALLBACKS as *const _ as *mut ANativeActivityCallbacks;
+        }
+    } else {
+        log("onCreate callbacks=null -> installing ours");
+        (*activity).callbacks = &CALLBACKS as *const _ as *mut ANativeActivityCallbacks;
+    }
     (*activity).instance = core::ptr::null_mut();
     if let Ok(mut g) = APP.lock() {
         *g = Some(Box::new(App::new()));

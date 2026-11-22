@@ -125,3 +125,25 @@
 
 实测对齐：guest `bash`/`libc.so.6`/`ld-linux` 全部 `p_align = 0x10000`；我们的 `libhuskapp.so` `0x4000`；
 `libld.so` 混合但满足 16K 同余。详见 [design/page-size.md](design/page-size.md)。
+
+---
+
+# 2026-11-22 21:00 追加：黑屏已修（真根因，已上机验证）
+
+**FACT**：`ANativeActivity_onCreate` 里替换 `activity->callbacks` 指针无效——平台在我们返回后
+把它指回自己的静态表，所以整张回调表（`onStart`/`onResume`/`onInputQueueCreated`/
+`onNativeWindowCreated`）一条都收不到。窗口有 surface、`HAS_DRAWN`，但那是 WindowManager
+自己画的背景，我们从未拿到 `ANativeWindow`。
+
+修法：**原地覆盖平台给的那张 128 字节回调表**，不动指针。实测现在能收到
+`onStart` / `onResume` / `onInputQueueCreated` / `onNativeWindow win=... 1080x2400`，
+`bash -i` 的提示符和光标正常显示在屏幕上。
+
+证据：[evidence 28](design/evidence/28-nativeactivity-callbacks-black-screen-20261122.md)
+
+同时把三个诊断点固定下来（每个回调一行 `cb: ...`、等窗口时打一次 `waiting for onNativeWindowCreated`、
+`EGL surface failed` 带窗口地址），以后黑屏能一次分清是「没窗口」「0x0 窗口」还是「EGL 建面失败」。
+
+界面仍待办（都是上面这次修复**之后**才看得见的问题）：
+提示符前 `I have no name!`（rootfs 里没有本 uid 的 passwd 条目）、`pwd` 是 `/root` 不是 `/`、
+`groups` 告警、软键盘要点一下才出、旋转/Surface 重建、`vim`/`htop`。
