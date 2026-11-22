@@ -85,6 +85,8 @@ struct ARect {
 type SurfaceControl = *mut c_void;
 type SurfaceTransaction = *mut c_void;
 type FnCreateSurfaceControl = unsafe extern "C" fn(*mut c_void, *const c_char) -> SurfaceControl;
+type FnCreateChildSurfaceControl =
+    unsafe extern "C" fn(SurfaceControl, *const c_char) -> SurfaceControl;
 type FnReleaseSurfaceControl = unsafe extern "C" fn(SurfaceControl);
 type FnCreateSurfaceTransaction = unsafe extern "C" fn() -> SurfaceTransaction;
 type FnDeleteSurfaceTransaction = unsafe extern "C" fn(SurfaceTransaction);
@@ -96,6 +98,7 @@ type FnApplySurfaceTransaction = unsafe extern "C" fn(SurfaceTransaction);
 
 struct SurfaceSymbols {
     create_from_window: FnCreateSurfaceControl,
+    create_child: FnCreateChildSurfaceControl,
     release_control: FnReleaseSurfaceControl,
     create_transaction: FnCreateSurfaceTransaction,
     delete_transaction: FnDeleteSurfaceTransaction,
@@ -169,6 +172,7 @@ unsafe fn load() -> Option<(*mut c_void, Symbols)> {
 unsafe fn load_surface(lib: *mut c_void) -> Option<SurfaceSymbols> {
     let names = [
         "ASurfaceControl_createFromWindow",
+        "ASurfaceControl_create",
         "ASurfaceControl_release",
         "ASurfaceTransaction_create",
         "ASurfaceTransaction_delete",
@@ -177,7 +181,7 @@ unsafe fn load_surface(lib: *mut c_void) -> Option<SurfaceSymbols> {
         "ASurfaceTransaction_setZOrder",
         "ASurfaceTransaction_apply",
     ];
-    let mut resolved = [core::ptr::null_mut::<c_void>(); 8];
+    let mut resolved = [core::ptr::null_mut::<c_void>(); 9];
     for (slot, name) in resolved.iter_mut().zip(names) {
         let cname = std::ffi::CString::new(name).ok()?;
         *slot = dlsym(lib, cname.as_ptr());
@@ -188,13 +192,14 @@ unsafe fn load_surface(lib: *mut c_void) -> Option<SurfaceSymbols> {
     }
     Some(SurfaceSymbols {
         create_from_window: core::mem::transmute(resolved[0]),
-        release_control: core::mem::transmute(resolved[1]),
-        create_transaction: core::mem::transmute(resolved[2]),
-        delete_transaction: core::mem::transmute(resolved[3]),
-        set_buffer: core::mem::transmute(resolved[4]),
-        set_geometry: core::mem::transmute(resolved[5]),
-        set_z_order: core::mem::transmute(resolved[6]),
-        apply: core::mem::transmute(resolved[7]),
+        create_child: core::mem::transmute(resolved[1]),
+        release_control: core::mem::transmute(resolved[2]),
+        create_transaction: core::mem::transmute(resolved[3]),
+        delete_transaction: core::mem::transmute(resolved[4]),
+        set_buffer: core::mem::transmute(resolved[5]),
+        set_geometry: core::mem::transmute(resolved[6]),
+        set_z_order: core::mem::transmute(resolved[7]),
+        apply: core::mem::transmute(resolved[8]),
     })
 }
 
@@ -347,7 +352,17 @@ unsafe fn present_buffer(lib: *mut c_void, s: &Symbols, buffer: *mut Ahb, desc: 
         crate::log("ahb|present|FAIL|surface symbols");
         return egl_fallback(buffer, desc);
     };
-    let control = (surface.create_from_window)(window, c"husk-ahb".as_ptr());
+    let parent = crate::surface::wait_parent(Duration::from_secs(10));
+    let control = match parent {
+        Some(parent) => {
+            crate::log(&format!("ahb|present|surface_parent={parent:#x}"));
+            (surface.create_child)(parent as SurfaceControl, c"husk-ahb".as_ptr())
+        }
+        None => {
+            crate::log("ahb|present|surface_parent|fallback|window");
+            (surface.create_from_window)(window, c"husk-ahb".as_ptr())
+        }
+    };
     crate::log(&format!("ahb|present|control={control:p}"));
     if control.is_null() {
         crate::log("ahb|present|surface_control_unavailable|egl_fallback");

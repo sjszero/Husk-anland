@@ -73,7 +73,8 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
   这是 JUDGMENT 下的优先复用对象。
 - evidence 47：FristOneRR PanVK + 发行版 Zink 已通过 **surfaceless EGL**，
   `eglinfo -B` / 纯 Rust `gl_probe` 均报 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`；
-  壳应用已自动注入 PanVK/Zink 环境并使用 `rootfs-full`。GBM/Wayland/X11/Surface/WSI 仍未通。
+  壳应用已自动注入 PanVK/Zink 环境并使用 `rootfs-full`。当时 GBM/Wayland/X11/Surface/WSI 仍未通；
+  后续 evidence 53 已打通 Android 窗口静态单帧 SurfaceControl 零拷贝，fence、连续帧与 WSI 仍待做。
 - evidence 48：PanVK 报实例扩展 18 项、设备扩展 171 项；支持 raw dma-buf 的
   `VK_EXT_external_memory_dma_buf` / `VK_KHR_external_memory_fd`，但缺
   `VK_KHR_android_surface` 与 `VK_ANDROID_external_memory_android_hardware_buffer`。
@@ -93,8 +94,10 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
 4. **已完成（evidence 47）**：发行版自带 Zink 已走这颗 PanVK，surfaceless `eglinfo` 与纯 Rust
    `gl_probe` 报出 Mali-G77 renderer。**已完成（evidence 51）**：app AHB dma-buf 按 LINEAR 2D
    image 导入 PanVK，GPU clear 后 staging buffer 与直接 dma-buf CPU mmap 均回读 9/9 红色；
-   每次外部 memory import 使用独立 `dup(fd)`。下一步只剩真正的 GBM/Wayland/X11、swapchain、WSI、
-   Android Surface 和窗口显示；headless renderer 或 image 导入不等于窗口系统验收。
+   每次外部 memory import 使用独立 `dup(fd)`。**已完成（evidence 53）**：同一 AHB 经平台
+   SurfaceView 的 BLAST SurfaceControl 用 `ASurfaceTransaction_setBuffer` 直接上屏，静态单帧
+   零拷贝和 SF `DEVICE` 合成已确认。下一步是 GBM/Wayland/X11、WSI/swapchain、fence、连续帧和
+   窗口生命周期；静态单帧不等于完整窗口系统验收。
 5. `funnymdzz/mesa` 的 `kbase-v0.1.2` 已实测卡在 `drmSyncobjCreate()`，保留为失败证据和对照，
    不再作为唯一主动路线。
 6. DRM 语义层代码保留：它是已经完成的 M1/M2 资产，也是 panfrost 路线的后备，不删除。
@@ -117,10 +120,14 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
   `VK_KHR_external_memory_fd` 导入真实 AHB dma-buf：external buffer + import memory + bind 全 PASS，
   GPU compute 写入/回读 `0x4855534b` PASS；kbase `MEM_IMPORT` 保留为后备；
 - evidence 51 已完成 AHB → dma-buf → `DRM_FORMAT_MOD_LINEAR` 2D image → GPU write；
-  evidence 52 已完成同一 AHB 的 app EGLImage GPU 采样上屏，截图全屏红色；这是展示回退，
-  仍不是零拷贝。`ASurfaceControl_createFromWindow` 在 NativeActivity 窗口返回 null，
-  SurfaceFlinger 日志为 `createWithSurfaceParent error Invalid argument`（AOSP BLAST 路径）；
-  下一步必须换有 SurfaceControl handle 的窗口或等效提交路径，再做 present fence 和生命周期测试；
+  evidence 52 已完成同一 AHB 的 app EGLImage GPU 采样上屏，截图全屏红色；这是展示回退。
+  evidence 53 已改为真正的零拷贝：纯 Rust JNI 从 `ActivityThread.mActivities` 找到当前 Activity，
+  挂接平台 `SurfaceView`，读取 BLAST `mBlastSurfaceControl.mNativeObject`，再经
+  `ASurfaceControl_create` + `ASurfaceTransaction_setBuffer` 直接提交同一 AHB；截图正文
+  24,192/24,192 个采样点为纯红，SF 层树确认 `husk-ahb` 为可见 `DEVICE` 层。
+  `ASurfaceControl_createFromWindow` 对 NativeActivity 窗口仍返回 null（AOSP BLAST
+  `createWithSurfaceParent` BAD_VALUE），所以 SurfaceView handle 是当前路径；
+  下一步是 acquire/release fence、连续帧、buffer 复用、窗口生命周期和 WSI；
 - 同一块 buffer 由 app `queueBuffer` 给 SurfaceFlinger，目标是零拷贝；
 - kbase 没有 export，所以方向必须是 app → guest 导入，不能假装有 kbase 导出。
 - 退化路径可以 CPU 拷贝，但必须记录原因和实测开销。
@@ -206,9 +213,10 @@ eglinfo 报 Mali-G77；音频出声并有延迟数字；H.264/HEVC 硬解、AV �
 1. 读本文件、`GOALS.md`、`STATUS.md`、`references.md`、`mali-kbase-prior-art.md`。
 2. 查 `git status --short --branch`，确认没有未提交改动；没有用户授权不要动 LinuxHub 2.0 分支。
 3. 继续显示主线：FristOneRR glibc PanVK 已完成 compute job、离屏 graphics、surfaceless Zink
-   （evidence 46–47）、AHB LINEAR 2D image GPU 写入（evidence 51）和 app EGLImage 上屏回退
-   （evidence 52）；下一步解决有 SurfaceControl handle 的窗口 / 等效提交，接 GBM / Wayland /
-   X11、present fence、旋转和多窗口，再把 EGLImage 回退替换成零拷贝。
+   （evidence 46–47）、AHB LINEAR 2D image GPU 写入（evidence 51）、EGLImage 回退（evidence 52）
+   和 SurfaceControl 静态单帧零拷贝上屏（evidence 53）。下一步接 acquire/release fence、连续帧与
+   buffer 复用，再进 GBM / Wayland / X11、WSI、旋转 / DPI / 多窗口和 10 分钟泄漏。
 4. 每次失败也写清楚失败点和下一假设；证据放 `docs/design/evidence/`。
-5. 窗口 renderer 与 Surface 路径通过后再进入显示零拷贝；视频、音频按第 5 节并行设计但不能跳过硬解验收。
+5. 显示主线已完成 SurfaceControl 静态单帧零拷贝；下一步做 fence、连续帧与 buffer 复用，再推进
+   GBM / Wayland / X11、WSI 和窗口生命周期；视频、音频按第 5 节并行设计但不能跳过硬解验收。
 6. 最后做 2.0 proot 替换与补丁清除。

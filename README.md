@@ -12,8 +12,10 @@
 > SoC 侧 guest 进程可直接打开 `/dev/mali0`，分配 GPU 显存并在 CPU 侧读写（kbase 11.38）。
 > GPU 最新证据：FristOneRR PanVK 的 glibc 构建已在 guest 内枚举 Mali-G77 MC9；纯 Rust 探针
 > 已提交 compute job、完成离屏 graphics 三角形 draw + GPU 像素回读；发行版 Zink 也已在
-> surfaceless EGL 报出 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`。swapchain / WSI /
-> Android Surface 窗口仍未验收（见 evidence 46 / 47 与 `docs/PROJECT-MEMORY.md`）。
+> surfaceless EGL 报出 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`。同一 guest AHB 已通过
+> 平台 SurfaceView 的 BLAST SurfaceControl 直接提交给 SurfaceFlinger，静态单帧零拷贝上屏并实拍
+> 全红；acquire/release fence、连续帧、WSI 和窗口生命周期仍未验收（见 evidence 53 与
+> `docs/PROJECT-MEMORY.md`）。
 
 ---
 
@@ -98,12 +100,14 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 
 ## 7. 当前限制
 
-- **GPU 窗口渲染未通**：FristOneRR PanVK 已枚举 Mali-G77，logical device、host-visible
+- **GPU 窗口渲染部分打通**：FristOneRR PanVK 已枚举 Mali-G77，logical device、host-visible
   storage buffer、compute job、离屏 graphics draw + 像素回读均通过；发行版 Zink 的 surfaceless
-  EGL 也已报出 Mali-G77 renderer；但 GBM / Wayland / X11、swapchain、Android Surface 和实际
-  窗口显示尚未验证，不能把离屏或 headless 结果当成完整 GPU 验收（evidence 46 / 47）；
+  EGL 也已报出 Mali-G77 renderer；同一 AHB 已通过平台 SurfaceView SurfaceControl 静态单帧
+  零拷贝上屏（evidence 53）。但 acquire/release fence、连续帧、GBM / Wayland / X11、WSI /
+  swapchain、旋转 / DPI / 多窗口和窗口生命周期尚未验证，不能把静态单帧当成完整 GPU 验收；
   DRM 语义层保留为后备；
-- **显示 / 视频 / 音频桥进行中**：AHB dma-buf 已跨进程导入 PanVK 并由 GPU 访问；AHB image/Surface、MediaCodec 硬解回传、AAudio 通路都还没完成；
+- **显示 / 视频 / 音频桥进行中**：AHB dma-buf 已跨进程导入 PanVK 并由 GPU 访问，AHB 单帧已
+  零拷贝上屏；连续帧复用、MediaCodec 硬解回传、AAudio 通路都还没完成；
 - `execl` 系列函数不生效；`freopen`、`glob`、`nftw`、`dlmopen` 未覆盖；
 - **libc 内部调用**（NSS / locale / `/etc/hosts` / `ld.so.cache`）仍读宿主，槽位方案未实现，
   因此 `apt`/`dpkg`/locale 在完整 rootfs 里尚不可靠；
@@ -159,8 +163,8 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 | 显存 | `mem_alloc` + `mmap` 实测可分配并 CPU 读写（`prot` 必须等于 flags 低两位） |
 | 上游 Mesa | 25.2 与 main 均**没有** kbase 后端；Ubuntu 25.2.8 panfrost 模型表也无 G77/G78 |
 | 当前 GPU 路线 | FristOneRR PanVK（Mesa 26.3.0-devel，glibc 构建）+ 发行版 Zink；DRM 语义层保留为后备 |
-| PanVK / Zink 验证 | `vulkaninfo` + 纯 Rust probe：Mali-G77 / logical device / compute job / 离屏 graphics draw + GPU 像素回读 PASS；Zink surfaceless renderer 也报 Mali-G77；swapchain / WSI / Surface 未验收 |
-| 显示 / 视频 / 音频 | 显示已完成 AHB→dmabuf→guest PanVK 导入与 GPU 访问（[evidence 49](docs/design/evidence/49-ahb-dmabuf-handle.md)、[evidence 50](docs/design/evidence/50-guest-dmabuf-panvk-import.md)）；image 导入 / queueBuffer / 视频 / 音频未完成 |
+| PanVK / Zink 验证 | `vulkaninfo` + 纯 Rust probe：Mali-G77 / logical device / compute job / 离屏 graphics draw + GPU 像素回读 PASS；Zink surfaceless renderer 也报 Mali-G77；Android 窗口静态单帧已零拷贝上屏，fence / 连续帧 / WSI 未验收 |
+| 显示 / 视频 / 音频 | 显示已完成 AHB→dmabuf→guest PanVK 导入、GPU 访问和 SurfaceControl 静态单帧零拷贝上屏（[evidence 49](docs/design/evidence/49-ahb-dmabuf-handle.md)、[evidence 50](docs/design/evidence/50-guest-dmabuf-panvk-import.md)、[evidence 53](docs/design/evidence/53-surfacecontrol-zero-copy.md)）；fence / 连续帧 / 视频 / 音频未完成 |
 
 细节与原始输出：[evidence 35](docs/design/evidence/35-gpu-ioctl-surface-from-vendor-driver.md)、
 [evidence 36](docs/design/evidence/36-gpu-route-reality-check.md)、
@@ -169,7 +173,8 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 [evidence 47](docs/design/evidence/47-zink-eglinfo-surfaceless.md)、
 [evidence 48](docs/design/evidence/48-panvk-extension-scan.md)、
 [evidence 49](docs/design/evidence/49-ahb-dmabuf-handle.md)、
-[evidence 50](docs/design/evidence/50-guest-dmabuf-panvk-import.md)。
+[evidence 50](docs/design/evidence/50-guest-dmabuf-panvk-import.md)、
+[evidence 53](docs/design/evidence/53-surfacecontrol-zero-copy.md)。
 
 ## 11. 许可与来源
 

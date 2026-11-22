@@ -1,5 +1,21 @@
 # 变更记录
 
+## 2026-11-23 — 同一 guest AHB 经 SurfaceControl 零拷贝上屏
+
+- **evidence 53**：纯 Rust JNI 从 `ActivityThread.mActivities` 找到当前 Activity，创建平台
+  `SurfaceView`，读取 BLAST `mBlastSurfaceControl.mNativeObject`，再用
+  `ASurfaceControl_create` + `ASurfaceTransaction_setBuffer` 将 guest 已写红的同一 AHB 直接提交。
+- 截图正文 24,192 / 24,192 个采样点为纯红；SurfaceFlinger 层树确认 `husk-ahb` BufferStateLayer
+  有 `64x64 RGBA_8888` activeBuffer，显示区域 `[0,120,1080,2359]`，合成为 `DEVICE`。
+- 修正窗口层级：`setZOrderMediaOverlay(true)` 会被 NativeActivity 主窗口盖住；改为
+  `setZOrderOnTop(true)` 后系统栏之间的正文区域正确显示 guest buffer。
+- 仍为零 Java/dex/C；JNI 只调用 Android 平台已有类。`ASurfaceControl_createFromWindow` 对
+  NativeActivity BLAST window 仍返回 null，SurfaceView handle 是当前可用路径，EGLImage 保留为降级。
+- APK sha256 `e7e5da9ab3dcf7f0fee84afef48fc4c04b94074cecec181af7a950e1ca9e827c`；
+  `libhuskapp.so` sha256 `8644002c82f50317553e72f514b35c8b7327d56fe8fe76f2441566c99d1f42be`。
+- **仍未完成**：acquire/release fence、连续帧与背压、buffer 复用、GBM / Wayland / X11、WSI /
+  swapchain、旋转 / DPI / 多窗口、SurfaceView 重建和 10 分钟泄漏。
+
 ## 2026-11-23 — AHardwareBuffer dma-buf 已跨进程导入 PanVK 并由 GPU 访问
 
 - **evidence 50**：app 分配的真实 AHardwareBuffer 经 native handle 扫描出 dmabuf fd，

@@ -15,6 +15,7 @@
 
 mod ahb;
 mod gl;
+mod surface;
 mod sys;
 mod term;
 
@@ -535,6 +536,7 @@ unsafe extern "C" fn on_input_queue_gone(_a: *mut ANativeActivity, _q: *mut c_vo
 
 unsafe extern "C" fn on_destroy(_a: *mut ANativeActivity) {
     log("cb: onDestroy");
+    surface::drop_view();
     // L11: the guest must not outlive the reader of its PTY. onDestroy is not
     // guaranteed (the system may kill us outright), which is exactly why the
     // PTY-close path also has to be correct on its own.
@@ -567,6 +569,9 @@ pub unsafe extern "C" fn ANativeActivity_onCreate(activity: *mut ANativeActivity
         return;
     }
     ACTIVITY.store(activity, Ordering::SeqCst);
+    if !surface::install(activity) {
+        log("surface: SurfaceView parent unavailable; keeping NativeActivity window");
+    }
     // Publish where the native libraries live. The path carries a per-install
     // hash, so nothing outside this process can guess it, and `run-as` cannot
     // list /data/app to find out. Debugging a guest by hand (`files/gexec.sh`)
