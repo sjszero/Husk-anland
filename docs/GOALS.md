@@ -3,8 +3,7 @@
 > 本文件是目标的**权威规格**。会话里的 goal 对象不可编辑，重建 goal 时以本文件为准；
 > 改目标就改这里，再把下面的「粘贴块」整段贴进去。
 
-最后更新：2026-11-22（v3：C 段按 guest 侧实测重写——MTK 只有 `/dev/mali0`，厂商 EGL 路线关闭，
-kbase 通道已证明可通）
+最后更新：2026-11-22（v4：B 段只认 LinuxHub 2.0 的资产，删掉 1.2.0 引用；C 段按 guest 侧实测重写）
 
 ---
 
@@ -20,7 +19,7 @@ kbase 通道已证明可通）
 3）页大小无关。构建期 over-align（max-page-size ≥ 0x4000）、运行期读 auxv AT_PAGESZ、nr-tools check-elf 体检；代码禁止字面量 4096。验收：4K 与 16K 两种内核假设下都通过体检，guest 侧 ELF 对齐有表可查。
 
 【B. 真实场景验证】
-4）用 LinuxHub 2.0 的完整 rootfs 验证（本机资产：LinuxHub-2.0/app/src/main/assets 下的 base/bootstrap/gnome tarball；或 ~/Downloads/LinuxHub-1.2.0-MediaTek-X11-compositor.apk 里的 ubuntu-26.04-x11-plasma6-arm64.tar，557 MB）。解到 Husk 私有目录的独立副本，绝不读写 com.linuxhub.myth。验收：不只是 bash——Plasma/X11 桌面能起，浏览器、文件管理器、终端可用。同时打通 libc 内部调用（构建期槽位方案），否则 apt/dpkg/locale 仍读宿主文件。
+4）用 **LinuxHub 2.0** 的完整 rootfs 验证，唯一来源是 /Users/l/Documents/Codex/2026-08-10/linuxhub/LinuxHub-2.0/app/src/main/assets/：rootfs/ubuntu-base-24.04.4-base-arm64.tar（31 MB）→ offline/bootstrap-arm64.tar（349 MB）→ offline/gnome-24.04-arm64.tar（532 MB）→ offline/vendor-apps-arm64.tar（403 MB），外加 offline/mesa-for-android-container_27.0.0-devel-20261025-r2_ubuntu_noble_arm64.tar（12 MB）、desktop/（GNOME 默认值、图标、壁纸、会话总线配置）、x11/xkb-data.tar。**不引入任何 1.2.0 的资产**（那份 557 MB 的 plasma6 包不在本项目范围内）。解到 Husk 私有目录的独立副本（files/rootfs-full），绝不读写 com.linuxhub.myth。验收：不只是 bash——GNOME 桌面能起，浏览器、文件管理器、终端可用。同时打通 libc 内部调用（构建期槽位方案），否则 apt/dpkg/locale 仍读宿主文件。
 
 【C. 原生直连 SoC】本机已实测（2026-11-22，guest 侧，见 evidence 31）：/dev/mali0 可从 guest rw 打开；kbase UAPI = 11.38；VERSION_CHECK 用 _IOC(RW,0x80,0,4) 编码才被识别；SET_FLAGS _IOC(W,0x80,1,4) 在 guest 里返回 0（kctx 建成）；MEM_ALLOC/MEM_QUERY 等命令存在；/dev/kgsl-3d0 不存在、/dev/dri 打不开、/dev/dma_heap 不存在、/dev/snd 打不开、/dev/ion 在 guest 侧 EACCES（待复核）。厂商 libGLES_mali.so 有 25 个 bionic DT_NEEDED（libc.so/libc++/libhidlbase/gralloc…），**不能在 glibc guest 内加载**，此路线已排除，不再尝试。
 5）GPU：唯一路线 = guest 进程自己打开 /dev/mali0，走 Mesa panfrost/panvk 的 kbase 后端，不经任何中转服务、不留独立 GPU 进程。先查清这台内核的提交接口（教科书 nr=2 JOB_SUBMIT 实测为 ENOTTY，需确认是否为 CSF 或 MTK 改号），再出最小可测实现。验收：guest 内 eglinfo/glxinfo 报出 Mali-G77 真实 renderer；同一场景硬件 vs llvmpipe 帧率对比表；不崩、可降级。
@@ -38,21 +37,27 @@ kbase 通道已证明可通）
 FACT：`com.linuxhub.myth` 不是 debuggable 包，`run-as` 直接拒绝（`package not debuggable`），
 设备无 root，所以**读不到** `/data/user/0/com.linuxhub.myth/files/...`。这与签名无关，是 Android 沙箱。
 
-**本工作区内就有完整资产（FACT，2026-11-22）**：
+**唯一资产来源是 LinuxHub 2.0（FACT，2026-11-22 实测目录）**：
 
 ```
-/Users/l/Documents/Codex/2026-08-10/linuxhub/LinuxHub-2.0/
-  app/src/main/assets/rootfs/ubuntu-base-24.04.4-base-arm64.tar          30 MB
-  app/src/main/assets/rootfs/ubuntu-base-26.04.1-base-arm64.tar.gz       33 MB
-  app/src/main/assets/offline/bootstrap-arm64.tar                       349 MB
-  app/src/main/assets/offline/gnome-24.04-arm64.tar                     532 MB
-  app/src/main/assets/offline/gnome-26.04-arm64.tar                     537 MB
-  app/src/main/assets/offline/vendor-apps-arm64.tar                     385 MB
-  app/src/main/assets/offline/mesa-for-android-container_*.tar           12 MB
-  app/src/main/assets/runtime/arm64-v8a/{loader,proot,libandroid-shmem.so,
-                                        libgetifaddrs_bridge.so,libtalloc.so.2}
-  app/src/main/assets/desktop/profile/doro-gpu-run.sh                    ← 2.0 的 GPU 分派脚本
+/Users/l/Documents/Codex/2026-08-10/linuxhub/LinuxHub-2.0/app/src/main/assets/
+  rootfs/ubuntu-base-24.04.4-base-arm64.tar                    31 MB   ← 主用
+  rootfs/ubuntu-base-26.04.1-base-arm64.tar.gz                 35 MB   ← 备选
+  offline/bootstrap-arm64.tar                                 349 MB
+  offline/gnome-24.04-arm64.tar                               532 MB   ← 主用
+  offline/gnome-26.04-arm64.tar                               537 MB   ← 备选
+  offline/vendor-apps-arm64.tar                               403 MB
+  offline/mesa-for-android-container_27.0.0-devel-20261025-r2_ubuntu_noble_arm64.tar  12 MB
+  offline/{bootstrap-packages.txt,gnome-packages.txt,vendor-packages.txt,vendor-dependencies.txt}
+  desktop/            GNOME 默认值、图标、壁纸、zh_CN 翻译、会话总线配置、doro-fetch.sh
+  desktop/profile/    2.0 的 GPU 分派脚本（doro-gpu-run.sh），作为对照基线
+  x11/xkb-data.tar    X11 键盘数据
+  runtime/arm64-v8a/{loader,proot,libandroid-shmem.so,libgetifaddrs_bridge.so,libtalloc.so.2}
+  gpu/virgl/arm64-v8a/{libvirglrenderer.so,libepoxy.so,virgl_test_server_android}  ← 2.0 的 virgl 链，只作对照
 ```
+
+**不使用 1.2.0 的任何资产**（`~/Downloads/LinuxHub-1.2.0-MediaTek-X11-compositor.apk`
+里的 plasma6 包不在本项目范围）。
 
 用法：直接复制进 Husk 私有目录（例如 `/data/data/com.linuxhub.husk/files/rootfs-full`），
 **不读也不写** `com.linuxhub.myth`。
