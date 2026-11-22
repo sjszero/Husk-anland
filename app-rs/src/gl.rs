@@ -35,6 +35,13 @@ pub struct Gfx {
     glyphs: [Glyph; 128],
     atlas_w: i32,
     atlas_h: i32,
+    /// Size of ONE atlas cell in pixels. It equals the on-screen cell, so a
+    /// glyph quad is blitted 1:1 and the atlas offset (xmin, baseline - bottom)
+    /// lands where it was rasterised. Using a fixed 32px atlas cell here put
+    /// every glyph twice its bearing too low - commas and dashes ended up in
+    /// the row below.
+    acw: f32,
+    ach: f32,
     pub cell_w: f32,
     pub cell_h: f32,
     verts: Vec<f32>,
@@ -132,6 +139,8 @@ impl Gfx {
                 glyphs: [Glyph::default(); 128],
                 atlas_w: ATLAS_COLS * CELL,
                 atlas_h: ATLAS_ROWS * CELL,
+                acw: CELL as f32,
+                ach: CELL as f32,
                 cell_w: 16.0,
                 cell_h: 34.0,
                 verts: Vec::with_capacity(6 * 4 * 1000),
@@ -168,6 +177,16 @@ impl Gfx {
         self.cell_h = (PX * 1.55).ceil();
         let baseline = self.cell_h - PX * 0.35;
 
+        // One atlas cell == one screen cell. Anything else makes the glyph's
+        // own (xmin, baseline - bottom) offset act twice: once when it is
+        // painted into the atlas and once when the quad is placed on screen.
+        self.acw = self.cell_w;
+        self.ach = self.cell_h;
+        self.atlas_w = ATLAS_COLS * self.acw as i32;
+        self.atlas_h = ATLAS_ROWS * self.ach as i32;
+        let acw = self.acw as i32;
+        let ach = self.ach as i32;
+
         let aw = self.atlas_w as usize;
         let ah = self.atlas_h as usize;
         let mut pix = vec![0u8; aw * ah];
@@ -175,10 +194,10 @@ impl Gfx {
         for code in 32u8..=126u8 {
             let ch = code as char;
             let (m, bitmap) = font.rasterize(ch, PX);
-            let gx = ((code as i32 - 32) % ATLAS_COLS) * CELL;
-            let gy = ((code as i32 - 32) / ATLAS_COLS) * CELL;
-            let dest_x = gx + m.xmin.max(0);
-            let dest_y = gy + (baseline - m.ymin as f32 - m.height as f32).max(0.0) as i32;
+            let gx = ((code as i32 - 32) % ATLAS_COLS) * acw;
+            let gy = ((code as i32 - 32) / ATLAS_COLS) * ach;
+            let dest_x = gx + m.xmin;
+            let dest_y = gy + (baseline - m.ymin as f32 - m.height as f32).round() as i32;
             for row in 0..m.height {
                 for col in 0..m.width {
                     let v = bitmap[row * m.width + col];
@@ -197,34 +216,35 @@ impl Gfx {
             self.glyphs[code as usize] = Glyph {
                 u0: gx as f32 / self.atlas_w as f32,
                 v0: gy as f32 / self.atlas_h as f32,
-                u1: (gx + CELL) as f32 / self.atlas_w as f32,
-                v1: (gy + CELL) as f32 / self.atlas_h as f32,
-                dx: m.xmin as f32,
-                dy: baseline - m.ymin as f32 - m.height as f32,
-                w: CELL as f32,
-                h: CELL as f32,
+                u1: (gx + acw) as f32 / self.atlas_w as f32,
+                v1: (gy + ach) as f32 / self.atlas_h as f32,
+                // The offset already lives inside the atlas cell.
+                dx: 0.0,
+                dy: 0.0,
+                w: acw as f32,
+                h: ach as f32,
             };
         }
 
         // Cursor cell: a solid block, so the cursor is the same draw path as text.
         {
             let code = crate::term::BLOCK as i32;
-            let gx = ((code - 32) % ATLAS_COLS) * CELL;
-            let gy = ((code - 32) / ATLAS_COLS) * CELL;
-            for y in gy..(gy + CELL).min(self.atlas_h) {
-                for x in gx..(gx + CELL).min(self.atlas_w) {
+            let gx = ((code - 32) % ATLAS_COLS) * acw;
+            let gy = ((code - 32) / ATLAS_COLS) * ach;
+            for y in gy..(gy + ach).min(self.atlas_h) {
+                for x in gx..(gx + acw).min(self.atlas_w) {
                     pix[y as usize * aw + x as usize] = 255;
                 }
             }
             self.glyphs[code as usize] = Glyph {
                 u0: gx as f32 / self.atlas_w as f32,
                 v0: gy as f32 / self.atlas_h as f32,
-                u1: (gx + CELL) as f32 / self.atlas_w as f32,
-                v1: (gy + CELL) as f32 / self.atlas_h as f32,
+                u1: (gx + acw) as f32 / self.atlas_w as f32,
+                v1: (gy + ach) as f32 / self.atlas_h as f32,
                 dx: 0.0,
                 dy: 0.0,
-                w: CELL as f32,
-                h: CELL as f32,
+                w: acw as f32,
+                h: ach as f32,
             };
         }
 

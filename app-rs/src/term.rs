@@ -28,6 +28,11 @@ pub struct Term {
     pub exit_text: String,
     history: VecDeque<Vec<u8>>,
     esc: u8,
+    /// CSI with a private marker (`ESC [ ? ... h/l`): the alternate screen that
+    /// full-screen programs like `top` and `less` switch to.
+    private: bool,
+    /// Cells and cursor saved by the alternate screen, restored on exit.
+    alt: Option<(Vec<u8>, usize, usize)>,
     params: Vec<u32>,
     cur: u32,
     has_cur: bool,
@@ -48,6 +53,8 @@ impl Term {
             exit_text: String::new(),
             history: VecDeque::with_capacity(HISTORY),
             esc: 0,
+            private: false,
+            alt: None,
             params: Vec::new(),
             cur: 0,
             has_cur: false,
@@ -314,13 +321,34 @@ impl Term {
                     b'[' => {
                         self.esc = 2;
                         self.params.clear();
+                        self.private = false;
                         self.cur = 0;
                         self.has_cur = false;
                     }
                     b']' => self.esc = 3,
+                    // ESC ( B / ESC ) 0 / ESC * ... : designate character set.
+                    // Three bytes, and the last one is a printable letter that
+                    // must not reach the screen -- `top` sends ESC ( B on every
+                    // full repaint, which is where the stray "B" came from.
+                    b'(' | b')' | b'*' | b'+' | b'#' | b'%' => self.esc = 4,
+                    // ESC 7/8 (save/restore cursor), ESC = / > (keypad), ESC c
+                    // (reset): complete sequences with no operands.
+                    b'7' | b'8' | b'=' | b'>' | b'c' | b'M' => self.esc = 0,
+                    // ESC followed by anything else is a two-byte sequence.
                     _ => self.esc = 0,
                 },
+                3 => {
+                    // OSC: terminated by BEL or by ESC \ (string terminator).
+                    if b == 0x07 {
+                        self.esc = 0;
+                    } else if b == 0x1b {
+                        self.esc = 5;
+                    }
+                }
+                4 => self.esc = 0,
+                5 => self.esc = if b == b'\\' { 0 } else { 3 },
                 2 => match b {
+                    b'?' => self.private = true,
                     b'0'..=b'9' => {
                         self.cur = self.cur.saturating_mul(10).saturating_add((b - b'0') as u32);
                         self.has_cur = true;
@@ -341,11 +369,7 @@ impl Term {
                     }
                     _ => {}
                 },
-                _ => {
-                    if b == 0x07 {
-                        self.esc = 0;
-                    }
-                }
+                _ => self.esc = 0,
             }
         }
     }
@@ -358,6 +382,31 @@ impl Term {
     }
 
     fn csi(&mut self, final_byte: u8) {
+        // Alternate screen: top/less/vim switch to it and expect their own
+        // drawing to disappear when they exit. Without this the program's screen
+        // stays behind and the shell prompt lands on the last row.
+        if self.private && (final_byte == b'h' || final_byte == b'l') {
+            let mode = self.params.first().copied().unwrap_or(0);
+            if mode == 1049 || mode == 1047 || mode == 47 {
+                if final_byte == b'h' {
+                    if self.alt.is_none() {
+                        self.alt = Some((self.cells.clone(), self.cx, self.cy));
+                        self.clear_screen();
+                        self.cx = 0;
+                        self.cy = 0;
+                    }
+                } else if let Some((cells, cx, cy)) = self.alt.take() {
+                    if cells.len() == self.cells.len() {
+                        self.cells = cells;
+                        self.cx = cx.min(self.cols - 1);
+                        self.cy = cy.min(self.rows - 1);
+                    } else {
+                        self.clear_screen();
+                    }
+                }
+            }
+            return;
+        }
         match final_byte {
             b'H' | b'f' => {
                 let row = self.p(0, 1) as usize;
