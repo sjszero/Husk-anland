@@ -19,6 +19,11 @@
 3. **免 root 跑完整 Linux 桌面**最接近我们产品形态的是 `DroidNative/DroidNativeApp`（84★）、
    `ExTV/Podroid`（3906★，但走 VM，路线不符）、`Shelnutt2/wldroid`（Wayland 合成器嵌 Android）。
 
+## 0.5 深读记录
+
+源码级读过、并且会直接影响实现的：见 [`mali-kbase-prior-art.md`](mali-kbase-prior-art.md)
+（`mesa-kbase-j4lte` 的 libdrm-kbase 1785 行、`panvk-mtk-driver` 的 MTK 补丁、`panvk-kbase-android` 的补丁面）。
+
 ## 1. Linux Runtime / proot 替代
 
 | 清单名 | 真实仓库 | ★ | 借鉴点 / 采纳 |
@@ -27,10 +32,10 @@
 | proot-rs | `proot-me/proot-rs` ✅ | 166 | Rust 版 ptrace 沙箱；看它怎么组织 syscall 分派，但**架构不采纳** |
 | Podroid | `ExTV/Podroid` ✅ | 3906 | 无 root 起 Alpine + 容器；**VM 路线，不符合约束**，只看产品化包装 |
 | AndroLinux Runtime | `Meapri/androlinux-runtime-lab` ✅ | 0 | 低开销 runtime + GPU bridge 实验，规模小，当索引看 |
-| Shroot | — | — | ❌ 未找到；待用别的关键词再核 |
-| proroot | — | — | ❌ 未找到 |
-| zproot（Zig 重写 proot） | — | — | ❌ 未找到 |
-| elf_loader | — | — | ❌ 未找到（"Bionic 进程里加载 glibc ELF" 这个题很关键，值得单独再找） |
+| Shroot | `mekhontsev/shroot` ✅ | 7 | **原生 ARM64 Linux runtime**（持久虚拟文件系统、C API），同一作者的 MagicDesk 是同族产品 |
+| zproot（Zig 重写 proot） | `zproot/zproot` ✅ + `zproot/zproot-android` ✅ | 3 | Zig 写的 ptrace 核心；看它怎样把拦截面压到最小 |
+| elf_loader | 未定位到对应项目（同名仓库均无关） | — | ❌ 清单此项不可靠；"Bionic 进程里加载 glibc ELF" 题由我们自己解（已有 loader 方案） |
+| proroot | — | — | ❌ 未找到（GitHub 搜索无对应项目） |
 | UserLAnd / PRoot Distro / AnLinux / Andronix | 上游 | 🔎 | 产品化/安装器 UX 参考，技术无新东西 |
 
 ## 2. 高通 Adreno（本机不是高通，留作第二条 GPU 家族）
@@ -56,7 +61,10 @@
 | PanPlay | `zenithblue-oss/panplay` ✅ | 30 | 把 panvk kbase 打包进 Wine/FEX 启动器，看它怎么随包分发驱动 |
 | mesa-kbase-j4lte | `manoedinata/mesa-kbase-j4lte` ✅ | 0 | 提到 **libdrm-kbase**（把 libdrm 架在 kbase 上）+ gralloc mapper，Exynos 7570 小设备，代码量小好读 |
 | Droidspaces-Mali | `ravindu644/Droidspaces-Mali` ✅ | 10 | **容器内 Mali GPU + KDE**：libhybris + Mesa Zink 路线（与 kbase 直连并列的第二方案） |
-| panvk-g99-jm / mesa-panvk-g57 | 未定位 | — | ❌ 名字不准，语义已由上面 faux123 系列覆盖 |
+| panvk-g99-jm | `Noysz/panvk-g99-jm` ✅ | 25 | **Valhall v9 + Job Manager**（Helio G99 = Mali-G57 MC2），和本机 G77 同为 v9 JM——**同代最贴近的实现** |
+| mesa-panvk-g57（Termux + X11） | `apexspan-svg/mesa-panvk-mali-g57` ✅ | 3 | kbase + **X11** 在 Termux 里跑 panvk：WSI/窗口侧的做法可直接借 |
+| mesa-gs101（G78/G77） | `m8l8th814n-eng/mesa-gs101` ✅ | 3 | 明确写了支持 **Mali G77** 的 panvk |
+| panvk-JM-kirin | `MineGraph-bilibili/panvk-JM-kirin` ✅ | 1 | JM 后端、kbase UAPI 11.x（与本机 11.38 同档） |
 | ARM Compute Library / Arm NN / clvk | 上游 | 🔎 | 计算栈，与本阶段无关 |
 
 ## 4. 联发科 / 天玑平台
@@ -73,7 +81,12 @@
 | wldroid | `Shelnutt2/wldroid` ✅ | 4 | **wlroots 合成器嵌 Android**，库形态，AHardwareBuffer 输出 |
 | labwc-android | `adittaya/labwc-android` ✅ | 0 | Android 上的原生 Wayland 桌面 + GPU |
 | Termux:X11 | `termux/termux-x11` ✅ | 5194 | Android 显示 ↔ X11 的成熟做法（LDS/共享内存/输入），我们显示层的对照基线 |
-| Piperella / Anland / DroidDesk / usix-termux | 未定位 | — | ❌ 名字不准，待再核 |
+| Piperella | `Piperella/Piperella-Wayland-Compositor` ✅ | 6 | Wayland 合成器做成 **Gradle 库**直接嵌 Android App |
+| Anland | `SuperTurtleDev/anland` ✅ / `lfdevs/anland-termux` ✅ | 361 / 165 | **Android 上的 Wayland 协议实现**，Termux/PRoot/Chroot/LXC 都有现成接法；`Droidspaces-Mali` 的桌面就是靠它显示 |
+| DroidDesk | `orailnoor/DroidDesk` ✅ | 4872 | Termux + X11 + TUR 的成品桌面（产品化参考） |
+| MagicDesk | `mekhontsev/magicdesk` ✅ | 241 | 原生多窗口工作站（X11/Wayland + Termux + MCP），同作者 Shroot |
+| Linuxify | `Bilal140202/linuxify` ✅ | 2 | Kotlin/Compose 壳 + proot 的产品化界面 |
+| usix-termux | — | — | ❌ 未找到 |
 | Mutter / GNOME Shell / wlroots / Weston / KWin / Xwayland | 上游 | 🔎 | 桌面本体，我们只负责载体，不改它们 |
 
 ## 6. Android 原生显示与缓冲
@@ -122,7 +135,8 @@ crosvm（设备模型）、scrcpy（编码链路）—— 上游 🔎。
 | 清单名 | 真实仓库 | ★ | 借鉴点 |
 |---|---|---|---|
 | DroidNative | `DroidNative/DroidNativeApp` ✅ | 84 | **每个 Linux 桌面程序一个 Android 窗口**、免 root；产品形态最接近 2.0 的替代品 |
-| MagicDesk / Linuxify / pr / DroidVM / Termux / Termux Packages / Andronix / AnLinux | 未定位或上游 | — | 待再核；Termux 本身（`termux/termux-app` ✅ 已知 ~40k）是生命周期/服务的成熟样本 |
+| DroidDeck | `Droid-Deck/DroidDeck` ✅ | 21306 | SteamOS 体验搬到 Android（gamescope + proot），是目前最成熟的一批 |
+| pr / DroidVM / Termux Packages / Andronix / AnLinux | 未逐个核 | — | Termux 本身（`termux/termux-app`）是生命周期/服务的成熟样本 |
 
 ---
 
@@ -147,8 +161,16 @@ GIT_CONFIG_GLOBAL=/dev/null git -c http.proxy=http://127.0.0.1:7897 clone --dept
 
 ## 审计进度
 
-- 2026-11-22：第一遍核对（`gh api` 逐条）。已确认存在 **24** 个；**7** 个名字查无此仓库（清单来自第三方 AI，存在编造/记错）。
-- GitHub search API 配额用完，剩余 ~15 项待核（❌/未定位）。核对方式改为 `gh api repos/<path>` + `raw.githubusercontent.com` README。
+- 2026-11-22 第一遍：逐条核对真实路径（`gh api` + 搜索）。清单 70 项里能对上真实仓库的 **41** 项；
+  对上不上的集中在 proot 替代类（清单来自第三方 AI，有编造/记错）。
+- 2026-11-22 第二遍（走代理补查）：`Shroot→mekhontsev/shroot`、`zproot→zproot/zproot`、
+  `Piperella/Piperella-Wayland-Compositor`、`Anland→SuperTurtleDev/anland`、`MagicDesk→mekhontsev/magicdesk`、
+  `DroidDesk→orailnoor/DroidDesk`、`DroidDeck→Droid-Deck/DroidDeck`；
+  并补到三份**同代 Mali 实现**：`Noysz/panvk-g99-jm`（v9 JM）、`apexspan-svg/mesa-panvk-mali-g57`（kbase+X11）、
+  `m8l8th814n-eng/mesa-gs101`（写明 G77）。
+- 仍然 ❌ 未找到：`proroot`、`elf_loader`（同名仓库无关）、`usix-termux`、`mesa-tu8` 原名。
+- **已真读过源码的**（不只是看 README）：`manoedinata/mesa-kbase-j4lte`（libdrm-kbase 1785 行 C + Mesa 补丁）、
+  `BkaNeko/panvk-mtk-driver`（903 行 MTK panvk 补丁）、`zenithblue-oss/panvk-kbase-android`（README + 目录树）。
 
 ## 拉取规则（怎么"拉下来"）
 
