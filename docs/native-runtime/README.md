@@ -5,7 +5,7 @@ app 进程是进程的壳；不加 namespace、不加虚拟机，所以不叫 co
 命名：一个 guest 系统实例 = 一个 husk（`~/.linuxhub/husks/ubuntu-noble/`）；
 技术全名仍写 `LinuxHub Native Runtime (T2+T1)`，出现在方案与证据里。
 
-目标：在无 root、无虚拟化、无 Termux 的 Android 普通应用权限下，把 Linux 用户态执行开销压到接近原生。
+目标：在无 root、无虚拟化、不依赖任何第三方终端环境的 Android 普通应用权限下，把 Linux 用户态执行开销压到接近原生。
 
 文件：
 

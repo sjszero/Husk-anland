@@ -1,0 +1,86 @@
+# 工程设计
+
+面向需要改动、复现或审计这份代码的读者。产品层面的介绍见 [README](../README.md)，
+机制说明见 [ARCHITECTURE](ARCHITECTURE.md)。
+
+## 1. 术语
+
+| 代号 | 含义 | 位置 |
+|---|---|---|
+| **T1** | 构建期静态改写 | `tools/nr-loader-hook/`、`crates/nr-tools` |
+| **T2** | 用户态路径解析，构建期嵌入动态链接器 | `crates/path-shim`、`crates/runtime-core` |
+
+T1/T2 是内部编号，不出现在产品文案里；对外统一称 Husk 运行时。
+
+## 2. 语言构成
+
+| 语言 | 规模 | 负责什么 | 为什么不是别的语言 |
+|---|---|---|---|
+| Rust | 约 4,500 行 | 运行时本体与全部构建工具 | `no_std`、零依赖、无 GC |
+| 汇编 | 271 行 | 链接器入口桩与 `_dl_init` 钩子 | 这段代码必须在任何 Rust 运行时存在之前执行；稳定版 Rust 无法定义 naked function |
+| C | 103 行 | 基准测试程序 | 必须运行在 guest 内部 |
+| Shell | 约 600 行 | 设备测试脚本 | 被测对象本身就是 shell 与 coreutils |
+| Java | 96 行 | 探针应用 | Android 进程入口 |
+| Python | 630 行 | 构建工具的参考实现 | 仅用于与 Rust 版本逐字节对拍，默认不参与构建 |
+
+## 3. 三处改动与字节账
+
+| 改动 | 工具 | 结果 |
+|---|---|---|
+| 追加一个可读可执行的 `PT_LOAD`，容纳 shim | `nr-tools embed` | 203,968 B → 290,816 B（+86,848） |
+| `_dl_init` 挂接钩子（176 B，无重定位） | `init-hook.S` + `nr-tools embed` | 位于同一 `PT_LOAD` |
+| 两处 `svc` → `nop` | `nr-tools scan-syscalls patch` | 字节级替换，无位移 |
+
+嵌入段布局：文件偏移 `0x32000`、虚拟地址 `0x42000`；钩子地址 348,160；服务表地址 352,256。
+
+`scan-syscalls` 不携带偏移表：它读取镜像的 `.gnu.version_d` 校验 C 运行库版本，
+按指令模式定位调用点，并断言后继指令只写返回值寄存器、不读取它。
+版本不符、数量不符、调用点缺失、后继指令读取返回值，四种情况均拒绝写出产物。
+
+## 4. 符号介入的范围
+
+共介入 76 个符号。其中约 45 个是 POSIX 入口；其余来自以下三类：
+
+- C 运行库的内部别名（`__open64_nocancel`、`__gen_tempname` 内部调用等），不经过程序链接表；
+- 标准 I/O 入口（`fopen`、`creat`）与路径规范化（`realpath`、`canonicalize_file_name`）；
+- 强制源码审计（`_FORTIFY_SOURCE=3`）生成的 `__*_chk` 与 64 位孪生函数。
+
+每一项的触发用例记录在 `native-runtime/evidence/16`。
+
+## 5. 构建工具
+
+三个工具，均为 Rust、零外部依赖：
+
+| 工具 | 作用 | 校验方式 |
+|---|---|---|
+| `nr-tools scan-syscalls` | 定位并改写启动期系统调用点 | 与 `nr-scan-syscalls.py` 输出逐行一致、产物同哈希（evidence 22） |
+| `nr-tools embed` | 生成成品动态链接器 | 与 `nr-embed.py` 产物同哈希（evidence 22） |
+| `nr-tools provision` | 供应 gcc / make 工具链 | 与 sh+Python 版本阶段目录逐文件比对，2,866 项内容差异为零（evidence 23） |
+
+默认构建走 Rust；设置 `NR_TOOLS=python` 可切换到参考实现，用于回归对拍。
+
+## 6. 产物指纹
+
+| 文件 | sha256 |
+|---|---|
+| `ld-embedded.so`（成品动态链接器） | `1600a850985624b05c8b1c1f9cee5fe8185462da91d0de369dcb9ff30f21cbee` |
+| `ld-linux-aarch64.so.1.orig`（原始） | `bd29514c1b45cc29b152011dd7c504e00dce240c19e4dd120196053873af9180` |
+| `libc-nop.so.6`（guest 使用） | `18acad63e69559c974c0ae093333d9cfa661c18ba4ad04a48268d8d1405e1bcc` |
+| `libpath_shim.so`（嵌入前） | `73106ac673ea28c56f28cab56b6dd07b9c2415bb1cf801a8ab2f219906e16c1a` |
+
+在本仓库执行 `tools/nr-loader-hook/build-embedded-loader.sh`，产出应与第一行一致。
+
+## 7. 环境
+
+| 项 | 版本 |
+|---|---|
+| 设备 | PLE110（OPPO），Android 16，内核 6.6.118，页大小 4096 |
+| 安全域 | `untrusted_app`，uid 10512 |
+| Guest | Ubuntu 24.04，glibc 2.39 |
+| 工具链 | Rust stable（`aarch64-unknown-linux-gnu`、`aarch64-linux-android`）、NDK r27+、JDK 17+ |
+
+## 8. 维护约定
+
+- 未实测不写通过；证据保存在 `native-runtime/evidence/`，编号被方案与文档引用。
+- 每条结论标注为事实、推断或未知。
+- 构建工具的任何改动必须与参考实现逐字节一致，否则视为回归。

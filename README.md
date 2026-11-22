@@ -1,140 +1,106 @@
 # Husk（壳）
 
-**在无 root、不解 BL、不开虚拟化、不用 Termux 的普通 Android 应用权限下，
-让完整的 Linux（glibc）用户态作为这个 app 进程本身直接跑在内核上。**
+**Husk 是一个 Android 运行时，让完整的 Linux 发行版（glibc 用户态）以普通应用进程的身份，
+直接由 Android 内核执行——不需要 root、不需要解锁 Bootloader、不需要硬件虚拟化。**
 
-不加 ptrace，不加 seccomp supervisor，不加 FUSE，不加 namespace，不加虚拟机，
-不在运行时翻译任何系统调用。
+它不拦截系统调用，因此性能与原生应用处于同一量级。
 
-> 状态：**原型已跑通，未产品化**。2026-11-22 一天内在真机完成从"能不能跑"到
-> "gcc + make 全链能编译并运行"的验证。私有仓库，暂不公开。
-
-| 读什么 | 内容 |
-|---|---|
-| [架构](docs/ARCHITECTURE.md) | 分层、三个改动点、路径解析、为什么进 loader、已知缺口 |
-| [实测结果](docs/RESULTS.md) | 31 项功能矩阵、越界、成本表、PRoot 对照、没测的项 |
-| [快速开始](QUICKSTART.md) | 从零跑起来（20–30 分钟） |
-| [方案（权威）](docs/native-runtime/06-sole-plan-t2t1.md) | 唯一路线、排除表、验收标准、剩余工作 |
-| [证据](docs/native-runtime/evidence/) | evidence 01–23：设备原始输出，编号与方案引用一一对应 |
-| [变更记录](CHANGELOG.md) | 今天做了什么、还有什么没做 |
+> 当前状态：**核心运行时已验证，产品集成尚未完成。**
+> 2026-11-22 在真机完成验证：shell、常用工具、以及完整的 gcc + make 编译工具链，
+> 全部运行在普通应用权限（`untrusted_app` 域）之下。
 
 ---
 
-## 1. 为什么叫"壳"，为什么不是容器
+## 1. 它是什么
 
-我们加在 guest 外面的唯一东西就是一层壳：
+Husk 是 LinuxHub 应用内部的**运行时组件**，不是一个独立应用，也不是终端模拟器。
 
-- **ELF 的壳**：改过的 guest `ld.so`，路径 shim 编译后直接嵌进它的第三个 `PT_LOAD`；
-- **进程的壳**：app 进程就是 Linux 进程，内核直接执行 guest 代码，中间没有第二层。
+用户在 LinuxHub 里选择一个发行版（例如 Ubuntu），该发行版的用户态——shell、常用命令、
+包管理、编译工具链——就以当前应用进程的身份运行。**一个发行版实例称为一个 husk。**
 
-没有 namespace、没有 mount、没有虚拟磁盘镜像，所以它不是容器，也不是虚拟机。
-一个 guest 系统实例叫一个 husk：`husks/<distro>/`。
+名字取自"壳"：我们加在 Linux 用户态外面的唯一东西就是一层壳，用来适配 Android 的运行环境，
+而不改变它本身的执行方式。
 
-技术名保留 `LinuxHub Native Runtime (T2+T1)`，只出现在方案与证据里。
+## 2. 它在哪里运行
 
-## 2. 两层，各干一件事
+运行载体是 **LinuxHub 应用本身**：一个普通的 Android APK，不需要任何额外环境、辅助应用或权限。
 
-| 层 | 做什么 | 在哪做 | 运行时成本 |
-|---|---|---|---|
-| **T2** 路径 shim | 把 guest 视角的绝对路径映射到 app 私有目录下的 rootfs | 纯 Rust（`no_std`、零 `DT_NEEDED`、零外部 crate），嵌入 `ld.so`，由 `_dl_init` 钩子做符号介入 | 只有路径类调用过一次字符串处理；syscall 一条都不多 |
-| **T1** 静态改写 | 入口桩、必须 `nop` 掉的 `svc` 调用点（`set_robust_list` / `rseq` 在 app 域被 `SECCOMP_RET_TRAP`）、将来的 `PT_INTERP` / `RPATH` | 构建期，`crates/nr-tools`（纯 Rust，零依赖） | 0 |
+- 应用在自己的进程里启动 guest 的动态链接器，由它加载 guest 程序；
+- guest 的文件系统位于应用的私有存储目录内，应用卸载即随之清除；
+- 用户看到的是应用里的一个会话窗口，而不是一个独立的操作系统。
 
-关键点：**T2 只处理路径，不处理 syscall 流。** 这是它和 PRoot 的本质差别。
+当前验证使用一个最小探针应用（`tools/native-runtime-probe-apk`），
+它演示了完整链路；正式的产品壳（会话与终端管理）仍在开发中。
 
-## 3. 实测（PLE110 / OPPO，Android 16，kernel 6.6.118，PAGE_SIZE 4096）
+## 3. 它解决什么问题
 
-域：`untrusted_app`，uid 10512；guest：Ubuntu 24.04 / glibc 2.39。
+在 Android 上运行 Linux 的既有做法都有明显代价：
 
-| 项目 | Husk | 对照 |
+| 做法 | 代价 |
+|---|---|
+| 系统调用重定向类方案（以 ptrace 实现） | 每个系统调用一次上下文切换，一次目录遍历就是数万次往返，整体慢一个数量级 |
+| 容器类方案（chroot / namespace） | 需要 root 权限，普通应用不可用 |
+| 虚拟机 | 需要硬件虚拟化支持 |
+
+Husk 的取舍是：**运行时不做任何系统调用拦截。**
+
+需要在启动前确定的适配——路径视角的转换、以及 Android 安全策略会拒绝的两个启动期系统调用——
+全部在**构建期**写入 guest 的动态链接器；运行时由内核直接执行 guest 代码。
+这是它能接近原生性能的根本原因。
+
+## 4. 工作方式
+
+1. **路径**：guest 视角的绝对路径（如 `/etc/os-release`）在进入系统调用之前，被解析为应用
+   私有目录下的真实路径。符号链接与 `..` 均在 rootfs 边界内解析，无法逃逸。
+2. **启动期安全策略**：Android 对普通应用进程禁用两个启动期系统调用，而 guest 的 C 运行库
+   在动态链接器内部就会使用它们。这两处调用在构建期被移除，并由受控的替代路径补齐，
+   因此启动阶段不需要任何拦截机制。
+3. **子进程**：启动新程序时沿用同一个动态链接器，子进程自动具备相同行为，无需环境变量或包装脚本。
+
+实现细节与边界情况见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+
+## 5. 实测表现
+
+真机环境：Android 16、内核 6.6、普通应用权限；guest 为 Ubuntu 24.04 / glibc 2.39。
+
+| 指标 | Husk | 对照 |
 |---|---|---|
-| `exec`（同条件） | **2.49–2.53 ms** | 原生 bionic 6.8–8.0 ms |
-| `getpid` | **196 ns** | 内核原值 |
-| `stat` 单路径组件 | **4.3–5.4 us** | — |
-| `stat` 四组件 | **11–12 us** | — |
-| PRoot（同 harness，另一台机） | 每条 syscall 一次 ptrace 往返：5000 次 stat **0.41–0.76 s** | Husk 同项 **0.06 s** |
-| PRoot 在本机 | **连 guest ELF 都 exec 不了**（ENOENT→EACCES，四种配置都试过） | — |
+| 启动一个程序（fork + exec + wait） | **2.5 ms** | 同进程内 Android 原生程序 6.8–8.0 ms |
+| `getpid` 等无路径参数的调用 | **196 ns** | 与原生一致 |
+| `stat`，单层路径 | **5.4 µs** | 同一路径不经解析 2.9 µs |
+| `stat`，四层路径 | **11 µs** | — |
 
-## 4. 现在能做到什么
+路径解析是唯一存在额外成本的环节；其余系统调用没有额外开销。
+完整数据与来源见 [docs/RESULTS.md](docs/RESULTS.md)。
 
-真机实测，全部有原始输出（`docs/native-runtime/evidence/`）：
+## 6. 当前能力
 
-- bash 交互、管道、子 shell、重定向、`stdin`
-- `ls / find / readdir / pwd / cd / cp / mv / chmod / readlink / sort / sha256sum / glob`
-- 符号链接（相对、绝对、`..`）正常解析，**且不能逃出 rootfs**
-- 子进程继承环境与 cwd（起始 cwd = `/`）
-- **gcc 13.3 + as + collect2 + ld.bfd**：编译 C 程序并运行
-- **make**：并行构建、增量、clean
-- 31 项功能矩阵 **31 PASS / 0 FAIL**；越界测试全过
+- **Shell 与常用工具**：bash、ls、find、cp、mv、chmod、sort、sha256sum、管道、重定向、子 shell
+- **编译工具链**：gcc 13.3 全链路（预处理、编译、汇编、链接）与 make（并行、增量、clean）
+- **兼容性验证**：31 项功能用例全部通过；11 项越界测试无逃逸
+- **运行环境**：普通应用权限，无需 root 与开发者选项之外的任何配置
 
-## 5. 现在做不到什么（明写，不藏）
+## 7. 当前限制
 
-- `execl / execle / execlp` 拦不到：glibc 内部走私有 `execve`，没有 PLT 槽；稳定版 Rust 定义不了
-  C 变参，汇编蹦床会被 `rustc` 的 cdylib 导出表本地化。两次尝试均失败并如实记录。
-- `posix_spawn` 用 `fork`，不是 `vfork`（少一次优化，不是错误）。
-- `freopen` / `glob` / `nftw` / `dlmopen` 未覆盖。
-- 16K 页内核未测。
-- rootfs 里没有 python3（247 个二进制），所以 guest 内也只能用 shell/C 工具链。
-- **产品化未开始**：PTY/会话管理、与 LinuxHub 2.0 的集成、`fd→路径`缓存都还在待办。
+- `execl` 系列函数（部分程序用于启动子进程）不生效；
+- `freopen`、`glob`、`nftw`、`dlmopen` 尚未覆盖；
+- 仅在 4K 页内核上验证；
+- 产品化未完成：会话与终端管理、与 LinuxHub 应用的集成仍在开发。
 
-## 6. 仓库结构
+## 8. 文档
 
-```
-docs/native-runtime/          方案与证据
-  06-sole-plan-t2t1.md        唯一权威方案（含验收清单与剩余工作）
-  07-proot-comparison.md      与 PRoot 的同条件对照
-  evidence/01–23              设备原始输出，编号与方案引用一一对应
-linuxhub-runtime/             Rust workspace（可直接 cargo build）
-  crates/path-shim            嵌入 loader 的路径 shim（no_std、零依赖）
-  crates/runtime-core         shim 的宿主无关核心
-  crates/capability-probe     设备能力探针
-  crates/nr-tools             构建工具：scan-syscalls / embed / provision
-tools/nr-loader-hook/         loader 手术现场：入口桩与 _dl_init 钩子（271 行汇编）、
-                              三个 Python 参考实现（用于逐字节对拍）、build 脚本
-tools/native-runtime-tests/   设备侧测试：31 项矩阵、越界、bench、gcc/make 验收、工具链供应
-tools/native-runtime-probe-apk/ 探针 APK（Java，96 行）：从 untrusted_app 拉起 guest loader
-binaries/                     改写后的 loader / libc 与原始文件——它们的 sha256 就是身份
-```
+| 文档 | 内容 |
+|---|---|
+| [架构](docs/ARCHITECTURE.md) | 分层、适配点、路径解析、已知边界 |
+| [实测数据](docs/RESULTS.md) | 功能矩阵、越界测试、性能数据、对照与未验证项 |
+| [工程设计](docs/ENGINEERING.md) | 实现选型、构建工具、产物指纹、语言构成 |
+| [方案](docs/native-runtime/06-sole-plan-t2t1.md) | 路线选择、验收标准、后续计划 |
+| [证据](docs/native-runtime/evidence/) | 01–23：设备原始输出，与方案引用一一对应 |
+| [变更记录](CHANGELOG.md) | 版本与已完成事项 |
 
-## 7. 怎么复现
+开发者上手请见 [QUICKSTART.md](QUICKSTART.md)。
 
-完整步骤见 [QUICKSTART](QUICKSTART.md)。最短路径：
+## 9. 许可与来源
 
-```sh
-export NDK=<ndk>/toolchains/llvm/prebuilt/<host>/bin
-./tools/nr-loader-hook/build-embedded-loader.sh        # 改出带 shim 的 loader
-./tools/native-runtime-tests/provision-toolchain.sh    # 装 gcc/make（纯 Rust）
-cd tools/native-runtime-tests
-DEV=<adb serial> ./run-guest.sh 01-functional-matrix.sh  # 31 PASS / 0 FAIL
-DEV=<adb serial> ./run-guest.sh accept-gcc-make.sh       # gcc + make 全链
-```
-
-指纹（可用于校验你手上的是不是同一份产物）：
-
-```
-ld-embedded.so                1600a850985624b05c8b1c1f9cee5fe8185462da91d0de369dcb9ff30f21cbee
-ld-linux-aarch64.so.1.orig    bd29514c1b45cc29b152011dd7c504e00dce240c19e4dd120196053873af9180
-libc-nop.so.6                 18acad63e69559c974c0ae093333d9cfa661c18ba4ad04a48268d8d1405e1bcc
-libpath_shim.so               73106ac673ea28c56f28cab56b6dd07b9c2415bb1cf801a8ab2f219906e16c1a
-```
-
-在本仓库里直接跑 `tools/nr-loader-hook/build-embedded-loader.sh`，产出的 loader
-就是上面第一个 sha256——不是"理论上可以"，是刚在本机跑出来的。
-
-## 8. 语言构成
-
-| 语言 | 行数 | 说明 |
-|---|---|---|
-| Rust | ~4500 | 运行时本体 + 构建工具，全部 `no_std` / 零依赖 |
-| 汇编 | 271 | `entry-stub.S` / `init-hook.S`：这段跑在任何 Rust 运行时存在之前，稳定版 Rust 定义不了 naked fn |
-| C | 103 | `bench.c`：基准必须跑在 guest 里 |
-| Shell | ~600 | 测试脚本——它们测的就是 bash，换掉等于换掉被测对象 |
-| Java | 96 | 探针 APK |
-| Python | 630 | 仅作**对拍参照**，构建默认走 Rust |
-| glibc 二进制 | — | `ld.so`（+1 个 `PT_LOAD`、2 处 `nop`）、`libc.so.6`（2 处 `nop`），不重编译 |
-
-## 9. 边界与来源
-
-- 改写的对象是 Ubuntu 24.04 的 `ld.so` / `libc.so.6`（GPL/LGPL 衍生），`binaries/` 只用于校验产物身份，
-  不随本仓库提供 rootfs；分发二进制时需自行满足相应的许可证义务。
-- 本仓库是私有库：`docs/` 与测试脚本里含有本机绝对路径、设备序列号等环境信息，公开前需清理。
-- 方案里所有结论都带标签：**FACT**（命令输出）/ **INFERENCE** / **UNKNOWN**；未实测不写 PASS。
+本仓库为私有仓库，未授权再分发。路径适配的对象是 Ubuntu 24.04 的 glibc 二进制（LGPL），
+其衍生文件仅用于固定被测产物的身份，来源与许可说明见 [LICENSE](LICENSE)。
