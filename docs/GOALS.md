@@ -3,7 +3,7 @@
 > 本文件是目标的**权威规格**。会话里的 goal 对象不可编辑，重建 goal 时以本文件为准；
 > 改目标就改这里，再把下面的「粘贴块」整段贴进去。
 
-最后更新：2026-11-22（v6：C5 路线按 evidence 35/36 重写——上游 Mesa 无 kbase 后端，改为 Rust DRM 语义层；命令字一律取自真实客户端）
+最后更新：2026-11-22（v7：目标重写——已完成项降为回归门禁，只留剩余工作；C 段按 evidence 35/36 纠正）
 
 ---
 
@@ -13,22 +13,24 @@
 
 硬约束：不 root、不解 BL、不开虚拟化；运行时零 syscall 拦截（shim 只在必要处 interpose，不再扩大拦截面）；能 Rust 就 Rust（零 Java、零 Python、零 C，只有内核 ABI 强制的裸汇编 stub 例外）；绝不读写 com.linuxhub.myth 的任何数据，只用自己私有目录里的副本；单台旧设备的问题不外推到所有设备；结论只按实测下，推断必须标注。每次正式改动都提交本地并推 GitHub。
 
-【A. 运行时核心】
-1）SIGSYS 全链路打通。已实测：openat2(437) 是可捕获 TRAP；kill(2)/tkill/tgkill 属不可捕获档，只能 interpose 让调用不落内核（interpose 已生效，但当前死在 handler 的 frame 定位分支；4.19 上 si_call_addr 不填）。要求：handler 入口无条件写固定路径日志，按真实 ucontext 偏移定位帧，不靠特征扫描猜。验收：untrusted_app 域里 guest bash -i 连续交互 10 分钟不死，日志里能看到被仿真成 ENOSYS 的具体 syscall 号。
-2）壳应用（app-rs，纯 Rust NativeActivity）生命周期与渲染完整。黑屏已定位并修好（原地覆盖平台回调表）；旋转 / 软键盘 / 切后台 / Surface 重建不重启会话；vim、htop 全屏可用；僵尸与重启风暴零复现（唯一 reaper + PR_SET_CHILD_SUBREAPER + 点了才重启）。终端渲染补齐完整 ANSI（提示符、光标、滚动回看、SGR 颜色、UTF-8 宽字符），删掉开发期自检代码。
-3）页大小无关。构建期 over-align（max-page-size ≥ 0x4000）、运行期读 auxv AT_PAGESZ、nr-tools check-elf 体检；代码禁止字面量 4096。验收：4K 与 16K 两种内核假设下都通过体检，guest 侧 ELF 对齐有表可查。
+【已完成 · 不再是任务，只保留回归门禁】
+· SIGSYS 全链路：interpose + ENOSYS 仿真可用，10 分钟长稳通过（600s / 11360 次 fork-exec / 零僵尸，evidence 32）。
+· 壳应用生命周期：全部回调接上，旋转 / Surface 重建 / 切后台不重启会话，唯一 reaper + subreaper，零僵尸零重启风暴（docs/design/lifecycle.md + 实测）。
+· 页大小无关：构建期 over-align + `nr-tools check-elf`（4K/16K/64K）+ embed 同余断言（evidence 30）。
+· 终端渲染 ANSI（SGR 颜色 / UTF-8 宽字符）：**不做**。终端壳只是演示载体，不属于运行时范围，不作为验收项。
 
-【B. 真实场景验证】
-4）用 **LinuxHub 2.0** 的完整 rootfs 验证，唯一来源是 /Users/l/Documents/Codex/2026-08-10/linuxhub/LinuxHub-2.0/app/src/main/assets/：rootfs/ubuntu-base-24.04.4-base-arm64.tar（31 MB）→ offline/bootstrap-arm64.tar（349 MB）→ offline/gnome-24.04-arm64.tar（532 MB）→ offline/vendor-apps-arm64.tar（403 MB），外加 offline/mesa-for-android-container_27.0.0-devel-20261025-r2_ubuntu_noble_arm64.tar（12 MB）、desktop/（GNOME 默认值、图标、壁纸、会话总线配置）、x11/xkb-data.tar。资产只用这一份 2.0 目录里的 24.04 链。解到 Husk 私有目录的独立副本（files/rootfs-full），绝不读写 com.linuxhub.myth。验收：不只是 bash——GNOME 桌面能起，浏览器、文件管理器、终端可用。同时打通 libc 内部调用（构建期槽位方案），否则 apt/dpkg/locale 仍读宿主文件。
+【A. 真实场景验证】
+1）2.0 完整 rootfs 已能起 GNOME Shell 46（evidence 33），只剩两件：① libc 内部调用槽位方案（docs/design/libc-interpose.md，未实现）——否则 apt/dpkg/locale 仍读宿主文件；② 浏览器 / 文件管理器 / 终端三个可用性验收。
 
-【C. 原生直连 SoC】本机已实测（2026-11-22，guest 侧，见 evidence 31）：/dev/mali0 可从 guest rw 打开；kbase UAPI = 11.38；VERSION_CHECK 用 _IOC(RW,0x80,0,4) 编码才被识别；SET_FLAGS _IOC(W,0x80,1,4) 在 guest 里返回 0（kctx 建成）；MEM_ALLOC/MEM_QUERY 等命令存在；/dev/kgsl-3d0 不存在、/dev/dri 打不开、/dev/dma_heap 不存在、/dev/snd 打不开、/dev/ion 在 guest 侧 EACCES（待复核）。厂商 libGLES_mali.so 有 25 个 bionic DT_NEEDED（libc.so/libc++/libhidlbase/gralloc…），**不能在 glibc guest 内加载**，此路线已排除，不再尝试。
-5）GPU：唯一路线 = guest 进程自己打开 /dev/mali0，直连厂商 kbase（UAPI 11.38），不经任何中转服务、不留独立 GPU 进程。FACT（evidence 35/36）：上游 Mesa（25.2.0 与 main）的 panfrost 只有 panfrost_kmod(DRM) 与 panthor_kmod，没有 kbase 后端，发行版 Mesa 无法直接驱动本机；命令字必须取自真实客户端（厂商 libGLES_mali.so r32p1 反读，共 26 条），JOB_SUBMIT = 0x40108002（W,16），实测 EINVAL 而非 ENOTTY（命令可达，atom 未构造）；mem_alloc（flags 低两位 = CPU 权限）+ mmap（prot 必须等于 flags&3，offset = 回写的 GPU VA）已实测可分配并 CPU 读写显存。实现方式：由 Rust 侧提供 DRM 语义层——在 guest 进程内拦 open("/dev/dri/renderD128") + ioctl + mmap，翻译成 kbase 命令字；发行版 Mesa 的 panfrost/panvk 不改不重编，不写 C。验收：guest 内 eglinfo/glxinfo 报出 Mali-G77 真实 renderer；同一场景硬件 vs llvmpipe 帧率对比表；不崩、可降级。
-6）显示：guest 渲染面与 Android Surface 零拷贝。dma-buf 来源按实测选择：优先 kbase 分配且可导出的 BO（导出能力待实测）；若 kbase 不支持导出，退化为 CPU 拷贝，并必须在 evidence 里写明原因与实测开销。包成 AHardwareBuffer → ANativeWindow queueBuffer + render-done fence 交 SurfaceFlinger，全部 Rust。验收：窗口可交互、拖动不掉帧、旋转与 DPI 变化正确、多窗口正常、连续 10 分钟无泄漏。
-7）音频：/dev/snd 打不开，只能在 app 进程内用 AAudio 开流；guest ↔ app 用独立 socketpair 传 PCM（不与输入/剪贴板争通道），Rust 实现。验收：guest 内可枚举输出设备、能出声、音量可控、延迟有实测数字并写明测量方法。
-8）探测与降级：SoC 与节点能力写成代码里的表（按 /dev/mali0、/dev/kgsl-3d0、/dev/dri/renderD128、ro.hardware.egl、ro.hardware.vulkan、ro.board.platform 判定）；适配器按芯片家族实现（Mali kbase / Adreno kgsl / DRM），不按机型做一次性适配；探测失败必须有明确降级路径（软件渲染 + 日志说明原因），任何一条都不能崩。
+【B. 原生直连 SoC】
+环境事实（guest 侧实测）：只有 `/dev/mali0`（rw 可开，kbase UAPI 11.38）；`/dev/kgsl-3d0` 不存在；`/dev/dri` 打不开；`/dev/dma_heap` 不存在；`/dev/snd` EACCES；`/dev/ion` guest 侧 EACCES（待复核）。厂商 libGLES_mali.so 带 25 个 bionic DT_NEEDED，不能在 glibc guest 内加载，此路线已排除。
+2）GPU：唯一路线 = guest 进程自己打开 /dev/mali0，直连厂商 kbase，不经中转服务、不留独立 GPU 进程。上游 Mesa（25.2 与 main）没有 kbase 后端（FACT，evidence 36），发行版 Mesa 无法直接驱动本机；命令字必须取自真实客户端（厂商 .so 反读，26 条），JOB_SUBMIT = 0x40108002（W,16），实测 EINVAL 而非 ENOTTY；mem_alloc + mmap（prot = flags 低两位，offset = 回写 VA）已实测可 CPU 读写显存。实现 = Rust 侧 DRM 语义层：在 guest 内拦 open("/dev/dri/renderD128") + ioctl + mmap 翻译成 kbase，Mesa 不改不重编、不写 C。验收：guest 内 eglinfo/glxinfo 报出 Mali-G77 真实 renderer；硬件 vs llvmpipe 帧率对比表；不崩、可降级。
+3）显示：guest 渲染面与 Android Surface 零拷贝。dma-buf 优先用 kbase 分配且可导出的 BO（导出能力待实测）；不支持导出则退化 CPU 拷贝并在 evidence 写明原因与开销。包成 AHardwareBuffer → ANativeWindow queueBuffer + render-done fence 交 SurfaceFlinger，全部 Rust。验收：可交互、拖动不掉帧、旋转与 DPI 正确、多窗口正常、连续 10 分钟无泄漏。
+4）音频：/dev/snd 打不开，只能在 app 进程内用 AAudio 开流；guest ↔ app 用独立 socketpair 传 PCM（不与输入/剪贴板争通道），Rust 实现。验收：guest 内可枚举输出设备、能出声、音量可控、延迟有实测数字并写明测量方法。
+5）探测与降级：SoC 与节点能力写成代码里的表（/dev/mali0、/dev/kgsl-3d0、/dev/dri/renderD128、ro.hardware.egl、ro.hardware.vulkan、ro.board.platform）；适配器按芯片家族实现（Mali kbase / Adreno kgsl / DRM），不按机型做一次性适配；探测失败必须有明确降级路径（软件渲染 + 日志说明原因），任何一条都不能崩。
 
-【D. 工程纪律】
-9）每一步留可复现命令与证据（docs/design/evidence/、docs/STATUS.md、docs/GOALS.md），事实与推断分开标注；对外结论别人用同样命令能复现。判定「内核/驱动不支持某能力」之前，必须先从真实客户端（厂商 .so 反汇编、sysfs）取到命令字或参数，再用最小合法参数打一次；禁止用猜的 header 组合下结论（2026-11-22 JOB_SUBMIT 假阴性就是这类错误）。一项做完先上机验证再写"完成"，未验证就明确写未验证。收尾时设备息屏、会话不留僵尸。
+【C. 工程纪律】
+6）每步留可复现命令与证据（docs/design/evidence/、docs/STATUS.md、docs/GOALS.md），事实与推断分开标注；一项做完先上机验证再写"完成"，未验证就写未验证。判定「内核/驱动不支持某能力」前，必须先从真实客户端（厂商 .so、sysfs）取到命令字或参数，再用最小合法参数打一次，禁止用猜的组合下结论（2026-11-22 JOB_SUBMIT 假阴性即此错）。收尾时设备息屏、会话不留僵尸。
 
 ---
 
