@@ -18,10 +18,12 @@ mod sys;
 mod term;
 
 use core::ffi::{c_char, c_int, c_long, c_void};
+use std::ffi::CStr;
 use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::sync::Mutex;
 use sys::*;
 use term::Term;
+mod trace;
 
 static WINDOW: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
 static INPUTQ: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
@@ -108,6 +110,15 @@ impl App {
             return;
         }
         self.started = true;
+        // `files/trace` switches this launch into the ptrace snitch: one traced
+        // loader run whose syscall numbers land in logcat.
+        if let Some((rootfs, _apklib, loader)) = self.paths() {
+            if std::path::Path::new(&format!("{rootfs}/../trace")).exists() {
+                let guestlib = format!("{rootfs}/usr/lib/aarch64-linux-gnu");
+                std::thread::spawn(move || trace::spy(&loader, &guestlib, &rootfs));
+                return;
+            }
+        }
         self.ensure_term();
     }
 
@@ -323,7 +334,11 @@ pub unsafe extern "C" fn ANativeActivity_onCreate(activity: *mut ANativeActivity
         *g = Some(Box::new(App::new()));
     }
     probe_sigsys_semantics();
-    start_reaper();
+    // In snitch mode the tracee's ptrace stops are reaped by the spy thread.
+    // A second waitpid(-1) in the same process would steal them and hang the run.
+    if !trace_requested() {
+        start_reaper();
+    }
     std::thread::spawn(|| {
         let _ = std::panic::catch_unwind(run);
     });
@@ -366,6 +381,22 @@ fn probe_sigsys_semantics() {
             format!("signal {} ({}) -- KILL, nothing can catch it", wtermsig(st), sig_name(wtermsig(st)))
         };
         crate::log(&format!("probe: openat2 semantics = {verdict}"));
+    }
+}
+
+/// True when `files/trace` exists (see trace.rs).
+fn trace_requested() -> bool {
+    unsafe {
+        let act = ACTIVITY.load(Ordering::Relaxed);
+        if act.is_null() {
+            return false;
+        }
+        let a = &*act;
+        if a.internalDataPath.is_null() {
+            return false;
+        }
+        let files = CStr::from_ptr(a.internalDataPath).to_string_lossy().to_string();
+        std::path::Path::new(&format!("{files}/trace")).exists()
     }
 }
 

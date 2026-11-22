@@ -305,6 +305,29 @@ extern "C" fn on_sigsys(_sig: CInt, info: *const u8, uc: *mut u8) {
     }
 }
 
+/// Hand-rolled decimal, no_std and no allocation.
+fn put_i64(buf: &mut [u8], mut at: usize, v: i64) -> usize {
+    let mut tmp = [0u8; 24];
+    let mut n = 0;
+    let mut neg = false;
+    let mut x = v;
+    if x < 0 { neg = true; }
+    if x == 0 { tmp[0] = b'0'; n = 1; }
+    while x != 0 {
+        let d = (x % 10).abs() as u8;
+        tmp[n] = b'0' + d;
+        n += 1;
+        x /= 10;
+    }
+    if neg { tmp[n] = b'-'; n += 1; }
+    while n > 0 {
+        n -= 1;
+        buf[at] = tmp[n];
+        at += 1;
+    }
+    at
+}
+
 unsafe fn install_sigsys() {
     let act = KSigaction {
         handler: on_sigsys as usize,
@@ -313,7 +336,18 @@ unsafe fn install_sigsys() {
         mask: 0,
     };
     // rt_sigaction(SIGSYS, &act, NULL, 8)
-    syscall4(SYS_RT_SIGACTION, SIGSYS_NUM, &act as *const KSigaction as usize, 0, 8);
+    let ret = syscall4(SYS_RT_SIGACTION, SIGSYS_NUM, &act as *const KSigaction as usize, 0, 8);
+    {
+        // The return value IS the errno (negated). Log it: an "installed" line
+        // that lies is worse than no line at all.
+        let mut line = [0u8; 64];
+        let mut n = 0;
+        for &b in b"nr-init|sigaction|ret=" { line[n] = b; n += 1; }
+        n = put_i64(&mut line, n, ret as i64);
+        line[n] = b'\n';
+        n += 1;
+        init_note(&line[..n]);
+    }
     // A one-line marker for the trap log, so a trap record can be told apart
     // from a run that merely started. It stays out of the program's own stderr
     // unless NR_DEBUG is on: the launcher always sets NR_SIGSYS_LOG.
@@ -1706,6 +1740,76 @@ pub unsafe extern "C" fn dlopen(file: *const CChar, mode: CInt) -> *mut u8 {
     rc::close(parent);
     if r.is_none() { *__errno_location() = ENOENT; return core::ptr::null_mut(); }
     dlmopen(LM_ID_BASE, real.as_ptr() as *const CChar, mode)
+}
+
+// ------------------------------------------------------------ signalling
+// Measured on RMX3357 (Android 13, kernel 4.19): `kill(2)` from an app is answered
+// with a SIGSYS that no handler can catch -- `openat2` traps, `kill` kills. bash's
+// job-control setup calls kill(shell_pid, SIGTTIN) and the guest dies there, which
+// is what looked like "loader bootstrap gets killed".
+//
+// So the call never reaches the kernel:
+//   * a job-control signal aimed at ourselves -> success, no-op. Job control is
+//     meaningless for an app that owns no real controlling terminal.
+//   * anything aimed at another process      -> EPERM, which is exactly what an
+//     Android app already gets from the kernel.
+//   * any other self-signal                  -> passed through untouched (dying
+//     from the real signal is never worse than dying from SIGSYS).
+const SYS_KILL_NR: usize = 129;
+const SYS_GETTID: usize = 178;
+const SIGCONT_N: CInt = 18;
+const SIGTSTP_N: CInt = 20;
+const SIGTTIN_N: CInt = 21;
+const SIGTTOU_N: CInt = 22;
+
+fn is_job_control(sig: CInt) -> bool {
+    sig == SIGCONT_N || sig == SIGTSTP_N || sig == SIGTTIN_N || sig == SIGTTOU_N
+}
+
+unsafe fn targets_self(pid: CInt) -> bool {
+    let me = syscall4(SYS_GETPID, 0, 0, 0, 0) as CInt;
+    pid == 0 || pid == -1 || pid == me || pid == -me
+}
+
+/// Shared policy for kill/tkill/tgkill. Returns Some(result) when handled here.
+unsafe fn signal_policy(pid: CInt, sig: CInt) -> Option<CInt> {
+    if !targets_self(pid) {
+        return Some(set_errno(1)); // EPERM: apps cannot signal other processes
+    }
+    if sig == 0 || is_job_control(sig) {
+        return Some(0);
+    }
+    None // let the real syscall decide
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn kill(pid: CInt, sig: CInt) -> CInt {
+    if let Some(r) = signal_policy(pid, sig) {
+        return r;
+    }
+    let r = syscall4(SYS_KILL_NR, pid as usize, sig as usize, 0, 0) as CInt;
+    if r < 0 { return set_errno(-r); }
+    r
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn tkill(tid: CInt, sig: CInt) -> CInt {
+    if let Some(r) = signal_policy(tid, sig) {
+        return r;
+    }
+    let r = syscall4(130, tid as usize, sig as usize, 0, 0) as CInt;
+    if r < 0 { return set_errno(-r); }
+    r
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn tgkill(tgid: CInt, tid: CInt, sig: CInt) -> CInt {
+    if let Some(r) = signal_policy(tgid, sig) {
+        return r;
+    }
+    let r = syscall4(131, tgid as usize, tid as usize, sig as usize, 0) as CInt;
+    if r < 0 { return set_errno(-r); }
+    r
 }
 
 // ------------------------------------------------------------- posix_spawn

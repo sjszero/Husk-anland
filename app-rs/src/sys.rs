@@ -254,6 +254,7 @@ pub const GL_ONE_MINUS_SRC_ALPHA: u32 = 0x0303;
 
 extern "C" {
     pub fn prctl(option: c_int, ...) -> c_int;
+    pub fn ptrace(request: c_int, ...) -> c_long;
     pub fn syscall(num: c_long, ...) -> c_long;
     pub fn kill(pid: c_int, sig: c_int) -> c_int;
 }
@@ -283,3 +284,30 @@ pub fn sig_name(sig: c_int) -> &'static str {
         _ => "?",
     }
 }
+
+// ---------------------------------------------------------------- ptrace ---
+pub const PTRACE_TRACEME: c_int = 0;
+pub const PTRACE_SYSCALL: c_int = 24;
+pub const PTRACE_SETOPTIONS: c_int = 0x4200;
+pub const PTRACE_GETREGSET: c_int = 0x4204;
+pub const PTRACE_O_TRACESYSGOOD: c_long = 0x1;
+pub const NT_PRSTATUS: c_long = 1;
+pub const SIGTRAP: c_int = 5;
+
+#[repr(C)]
+pub struct IoVec {
+    pub base: *mut c_void,
+    pub len: usize,
+}
+
+/// arm64 `struct user_pt_regs`: x0..x30, sp, pc, pstate.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PtRegs {
+    pub regs: [u64; 31],
+    pub sp: u64,
+    pub pc: u64,
+    pub pstate: u64,
+}
+
+pub fn wstopsig(st: c_int) -> c_int { (st >> 8) & 0xff }

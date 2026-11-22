@@ -95,3 +95,33 @@
 1. 让 `install_sigsys` 打印 `rt_sigaction` 的返回值与 errno（现在无条件打 "installed"），确认是"没装上"还是"装上了被覆盖"。
 2. `nr-tools` 加 `check-elf`（页大小体检），构建期断言 `p_offset ≡ p_vaddr (mod 0x4000)`。
 3. 页大小设计见 [design/page-size.md](design/page-size.md)。
+
+## 2026-11-22 深夜二：SIGSYS 根因锁定（ptrace 旁路取证）
+
+新工具 `app-rs/src/trace.rs`（纯 Rust，ptrace "syscall snitch"）：存在 `files/trace` 时，
+本次启动不走会话，而是 fork 一个 PTRACE_TRACEME 的子进程、按产品同样的 pty + `setsid`
++ `TIOCSCTTY` 形状 exec loader，父进程单步 `PTRACE_SYSCALL` 记录每个 syscall，
+死亡时输出最后 12 个 syscall 号与未完成的入口号，并把 guest 自己的报错从 pty 捞进 `files/trace.err`。
+
+实测（RMX3357，`bash -i`，322 个 syscall 后）：
+
+    spy: tracee killed by signal 31 (SIGSYS) after 322 syscalls; last pending entry = -1
+    spy: last enters (old -> new): 151 139 176 152 154 135 135 135 134 172 172 129
+
+**最后一个 syscall 是 129 = `kill(2)`，且没有退出停点 —— 它就是被拦的那条。**
+
+结论（FACT + 推论分开）：
+
+- FACT：loader 自举、`.init_array` 装 handler（`rt_sigaction ret=0`）、加载 libc/bash 全部成功；
+  `openat2(437)` 实测为 **TRAP 可捕获**；而 `kill(2)` 实测 **SIGSYS 直接杀，连 handler 带 ptrace
+  都接不住** → 同一份 filter 里两种动作并存，`kill` 属于不可捕获的那一档。
+- INFERENCE：触发点是 bash 的作业控制（`kill(shell_pid, SIGTTIN/…)`），不是 loader。
+  这与"非交互 `bash -c` 在同样条件下能跑通"一致。
+- 已尝试：在 shim 里 interpose `kill`/`tkill`/`tgkill`（自查目标 → 作业控制信号返回成功、指向别人 → EPERM），
+  `nr-tools embed` 报 `interposed: 79`（+3），但**运行时 `kill` 仍进内核** → 说明该调用点的 GOT 没被补上，
+  或调用发生在 shim 不覆盖的对象里。这是下一步要查的（`nr-tools/src/main.rs` 的 interpose 表如何应用到 guest DSO）。
+
+## 页大小（补）
+
+实测对齐：guest `bash`/`libc.so.6`/`ld-linux` 全部 `p_align = 0x10000`；我们的 `libhuskapp.so` `0x4000`；
+`libld.so` 混合但满足 16K 同余。详见 [design/page-size.md](design/page-size.md)。
