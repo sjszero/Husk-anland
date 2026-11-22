@@ -51,6 +51,11 @@ pub fn main(argv: &[String]) {
     let mut loader_out: Option<PathBuf> = None;
     let mut shim: Option<PathBuf> = None;
     let mut hook: Option<PathBuf> = None;
+    // 2.0's asset tree is a base rootfs tarball plus a directory of .debs.
+    // Pointing the builder at those two makes a husk from the same bits the
+    // product ships, without the network and without dpkg.
+    let mut base: Option<PathBuf> = None;
+    let mut deb_dir: Option<PathBuf> = None;
 
     let mut i = 0;
     while i < argv.len() {
@@ -71,8 +76,10 @@ pub fn main(argv: &[String]) {
             "--shim" => shim = Some(PathBuf::from(next(&mut i))),
             "--hook" => hook = Some(PathBuf::from(next(&mut i))),
             "--fresh" => fresh = true,
+            "--base" => base = Some(PathBuf::from(next(&mut i))),
+            "--debs" => deb_dir = Some(PathBuf::from(next(&mut i))),
             other => die(format!("unknown argument {other}\nusage: nr-tools rootfs [--out DIR] [--suite noble] \
-[--arch arm64] [--packages \"...\"] [--cache DIR] [--tar FILE] [--no-patch-libc] [--fresh]")),
+[--arch arm64] [--packages \"...\"] [--base TAR] [--debs DIR] [--cache DIR] [--tar FILE] [--no-patch-libc] [--fresh]")),
         }
         i += 1;
     }
@@ -82,6 +89,52 @@ pub fn main(argv: &[String]) {
     }
     fs::create_dir_all(&out).unwrap_or_else(|e| die(format!("out: {e}")));
     fs::create_dir_all(&cache).unwrap_or_else(|e| die(format!("cache: {e}")));
+
+    // ---------------------------------------------------------- base rootfs ---
+    if let Some(t) = &base {
+        let st = Command::new("tar")
+            .arg("xf")
+            .arg(t)
+            .arg("-C")
+            .arg(&out)
+            .status()
+            .unwrap_or_else(|e| die(format!("spawn tar: {e}")));
+        if !st.success() {
+            die(format!("extracting {} failed", t.display()));
+        }
+        println!("base: {} extracted into {}", t.display(), out.display());
+    }
+
+    // ------------------------------------------------------------- local debs ---
+    // When a deb directory is given, the index and the network are not used at
+    // all: the versions that go into the image are exactly the ones on disk.
+    if let Some(dir) = &deb_dir {
+        let mut files: Vec<PathBuf> = fs::read_dir(dir)
+            .unwrap_or_else(|e| die(format!("{}: {e}", dir.display())))
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().map(|x| x == "deb").unwrap_or(false))
+            .collect();
+        files.sort();
+        if files.is_empty() {
+            die(format!("no .deb files in {}", dir.display()));
+        }
+        println!("local debs: {} file(s) in {}", files.len(), dir.display());
+        let mut installed: Vec<(String, String)> = Vec::new();
+        for f in &files {
+            let data = fs::read(f).unwrap_or_else(|e| die(format!("{}: {e}", f.display())));
+            unpack_deb(&data, &out);
+            let stem = f.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let stem = stem.trim_end_matches(".deb");
+            // pkg_version_arch; Debian package names cannot contain '_'
+            let mut it = stem.splitn(3, '_');
+            let name = it.next().unwrap_or("").to_string();
+            let version = it.next().unwrap_or("0").to_string();
+            installed.push((name, version));
+        }
+        finish(out, tar, loader_out, shim, hook, patch_libc, &installed, &arch, &suite);
+        return;
+    }
 
     // ------------------------------------------------------------- index ---
     let mut index: BTreeMap<String, Pkg> = BTreeMap::new();
@@ -125,6 +178,21 @@ pub fn main(argv: &[String]) {
     }
     println!("unpacked {} packages into {}", installed.len(), out.display());
 
+/// Everything after the packages are on disk: usr-merge links, account files,
+/// the dpkg status database, the libc patch and the loader built from *this*
+/// image's own ld.so, then the tarball.
+#[allow(clippy::too_many_arguments)]
+fn finish(
+    out: PathBuf,
+    tar: Option<PathBuf>,
+    loader_out: Option<PathBuf>,
+    shim: Option<PathBuf>,
+    hook: Option<PathBuf>,
+    patch_libc: bool,
+    installed: &[(String, String)],
+    arch: &str,
+    suite: &str,
+) {
     // ------------------------------------------------------------- fixups ---
     // Ubuntu 24.04 is usr-merged: the packages ship /usr/*, the world asks for
     // /bin, /sbin, /lib.
@@ -165,7 +233,7 @@ deb http://ports.ubuntu.com/ubuntu-ports {suite}-updates main universe\n").as_by
     // dpkg and apt only believe a package is installed if the status database
     // says so; we did not run maintainer scripts, so we write it ourselves.
     let mut status = String::new();
-    for (name, version) in &installed {
+    for (name, version) in installed {
         status.push_str(&format!(
             "Package: {name}\nStatus: install ok installed\nPriority: optional\nSection: misc\n\
 Architecture: {arch}\nVersion: {version}\nDescription: {name} (staged by nr-tools rootfs)\n\n"
@@ -250,4 +318,6 @@ Architecture: {arch}\nVersion: {version}\nDescription: {name} (staged by nr-tool
         let sz = fs::metadata(&t).map(|m| m.len()).unwrap_or(0);
         println!("tarball: {} ({:.0} MB)", t.display(), sz as f64 / 1e6);
     }
+}
+
 }
