@@ -245,3 +245,10 @@ O S C 现在也认 `ESC \` 结束符（否则会一直吞到下一个 BEL）。
 * 关键规则（反汇编得出并实测）：`mmap` 的 prot 必须等于 `mem_alloc` 输入 flags 的低两位，否则 EPERM；
   对 PROT_READ 映射写会 SIGSEGV（不是 errno）。
 * 仍未通：`mem_query`（结构布局），`job_submit`（atom 未构造）。
+
+## 2026-11-22 22:47 JOB_SUBMIT 接受 atom（evidence 37）
+
+* `job_submit {addr=用户态72字节全零, nr_atoms=1, stride=72}` → **errno 0**；`stride=0` 才是 EINVAL。
+* atom 是否真被执行：**未验证**（缺完成通道），evidence 里已明确标注。
+* `mem_query`（公开 UAPI 的 in{gpu_addr,query}/out{value}）三种 query 全 EINVAL，语义与公开头不符，待查。
+* 下一步：接完成通道 + 用"GPU 写回内存"的最小 job 升级证据。

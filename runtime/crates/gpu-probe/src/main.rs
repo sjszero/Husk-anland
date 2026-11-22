@@ -559,6 +559,76 @@ fn alloc1() {
     }
 }
 
+// ------------------------------------------------- ABIs from the kernel side
+
+/// `union kbase_ioctl_mem_query`: in {u64 gpu_addr; u64 query}, out {u64 value}.
+/// Query ids: 1 = commit size, 2 = VA size, 3 = flags.
+#[repr(C)]
+struct MemQueryU {
+    a: u64,
+    b: u64,
+}
+
+fn kbase_open() -> Option<std::fs::File> {
+    let f = OpenOptions::new().read(true).write(true).open("/dev/mali0").ok()?;
+    let fd = f.as_raw_fd();
+    let vc = KbaseVersionCheck { major: 0, minor: 0 };
+    if ioctl_errno(fd, KBASE_IOCTL_VERSION_CHECK, &vc as *const _ as *mut core::ffi::c_void) != 0 {
+        return None;
+    }
+    let mut flags: u32 = 0;
+    if ioctl_errno(fd, 0x4004_8001, &mut flags as *mut u32 as *mut core::ffi::c_void) != 0 {
+        return None;
+    }
+    Some(f)
+}
+
+fn alloc_pages(fd: c_int, pages: u64, flags: u64) -> Option<u64> {
+    let mut a = MemAlloc { va_pages: pages, commit_pages: pages, extension: 0, flags };
+    let r = unsafe { ioctl(fd, 0xc020_8005u64, &mut a as *mut MemAlloc as *mut core::ffi::c_void) };
+    if r < 0 { None } else { Some(a.commit_pages) }
+}
+
+/// Verify the documented mem_query union against this driver: query the size and
+/// flags of a region we just allocated. If the numbers come back consistent with
+/// what we asked for, the ABI is confirmed (not guessed).
+fn query1() {
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    let Some(va) = alloc_pages(fd, 1, 0xF) else { line("mem_alloc", "FAIL", "flags=0xf"); return };
+    line("mem_alloc", "PASS", format!("gpu_va={va:#x}"));
+
+    for (q, name) in [(1u64, "COMMIT_SIZE"), (2, "VA_SIZE"), (3, "FLAGS")] {
+        let mut mq = MemQueryU { a: va, b: q };
+        let e = ioctl_errno(fd, 0xc010_8006, &mut mq as *mut MemQueryU as *mut core::ffi::c_void);
+        line(
+            "mem_query",
+            if e == 0 { "PASS" } else { "FAIL" },
+            format!("{name} errno={e} value={:#x}", mq.a),
+        );
+    }
+}
+
+/// One atom, all zero bytes, stride 72 (measured in the vendor driver).
+///
+/// The point is not to run anything: it separates "the kernel will look at my
+/// atom array" from "the command word is wrong". A zeroed atom has jc = 0, so a
+/// driver that reads it must refuse with something other than ENOTTY.
+fn submit1() {
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    let atom = [0u8; 72];
+    for n in [1u32, 0] {
+        let mut js = JobSubmit { addr: atom.as_ptr() as u64, nr_atoms: n, stride: 72 };
+        let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+        line(
+            "job_submit",
+            "ANSWERED",
+            format!("nr_atoms={n} stride=72 errno={e} ({})", strerror_guess(e)),
+        );
+    }
+}
+
 // ------------------------------------------------------------- ioctl surface
 
 /// Walk (nr, size) for the kbase command word with a zeroed 64-byte buffer and
@@ -646,13 +716,15 @@ fn main() {
         "ver" => ver(),
         "submit0" => submit0(),
         "alloc1" => alloc1(),
+        "query1" => query1(),
+        "submit1" => submit1(),
         "one" => {
             let major: u16 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
             let minor: u16 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(0);
             one(major, minor)
         }
         "" => {
-            eprintln!("usage: gpu-probe nodes|kbase|enc|nrscan|ver|submit0|alloc1|one <major> <minor>");
+            eprintln!("usage: gpu-probe nodes|kbase|enc|nrscan|ver|submit0|submit1|alloc1|query1|one <major> <minor>");
             std::process::exit(2);
         }
         other => {
