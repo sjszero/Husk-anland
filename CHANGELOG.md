@@ -1,5 +1,21 @@
 # 变更记录
 
+## 2026-11-23 — PanVK 最小验证：Mali-G77 compute job 已由 GPU 执行
+
+- **evidence 46**：从 `FristOneRR-Admin/FristOneRR-Panvk-Source`
+  commit `0c9dce35094dbe89c412b79bf57c6067c7b97e59`（Mesa 26.3.0-devel）编出 glibc 版
+  `libvulkan_panfrost.so`，产物 sha256
+  `fbfa3b43e69d3fd7f4088fe6b9e94a621e19ca3f95502265281f92ba908b6147`。
+- 新增纯 Rust `runtime/crates/vulkan-probe`：动态加载 Vulkan loader，完成 instance、physical
+  device、queue family、logical device、queue、4 KiB host-visible storage buffer，
+  并提交 SPIR-V compute pipeline + `vkCmdDispatch` + `vkQueueSubmit`，fence 后回读 GPU 写入。
+- 真机实测：`vulkaninfo --summary` 报 `Mali-G77 MC9`（deviceID `0x90800011`，PanVK）；
+  纯 Rust probe 的 compute submit + fence + readback `0x4855534b` 全 PASS。
+- 修复 `KBASE_IOCTL_MEM_EXEC_INIT` 顺序：EXEC_VA 必须在 JIT 前初始化，并使用 4G VA；
+  修复后 warning 消失。可复现 patch 已入库。
+- **未完成**：graphics draw、swapchain、surface 和 `eglinfo/glxinfo` renderer 未验证；
+  目标升到 **v15**；`funnymdzz/mesa` 保留为 `drmSyncobjCreate()` 失败对照。
+
 ## 2026-11-23 — 长期记忆归档：目标 v13、120 条参考清单、代理规则
 
 - 新增 `docs/PROJECT-MEMORY.md`：把产品边界、硬约束、GPU/显示/视频/音频路线、

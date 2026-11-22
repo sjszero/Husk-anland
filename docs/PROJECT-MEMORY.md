@@ -74,11 +74,19 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
 
 ### 4.3 当前主动路线（JUDGMENT，未完成）
 
-1. 用 `funnymdzz/mesa` 的 `kbase-v0.1.2`（Mesa 26.3-devel，含 `kbase_kmod.c`）交叉编出 **glibc 版**
-   `libvulkan_panfrost.so`。
-2. 先用 `vulkaninfo` / `vkcube` 验证真实 Mali-G77 Vulkan renderer。
-3. 再让发行版自带 Zink（GL on Vulkan）走这颗 PanVK，验证 `eglinfo` / `glxinfo`。
-4. DRM 语义层代码保留：它是已经完成的 M1/M2 资产，也是 panfrost 路线的后备，不删除。
+1. 用 `FristOneRR-Admin/FristOneRR-Panvk-Source`（commit
+   `0c9dce35094dbe89c412b79bf57c6067c7b97e59`，Mesa 26.3.0-devel）交叉编出 **glibc 版**
+   `libvulkan_panfrost.so`。选择它的原因是源码同时具备 G77 型号行和 kbase 的
+   CPU-backed sync（替代 kbase fd 上不可用的 DRM syncobj）。
+2. **已完成（evidence 46）**：`vulkaninfo --summary` 和纯 Rust `vulkan-probe` 都能枚举 Mali-G77；
+   probe 已提交 SPIR-V compute job，fence 后读回 GPU 写入 `0x4855534b`。
+3. **已完成（evidence 46）**：把 `MEM_EXEC_INIT` 移到 `MEM_JIT_INIT` 之前，并把 EXEC_VA 设为
+   4G；本机 warning 消失。可复现 patch 见 `docs/design/patches/fristonerr-exec-va-order.patch`。
+4. 下一步：验证 graphics pipeline / tiler / swapchain / surface，再让发行版自带 Zink
+   （GL on Vulkan）走这颗 PanVK，验证 `eglinfo` / `glxinfo`。
+5. `funnymdzz/mesa` 的 `kbase-v0.1.2` 已实测卡在 `drmSyncobjCreate()`，保留为失败证据和对照，
+   不再作为唯一主动路线。
+6. DRM 语义层代码保留：它是已经完成的 M1/M2 资产，也是 panfrost 路线的后备，不删除。
 
 ### 4.4 禁止重复的坑
 
@@ -145,8 +153,10 @@ eglinfo 报 Mali-G77；音频出声并有延迟数字；H.264/HEVC 硬解、AV �
 | `BkaNeko/panvk-mtk-driver` | `594efbf6d2038df81ce0a75603cce72f4c866879` | MTK `MEM_ALLOC_EX` / AFBC / CSF 回退补丁 |
 | `manoedinata/mesa-kbase-j4lte` | `3fd6fc3f0271d2538f93bc5a51a19cedf267b8dd` | libdrm-kbase / panfrost 语义规格 |
 | `zenithblue-oss/panvk-kbase-android` | `cf70e02b918e1864cbcd746a7fefa57b96c673ce` | 通用 Mali kbase PanVK 构建、profile、验证 |
-| `FristOneRR/FristOneRR-Panvk-Driver` | `e62405dbe3c9bea626a4afe534746180cea06586` | JM / v9 提交模型旁证 |
-| `funnymdzz/mesa` tag `kbase-v0.1.2` | `4e5323ef35dc580a6140f8d433a6d13ae3724c07` | 当前 glibc PanVK 交叉构建源 |
+| `FristOneRR/FristOneRR-Panvk-Driver` | `e62405dbe3c9bea626a4afe534746180cea06586` | 发布二进制审计；bionic 依赖，不能直接用于 glibc guest |
+| `FristOneRR-Admin/FristOneRR-Panvk-Source` | `0c9dce35094dbe89c412b79bf57c6067c7b97e59` | **当前 glibc PanVK 交叉构建源**；G77 + kbase CPU sync + JM |
+| `coderredlab/proroot` | `c01039ab017448263a4ddbd9221ecb88e737553c` | **零 ptrace 原生 runtime 的产品旁证**；仅二进制、专有，不能作为依赖或抄代码 |
+| `funnymdzz/mesa` tag `kbase-v0.1.2` | `4e5323ef35dc580a6140f8d433a6d13ae3724c07` | 已实测 `drmSyncobjCreate()` 失败；保留为对照 |
 
 ## 8. 网络与代理
 
@@ -170,7 +180,8 @@ eglinfo 报 Mali-G77；音频出声并有延迟数字；H.264/HEVC 硬解、AV �
 
 1. 读本文件、`GOALS.md`、`STATUS.md`、`references.md`、`mali-kbase-prior-art.md`。
 2. 查 `git status --short --branch`，确认没有未提交改动；没有用户授权不要动 LinuxHub 2.0 分支。
-3. 继续 GPU 主线：完成 `funnymdzz/mesa` `kbase-v0.1.2` 的 glibc PanVK 构建与真机验证。
-4. 写 evidence 46，更新 STATUS；失败也写清楚失败点和下一假设。
+3. 继续 GPU 主线：FristOneRR glibc PanVK 已完成 compute job + GPU readback（evidence 46）；
+   下一步做最小 graphics draw，再进入 Zink / renderer 验收。
+4. 每次失败也写清楚失败点和下一假设；证据放 `docs/design/evidence/`。
 5. GPU renderer 通过后再进入显示零拷贝；视频、音频按第 5 节并行设计但不能跳过硬解验收。
 6. 最后做 2.0 proot 替换与补丁清除。

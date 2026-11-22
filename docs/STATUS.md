@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 00:35）
+# 当前状态（2026-11-23 02:35）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -6,10 +6,27 @@
 ## 一句话
 
 在 RMX3357（MT6893 / Android 13 / kernel 4.19.191 / 4 KiB 页）上，普通应用域（`untrusted_app`）
-里跑起了 glibc bash 交互会话；壳应用是纯 Rust NativeActivity（无 Java）；GPU 侧已证明
-**guest 进程能打开 `/dev/mali0` 并建成 kbase 上下文**（evidence 31）。
+里跑起了 glibc bash 交互会话；壳应用是纯 Rust NativeActivity（无 Java）；GPU 侧已由
+FristOneRR PanVK 在 guest 内报出 **Mali-G77 MC9**，纯 Rust 探针完成 logical device、queue、
+host-visible storage buffer，并提交 compute job；GPU 写回 `0x4855534b` 已由 fence 后回读确认。
 
-## GPU 侧最新（evidence 45，2026-11-23）
+## GPU 侧最新（evidence 46，2026-11-23）
+
+- **FristOneRR PanVK 已产出 glibc 版**：源码 commit
+  `0c9dce35094dbe89c412b79bf57c6067c7b97e59`，Mesa 26.3.0-devel；产物
+  sha256 `fbfa3b43e69d3fd7f4088fe6b9e94a621e19ca3f95502265281f92ba908b6147`。
+- **真实物理设备可见（FACT）**：`vulkaninfo --summary` exit 0，报 `deviceName=Mali-G77 MC9`、
+  `deviceID=0x90800011`、`driverID=DRIVER_ID_MESA_PANVK`、`apiVersion=1.3.354`。
+- **纯 Rust `vulkan-probe` 已通过（FACT）**：instance / physical / queue family / logical device /
+  queue / memory types / 4 KiB buffer allocate+bind+map+readback / teardown 全部 PASS。
+- **compute job 已通过（FACT）**：`vkCmdDispatch` + `vkQueueSubmit` + fence 后，GPU 将
+  `0x4855534b` 写入 storage buffer；修复了 `MEM_EXEC_INIT` 在 JIT 前初始化的顺序问题。
+- **仍未完成（FACT）**：graphics draw、tiler/IDVS、swapchain、surface 与 `eglinfo`/`glxinfo`
+  renderer 均未验证，不能把 compute job 当成 GPU 验收完成。
+- **保留对照（FACT）**：`funnymdzz/mesa` `kbase-v0.1.2` 在 `vkCreateDevice` 处因 kbase fd 上
+  `drmSyncobjCreate()` 失败而报 `VK_ERROR_OUT_OF_HOST_MEMORY`，不再作为主动路线。
+
+## 上一阶段 GPU 基线（evidence 45）
 
 - **假 `/dev/dri/renderD128` 全链路打通**：loader 里的 path-shim 与 LD_PRELOAD 层通过
   `HUSK_DRM_API` 函数表共用一份 kbase 状态；`open → gbm_create_device` 全 PASS。
@@ -51,8 +68,12 @@
 | CSF / panthor 可用性 | **不可用**：`CS_GET_GLB_IFACE`（`0xc0188033`）= ENOTTY，内核只编了 JM | 41 |
 | kbase dma-buf 导出 | **没有**；只有 `MEM_IMPORT`（`0xc0188016`，可达，ENOMEM）→ 零拷贝改成 app→guest 导入 | 41 |
 | 完成通道 | `KBASE_IOCTL_KINSTR_JM_FD`（`0xc0088033`，16B 记录 / version 2）；但 COMPLETE 不区分成败，只有 START 有判据 | 40/41 |
-| GPU 实现形态 | **路线调整**：panvk kbase fork（glibc）+ Zink 为当前主动路线；Mesa 25.2 panfrost + DRM 语义层保留为后备（evidence 45） | 36 / 45 |
+| GPU 实现形态 | **当前主动路线**：FristOneRR PanVK（glibc）+ Zink；Mesa 25.2 panfrost + DRM 语义层保留为后备（evidence 46） | 36 / 45 / 46 |
 | DRM 语义层（M1） | **可用**：假 `/dev/dri/renderD128` + CREATE_BO/MMAP_BO/GET_PARAM 全通（kbase MEM_ALLOC / GPU VA） | 43/44 |
+| PanVK kbase 物理设备 | **通过**：guest 内 `vulkaninfo --summary` 报 Mali-G77 MC9 / PanVK | 46 |
+| PanVK logical device + buffer | **通过**：instance、device、queue、4 KiB host-visible buffer map/readback | 46 |
+| PanVK compute job | **通过**：SPIR-V shader + compute pipeline + `vkQueueSubmit` + fence + GPU readback | 46 |
+| PanVK graphics / renderer | **未验证**：还没有 draw、swapchain、`eglinfo/glxinfo` 真实 renderer | 46 / 后续 |
 | 软作业（`SOFT_EVENT_SET/WAIT`） | **本机无效果**：6 种偏移 + `compat_core_req` 双写 + 先 `MEM_JIT_INIT` + 换分配标志（CACHED_CPU / COHERENT_SYSTEM），显存里的标志字节始终为 0 | 40 |
 
 ## 本轮（21:24–21:31）做了什么

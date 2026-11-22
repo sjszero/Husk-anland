@@ -1,0 +1,31 @@
+--- a/src/panfrost/lib/kmod/kbase_kmod.c
++++ b/src/panfrost/lib/kmod/kbase_kmod.c
+@@ -1342,0 +1343,16 @@
++   /* Initialise the EXEC_VA zone so that GPU-executable allocations
++    * (shader BOs) are possible.  4G of executable VA (0x100000 pages)
++    * matches what panfork uses.  This MUST run before MEM_JIT_INIT:
++    * older JM kbase carves EXEC_VA out of the end of SAME_VA and returns
++    * EPERM once JIT's CUSTOM_VA zone exists.  A failed EXEC_INIT is not
++    * fatal on kernels that fall back to CUSTOM_VA for GPU_EX BOs. */
++   struct kbase_ioctl_mem_exec_init exec_init = { .va_pages = 0x100000 };
++   if (ioctl(fd, KBASE_IOCTL_MEM_EXEC_INIT, &exec_init)) {
++      if (errno == EPERM || errno == EINVAL)
++         mesa_logd("kbase: KBASE_IOCTL_MEM_EXEC_INIT: %s "
++                   "(GPU_EX BOs use CUSTOM_VA)", strerror(errno));
++      else
++         mesa_logw("kbase: KBASE_IOCTL_MEM_EXEC_INIT failed: %s "
++                   "(executable BO allocation may not work)", strerror(errno));
++   }
++
+@@ -1361,11 +1376,0 @@
+-   /* Initialise the EXEC_VA zone so that GPU-executable allocations
+-    * (shader BOs) are possible.  4G of executable VA (0x100000 pages)
+-    * matches what panfork uses.  On CSF uAPI >= 1.9 the zone is set up
+-    * automatically and this is a no-op.  Failure is not fatal for
+-    * enumeration, but executable allocations will fail later, so warn. */
+-   struct kbase_ioctl_mem_exec_init exec_init = { .va_pages = 1024 };
+-   if (ioctl(fd, KBASE_IOCTL_MEM_EXEC_INIT, &exec_init)) {
+-      mesa_logw("kbase: KBASE_IOCTL_MEM_EXEC_INIT failed: %s "
+-                "(executable BO allocation will not work)", strerror(errno));
+-   }
+-

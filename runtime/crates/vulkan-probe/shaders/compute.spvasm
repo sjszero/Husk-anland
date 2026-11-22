@@ -1,0 +1,25 @@
+; Minimal compute shader: data[0] = 0x4855534b ("HUSK")
+OpCapability Shader
+OpExtension "SPV_KHR_storage_buffer_storage_class"
+OpMemoryModel Logical GLSL450
+OpEntryPoint GLCompute %main "main" %buf
+OpExecutionMode %main LocalSize 1 1 1
+OpDecorate %struct Block
+OpMemberDecorate %struct 0 Offset 0
+OpDecorate %buf DescriptorSet 0
+OpDecorate %buf Binding 0
+%void = OpTypeVoid
+%fn = OpTypeFunction %void
+%uint = OpTypeInt 32 0
+%uint_0 = OpConstant %uint 0
+%value = OpConstant %uint 1213551435
+%struct = OpTypeStruct %uint
+%ptr_storage_struct = OpTypePointer StorageBuffer %struct
+%ptr_storage_uint = OpTypePointer StorageBuffer %uint
+%buf = OpVariable %ptr_storage_struct StorageBuffer
+%main = OpFunction %void None %fn
+%entry = OpLabel
+%data = OpAccessChain %ptr_storage_uint %buf %uint_0
+OpStore %data %value
+OpReturn
+OpFunctionEnd

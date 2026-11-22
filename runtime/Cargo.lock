@@ -56,3 +56,7 @@ dependencies = [
 [[package]]
 name = "runtime-core"
 version = "0.1.0"
+
+[[package]]
+name = "vulkan-probe"
+version = "0.1.0"

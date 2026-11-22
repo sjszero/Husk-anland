@@ -74,7 +74,12 @@ STICKY_RESOURCE_MAP _IOW(0x80,29) {u64 count, address}
 
 - **主动路线已调整**：evidence 45 证明 Ubuntu Mesa 25.2.8 的 panfrost 能在 guest 内加载并读到
   Mali-G77 参数，但模型表没有 G77/G78，且在 `CREATE_BO` 前失败；因此当前主动路线改为
-  **panvk kbase fork（glibc）+ 发行版 Zink**。DRM 语义层路线不再称为“唯一路线”。
+  **FristOneRR PanVK（glibc）+ 发行版 Zink**。DRM 语义层路线不再称为“唯一路线”。
+- **已实测的 PanVK 最小结果（evidence 46）**：FristOneRR 的 glibc 产物在 guest 内报出
+  Mali-G77 MC9；纯 Rust probe 完成 instance / logical device / queue / host-visible storage
+  buffer，并提交 compute job，fence 后读回 GPU 写入 `0x4855534b`。先前
+  `MEM_EXEC_INIT` 的 EPERM 已通过“EXEC_VA 先于 JIT、4G VA”修复；graphics draw / swapchain /
+  renderer 仍未验证，不能把 compute job 写成完整 GPU 完成。
 - **DRM 语义层保留**：它是已完成 M1/M2 资产，也是 A 类实现的 Rust 规格和后备；
   若 panvk 路线失败，再按本文件 §3 恢复提交 / fence / BO 生命周期实现。
 - **A 的实现仍有价值**：本文件 §3 的握手、SAME_VA、atom 依赖、fence、exec 区和 dma-buf 导入规则，

@@ -205,6 +205,74 @@ gh api repos/<owner>/<repo> --jq '.full_name+" @"+.default_branch+" "+(.pushed_a
 | `manoedinata/mesa-kbase-j4lte` | `/tmp/refs2/manoedinata_mesa-kbase-j4lte` | `3fd6fc3f0271d2538f93bc5a51a19cedf267b8dd` | libdrm-kbase 1785 行规格；panfrost 语义与 gralloc 参考 |
 | `FristOneRR/FristOneRR-Panvk-Driver` | `/tmp/refs2/FristOneRR_FristOneRR-Panvk-Driver` | `e62405dbe3c9bea626a4afe534746180cea06586` | JM / Valhall v9 提交模型旁证 |
 | `zenithblue-oss/panvk-kbase-android` | `/tmp/refs2/zenithblue-oss_panvk-kbase-android` | `cf70e02b918e1864cbcd746a7fefa57b96c673ce` | 通用 Mali kbase PanVK（v6–v14）、profile、构建与验证；仓库约 1.09 GB，使用 sparse checkout |
-| `funnymdzz/mesa` tag `kbase-v0.1.2` | `/tmp/mesa-kb012` | `4e5323ef35dc580a6140f8d433a6d13ae3724c07` | Mesa 26.3-devel + `src/panfrost/lib/kmod/kbase_kmod.c`；当前 glibc PanVK 交叉构建源 |
+| `funnymdzz/mesa` tag `kbase-v0.1.2` | `/tmp/mesa-kb012` | `4e5323ef35dc580a6140f8d433a6d13ae3724c07` | Mesa 26.3-devel + `src/panfrost/lib/kmod/kbase_kmod.c`；已实测 `drmSyncobjCreate()` 失败，保留为对照 |
 
 拉取规则不变：仅浅克隆/稀疏检出；记录 URL 和 commit；不把第三方源码提交进 Husk。
+
+## 第三遍审计（2026-11-23，补上遗漏与最新状态）
+
+本轮把原始清单重新对齐到真实仓库，重点补上昨天清单里没有定位到的项目。状态仍按证据分级，
+不把“搜到同名仓库”当成“就是这个项目”。
+
+### 0.5.1 新确认：proroot 不是空名字
+
+- **FACT**：`coderredlab/proroot` 真实存在，默认分支 `main`，审计时 commit
+  `c01039ab017448263a4ddbd9221ecb88e737553c`，98★（2026-11-23 查询）。
+- **FACT**：README 自述 “Rootless Linux runtime for Android. Drop-in replacement for proot with zero ptrace overhead.”
+  并要求 Android 8.0+ / arm64-v8a / glibc rootfs；发布物是 5 个 arm64 `.so`
+  （`libproroot.so`、`libproroot-runtime.so`、`libproroot-linker.so`、
+  `libproroot-bridge.so`、`libproroot-stub-loader.so`）。
+- **FACT**：仓库当前只有二进制和 README，**源码未公开**；LICENSE 为
+  `NOASSERTION`，README 明确写 proprietary、禁止分发修改后的二进制。
+- **JUDGMENT**：可作为“零 ptrace 原生 runtime 已经有人做成产品”的强旁证，
+  也可对照它的 loader/runtime/stub 分层；**不能把它的二进制当依赖或直接抄代码**。
+- **FACT**：`DSH-APP/DSHA`（3651★）在 README 中把 proroot 作为 Ubuntu 环境运行时，
+  说明它已经有真实产品集成案例；该消费者仓库本身不作为运行时依赖。
+
+### 0.5.2 新确认：FristOneRR 是当前最值得实测的 G77 源码路线
+
+- **FACT**：源码仓库 `FristOneRR-Admin/FristOneRR-Panvk-Source`，当前审计 commit
+  `0c9dce35094dbe89c412b79bf57c6067c7b97e59`，Mesa `26.3.0-devel`。
+- **FACT**：源码 `src/panfrost/model/pan_model.c:88` 有
+  `VALHALL_MODEL(PAN_PROD_ID(9, 0, 0), 0, "G77", ...)`；
+  本机 GPU_ID `0x90800011` 正好解码为 `PAN_PROD_ID(9,0,0)`。
+- **FACT**：源码 `src/panfrost/vulkan/panvk_physical_device.c` 的 kbase 路径使用
+  `kbase_cpu_sync_type`，明确注释 “DRM syncobj is not available on a kbase fd”；
+  这解决了另一种 G77 fork 在 `drmSyncobjCreate()` 处失败的问题。
+- **FACT**：源码还有 `PANVK_ATOM_STRIDE` 自动探测和 JM kbase 提交路径；
+  但 `panvk_bind_queue.c` 仍有 sparse-bind 专用的 `drmSyncobjCreate()`，
+  因此“设备创建成功”与“所有 bind 路径成功”必须分开验收。
+- **FACT**：其发布包是 Android/bionic 构建（DT_NEEDED 含 `libhardware.so`、`liblog.so`、
+  `libnativewindow.so`、`libsync.so`），不能直接塞进 glibc guest；
+  本轮必须用源码交叉编出 **glibc 版**。
+- **FACT**：本轮已按上述源码编出 glibc 版，产物 sha256
+  `fbfa3b43e69d3fd7f4088fe6b9e94a621e19ca3f95502265281f92ba908b6147`；
+  guest 内实测 `vulkaninfo --summary` 与纯 Rust probe 都能报出 Mali-G77 MC9，并完成 logical
+  device / queue / host-visible buffer map/readback（evidence 46）。
+- **FACT**：初版在该进程里 `MEM_EXEC_INIT` 返回 EPERM；按 `jm-v9/004` 把 EXEC_VA 移到 JIT 前
+  并设为 4G 后，警告消失。修复后产物 sha256
+  `ead96201dc84b653f9b643db00e2af239b763c3ecf61f5cf2caa6f44c96de5ec`。
+- **FACT**：纯 Rust probe 已提交 compute job，`vkQueueSubmit` + fence 后读回 GPU 写入
+  `0x4855534b`；但没有 graphics draw / swapchain / renderer，不能把 compute 结果写成完整 GPU 完成。
+- **FACT**：FristOneRR 文档警告 kbase 在容器/chroot/proot 中可能触发厂商内核 bug，
+  某些设备需要内核侧修复；因此在 RMX3357 上只先做 `vulkaninfo --summary` 级别的
+  device-create 验证，跑通前不盲目提交 job。
+
+### 0.5.3 funnymdzz fork 的实测结论（保留为失败证据）
+
+- **FACT**：`funnymdzz/mesa` tag `kbase-v0.1.2`，commit
+  `4e5323ef35dc580a6140f8d433a6d13ae3724c07`，在 RMX3357 上能打开 `/dev/mali0`、
+  识别 GPU，但 `vkCreateDevice` 报 `VK_ERROR_OUT_OF_HOST_MEMORY`；
+  根因不是 OOM，而是 `drmSyncobjCreate(device->drm_fd, ...)` 在 kbase fd 上失败。
+- **JUDGMENT**：该 fork 不能作为本机唯一路线；保留其源码和产物作为对照，
+  当前优先验证 FristOneRR 的 CPU-backed sync 路径。
+
+### 0.5.4 其余清单的审计口径
+
+- 原始清单 120 条，去重后 113 个名字；`references.md` 前面的 12 类表格按功能合并为 63 组。
+- `elf_loader` 仍未能对应到可信的唯一仓库：GitHub 上的同名项目都是通用/嵌入式 ELF loader，
+  不是“Bionic 进程加载 glibc ELF”的那个项目；因此状态保持 **UNKNOWN**，不伪造链接。
+- `mesa-patches`、`Local Desktop`、`Adreno Tools` 等泛化名字按搜索结果只能确认到同名/近似项目，
+  未把它们当作已审计的上游；其中 `localdesktop/localdesktop.github.io` 是产品项目而非驱动源码。
+- 高优先级顺序不变：`proroot`（架构旁证，bin-only）→ `FristOneRR` / `faux123` / `zenithblue`
+  （Mali kbase 源码）→ `mesa` 上游 → `libhybris` / Zink（容器 GPU 对照）→ 其余桌面/媒体/系统参考。

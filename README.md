@@ -10,8 +10,9 @@
 > shell、常用工具、gcc 13.3 + make 全链路通过；2.0 的完整 Ubuntu 24.04 rootfs 能起 GNOME Shell 46；
 > 生命周期（旋转 / 切后台 / Surface 重建 / 会话不重启）全部实测通过；
 > SoC 侧 guest 进程可直接打开 `/dev/mali0`，分配 GPU 显存并在 CPU 侧读写（kbase 11.38）。
-> GPU 最新证据：Mesa panfrost 已能在 guest 内加载并读到 Mali-G77 参数，但屏幕创建失败；
-> 当前主动路线改为 panvk kbase fork（glibc）+ Zink（见 evidence 45 / `docs/PROJECT-MEMORY.md`）。
+> GPU 最新证据：FristOneRR PanVK 的 glibc 构建已在 guest 内枚举 Mali-G77 MC9，纯 Rust 探针
+> 已提交 compute job 并由 GPU 写回 storage buffer；graphics draw / renderer 仍未验收
+> （见 evidence 46 / `docs/PROJECT-MEMORY.md`）。
 
 ---
 
@@ -96,8 +97,10 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 
 ## 7. 当前限制
 
-- **GPU 渲染未通**：kbase 命令面、显存和 panfrost 参数读取已打通；当前卡在 `panfrost_open_device()`，
-  尚未报出 Mali renderer。主动路线已改为 panvk kbase fork（glibc）+ Zink，DRM 语义层保留为后备（evidence 45）；
+- **GPU 图形渲染未通**：FristOneRR PanVK 已枚举 Mali-G77，logical device、host-visible
+  storage buffer 和 compute job 都通过；但 graphics draw、swapchain、surface 与
+  `eglinfo/glxinfo` renderer 尚未验证，不能把本次结果当成完整 GPU 验收（evidence 46）；
+  DRM 语义层保留为后备；
 - **显示 / 视频 / 音频桥未开始**：dma-buf → Surface、MediaCodec 硬解回传、AAudio 通路都还没写；
 - `execl` 系列函数不生效；`freopen`、`glob`、`nftw`、`dlmopen` 未覆盖；
 - **libc 内部调用**（NSS / locale / `/etc/hosts` / `ld.so.cache`）仍读宿主，槽位方案未实现，
@@ -135,7 +138,7 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 | [状态](docs/STATUS.md) | 逐日进度、修掉的 bug、待办 |
 | [生命周期规格](docs/design/lifecycle.md) | 会话 / PTY / fd / 信号 / 关停的完整契约与不变量 |
 | [libc 内部调用](docs/design/libc-interpose.md) | 槽位方案设计（未实现） |
-| [证据](docs/design/evidence/) | 01–45：设备原始输出，与方案引用一一对应 |
+| [证据](docs/design/evidence/) | 01–46：设备原始输出，与方案引用一一对应 |
 | [参考仓库原始清单](docs/design/reference-request-20261122.md) | 用户提供的 12 类、120 个条目，逐字保存 |
 | [参考仓库审计](docs/design/references.md) | 真实路径、可用性、已拉取 commit 与借鉴结论 |
 | [变更记录](CHANGELOG.md) | 版本与已完成事项 |
@@ -151,12 +154,14 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 | `JOB_SUBMIT` | `0x40108002`（W,16）：实测 EINVAL（命令可达，参数被拒），不是 ENOTTY |
 | 显存 | `mem_alloc` + `mmap` 实测可分配并 CPU 读写（`prot` 必须等于 flags 低两位） |
 | 上游 Mesa | 25.2 与 main 均**没有** kbase 后端；Ubuntu 25.2.8 panfrost 模型表也无 G77/G78 |
-| 当前 GPU 路线 | panvk kbase fork（Mesa 26.3-devel，glibc 构建）+ 发行版 Zink；DRM 语义层保留为后备 |
+| 当前 GPU 路线 | FristOneRR PanVK（Mesa 26.3.0-devel，glibc 构建）+ 发行版 Zink；DRM 语义层保留为后备 |
+| PanVK 最小验证 | `vulkaninfo` + 纯 Rust probe：Mali-G77 / logical device / compute job + GPU readback PASS；graphics renderer 未验收 |
 | 显示 / 视频 / 音频 | 未开始；路线见 [GOALS](docs/GOALS.md) 第 3、4、5 条（视频硬解可行性见 [evidence 39](docs/design/evidence/39-video-decode-path.md)） |
 
 细节与原始输出：[evidence 35](docs/design/evidence/35-gpu-ioctl-surface-from-vendor-driver.md)、
 [evidence 36](docs/design/evidence/36-gpu-route-reality-check.md)、
-[evidence 45](docs/design/evidence/45-panfrost-loads-over-kbase.md)。
+[evidence 45](docs/design/evidence/45-panfrost-loads-over-kbase.md)、
+[evidence 46](docs/design/evidence/46-panvk-fristonerr-kbase-g77.md)。
 
 ## 11. 许可与来源
 
