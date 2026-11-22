@@ -1,6 +1,6 @@
 # GPU：把 Mesa panfrost 接到 kbase 上（DRM 语义层）
 
-> 状态：设计定稿，实现刚开始。
+> 状态：设计定稿；**M2 的前置（硬件参数来源）已实测通过**，见 [evidence 42](evidence/42-gpuprops-feeds-panfrost.md)。
 > 依据：[evidence 41](evidence/41-csf-dead-import-only-panfrost.md)、[evidence 36](evidence/36-gpu-route-reality-check.md)。
 
 ## 0. 一句话
@@ -38,7 +38,7 @@ DRM 编码：`_IOC(dir, 'd', 0x40+nr, size)`；`SUBMIT` 是 `IOW`，其余 `IOWR
 | `WAIT_BO` | 0x01 | 无（用 kinstr 记录等） | panfrost 只等"这个 BO 已空闲"，用我们的完成簿记回答 |
 | `CREATE_BO` | 0x02 | `KBASE_IOCTL_MEM_ALLOC`（`0xc0208005`） | 返回的 **offset 直接用 kbase 回写的 GPU VA** |
 | `MMAP_BO` | 0x03 | 同上 + mmap 钩子 | DRM 语义：这里只返回 offset，真 mmap 在下一步 |
-| `GET_PARAM` | 0x04 | `KBASE_IOCTL_GET_GPUPROPS`（`0xc0108003`）+ 硬件寄存器派生 | 见 §4，这一条最容易被 Mesa 判死 |
+| `GET_PARAM` | 0x04 | `KBASE_IOCTL_GET_GPUPROPS`（**`0x40108003`，_IOW**）+ 变长记录流 | 见 §4；24/24+16/16 已实测可答（evidence 42） |
 | `GET_BO_OFFSET` | 0x05 | 查表 | 同 CREATE_BO 的 VA |
 | `MADVISE` | 0x08 | `MEM_FLAGS_CHANGE`（`0x40088017`）/ 忽略 | 提示性质 |
 | `SET_LABEL_BO` | 0x09 | 忽略 | 调试用 |
@@ -52,6 +52,7 @@ DRM 编码：`_IOC(dir, 'd', 0x40+nr, size)`；`SUBMIT` 是 `IOW`，其余 `IOWR
 panfrost 起来第一件事就是问一堆硬件参数（GPU_ID / revision / features / thread 限制 / tiler / L2）。
 答错或答 0，Mesa 直接放弃 GPU、退回 swrast。
 
+- **已实测（evidence 42）**：panfrost 要的 24 个主参数 + 16 个 `JS_FEATURES` 全部能从 kbase `GET_GPUPROPS` 拿到，不需要伪造。
 - 能从 kbase `GET_GPUPROPS` 直接拿的：`JS_PRESENT`、`AS_PRESENT`、`GPU_FEATURES`、`GPU_ID`、`THREAD_MAX_*`、`L2_FEATURES`、`TILER_FEATURES`、`CORE_FEATURES`。
 - 拿不到的（寄存器级的 tiler heap 大小、L2 slice 数等）：先按 **同代 G77 的公开值**填，并在日志里标 `SYNTHETIC`。
 - 验收标准不是"值对"，而是"`panfrost_dri` 能过 probe 阶段并建出 kctx"。

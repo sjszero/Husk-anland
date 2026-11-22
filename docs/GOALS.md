@@ -120,3 +120,4 @@ FACT：`com.linuxhub.myth` 不是 debuggable 包，`run-as` 直接拒绝（`pack
 | rootfs 的 Mesa | **25.2.8**；`dri/` 有 `panfrost_dri.so` / `panthor_dri.so` / `zink_dri.so` / `swrast_dri.so` | evidence 41 |
 | kinstr 语义 | `COMPLETE` 对"成功"和 `JOB_INVALID` **同义**；只有 `START` 能证明进了硬件槽 | evidence 41 |
 | 硬件 atom 现状 | 用真实 GPU VA 当 jc 仍只有 `QUEUE→COMPLETE`、无 `START`；手搓 atom 到此为止 | evidence 41 |
+| kbase 的硬件参数 | `GET_GPUPROPS` = `0x40108003`（_IOW）；变长记录流，返回 723 字节；panfrost 要的 24+16 条**全覆盖** | evidence 42 |
