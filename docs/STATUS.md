@@ -1,62 +1,59 @@
-# 当前状态（2026-11-22 夜）
+# 当前状态（2026-11-22 22:00）
 
-## 能用
+> 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
+> 只写**已上机验证**的结论，未验证的明确标注。
+
+## 一句话
+
+在 RMX3357（MT6893 / Android 13 / kernel 4.19.191 / 4 KiB 页）上，普通应用域（`untrusted_app`）
+里跑起了 glibc bash 交互会话；壳应用是纯 Rust NativeActivity（无 Java）；GPU 侧已证明
+**guest 进程能打开 `/dev/mali0` 并建成 kbase 上下文**（evidence 31）。
+
+## 能力表（FACT）
 
 | 能力 | 状态 | 证据 |
 |---|---|---|
-| 普通应用权限下跑 glibc 用户态（`untrusted_app`） | 可用 | evidence 12, 14, 17 |
-| 功能矩阵（bash + coreutils + 管道/重定向/子 shell） | 31 / 31 | evidence 17 |
-| 越界与符号链接逃逸 | 0 escapes | evidence 18 |
-| gcc 13.3 全链（`cc1`/`as`/`ld`）+ make | 通过 | evidence 16, 17 |
-| 交互式会话（PTY 里跑 `bash -i`） | 可用 | evidence 25 |
-| 设备可达性：`/dev/ptmx`、`/dev/kgsl-3d0` | 可打开 | evidence 24 |
-| 壳应用（`app/`）单会话终端 | 旧版（Java+JNI）实测可用 | evidence 25 |
-| 壳应用改为纯 Rust（`app-rs/`） | 已编译、已打包，**未上机** | UNVERIFIED |
+| 普通应用权限下跑 glibc 用户态（`untrusted_app`） | 可用 | 12, 14, 17 |
+| 功能矩阵（bash + coreutils + 管道/重定向/子 shell） | 31 / 31 | 17 |
+| 越界与符号链接逃逸 | 0 escapes | 18 |
+| gcc 13.3 全链（`cc1`/`as`/`ld`）+ make | 通过 | 16, 17 |
+| 交互式会话（`bash -i`，PTY） | 可用 | 25 |
+| 纯 Rust 壳应用（`app-rs`，NativeActivity，`hasCode=false`） | 可用 | 28, 29 |
+| 提示符 / 身份（`husk@husk:/$`、`id`/`groups`） | 通过 | 29 |
+| 键盘输入 / 旋转 / 切后台恢复 / 备用屏 / 全屏 TUI | 通过 | 21:20 附录 |
+| 僵尸与重启风暴 | 零复现（唯一 reaper + subreaper + 点了才重启） | 附录 21:00 |
+| 页大小体检（`nr-tools check-elf` 4K/16K/64K） | 可用 | 30 |
+| guest 打开 `/dev/mali0` + kbase 建 kctx | **可用**（UAPI 11.38） | 31 |
+| 厂商 `libGLES_mali.so` 在 guest 内加载 | **不可行，已关闭**（25 个 bionic DT_NEEDED） | 31 |
+| 长稳 10 分钟（goal A1 验收） | **未完成**：跑到 4 分 37 秒时 USB 掉线（不是崩溃） | 见下 |
 
-交互式会话的根因修复：glibc 2.35+ 启动时注册 `rseq`，被 Android seccomp 判为 SIGSYS，
-发生时路径层还没来得及装处理器——启动器必须带 `GLIBC_TUNABLES=glibc.pthread.rseq=0`。
-同时修掉一个真 bug：`fork()` 之后调用 JNI 是未定义行为，现在 argv/envp 在父进程准备好。
+## 本轮（21:24–21:31）做了什么
 
-## 能用但粗糙（界面）
+1. 把积压的 3 个 commit 推上 GitHub（`origin/main` = `91ce86c`）。
+2. **长稳**：在真机会话里注入 soak 脚本（每秒 20 次 fork/exec + 写一行文件），
+   跑到第 277 tick（约 4 分 37 秒）时 **adb 设备掉线**，会话本身没有崩溃、没有僵尸。
+   10 分钟验收还差一段，等设备回来重跑（脚本已在设备上：`files/rootfs/tmp/soak.sh`）。
+3. **GPU 直连第一段取证**：新增 `runtime/crates/gpu-probe`（纯 Rust，guest 侧运行），
+   量出 kbase 的真实命令字编码、UAPI 版本 11.38、`SET_FLAGS` 在 guest 内成功；
+   同时证明 `/dev/kgsl-3d0` 不存在、`/dev/dri`、`/dev/snd`、`/dev/ion` 在 guest 侧都打不开。
+   详见 [evidence 31](design/evidence/31-guest-soc-kbase-20261122.md)。
+4. 目标文件升到 **v3**（`docs/GOALS.md`）：C 段按实测重写，厂商 EGL 路线标记关闭。
 
-- 提示符（PS1）不显示：命令能执行，但 shell 不画提示符；
-- 输入框需要点一下才出键盘；
-- `TIOCSWINSZ` 尺寸变化、全屏程序（`vim`/`htop`）未验证；
-- 会话内 `pwd` 是 `/root`，应改为 `/`；
-- 切后台 / 息屏 / Surface 重建后的会话生命周期未处理；
-- 应用代码里仍留着开发期的自检与 `ProcessBuilder` 对照，产品化时删除。
+## 下一步（按依赖）
 
-## 未开始
+不依赖设备的：
 
-- rootfs 的导入、选择、删除（现在靠 `adb` 手工 tar）；
-- 终端渲染（现在是最小 ANSI 清洗，不是完整终端）；
-- 图形桥、音频桥（见 [FUTURE-WORK.md](FUTURE-WORK.md)）；
-- 16K 页内核、第二台设备、长稳测试；
-- 与 LinuxHub 应用的正式集成。
+1. 查清这台内核的 **GPU 提交接口**：nr=2 全 size ENOTTY，需确认是 CSF 模型还是 MTK 改号，
+   这决定 panfrost/panvk 能不能真的提 job（只到“建 kctx”还不够）。
+2. `nr-tools libc-interpose`：构建期槽位（设计已在 `docs/design/libc-interpose.md`），
+   B 段 apt/dpkg/locale 的前置。
+3. 终端渲染：SGR 颜色、UTF-8/宽字符、滚动回看。
 
-## 设备与环境（重要）
+依赖设备的：
 
-- 2026-11-22 白天验证在 **PLE110**（Android 16 / kernel 6.6 / 4K 页）上完成，evidence 01–25 全部来自它。
-- 当晚那块设备已断开，当前接的是 **RMX3357**（realme / Android 13 / kernel 4.19.191 / arm64）。
-  这台机器上**还没有** `com.linuxhub.husk`、也没有 rootfs。
-- 因此纯 Rust 壳应用目前只做到「编译 + 打包通过」，上机验证（原生 Activity 起来、EGL 出画面、
-  PTY 里有 bash）**尚未执行**，不能算通过。
-
-## 下一步（按依赖关系）
-
-不依赖设备的（可先做）：
-
-1. `nr-tools rootfs`：在主机上解析 Ubuntu noble 的包集、解包成 rootfs 目录、装改过的 libc 与 loader、
-   打好 tar —— 现在 rootfs 只能靠现成 tar 包，这是最大的可用性缺口；
-2. 滚动回看与更完整的 ANSI（光标保存/恢复、行内擦除、颜色表），配单元测试；
-3. APK 打包去 gradle（aapt2 + 签名），需要设备验证，先不动。
-
-依赖设备的（等机器接上）：
-
-1. 纯 Rust 壳应用上机：启动、出画面、bash 交互、旋转/尺寸变化、`vim`/`htop`；
-2. 在 RMX3357（4.19 内核 / Android 13）上重跑 31 项矩阵与越界测试 —— 目前全部结论只来自 Android 16；
-3. `apt` 冒烟：dpkg/apt 已能跑（缺 `usr/share/dpkg` 的问题已用 provision 补上），
-   还差 `apt-get update` 与一次真实安装。
+1. 重跑 10 分钟长稳并写证据；
+2. 完整 rootfs（2.0 资产）解到 `files/rootfs-full` 并起桌面；
+3. `/dev/ion` 访问权复核（O_RDONLY / O_RDWR 各一次，guest 与 app 两侧对照）。
 
 ---
 

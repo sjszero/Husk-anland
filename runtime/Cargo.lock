@@ -10,6 +10,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpu-probe"
+version = "0.1.0"
+
+[[package]]
 name = "guest-bench"
 version = "0.2.0"
 

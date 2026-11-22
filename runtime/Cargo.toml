@@ -1,6 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["crates/capability-probe", "crates/guest-bench", "crates/nr-tools", "crates/path-shim", "crates/runtime-core"]
+members = [
+    "crates/capability-probe",
+    "crates/guest-bench",
+    "crates/gpu-probe",
+    "crates/nr-tools",
+    "crates/path-shim",
+    "crates/runtime-core",
+]
 
 [workspace.package]
 version = "0.1.0"
