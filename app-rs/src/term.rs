@@ -21,6 +21,8 @@ pub struct Term {
     pub cx: usize,
     pub cy: usize,
     pub dead: bool,
+    /// Raw mirror of everything the guest wrote, for debugging (fd, -1 = off).
+    pub tee: i32,
     /// Human-readable end of session ("exit 7" / "signal 31 (SIGSYS)").
     pub exit_text: String,
     history: VecDeque<Vec<u8>>,
@@ -41,6 +43,7 @@ impl Term {
             cx: 0,
             cy: 0,
             dead: true,
+            tee: -1,
             exit_text: String::new(),
             history: VecDeque::with_capacity(HISTORY),
             esc: 0,
@@ -91,7 +94,8 @@ impl Term {
             "LANG=C.UTF-8".to_string(),
             "USER=root".to_string(),
             // diagnostics for the seccomp policy of the ROM under test
-            "NR_SIGSYS=log".to_string(),
+            "NR_SIGSYS=enosys".to_string(),
+            format!("NR_LD={loader}"),
             format!("NR_SIGSYS_LOG={rootfs}/../sigsys.log"),
         ]
         .iter()
@@ -129,9 +133,17 @@ impl Term {
         unsafe {
             fcntl(mfd, F_SETFL, O_NONBLOCK);
         }
-        crate::log(&format!("spawned pid={pid} fd={mfd}"));
+        let tee = {
+            let p = CString::new(format!("{rootfs}/../pty.log")).ok();
+            match p {
+                Some(p) => unsafe { open(p.as_ptr(), 0o1 | 0o100 | 0o1000, 0o644u32) },
+                None => -1,
+            }
+        };
+        crate::log(&format!("spawned pid={pid} fd={mfd} tee={tee}"));
         let mut t = Term::blank(cols, rows);
         t.fd = mfd;
+        t.tee = tee;
         t.pid = pid;
         t.dead = false;
         t.resize(cols, rows);
@@ -185,6 +197,9 @@ impl Term {
             let n = unsafe { read(self.fd, buf.as_mut_ptr() as *mut _, buf.len()) };
             if n > 0 {
                 got = true;
+                if self.tee >= 0 {
+                    unsafe { write(self.tee, buf.as_ptr() as *const _, n as usize) };
+                }
                 self.feed(&buf[..n as usize]);
                 continue;
             }

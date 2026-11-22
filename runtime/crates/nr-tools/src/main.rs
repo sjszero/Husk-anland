@@ -582,6 +582,43 @@ fn embed(shim_path: &str, loader_path: &str, hook_path: &str, out_path: &str) ->
     if delta < -(1 << 25) || delta >= (1 << 25) { die("hook out of branch range"); }
     put_u32(&mut out, LD_START_BL, 0x9400_0000 | (delta as u32 & 0x03FF_FFFF));
 
+    // ---------------------------------------------------------- bss padding ---
+    // The kernel zeroes BSS exactly once, at the *largest* PT_LOAD end
+    // (`elf_bss`). Our shim segment is now the largest one, so the loader's own
+    // BSS would keep the file bytes that back its last page - and those bytes
+    // are whatever the tooling left there (section headers, in practice).
+    // That is not cosmetic: ld.so's statics live in that page, so a non-zero BSS
+    // kills the loader before `_dl_init` is ever reached (measured on RMX3357:
+    // SIGBUS inside dl_main while "generating link map"). Fix: zero the tail of
+    // the RW segment's last file-backed page.
+    // NB this is the *loader's* writable segment, not the shim's: the shim's BSS
+    // tail is inside its own image, the loader's is inside the loader's file page.
+    let ld_rw = ld.phdrs.iter()
+        .find(|p| p.typ == PT_LOAD && p.flags & 2 != 0)
+        .unwrap_or_else(|| die("loader has no writable PT_LOAD"));
+    let rw_file_end = ld_rw.off + ld_rw.filesz;
+    let rw_page_end = align(rw_file_end, PAGE).min(F_BASE);
+    if rw_page_end > rw_file_end {
+        let e_shoff = u64le(&ld.data, 0x28);
+        let e_shentsize = u16le(&ld.data, 0x3a) as u64;
+        let e_shnum = u16le(&ld.data, 0x3c) as u64;
+        let sh_bytes = e_shnum * e_shentsize;
+        if sh_bytes != 0 && e_shoff < rw_page_end && e_shoff + sh_bytes > rw_file_end {
+            // Move the section header table past the payload first, so zeroing
+            // the BSS tail does not destroy it.
+            let start = e_shoff as usize;
+            let table = out[start..start + sh_bytes as usize].to_vec();
+            let new_off = (out.len() + 7) & !7;
+            out.resize(new_off + table.len(), 0);
+            out[new_off..].copy_from_slice(&table);
+            put_u64(&mut out, 0x28, new_off as u64);
+            eprintln!("bss pad: section headers moved {} -> {}", e_shoff, new_off);
+        }
+        for b in out[rw_file_end as usize..rw_page_end as usize].iter_mut() { *b = 0; }
+        eprintln!("bss pad: zeroed file [{}..{}) to keep ld.so's BSS zero",
+                  rw_file_end, rw_page_end);
+    }
+
     fs::write(out_path, &out).unwrap_or_else(|e| die(format!("{out_path}: {e}")));
 
     EmbedSummary {

@@ -190,9 +190,21 @@ unsafe fn sigsys_mode() -> u8 {
 
 unsafe fn record(line: &[u8]) {
     write_all(2, line);
+    let mut logged = false;
     if let Some(p) = env_lookup(b"NR_SIGSYS_LOG") {
         // O_WRONLY|O_CREAT|O_APPEND, 0644
         let fd = syscall4(SYS_OPENAT, AT_FDCWD as usize, p.as_ptr() as usize, (1 | 0o100 | 0o2000) as usize, 0o644);
+        if fd >= 0 {
+            write_all(fd as CInt, line);
+            syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+            logged = true;
+        }
+    }
+    if !logged {
+        // Absolute fallback: the launcher's own private dir. A trap record that
+        // depends on env lookup is a record that can be lost.
+        const P: &[u8] = b"/data/user/0/com.linuxhub.husk/files/sigsys.log\0";
+        let fd = syscall4(SYS_OPENAT, AT_FDCWD as usize, P.as_ptr() as usize, (1 | 0o100 | 0o2000) as usize, 0o644);
         if fd >= 0 {
             write_all(fd as CInt, line);
             syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
@@ -244,6 +256,30 @@ extern "C" fn on_sigsys(_sig: CInt, info: *const u8, uc: *mut u8) {
             }
             o += 8;
         }
+        if pc_off == 0 {
+            // 4.19 does not fill si_call_addr for a seccomp trap, so the "find the
+            // slot that holds si_call_addr" trick above finds nothing. Use the
+            // frame's own strongest invariant instead: x8 (the syscall number)
+            // equals si_syscall, and the saved pc points at the trapping `svc #0`.
+            let mut q = UC_SCAN_FROM;
+            while q + 200 <= UC_SCAN_TO {
+                let v = core::ptr::read_unaligned(uc.add(q) as *const u64) as i64;
+                if v == nr as i64 {
+                    let cand = q + 184; // x8 sits 72 bytes into sigcontext, pc at 256
+                    let pcv = core::ptr::read_unaligned(uc.add(cand) as *const u64);
+                    let pst = core::ptr::read_unaligned(uc.add(cand + 8) as *const u64);
+                    if pst >> 32 == 0 && (pst & 0xf) == 0 && pcv > 0x1000 {
+                        let w = core::ptr::read_unaligned(pcv as *const u32);
+                        let wp = core::ptr::read_unaligned((pcv.wrapping_sub(4)) as *const u32);
+                        if w == 0xD400_0001 || wp == 0xD400_0001 {
+                            pc_off = cand;
+                            break;
+                        }
+                    }
+                }
+                q += 8;
+            }
+        }
         let ra = if pc_off >= 16 { core::ptr::read_unaligned(uc.add(pc_off - 16) as *const u64) } else { 0 };
         let mut buf = [0u8; 208];
         let mut k = 0usize;
@@ -293,8 +329,9 @@ extern "C" fn on_sigsys(_sig: CInt, info: *const u8, uc: *mut u8) {
             }
             // Return -ENOSYS and step over the `svc 0` so libc takes its
             // documented "not implemented, use the fallback" path.
+            let pc_now = core::ptr::read_unaligned(uc.add(pc_off) as *const u64);
             core::ptr::write_unaligned(uc.add(pc_off - SC_PC_TO_REGS0) as *mut u64, (-38i64) as u64);
-            core::ptr::write_unaligned(uc.add(pc_off) as *mut u64, call_addr.wrapping_add(4));
+            core::ptr::write_unaligned(uc.add(pc_off) as *mut u64, pc_now.wrapping_add(4));
             nr = 0;
             let _ = nr;
             return;
@@ -1776,10 +1813,16 @@ unsafe fn signal_policy(pid: CInt, sig: CInt) -> Option<CInt> {
     if !targets_self(pid) {
         return Some(set_errno(1)); // EPERM: apps cannot signal other processes
     }
-    if sig == 0 || is_job_control(sig) {
-        return Some(0);
+    // Measured: this ROM answers kill(2) -- even kill(getpid(), ...) -- with a
+    // SIGSYS that no handler can catch, so *nothing* self-targeted may reach the
+    // kernel. Jobs control signals are no-ops for us; anything else is logged and
+    // dropped, which is the honest maximum an app sandbox allows.
+    if sig != 0 && !is_job_control(sig) {
+        dbgn(&[b"nr-kill|self pid="], pid as i64);
+        dbgn(&[b"|sig="], sig as i64);
+        dbg(&[b"\n"]);
     }
-    None // let the real syscall decide
+    Some(0)
 }
 
 #[no_mangle]

@@ -290,6 +290,7 @@ pub const PTRACE_TRACEME: c_int = 0;
 pub const PTRACE_SYSCALL: c_int = 24;
 pub const PTRACE_SETOPTIONS: c_int = 0x4200;
 pub const PTRACE_GETREGSET: c_int = 0x4204;
+pub const PTRACE_PEEKDATA: c_int = 2;
 pub const PTRACE_O_TRACESYSGOOD: c_long = 0x1;
 pub const NT_PRSTATUS: c_long = 1;
 pub const SIGTRAP: c_int = 5;
