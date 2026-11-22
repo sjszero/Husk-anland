@@ -252,3 +252,12 @@ O S C 现在也认 `ESC \` 结束符（否则会一直吞到下一个 BEL）。
 * atom 是否真被执行：**未验证**（缺完成通道），evidence 里已明确标注。
 * `mem_query`（公开 UAPI 的 in{gpu_addr,query}/out{value}）三种 query 全 EINVAL，语义与公开头不符，待查。
 * 下一步：接完成通道 + 用"GPU 写回内存"的最小 job 升级证据。
+
+## 2026-11-22 22:52 kbase 命令字→名字（evidence 38）
+
+* 26 条命令字与公开 kbase UAPI 头的 (nr,dir,size) 三元组逐条对上，得到名字：
+  JOB_SUBMIT / MEM_ALLOC / MEM_FREE / MEM_QUERY / MEM_COMMIT / MEM_ALIAS / **MEM_IMPORT** / MEM_SYNC /
+  **STREAM_CREATE** / FENCE_VALIDATE / **SOFT_EVENT_UPDATE** …
+* MEM_FREE 实测闭环：alloc 0x41000 → free → alloc 又得 0x41000（行为验证，不只是读头）。
+* 意义：完成通道（stream+fence）与显示零拷贝（MEM_IMPORT）两条路都已有明确命令字。
+* 待办：MEM_QUERY 语义、nr 29/30/38/50/54 未知命令、atom 执行验证。

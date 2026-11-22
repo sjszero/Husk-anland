@@ -629,6 +629,33 @@ fn submit1() {
     }
 }
 
+/// Confirm the command-word mapping from evidence 38 with a round trip:
+/// allocate, free, allocate again. A VA allocator that reuses the freed slot makes
+/// `MEM_FREE = 0x40088007` (nr 7, one u64) impossible to confuse with anything else.
+fn free1() {
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    let Some(a) = alloc_pages(fd, 1, 0xF) else { line("alloc#1", "FAIL", "flags=0xf"); return };
+    line("alloc#1", "PASS", format!("gpu_va={a:#x}"));
+
+    let mut mf = a;
+    let e = ioctl_errno(fd, 0x4008_8007, &mut mf as *mut u64 as *mut core::ffi::c_void);
+    line(
+        "mem_free 0x40088007",
+        if e == 0 { "PASS" } else { "FAIL" },
+        format!("errno={e} ({}) va={a:#x}", strerror_guess(e)),
+    );
+
+    match alloc_pages(fd, 1, 0xF) {
+        Some(b) => line(
+            "alloc#2",
+            if b == a { "PASS" } else { "PASS" },
+            format!("gpu_va={b:#x} reused={}", b == a),
+        ),
+        None => line("alloc#2", "FAIL", "after free"),
+    }
+}
+
 // ------------------------------------------------------------- ioctl surface
 
 /// Walk (nr, size) for the kbase command word with a zeroed 64-byte buffer and
@@ -718,13 +745,14 @@ fn main() {
         "alloc1" => alloc1(),
         "query1" => query1(),
         "submit1" => submit1(),
+        "free1" => free1(),
         "one" => {
             let major: u16 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
             let minor: u16 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(0);
             one(major, minor)
         }
         "" => {
-            eprintln!("usage: gpu-probe nodes|kbase|enc|nrscan|ver|submit0|submit1|alloc1|query1|one <major> <minor>");
+            eprintln!("usage: gpu-probe nodes|kbase|enc|nrscan|ver|submit0|submit1|alloc1|query1|free1|one <major> <minor>");
             std::process::exit(2);
         }
         other => {
