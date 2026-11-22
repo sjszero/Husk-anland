@@ -478,7 +478,7 @@ fn alloc1() {
     line("set_flags", if e == 0 { "PASS" } else { "FAIL" }, format!("errno={e}"));
 
     // BASE_MEM_PROT_CPU_RW|GPU_RD|GPU_WR = 1|4|8
-    for (vap, cmp_, probe_flags) in [(1u64, 1u64, 0u64), (1, 1, 0xDu64), (1, 0, 0xDu64)] {
+    for (vap, cmp_, probe_flags) in [(1u64, 1u64, 0xDu64), (1, 1, 0xFu64), (1, 1, 0xBu64)] {
         let mut a = MemAlloc { va_pages: vap, commit_pages: cmp_, extension: 0, flags: probe_flags };
         let cmd = 0xc020_8005u64;
         let r = unsafe { ioctl(fd, cmd, &mut a as *mut MemAlloc as *mut core::ffi::c_void) };
@@ -521,33 +521,38 @@ fn alloc1() {
             ),
         );
 
+        // Vendor convention (disassembly 0x881a4c): prot comes straight from the
+        // low two bits of the alloc flags, length is va_pages << 12, offset is the
+        // VA the kernel wrote back. Try each prot the driver itself would use.
+        let prot = (probe_flags & 3) as i32;
         let p = unsafe {
-            mmap(
-                core::ptr::null_mut(),
-                4096,
-                3, // PROT_READ|PROT_WRITE
-                1, // MAP_SHARED
-                fd,
-                gpu_va as i64,
-            )
+            mmap(core::ptr::null_mut(), 4096, prot, 1 /* MAP_SHARED */, fd, gpu_va as i64)
         };
         if p as isize == -1 {
             let e = errno();
-            line("mmap(gpu_va)", "FAIL", format!("errno={e} ({})", strerror_guess(e)));
+            line("mmap(gpu_va)", "FAIL", format!("prot={prot} errno={e} ({})", strerror_guess(e)));
         } else {
-            // Write a recognisable pattern and read it back: proves the CPU can
-            // fill a buffer the GPU will read.
+            // Only touch memory we were granted write access to -- writing a
+            // PROT_READ mapping is a SIGSEGV, not an errno (learned the hard way).
             unsafe {
-                let b = p as *mut u8;
-                for i in 0..16 {
-                    *b.add(i) = 0xA5;
+                if prot & 2 != 0 {
+                    let b = p as *mut u8;
+                    for i in 0..16 {
+                        *b.add(i) = 0xA5;
+                    }
+                    let ok = (0..16).all(|i| *b.add(i) == 0xA5);
+                    line(
+                        "mmap(gpu_va)",
+                        if ok { "PASS" } else { "FAIL" },
+                        format!("prot={prot} mapped at {:p}, cpu write+readback {}", p, ok),
+                    );
+                } else {
+                    line(
+                        "mmap(gpu_va)",
+                        "PASS",
+                        format!("prot={prot} mapped at {:p} (read-only, no write test)", p),
+                    );
                 }
-                let ok = (0..16).all(|i| *b.add(i) == 0xA5);
-                line(
-                    "mmap(gpu_va)",
-                    if ok { "PASS" } else { "FAIL" },
-                    format!("mapped at {:p}, cpu write+readback {}", p, ok),
-                );
                 munmap(p, 4096);
             }
         }

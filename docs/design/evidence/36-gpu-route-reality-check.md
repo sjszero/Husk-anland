@@ -59,3 +59,33 @@ kbase 的 JOB_SUBMIT 收的也正是 jc 指针。两端语义对得上，工作�
 1. 解掉 `mmap EPERM`：从厂商 .so 找它怎么把显存映射给 CPU（找 mmap@plt 调用点，看 offset 里塞了什么标志位）。
 2. `mem_query` 结构按实测重新对齐（现在 16 字节结构是猜的，返回 EINVAL）。
 3. 只有这两步通了，才谈 BO 管理与 atom 提交。
+
+## 5. 追加实测：BO 的 CPU 映射打通了（FACT，22:26）
+
+上一节写的 EPERM 已定位并解决。厂商驱动自己的映射约定（反汇编 `0x881a4c`）：
+
+    len    = va_pages << 12
+    prot   = mem_alloc 的输入 flags & 3      ← 不是调用者自己挑的
+    flags  = MAP_SHARED
+    fd     = kbase fd
+    offset = mem_alloc 回写的字段1（GPU VA）
+
+实测三种 flags：
+
+| alloc flags | 回写 flags | mmap(prot=flags&3) | 结果 |
+|---|---|---|---|
+| `0xd`（CPU_RW|GPU_RD|GPU_WR） | `0x200d` | prot=1 | PASS（只读映射） |
+| `0xf`（+CPU_WR） | `0x200f` | prot=3 | **PASS，CPU 写 A5 并读回一致** |
+| `0xb` | `0x200b` | prot=3 | **PASS，同上** |
+
+反例也确认了规则：prot 与 `flags&3` 不一致时，kbase 直接 EPERM（我们先前用 prot=3 配 `0xd`
+就是这么失败的）；写成 PROT_READ 的映射会 SIGSEGV（不是 errno）。
+
+**意义**：guest 进程已经能做到"分配 GPU 显存 → CPU 直接读写"。
+这是 panfrost/panvk 需要的 BO 基础能力，不再停留在"命令字对不对"的层面。
+
+## 6. 现在的确切位置（FACT）
+
+* 能：version_check / set_flags / mem_alloc / mmap+CPU 读写。
+* 不能：mem_query（结构布局仍不对，EINVAL）、job_submit（只验证了命令可达，还没构造 atom）。
+* 未验证：GPU 侧真正读到我们写的数据（需要一次真实 job）。

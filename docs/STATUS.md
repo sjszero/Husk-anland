@@ -238,3 +238,10 @@ O S C 现在也认 `ESC \` 结束符（否则会一直吞到下一个 BEL）。
 * FACT：kbase `mem_alloc` 可用。in/out 结构：返回 0，字段0 写回实际 flags（0x200d），字段1 写回 GPU VA（0x41000/0x42000）。
 * FACT：对这些 VA 做 `mmap(2)` 返回 EPERM，是当前最靠前的具体障碍。
 * 下一步：从厂商 .so 反读它的 mmap 用法（offset 里的标志位），再对齐 mem_query。
+
+## 2026-11-22 22:26 GPU 显存 CPU 映射打通（evidence 36 §5）
+
+* kbase `mem_alloc(flags=0xf)` -> VA `0x41000`，`mmap(prot=3, MAP_SHARED, off=VA)` 成功，CPU 写 A5 读回一致。
+* 关键规则（反汇编得出并实测）：`mmap` 的 prot 必须等于 `mem_alloc` 输入 flags 的低两位，否则 EPERM；
+  对 PROT_READ 映射写会 SIGSEGV（不是 errno）。
+* 仍未通：`mem_query`（结构布局），`job_submit`（atom 未构造）。
