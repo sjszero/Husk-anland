@@ -13,6 +13,41 @@ pub const BLOCK: u8 = 127;
 /// How many scrolled-off lines we keep for scrollback.
 const HISTORY: usize = 2000;
 
+/// Environment needed for a guest EGL/Vulkan program to reach the real GPU.
+///
+/// glvnd's `libEGL.so.1` does not resolve its vendor JSON through our loader
+/// shim (the lookup happens behind libc internals), so point it at the private
+/// rootfs copy explicitly. PanVK's ICD is likewise selected by absolute path.
+/// If either file is absent, leave the corresponding variables unset and let
+/// Mesa take its normal software/degraded path.
+fn gpu_env(rootfs: &str) -> Vec<String> {
+    let mut env = Vec::new();
+
+    let egl_vendor = format!("{rootfs}/usr/share/glvnd/egl_vendor.d/50_mesa.json");
+    if std::path::Path::new(&egl_vendor).exists() {
+        env.push(format!("__EGL_VENDOR_LIBRARY_FILENAMES={egl_vendor}"));
+    }
+
+    const PANVK_ICDS: &[&str] = &[
+        "usr/share/vulkan/icd.d/husk_panvk_frist370_execva.json",
+        "usr/share/vulkan/icd.d/husk_panvk_frist370.json",
+        "usr/share/vulkan/icd.d/husk_panvk_g77.json",
+        "usr/share/vulkan/icd.d/husk_panvk.json",
+    ];
+    if let Some(icd) = PANVK_ICDS
+        .iter()
+        .map(|rel| format!("{rootfs}/{rel}"))
+        .find(|path| std::path::Path::new(path).exists())
+    {
+        env.push(format!("VK_ICD_FILENAMES={icd}"));
+        env.push(format!("VK_DRIVER_FILES={icd}"));
+        env.push("MESA_LOADER_DRIVER_OVERRIDE=zink".to_string());
+        env.push("GALLIUM_DRIVER=zink".to_string());
+    }
+
+    env
+}
+
 pub struct Term {
     pub fd: i32,
     pub pid: i32,
@@ -100,7 +135,7 @@ impl Term {
             bash_c.clone(),
             CString::new("-i").ok()?,
         ];
-        let env_s: Vec<CString> = [
+        let mut env = vec![
             format!("NR_ROOTFS={rootfs}"),
             "GLIBC_TUNABLES=glibc.pthread.rseq=0".to_string(),
             "TERM=xterm-256color".to_string(),
@@ -113,10 +148,12 @@ impl Term {
             "NR_SIGSYS=enosys".to_string(),
             format!("NR_LD={loader}"),
             format!("NR_SIGSYS_LOG={rootfs}/../sigsys.log"),
-        ]
-        .iter()
-        .filter_map(|s| CString::new(s.as_str()).ok())
-        .collect();
+        ];
+        env.extend(gpu_env(rootfs));
+        let env_s: Vec<CString> = env
+            .iter()
+            .filter_map(|s| CString::new(s.as_str()).ok())
+            .collect();
 
         let pid = unsafe { fork() };
         if pid < 0 {
@@ -554,6 +591,50 @@ impl Term {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_dir(name: &str) -> std::path::PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::current_dir()
+            .unwrap()
+            .join(format!("husk-{name}-{}-{nonce}", std::process::id()))
+    }
+
+    #[test]
+    fn gpu_env_discovers_private_vulkan_and_egl() {
+        let root = test_dir("gpu-env");
+        let egl = root.join("usr/share/glvnd/egl_vendor.d/50_mesa.json");
+        let icd = root.join("usr/share/vulkan/icd.d/husk_panvk_frist370_execva.json");
+        std::fs::create_dir_all(egl.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(icd.parent().unwrap()).unwrap();
+        std::fs::write(&egl, b"{}").unwrap();
+        std::fs::write(&icd, b"{}").unwrap();
+
+        let env = gpu_env(root.to_str().unwrap());
+        assert!(env
+            .iter()
+            .any(|v| v == &format!("__EGL_VENDOR_LIBRARY_FILENAMES={}", egl.display())));
+        assert!(env
+            .iter()
+            .any(|v| v == &format!("VK_ICD_FILENAMES={}", icd.display())));
+        assert!(env
+            .iter()
+            .any(|v| v == &format!("VK_DRIVER_FILES={}", icd.display())));
+        assert!(env.iter().any(|v| v == "MESA_LOADER_DRIVER_OVERRIDE=zink"));
+        assert!(env.iter().any(|v| v == "GALLIUM_DRIVER=zink"));
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn gpu_env_stays_empty_without_private_gpu_files() {
+        let root = test_dir("gpu-empty");
+        std::fs::create_dir_all(&root).unwrap();
+        assert!(gpu_env(root.to_str().unwrap()).is_empty());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 
     #[test]
     fn writes_and_wraps() {

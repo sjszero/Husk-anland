@@ -71,6 +71,9 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
   `faux123/panvk-faux123-driver-rp4pro`（Mali-G77 MC9，r32p1，Android 13，kernel 4.19.191，
   与本机高度接近）以及通用 panvk kbase 工程 `zenithblue-oss/panvk-kbase-android`。
   这是 JUDGMENT 下的优先复用对象。
+- evidence 47：FristOneRR PanVK + 发行版 Zink 已通过 **surfaceless EGL**，
+  `eglinfo -B` / 纯 Rust `gl_probe` 均报 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`；
+  壳应用已自动注入 PanVK/Zink 环境并使用 `rootfs-full`。GBM/Wayland/X11/Surface/WSI 仍未通。
 
 ### 4.3 当前主动路线（JUDGMENT，未完成）
 
@@ -83,9 +86,9 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
    三角形 draw + 像素回读 `0xff0000ff`。
 3. **已完成（evidence 46）**：把 `MEM_EXEC_INIT` 移到 `MEM_JIT_INIT` 之前，并把 EXEC_VA 设为
    4G；本机 warning 消失。可复现 patch 见 `docs/design/patches/fristonerr-exec-va-order.patch`。
-4. 下一步：接 swapchain / WSI / Surface，再让发行版自带 Zink
-   （GL on Vulkan）走这颗 PanVK，验证 `eglinfo` / `glxinfo`。离屏 graphics 已通过，
-   但它不等于窗口系统验收。
+4. **已完成（evidence 47）**：发行版自带 Zink 已走这颗 PanVK，surfaceless `eglinfo` 与纯 Rust
+   `gl_probe` 报出 Mali-G77 renderer。下一步只剩真正的 GBM/Wayland/X11、swapchain、WSI、
+   Android Surface 和窗口显示；headless renderer 不等于窗口系统验收。
 5. `funnymdzz/mesa` 的 `kbase-v0.1.2` 已实测卡在 `drmSyncobjCreate()`，保留为失败证据和对照，
    不再作为唯一主动路线。
 6. DRM 语义层代码保留：它是已经完成的 M1/M2 资产，也是 panfrost 路线的后备，不删除。
@@ -188,7 +191,8 @@ eglinfo 报 Mali-G77；音频出声并有延迟数字；H.264/HEVC 硬解、AV �
 1. 读本文件、`GOALS.md`、`STATUS.md`、`references.md`、`mali-kbase-prior-art.md`。
 2. 查 `git status --short --branch`，确认没有未提交改动；没有用户授权不要动 LinuxHub 2.0 分支。
 3. 继续 GPU 主线：FristOneRR glibc PanVK 已完成 compute job、离屏 graphics draw + GPU readback
-   （evidence 46）；下一步接 swapchain / Surface，再进入 Zink / renderer 验收。
+   （evidence 46），发行版 Zink 的 surfaceless renderer 也已通过（evidence 47）；
+   下一步接 GBM / Wayland / X11、swapchain / WSI / Android Surface 和实际窗口显示。
 4. 每次失败也写清楚失败点和下一假设；证据放 `docs/design/evidence/`。
-5. GPU renderer 通过后再进入显示零拷贝；视频、音频按第 5 节并行设计但不能跳过硬解验收。
+5. 窗口 renderer 与 Surface 路径通过后再进入显示零拷贝；视频、音频按第 5 节并行设计但不能跳过硬解验收。
 6. 最后做 2.0 proot 替换与补丁清除。

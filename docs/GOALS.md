@@ -3,7 +3,7 @@
 > 本文件是目标的**权威规格**。会话里的 goal 对象不可编辑，重建 goal 时以本文件为准；
 > 改目标就改这里，再把下面的「粘贴块」整段贴进去。纯文本版：`docs/goal-objective.txt`。
 
-最后更新：2026-11-23（v16：evidence 46 —— FristOneRR PanVK 在 guest 内枚举 Mali-G77，compute job 与离屏 graphics 三角形均完成；GPU 回读 `0x4855534b`，像素回读 `0xff0000ff`。swapchain / WSI / `eglinfo` / `glxinfo` renderer 仍未验收）
+最后更新：2026-11-23（v17：evidence 47 —— FristOneRR PanVK + 发行版 Zink 在 surfaceless EGL 报出 Mali-G77；compute job、离屏 graphics 与 headless renderer 已通过。GBM / Wayland / X11、swapchain / WSI / Android Surface / 实际窗口仍未验收）
 
 ---
 
@@ -18,13 +18,14 @@
 · 壳应用生命周期：全部回调接上，旋转 / Surface 重建 / 切后台不重启会话，唯一 reaper + subreaper，零僵尸零重启风暴（docs/design/lifecycle.md + 实测）。
 · 页大小无关：构建期 over-align + `nr-tools check-elf`（4K/16K/64K）+ embed 同余断言（evidence 30）。
 · 终端渲染 ANSI（SGR 颜色 / UTF-8 宽字符）：**不做**。终端壳只是演示载体，不属于运行时范围，不作为验收项。
+· GPU 计算/离屏与 surfaceless renderer：compute job、离屏 graphics draw、Zink surfaceless EGL 均在上机通过（evidence 46 / 47）；窗口/WSI 仍归 GPU/显示待办，不属于此门禁。
 
 【A. 真实场景验证】
 1）2.0 完整 rootfs 已能起 GNOME Shell 46（evidence 33），只剩两件：① libc 内部调用槽位方案（docs/design/libc-interpose.md，未实现）——否则 apt/dpkg/locale 仍读宿主文件；② 浏览器 / 文件管理器 / 终端三个可用性验收。
 
 【B. 原生直连 SoC】
 环境事实（guest 侧实测）：只有 `/dev/mali0`（rw 可开，kbase UAPI 11.38）；`/dev/kgsl-3d0` 不存在；`/dev/dri` 打不开；`/dev/dma_heap` 不存在；`/dev/snd` EACCES；`/dev/ion` guest 侧 EACCES（待复核）；`/dev/video0-4` 为 `0660 media:system`（untrusted_app 打不开，且是相机采集节点、不是编解码器，guest 无法直连硬解）。厂商 libGLES_mali.so 带 25 个 bionic DT_NEEDED，不能在 glibc guest 内加载，此路线已排除。
-2）GPU：唯一验收目标 = guest 进程自己打开 /dev/mali0，直连厂商 kbase，不经中转服务、不留独立 GPU 进程。上游 Mesa（25.2 与 main）没有 kbase 后端（FACT，evidence 36）。证据 45：Ubuntu 25.2.8 的 Mesa panfrost 已能在 guest 内加载并通过 Rust DRM 语义层读到 Mali-G77 的真实参数，但模型表无 G77/G78，且在 CREATE_BO 之前失败（egl: failed to create dri2 screen）；伪装成 G57 仍失败。当前主动实现路线（JUDGMENT）= `FristOneRR-Admin/FristOneRR-Panvk-Source`（commit `0c9dce35094dbe89c412b79bf57c6067c7b97e59`，Mesa 26.3.0-devel，glibc 交叉构建）+ 发行版 Zink；evidence 46 已实测 physical/logical device、queue、host-visible storage buffer，并通过 `vkCmdDispatch` + `vkQueueSubmit` + fence 读回 GPU 写入 `0x4855534b`；同一 probe 还用真实顶点缓冲、vertex/fragment SPIR-V、render pass 与 `vkCmdDraw` 完成离屏 graphics 管线，连续两次回读红色像素 `0xff0000ff`。`MEM_EXEC_INIT` 的 EPERM 已通过 EXEC_VA 先于 JIT 的顺序修复消除。**尚未验证 swapchain / WSI / Surface / eglinfo/glxinfo renderer**，不能把离屏 draw 当成 GPU 完成。Rust DRM 语义层作为已完成的 M1/M2 资产和后备保留。验收不变：guest 内 eglinfo/glxinfo 报出 Mali-G77 真实 renderer；硬件 vs llvmpipe 帧率对比表；不崩、可降级。
+2）GPU：唯一验收目标 = guest 进程自己打开 /dev/mali0，直连厂商 kbase，不经中转服务、不留独立 GPU 进程。上游 Mesa（25.2 与 main）没有 kbase 后端（FACT，evidence 36）。证据 45：Ubuntu 25.2.8 的 Mesa panfrost 已能在 guest 内加载并通过 Rust DRM 语义层读到 Mali-G77 的真实参数，但模型表无 G77/G78，且在 CREATE_BO 之前失败（egl: failed to create dri2 screen）；伪装成 G57 仍失败。当前主动实现路线（JUDGMENT）= `FristOneRR-Admin/FristOneRR-Panvk-Source`（commit `0c9dce35094dbe89c412b79bf57c6067c7b97e59`，Mesa 26.3.0-devel，glibc 交叉构建）+ 发行版 Zink；evidence 46 已实测 physical/logical device、queue、host-visible storage buffer，并通过 `vkCmdDispatch` + `vkQueueSubmit` + fence 读回 GPU 写入 `0x4855534b`；同一 probe 还用真实顶点缓冲、vertex/fragment SPIR-V、render pass 与 `vkCmdDraw` 完成离屏 graphics 管线，连续两次回读红色像素 `0xff0000ff`。`MEM_EXEC_INIT` 的 EPERM 已通过 EXEC_VA 先于 JIT 的顺序修复消除。evidence 47 又用发行版 Zink 在 **surfaceless EGL** 创建了 EGL 1.5 上下文，`eglinfo -B` 与纯 Rust `gl_probe` 都报出 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`。**GBM / Wayland / X11、swapchain / WSI / Android Surface / 实际窗口显示尚未验证**，不能把离屏或 headless renderer 当成 GPU/显示完成。Rust DRM 语义层作为已完成的 M1/M2 资产和后备保留。验收不变：guest 内 eglinfo/glxinfo 报出 Mali-G77 真实 renderer；硬件 vs llvmpipe 帧率对比表；不崩、可降级。
 3）显示：guest 渲染面与 Android Surface 零拷贝。零拷贝方向已定（evidence 41）：r32 UAPI 只有 MEM_IMPORT、没有 export——所以是 app 侧分配 AHardwareBuffer/dma-buf → 交 guest → MEM_IMPORT 拿到 GPU VA → GPU 直接渲染进去 → app 把同一块 buffer queueBuffer 给 SurfaceFlinger；kbase 自建的中间 BO 走 CPU 拷贝回 app，开销实测并写进 evidence。包成 AHardwareBuffer → ANativeWindow queueBuffer + render-done fence 交 SurfaceFlinger，全部 Rust。验收：可交互、拖动不掉帧、旋转与 DPI 正确、多窗口正常、连续 10 分钟无泄漏。
 4）视频：guest 里的播放器与 Chromium 都要出画出声，且必须是硬解，不许拿软解当完成。
    事实（evidence 39）：guest 直连硬解不可行——`/dev/video*` 是 `0660 media:system` 的相机采集节点，不是编解码器；厂商解码 .so 带 bionic DT_NEEDED，glibc guest 内加载不了。本机硬解器在 bionic 侧：`c2.mtk.avc.decoder` / `c2.mtk.hevc.decoder` / `c2.mtk.vp9.decoder` / `c2.mtk.av1.decoder`（取自 /vendor/etc/media_codecs_c2.xml），厂商自报 1080p 帧率 113–276 fps。

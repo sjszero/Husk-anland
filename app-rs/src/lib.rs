@@ -103,7 +103,12 @@ impl App {
             return None;
         }
         let files = unsafe { std::ffi::CStr::from_ptr(act.internalDataPath) }.to_string_lossy().to_string();
-        let rootfs = format!("{files}/rootfs");
+        let full = format!("{files}/rootfs-full");
+        let rootfs = if std::path::Path::new(&full).exists() {
+            full
+        } else {
+            format!("{files}/rootfs")
+        };
         let libdir = native_lib_dir()?;
         let loader = format!("{libdir}/libld.so");
         Some((rootfs, libdir, loader))

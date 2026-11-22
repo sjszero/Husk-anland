@@ -1,5 +1,17 @@
 # 变更记录
 
+## 2026-11-23 — Zink/PanVK surfaceless renderer 通过；壳应用注入 GPU 环境
+
+- **evidence 47**：FristOneRR glibc PanVK + 发行版 Zink 在 guest 内通过 surfaceless EGL 1.5；
+  `eglinfo -B` 与纯 Rust `gl_probe` 都报出
+  `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`；`vulkaninfo --summary` 报
+  `driverID=DRIVER_ID_MESA_PANVK`、deviceID `0x90800011`。
+- 壳应用改为优先使用私有 `files/rootfs-full`，并把 PanVK ICD、Zink 与 EGL vendor 环境注入 guest；
+  真机 `/proc/<bash>/environ` 与 logcat 已确认生效。新增两个 `gpu_env` 单元测试。
+- **仍未完成**：GBM / Wayland / X11 platform 均 `eglInitialize failed`；swapchain、WSI、
+  Android Surface、SurfaceFlinger queueBuffer 与实际窗口显示未验证；硬件 vs llvmpipe 基准未做。
+- 目标升到 **v17**。参考仓库 120/120 逐条审计也已在同日落盘并推送。
+
 ## 2026-11-23 — 参考仓库 120/120 逐条审计落盘
 
 - 新增 `docs/design/reference-audit-matrix.md`：用户原始清单 12 类、120 条全部保留，

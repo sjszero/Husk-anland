@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 02:39）
+# 当前状态（2026-11-23 03:05）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -9,9 +9,19 @@
 里跑起了 glibc bash 交互会话；壳应用是纯 Rust NativeActivity（无 Java）；GPU 侧已由
 FristOneRR PanVK 在 guest 内报出 **Mali-G77 MC9**，纯 Rust 探针完成 logical device、queue、
 host-visible storage buffer、compute job 和离屏 graphics draw；GPU 写回 `0x4855534b`、
-像素回读 `0xff0000ff` 均已由 fence 后确认。
+像素回读 `0xff0000ff` 均已由 fence 后确认。发行版 Zink 也已在 surfaceless EGL 报出
+`zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`。
 
-## GPU 侧最新（evidence 46，2026-11-23）
+## GPU 侧最新（evidence 47，2026-11-23）
+
+- **surfaceless EGL/Zink 已通过（FACT）**：`eglinfo -B` 和纯 Rust `gl_probe` 都报出
+  `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`；壳应用的 guest bash 实际使用 `rootfs-full`，
+  子进程环境已注入 PanVK ICD + Zink。GBM / Wayland / X11 / swapchain / Android Surface 仍未通。
+- **壳应用环境已验证（FACT）**：`/proc/<guest bash>/environ` 含 `VK_ICD_FILENAMES`、
+  `VK_DRIVER_FILES`、`__EGL_VENDOR_LIBRARY_FILENAMES`、`MESA_LOADER_DRIVER_OVERRIDE=zink`、
+  `GALLIUM_DRIVER=zink`；logcat 显示会话与窗口尺寸正常。
+
+## GPU 基线（evidence 46，2026-11-23）
 
 - **FristOneRR PanVK 已产出 glibc 版**：源码 commit
   `0c9dce35094dbe89c412b79bf57c6067c7b97e59`，Mesa 26.3.0-devel；产物
@@ -24,8 +34,8 @@ host-visible storage buffer、compute job 和离屏 graphics draw；GPU 写回 `
   `0x4855534b` 写入 storage buffer；修复了 `MEM_EXEC_INIT` 在 JIT 前初始化的顺序问题。
 - **离屏 graphics 已通过（FACT）**：真实顶点缓冲、vertex/fragment SPIR-V、render pass、
   `vkCmdDraw`、image-to-buffer copy + fence 后回读红色像素 `0xff0000ff`，连续两次 PASS。
-- **仍未完成（FACT）**：swapchain、WSI、Surface、Zink 与 `eglinfo`/`glxinfo` renderer
-  均未验证，不能把离屏 draw 当成 GPU 验收完成。
+- **仍未完成（FACT）**：swapchain、WSI、Android Surface、SurfaceFlinger 和实际窗口显示未验证；
+  surfaceless Zink renderer 已在 evidence 47 通过，但不能把 headless renderer 当成窗口验收完成。
 - **保留对照（FACT）**：`funnymdzz/mesa` `kbase-v0.1.2` 在 `vkCreateDevice` 处因 kbase fd 上
   `drmSyncobjCreate()` 失败而报 `VK_ERROR_OUT_OF_HOST_MEMORY`，不再作为主动路线。
 
@@ -78,7 +88,8 @@ host-visible storage buffer、compute job 和离屏 graphics draw；GPU 写回 `
 | PanVK logical device + buffer | **通过**：instance、device、queue、4 KiB host-visible buffer map/readback | 46 |
 | PanVK compute job | **通过**：SPIR-V shader + compute pipeline + `vkQueueSubmit` + fence + GPU readback | 46 |
 | PanVK graphics | **离屏 draw 通过**：真实顶点缓冲 + vertex/fragment + draw + GPU 像素回读 | 46 |
-| PanVK swapchain / renderer | **未验证**：还没有 swapchain、Surface、`eglinfo/glxinfo` 真实 renderer | 46 / 后续 |
+| Zink surfaceless renderer | **通过**：`eglinfo -B` / 纯 Rust `gl_probe` 报 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))` | 47 |
+| PanVK swapchain / WSI / Surface | **未验证**：GBM / Wayland / X11、swapchain、Android Surface、窗口显示均未通 | 47 / 后续 |
 | 软作业（`SOFT_EVENT_SET/WAIT`） | **本机无效果**：6 种偏移 + `compat_core_req` 双写 + 先 `MEM_JIT_INIT` + 换分配标志（CACHED_CPU / COHERENT_SYSTEM），显存里的标志字节始终为 0 | 40 |
 
 ## 本轮（21:24–21:31）做了什么
