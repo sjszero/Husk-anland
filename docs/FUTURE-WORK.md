@@ -13,7 +13,7 @@
 |---|---|---|---|
 | 调厂商驱动 | Vulkan / GLES，由厂商 ICD 执行 | 是 | 与普通 App 渲染路径完全相同，硬件加速 |
 | 共享显存 | `AHardwareBuffer` + dma-buf fd 跨进程 | 是 | NDK 正式接口，零拷贝 |
-| 直连设备 | `/dev/kgsl-3d0`、`/dev/mali0`、`/dev/dri/renderD*` | **否** | 标签 `gpu_device`，`untrusted_app` 被拒；无 root 无法改变 |
+| 直连设备 | `/dev/kgsl-3d0`、`/dev/mali0`、`/dev/dri/renderD*` | **是（2026-11-22 修正）** | 原先写"否"是错的：`untrusted_app` 能打开 `/dev/mali0`（0666），ioctl 也能用（evidence 31/35/36）。`/dev/dri/*` 仍打不开 |
 
 ### 1.2 为什么以前在容器里只能软件渲染（四道墙）
 
@@ -24,7 +24,12 @@
 
 Husk 天然没有第 3 道（UI 与 Surface 在手上）；第 1、2、4 道依然存在。
 
-### 1.3 目标架构
+> **2026-11-22 更新（重要）**：下面这张"bionic 侧中转"的架构已被 evidence 35/36 取代。
+> MT6893 上 guest 进程能直接和 `/dev/mali0` 说话，所以路线改成：**guest 内的 Rust DRM 语义层**
+> （拦 `open("/dev/dri/renderD128")` + `ioctl` + `mmap`，翻译成 kbase 命令字），发行版 Mesa 的
+> panfrost/panvk 不改不重编。中转进程、virgl、SIG 传递全部不需要。以下内容保留作对照。
+
+### 1.3 目标架构（已被上条取代，保留作对照）
 
 ```
 guest 桌面（Wayland 合成器，多窗口）
@@ -57,7 +62,9 @@ bionic 侧进程 → EGL → Android Surface → 屏幕
 两条修正：
 
 1. **"厂商内核节点对 untrusted_app 一律关闭"不成立**——本机 kgsl 是 `crw-rw-rw-` 且可打开。
-   是否连 ioctl 也能用**尚未测试**，所以设计上把它当作运行时探测项，不作为假设。
+   **2026-11-22 在 MT6893 上补测完成**：`/dev/mali0` 不仅能打开，kbase ioctl 也真的能用
+   （`VERSION_CHECK` / `SET_FLAGS` / `mem_alloc` / `mmap` 全通，`JOB_SUBMIT` 命令可达），
+   见 evidence 35 / 36。原"只当探测项"的保守假设可以撤销。
 2. **桥必须放在 bionic 进程**——guest 连 `/vendor` 都看不见，无法自行加载厂商驱动。
    这不是推断，是实测。
 

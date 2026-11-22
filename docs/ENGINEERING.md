@@ -82,8 +82,9 @@
 
 | 项 | 版本 |
 |---|---|
-| 设备 | PLE110（OPPO），Android 16，内核 6.6.118，页大小 4096 |
-| 安全域 | `untrusted_app`，uid 10512 |
+| 设备（历史测值） | PLE110（OPPO），Android 16，内核 6.6.118，页大小 4096 |
+| 设备（当前目标机） | RMX3357（MT6893 / Mali-G77），Android 13，内核 4.19.191，页大小 4096 |
+| 安全域 | `untrusted_app`（uid 10512 / u0_a302），无 root、无 BL 解锁、无虚拟化 |
 | Guest | Ubuntu 24.04，glibc 2.39 |
 | 工具链 | Rust stable（`aarch64-unknown-linux-gnu`、`aarch64-linux-android`）、NDK r27+、JDK 17+ |
 

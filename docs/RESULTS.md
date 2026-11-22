@@ -3,9 +3,15 @@
 所有数字都来自设备原始输出，文件在 `docs/design/evidence/`，编号在每节末尾标出。
 **FACT** = 命令输出直接可见；**INFERENCE** = 由输出推出；**UNKNOWN** = 没测。
 
-设备：PLE110（OPPO）/ Android 16 / kernel 6.6.118 / PAGE_SIZE 4096 / `untrusted_app`（uid 10512）
-Guest：Ubuntu 24.04 / glibc 2.39
-被测 loader：`sha256 1600a850…1cbee`
+**设备口径（重要）**：本文件混有两台机器的数据，读的时候先看标注。
+
+| 设备 | 系统 | 出现在 |
+|---|---|---|
+| PLE110（OPPO） | Android 16 / kernel 6.6.118 / 4 KiB 页 | 第 1–5 节的性能与功能矩阵（历史测值） |
+| RMX3357（MT6893 / Mali-G77） | Android 13 / kernel 4.19.191 / 4 KiB 页 | 第 6 节起、以及 evidence 31–36（当前目标机） |
+
+Guest：Ubuntu 24.04 / glibc 2.39（RMX3357 上完整 rootfs 为 24.04.4 / glibc 2.39-0ubuntu8.7）
+PLE110 被测 loader：`sha256 1600a850…1cbee`
 
 ---
 
@@ -110,6 +116,46 @@ loader 必须与镜像同源，所以 `--loader-out` 是从镜像自己的 `ld.s
 ## 7. 没测 / 不知道
 
 - **未实测**：16K 页内核。机制与实测对齐数据见 [design/page-size.md](design/page-size.md)（Ubuntu arm64 用户态本身 64K 对齐，16K 内核不需要改造 guest）。
-- **UNKNOWN**：长期稳定性（跑过的最长连续负载是 gcc+make 构建，分钟级）。
+- **已补测**：10 分钟长稳（600 s / 568 tick / 11 360 次 fork-exec / 同 pid / 零僵尸，evidence 32）；更长时间仍 UNKNOWN。
 - **UNKNOWN**：多 husk 并发实例。
+- **未实测**：GPU 真正执行一个 job（atom 结构还没构造，见 evidence 36）。
 - **FACT**：`execl` 家族拦不到（原因见 [ARCHITECTURE §6](ARCHITECTURE.md)）。
+
+---
+
+## 8. 生命周期（RMX3357，2026-11-22 21:43–21:47 与 22:05）
+
+| 检查 | 命令 | 结果 |
+|---|---|---|
+| 启动 | `am start -n com.linuxhub.husk/android.app.NativeActivity` | `session: running pid=… 80x24 fds=98` |
+| 打字不退出 | `input text "echo hi"; input keyevent 66` | `cb: onDestroy` 计数 0 |
+| 切后台 | `input keyevent 3` | `cb: onPause`，无 teardown，guest 仍在 |
+| 回前台 | `am start …` | 同一个 pid，未重启 |
+| `exit` | `input text exit` | `session: exited status=0`，loader 进程 0 |
+| 点击重生 | `input tap` | 400 ms 限流后新会话 |
+| 旋转 | `cmd window user-rotation lock 1/0` | `67x58 -> 142x26 -> 67x58`，同 pid，guest `stty size` = `58 67` |
+| 强杀 | `am force-stop` | 无残留 loader |
+
+对照与不变量：`docs/design/lifecycle.md`（15 条，逐条给代码位置与验证方法）。
+
+## 9. 2.0 完整 rootfs（RMX3357，evidence 33）
+
+| 项 | 值 |
+|---|---|
+| 来源 | 只用 2.0 的 Ubuntu 24.04 链（离线 deb 894 个，去重后铺 rootfs） |
+| 规模 | `usr/bin` 817 个，1.9 GB |
+| libc | `2.39-0ubuntu8.7`，扫出 2 处 `set_robust_list` 并打补丁 |
+| 实起 | `gjs 1.80.2`、`dbus-daemon 1.14.10`、`Xwayland 23.2.6`、`Python 3.12.3`、**GNOME Shell 46.0** |
+| 内核级兼容 | `#!` 脚本、`/proc/self/exe` 返回 guest 路径（evidence 34） |
+
+## 10. GPU 直连（RMX3357，evidence 35 / 36）
+
+| 项 | 结果 |
+|---|---|
+| `/dev/mali0` | guest rw 打开成功；kbase UAPI 11.38 |
+| 命令面 | 26 条，来自厂商 `libGLES_mali.so` 反汇编（不是猜 header） |
+| `JOB_SUBMIT 0x40108002` | `nr_atoms=0` → EINVAL(22)：命令可达，参数被拒 |
+| `mem_alloc(flags=0xf)` | 返回 0，回填 GPU VA `0x41000` |
+| `mmap(prot=3, off=0x41000)` | 成功；CPU 写 `0xA5` 读回一致 |
+| 反例 | prot 与 `flags&3` 不符 → EPERM；写 PROT_READ 映射 → SIGSEGV |
+| 上游 Mesa | 25.2 与 main 无 kbase 后端；rootfs 无 panvk ICD |

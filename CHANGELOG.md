@@ -1,5 +1,30 @@
 # 变更记录
 
+## 2026-11-22 深夜 — 生命周期收口 + SoC 直连打通第一段
+
+### 运行时壳（app-rs）
+- NativeActivity 回调补齐：`onStop` / `onSaveInstanceState` / `onLowMemory` / `onContentRectChanged`。
+- 修 4 个真 bug：BACK 被吞、`AKEYCODE_BACK` 变成 match 通配、onDestroy 不 teardown、重建后不再起会话。
+- 修 2 个实测泄漏：`Term` 缺 `Drop`（每次重生漏 1 个 ptmx + 1 个 pty.log）、`Gfx` 缺 `eglTerminate`
+  （每次旋转漏 sync_file/ashmem）。`session:` 日志加 `fds=` 便于长跑观测。
+- 旋转实测：`67x58 -> 142x26 -> 67x58`，同一 pid，guest `stty size` 一致。
+- 规格文档：`docs/design/lifecycle.md`（15 条不变量，逐条给代码位置与验证方法）。
+
+### SoC 直连（GPU）
+- **evidence 35**：从厂商 `libGLES_mali.so`（r32p1）反汇编取出 26 条真实 kbase 命令字。
+  `JOB_SUBMIT = 0x40108002`（W,16），guest 内实测 **EINVAL 而非 ENOTTY** —— 旧结论"提交接口待查"是测量错误。
+- **evidence 36**：上游 Mesa（25.2 与 main）**没有** kbase 后端（只有 panfrost_kmod / panthor_kmod），
+  rootfs 也无 panvk ICD → 路线改为 Rust 侧 DRM 语义层。
+- `mem_alloc(flags=0xf)` + `mmap(prot=3, off=VA)` 实测成功，CPU 写读一致；
+  规则：`prot` 必须等于 flags 低两位，否则 EPERM。
+
+### 目标与文档
+- 目标重写为 v7/v8：已完成项（SIGSYS 长稳、生命周期、页大小）降为回归门禁；
+  新增【D】段——用 Husk 替换 2.0 的 proot、一次性消除 proot 补丁、回滚包
+  `LinuxHub-Myth-Prometheus.apk` sha256 `c4951876…9adc2b7`。
+- README / RESULTS / FUTURE-WORK / ENGINEERING 按实测刷新：分清 PLE110 与 RMX3357 两台设备，
+  撤销"厂商内核节点一律不可直连"的错误结论。
+
 ## 2026-11-22 夜 — 壳应用改为纯 Rust
 
 - **去掉 Java 与 C**：APK 改为声明 `android.app.NativeActivity`，入口是 `app-rs/` 里的

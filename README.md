@@ -5,9 +5,11 @@
 
 它不拦截系统调用，因此性能与原生应用处于同一量级。
 
-> 当前状态：**核心运行时已验证，产品集成尚未完成。**
-> 2026-11-22 在真机完成验证：shell、常用工具、以及完整的 gcc + make 编译工具链，
-> 全部运行在普通应用权限（`untrusted_app` 域）之下。
+> 当前状态：**运行时核心已验证；SoC 直连（GPU / 显示 / 音频）进行中；与 LinuxHub 2.0 的集成尚未开始。**
+> 2026-11-22 真机（RMX3357 / Android 13 / kernel 4.19.191 / 4 KiB 页 / 普通应用权限 `untrusted_app`）：
+> shell、常用工具、gcc 13.3 + make 全链路通过；2.0 的完整 Ubuntu 24.04 rootfs 能起 GNOME Shell 46；
+> 生命周期（旋转 / 切后台 / Surface 重建 / 会话不重启）全部实测通过；
+> SoC 侧 guest 进程可直接打开 `/dev/mali0`，分配 GPU 显存并在 CPU 侧读写（kbase 11.38）。
 
 ---
 
@@ -66,7 +68,7 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 
 ## 5. 实测表现
 
-真机环境：Android 16、内核 6.6、普通应用权限；guest 为 Ubuntu 24.04 / glibc 2.39。
+真机环境：**PLE110 / Android 16 / kernel 6.6**（历史测值；当前目标机 RMX3357 / Android 13 / 4.19.191 尚未重测性能表）。guest 为 Ubuntu 24.04 / glibc 2.39。
 
 | 指标 | Husk | 对照 |
 |---|---|---|
@@ -84,15 +86,24 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 - **编译工具链**：gcc 13.3 全链路（预处理、编译、汇编、链接）与 make（并行、增量、clean）
 - **兼容性验证**：31 项功能用例全部通过；11 项越界测试无逃逸
 - **运行环境**：普通应用权限，无需 root 与开发者选项之外的任何配置
+- **完整发行版**：2.0 的 Ubuntu 24.04.4 链（817 个 `usr/bin`、1.9 GB）可解到私有目录并起
+  GNOME Shell 46.0 / gjs / dbus-daemon / Xwayland（evidence 33）
+- **内核级兼容**：`#!` 脚本（解释器映射进 rootfs）、`/proc/self/exe` 返回 guest 路径（evidence 34）
+- **SoC 底座**：guest 直开 `/dev/mali0`；kbase `VERSION_CHECK` / `SET_FLAGS` / `mem_alloc` /
+  `mmap`（CPU 读写显存）实测通过（evidence 35 / 36）
 
 ## 7. 当前限制
 
-- `execl` 系列函数（部分程序用于启动子进程）不生效；
-- `freopen`、`glob`、`nftw`、`dlmopen` 尚未覆盖；
-- 仅在 4K 页内核上验证；
-- 终端界面为演示级：提示符、输入焦点、窗口尺寸变化、后台/息屏后的会话生命周期未完成；
-- rootfs 目前靠 `adb` 手工导入，应用内尚无导入、选择与删除流程；
-- 与 LinuxHub 应用的正式集成仍在开发。
+- **GPU 渲染未通**：命令面与内存已打通，job 的 atom 结构尚未构造（不在"能画一帧"的程度）；
+- **显示 / 音频桥未开始**：dma-buf → Surface、AAudio 通路都还没写；
+- `execl` 系列函数不生效；`freopen`、`glob`、`nftw`、`dlmopen` 未覆盖；
+- **libc 内部调用**（NSS / locale / `/etc/hosts` / `ld.so.cache`）仍读宿主，槽位方案未实现，
+  因此 `apt`/`dpkg`/locale 在完整 rootfs 里尚不可靠；
+- 页大小：4K 设备实测；16K / 64K 只有构建期同余保证与 `check-elf` 体检，**未在 16K 设备上跑过**；
+- 终端界面：提示符 / 光标 / 滚动回看 / 旋转 / 生命周期已可用；SGR 颜色、UTF-8 宽字符未做，
+  且终端壳属演示载体，不作为运行时验收项；
+- rootfs 靠 `adb` 手工导入，应用内尚无导入 / 选择 / 删除流程；
+- 与 LinuxHub 2.0 的集成（替换 proot、消除 proot 补丁）未开始。
 
 ## 8. 仓库结构
 
@@ -116,12 +127,30 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 | [后续工作](docs/FUTURE-WORK.md) | GPU/音频桥、发行形态、厂商接口可行度、待验证前提 |
 | [设计索引](docs/design/) | 设计文档与证据的入口 |
 | [运行时方案](docs/design/runtime.md) | 权威方案：为什么只有这一条路、验收标准、剩余工作 |
-| [证据](docs/design/evidence/) | 01–25：设备原始输出，与方案引用一一对应 |
+| [目标](docs/GOALS.md) | 权威目标：已完成项、剩余工作、验收标准、回滚包指纹 |
+| [状态](docs/STATUS.md) | 逐日进度、修掉的 bug、待办 |
+| [生命周期规格](docs/design/lifecycle.md) | 会话 / PTY / fd / 信号 / 关停的完整契约与不变量 |
+| [libc 内部调用](docs/design/libc-interpose.md) | 槽位方案设计（未实现） |
+| [证据](docs/design/evidence/) | 01–36：设备原始输出，与方案引用一一对应 |
 | [变更记录](CHANGELOG.md) | 版本与已完成事项 |
 
 开发者上手请见 [QUICKSTART.md](QUICKSTART.md)。
 
-## 10. 许可与来源
+## 10. SoC 直连现状（2026-11-22）
+
+| 项 | 状态 |
+|---|---|
+| `/dev/mali0` | guest 可 rw 打开；kbase UAPI 11.38 |
+| 命令面 | 26 条，取自厂商 `libGLES_mali.so`（r32p1）反汇编，不是猜 header |
+| `JOB_SUBMIT` | `0x40108002`（W,16）：实测 EINVAL（命令可达，参数被拒），不是 ENOTTY |
+| 显存 | `mem_alloc` + `mmap` 实测可分配并 CPU 读写（`prot` 必须等于 flags 低两位） |
+| 上游 Mesa | 25.2 与 main 均**没有** kbase 后端 → 由 Rust 侧 DRM 语义层补齐 |
+| 显示 / 音频 | 未开始；路线见 [GOALS](docs/GOALS.md) 第 3、4 条 |
+
+细节与原始输出：[evidence 35](docs/design/evidence/35-gpu-ioctl-surface-from-vendor-driver.md)、
+[evidence 36](docs/design/evidence/36-gpu-route-reality-check.md)。
+
+## 11. 许可与来源
 
 路径适配的对象是 Ubuntu 24.04 的 glibc 二进制（LGPL），
 其衍生文件仅用于固定被测产物的身份，来源与许可说明见 [LICENSE](LICENSE)。
