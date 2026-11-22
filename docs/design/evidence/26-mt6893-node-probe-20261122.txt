@@ -1,0 +1,43 @@
+# 26 — RMX3357 (MT6893) 设备节点可达性实测
+
+日期：2026-11-22
+设备：UKHMMB8PYTGECMNV = RMX3357，ro.board.platform=mt6893，ro.soc.model=MT6893
+      Android 13，kernel 4.19.191，4 KiB 页，arm64
+上下文：app 自身 uid（runas_app:s0），即普通应用域，非 root
+
+## getprop
+    ro.board.platform = mt6893
+    ro.soc.model      = MT6893
+    ro.hardware.egl   = meow          ← MediaTek 的 EGL 加载器别名
+    ro.hardware.vulkan= mali
+    abilist           = arm64-v8a,armeabi-v7a,armeabi
+
+## 节点权限（ls -ld）
+    crw-rw-rw-  root:root          /dev/mali0            (Mali kbase KMD)
+    crw-rw-rw-  system:graphics    /dev/ion              (legacy ION dma-buf)
+    crw-rw----  system:system      /dev/dri/card0
+    (无 /dev/dri/renderD128, 无 /dev/dma_heap, 无 /dev/udmabuf, 无 /dev/kgsl-3d0)
+    crw-rw----  system:audio       /dev/snd/*
+
+## 真实 open() 测试（run-as com.linuxhub.husk 下，exec 重定向即 open）
+    OPEN OK   /dev/mali0
+    OPEN OK   /dev/ion
+    OPEN FAIL /dev/dri/card0
+    OPEN FAIL /dev/dri/renderD128   (不存在)
+    OPEN FAIL /dev/snd/controlC0
+    OPEN FAIL /dev/snd/pcmC0D0p
+    OPEN FAIL /dev/kgsl-3d0         (不存在)
+
+## 结论（FACT）
+1. 本机 GPU 唯一可用入口是 /dev/mali0（0666），DRM 与 kgsl 都走不通。
+2. dma-buf 分配只能走 /dev/ion（0666）；没有 dma_heap。
+3. guest 进程不可能直接用 ALSA —— /dev/snd 全组 system:audio 0660。
+   音频桥必须在 app 进程内走 AAudio/AudioFlinger，再桥给 guest。
+
+## 厂商库（FACT，ls /vendor/lib64）
+    /vendor/lib64/egl/libGLES_mali.so
+    /vendor/lib64/libgralloc_extra.so / libgralloc_metadata.so / libgralloctypes_mtk.so
+
+## 对 LinuxHub 2.0 路线的意义（JUDGMENT）
+2.0 在本机选的是 virgl（virtio-gpu 中转 + 主机侧 server 调 vendor EGL），
+这是"额外一层"。Husk 的 C5 目标就是绕掉它：直接吃 /dev/mali0。
