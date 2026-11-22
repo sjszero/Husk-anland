@@ -19,9 +19,10 @@
 
 use core::ffi::{c_char, c_int, c_void};
 use std::ffi::CStr;
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::AsRawFd;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const RTLD_NOW: c_int = 2;
@@ -37,6 +38,9 @@ const MAX_HANDLE_FDS: c_int = 16;
 
 const PROBE_WIDTH: u32 = 64;
 const PROBE_HEIGHT: u32 = 64;
+const RING_MAX: usize = 4;
+const RING_FRAMES_DEFAULT: usize = 12;
+const POLLIN: i16 = 0x0001;
 
 static PROBED: AtomicBool = AtomicBool::new(false);
 
@@ -95,6 +99,19 @@ type FnSetGeometry =
     unsafe extern "C" fn(SurfaceTransaction, SurfaceControl, *const ARect, *const ARect, i32);
 type FnSetZOrder = unsafe extern "C" fn(SurfaceTransaction, SurfaceControl, i32);
 type FnApplySurfaceTransaction = unsafe extern "C" fn(SurfaceTransaction);
+type FnSetOnComplete = unsafe extern "C" fn(
+    SurfaceTransaction,
+    *mut c_void,
+    unsafe extern "C" fn(*mut c_void, *mut c_void),
+);
+type FnGetPreviousReleaseFenceFd = unsafe extern "C" fn(*mut c_void, SurfaceControl) -> c_int;
+
+#[repr(C)]
+struct PollFd {
+    fd: c_int,
+    events: i16,
+    revents: i16,
+}
 
 struct SurfaceSymbols {
     create_from_window: FnCreateSurfaceControl,
@@ -106,6 +123,8 @@ struct SurfaceSymbols {
     set_geometry: FnSetGeometry,
     set_z_order: FnSetZOrder,
     apply: FnApplySurfaceTransaction,
+    set_on_complete: FnSetOnComplete,
+    get_previous_release_fence: FnGetPreviousReleaseFenceFd,
 }
 
 unsafe extern "C" {
@@ -115,6 +134,7 @@ unsafe extern "C" {
     fn socketpair(domain: c_int, ty: c_int, protocol: c_int, sv: *mut c_int) -> c_int;
     fn close(fd: c_int) -> c_int;
     fn fcntl(fd: c_int, cmd: c_int, ...) -> c_int;
+    fn poll(fds: *mut PollFd, nfds: usize, timeout: c_int) -> c_int;
 }
 
 pub fn spawn_once() {
@@ -180,8 +200,10 @@ unsafe fn load_surface(lib: *mut c_void) -> Option<SurfaceSymbols> {
         "ASurfaceTransaction_setGeometry",
         "ASurfaceTransaction_setZOrder",
         "ASurfaceTransaction_apply",
+        "ASurfaceTransaction_setOnComplete",
+        "ASurfaceTransactionStats_getPreviousReleaseFenceFd",
     ];
-    let mut resolved = [core::ptr::null_mut::<c_void>(); 9];
+    let mut resolved = [core::ptr::null_mut::<c_void>(); 11];
     for (slot, name) in resolved.iter_mut().zip(names) {
         let cname = std::ffi::CString::new(name).ok()?;
         *slot = dlsym(lib, cname.as_ptr());
@@ -200,6 +222,8 @@ unsafe fn load_surface(lib: *mut c_void) -> Option<SurfaceSymbols> {
         set_geometry: core::mem::transmute(resolved[6]),
         set_z_order: core::mem::transmute(resolved[7]),
         apply: core::mem::transmute(resolved[8]),
+        set_on_complete: core::mem::transmute(resolved[9]),
+        get_previous_release_fence: core::mem::transmute(resolved[10]),
     })
 }
 
@@ -422,6 +446,49 @@ fn bridge_meta(desc: &Desc) -> String {
     )
 }
 
+fn ring_meta(desc: &Desc, count: usize, frames: usize) -> String {
+    let mut cookies = Vec::with_capacity(9);
+    for (i, (x, y)) in probe_points(desc.width, desc.height)
+        .into_iter()
+        .enumerate()
+    {
+        cookies.push(cookie(i, x, y).to_string());
+    }
+    format!(
+        "HUSK-AHB-2
+width={}
+height={}
+stride={}
+format={}
+usage=0x{:x}
+cookies={}
+count={count}
+frames={frames}
+",
+        desc.width,
+        desc.height,
+        desc.stride,
+        desc.format,
+        desc.usage,
+        cookies.join(",")
+    )
+}
+
+fn bridge_config() -> Option<(usize, usize)> {
+    let files = files_dir()?;
+    let text = std::fs::read_to_string(files.join("ahb-bridge")).ok()?;
+    let mut ring = 1usize;
+    let mut frames = RING_FRAMES_DEFAULT;
+    for line in text.lines() {
+        if let Some(value) = line.strip_prefix("ring=") {
+            ring = value.parse().ok()?;
+        } else if let Some(value) = line.strip_prefix("frames=") {
+            frames = value.parse().ok()?;
+        }
+    }
+    Some((ring.clamp(1, RING_MAX), frames.clamp(1, 10_000)))
+}
+
 fn write_bridge_meta(files: &std::path::Path, desc: &Desc) {
     let meta = bridge_meta(desc);
     let path = files.join("ahb-bridge.meta");
@@ -517,6 +584,354 @@ unsafe fn serve_bridge(lib: *mut c_void, s: &Symbols, buffer: *mut Ahb, desc: &D
     let _ = std::fs::remove_file(&path);
 }
 
+#[derive(Default)]
+struct RingProgress {
+    completed: AtomicUsize,
+}
+
+struct ReleaseContext {
+    previous_slot: Option<usize>,
+    current_slot: usize,
+    stream: std::os::unix::net::UnixStream,
+    control: SurfaceControl,
+    get_previous_release_fence: FnGetPreviousReleaseFenceFd,
+    progress: Arc<RingProgress>,
+}
+
+unsafe fn wait_release_fence(fd: c_int, timeout_ms: c_int) -> bool {
+    if fd < 0 {
+        return true;
+    }
+    let mut pfd = PollFd {
+        fd,
+        events: POLLIN,
+        revents: 0,
+    };
+    let rc = loop {
+        let rc = poll(&mut pfd, 1, timeout_ms);
+        if rc >= 0 || std::io::Error::last_os_error().raw_os_error() != Some(4) {
+            break rc;
+        }
+    };
+    let signaled = rc > 0 && (pfd.revents & POLLIN) != 0;
+    close(fd);
+    signaled
+}
+
+unsafe extern "C" fn on_transaction_complete(context: *mut c_void, stats: *mut c_void) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if context.is_null() || stats.is_null() {
+            crate::log("ahb|ring|complete|FAIL|null context/stats");
+            return;
+        }
+        let ctx = Box::from_raw(context as *mut ReleaseContext);
+        let completed = ctx.progress.completed.fetch_add(1, Ordering::SeqCst) + 1;
+        let release_fd = (ctx.get_previous_release_fence)(stats, ctx.control);
+        let released = wait_release_fence(release_fd, 2_000);
+        crate::log(&format!(
+            "ahb|ring|complete|frame_slot={}|previous={:?}|release_fd={release_fd}|released={released}|completed={completed}",
+            ctx.current_slot, ctx.previous_slot
+        ));
+        if let Some(previous_slot) = ctx.previous_slot {
+            if released {
+                let mut stream = &ctx.stream;
+                match writeln!(stream, "RELEASE {previous_slot}").and_then(|_| stream.flush()) {
+                    Ok(()) => crate::log(&format!("ahb|ring|release_sent|slot={previous_slot}")),
+                    Err(e) => crate::log(&format!(
+                        "ahb|ring|release_send|FAIL|slot={previous_slot}|{e}"
+                    )),
+                }
+            }
+        }
+    }));
+}
+
+unsafe fn present_ring_frame(
+    surface: &SurfaceSymbols,
+    control: SurfaceControl,
+    buffer: *mut Ahb,
+    desc: &Desc,
+    window: *mut c_void,
+    current_slot: usize,
+    previous_slot: Option<usize>,
+    stream: &std::os::unix::net::UnixStream,
+    progress: &Arc<RingProgress>,
+) -> bool {
+    let transaction = (surface.create_transaction)();
+    if transaction.is_null() {
+        crate::log("ahb|ring|present|FAIL|transaction");
+        return false;
+    }
+    let source = ARect {
+        left: 0,
+        top: 0,
+        right: desc.width as i32,
+        bottom: desc.height as i32,
+    };
+    let win_w = crate::sys::ANativeWindow_getWidth(window);
+    let win_h = crate::sys::ANativeWindow_getHeight(window);
+    let destination = ARect {
+        left: 0,
+        top: 0,
+        right: win_w,
+        bottom: win_h,
+    };
+    (surface.set_geometry)(transaction, control, &source, &destination, 0);
+    (surface.set_z_order)(transaction, control, 100);
+    (surface.set_buffer)(transaction, control, buffer, -1);
+
+    let stream = match stream.try_clone() {
+        Ok(v) => v,
+        Err(e) => {
+            crate::log(&format!("ahb|ring|present|FAIL|clone stream {e}"));
+            (surface.delete_transaction)(transaction);
+            return false;
+        }
+    };
+    let context = Box::new(ReleaseContext {
+        previous_slot,
+        current_slot,
+        stream,
+        control,
+        get_previous_release_fence: surface.get_previous_release_fence,
+        progress: Arc::clone(progress),
+    });
+    (surface.set_on_complete)(
+        transaction,
+        Box::into_raw(context) as *mut c_void,
+        on_transaction_complete,
+    );
+    (surface.apply)(transaction);
+    (surface.delete_transaction)(transaction);
+    crate::log(&format!(
+        "ahb|ring|present|slot={current_slot}|previous={previous_slot:?}|{win_w}x{win_h}"
+    ));
+    true
+}
+
+unsafe fn serve_ring_bridge(
+    lib: *mut c_void,
+    s: &Symbols,
+    buffers: &[*mut Ahb],
+    desc: &Desc,
+    frames: usize,
+) -> bool {
+    let Some(files) = files_dir() else {
+        crate::log("ahb|ring|SKIP|no files dir");
+        return false;
+    };
+    let path = files.join("ahb-bridge.sock");
+    let _ = std::fs::remove_file(&path);
+    let listener = match std::os::unix::net::UnixListener::bind(&path) {
+        Ok(v) => v,
+        Err(e) => {
+            crate::log(&format!("ahb|ring|FAIL|bind {e}"));
+            return false;
+        }
+    };
+    let _ = listener.set_nonblocking(true);
+    crate::log(&format!("ahb|ring|LISTEN|{}", path.display()));
+    let deadline = Instant::now() + Duration::from_secs(90);
+    let mut stream = loop {
+        if Instant::now() >= deadline {
+            crate::log("ahb|ring|TIMEOUT|accept");
+            let _ = std::fs::remove_file(&path);
+            return false;
+        }
+        match listener.accept() {
+            Ok((stream, _)) => break stream,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => {
+                crate::log(&format!("ahb|ring|FAIL|accept {e}"));
+                let _ = std::fs::remove_file(&path);
+                return false;
+            }
+        }
+    };
+
+    let meta = ring_meta(desc, buffers.len(), frames);
+    if stream
+        .write_all(&(meta.len() as u32).to_be_bytes())
+        .and_then(|_| stream.write_all(meta.as_bytes()))
+        .is_err()
+    {
+        crate::log("ahb|ring|FAIL|meta send");
+        let _ = std::fs::remove_file(&path);
+        return false;
+    }
+    for (slot, &buffer) in buffers.iter().enumerate() {
+        let rc = (s.send)(buffer, stream.as_raw_fd());
+        crate::log(&format!("ahb|ring|send|slot={slot}|rc={rc}"));
+        if rc != 0 {
+            let _ = std::fs::remove_file(&path);
+            return false;
+        }
+    }
+
+    let reader_stream = match stream.try_clone() {
+        Ok(v) => v,
+        Err(e) => {
+            crate::log(&format!("ahb|ring|FAIL|clone reader {e}"));
+            let _ = std::fs::remove_file(&path);
+            return false;
+        }
+    };
+    let _ = reader_stream.set_read_timeout(Some(Duration::from_secs(60)));
+    let mut reader = BufReader::new(reader_stream);
+    let Some(surface) = load_surface(lib) else {
+        crate::log("ahb|ring|FAIL|surface symbols");
+        let _ = std::fs::remove_file(&path);
+        return false;
+    };
+    let Some(parent) = crate::surface::wait_parent(Duration::from_secs(10)) else {
+        crate::log("ahb|ring|FAIL|surface parent");
+        let _ = std::fs::remove_file(&path);
+        return false;
+    };
+    let mut window = core::ptr::null_mut();
+    for _ in 0..100 {
+        window = crate::WINDOW.load(Ordering::SeqCst);
+        if !window.is_null() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    if window.is_null() {
+        crate::log("ahb|ring|FAIL|no ANativeWindow");
+        let _ = std::fs::remove_file(&path);
+        return false;
+    }
+    let control = (surface.create_child)(parent as SurfaceControl, c"husk-ahb-ring".as_ptr());
+    if control.is_null() {
+        crate::log("ahb|ring|FAIL|SurfaceControl");
+        let _ = std::fs::remove_file(&path);
+        return false;
+    }
+
+    let progress = Arc::new(RingProgress::default());
+    let mut last_submitted = None;
+    let mut submitted = 0usize;
+    let mut guest_done = false;
+    loop {
+        let mut text = String::new();
+        match reader.read_line(&mut text) {
+            Ok(0) => {
+                crate::log("ahb|ring|EOF");
+                break;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                crate::log(&format!("ahb|ring|read|FAIL|{e}"));
+                break;
+            }
+        }
+        let text = text.trim();
+        if text.starts_with("DONE ") {
+            crate::log(&format!("ahb|ring|GUEST_DONE|{text}"));
+            guest_done = true;
+            break;
+        }
+        let fields: Vec<&str> = text.split_whitespace().collect();
+        if fields.len() != 4 || fields[0] != "READY" {
+            crate::log(&format!("ahb|ring|RX|{text}"));
+            continue;
+        }
+        let Ok(slot) = fields[1].parse::<usize>() else {
+            crate::log(&format!("ahb|ring|FAIL|bad slot|{text}"));
+            break;
+        };
+        if slot >= buffers.len() {
+            crate::log(&format!("ahb|ring|FAIL|slot out of range|{text}"));
+            break;
+        }
+        if !present_ring_frame(
+            &surface,
+            control,
+            buffers[slot],
+            desc,
+            window,
+            slot,
+            last_submitted,
+            &stream,
+            &progress,
+        ) {
+            break;
+        }
+        last_submitted = Some(slot);
+        submitted += 1;
+    }
+
+    let wait_deadline = Instant::now() + Duration::from_secs(5);
+    while progress.completed.load(Ordering::SeqCst) < submitted && Instant::now() < wait_deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let completed = progress.completed.load(Ordering::SeqCst);
+    crate::log(&format!(
+        "ahb|ring|SUMMARY|submitted={submitted}|completed={completed}|guest_done={guest_done}"
+    ));
+    std::thread::sleep(Duration::from_secs(3));
+    (surface.release_control)(control);
+    let _ = std::fs::remove_file(&path);
+    guest_done && submitted == frames && completed > 0
+}
+
+unsafe fn probe_ring(lib: *mut c_void, s: &Symbols, ring: usize, frames: usize) -> bool {
+    crate::log(&format!("ahb|ring|BEGIN|buffers={ring}|frames={frames}"));
+    let requested = Desc {
+        width: PROBE_WIDTH,
+        height: PROBE_HEIGHT,
+        layers: 1,
+        format: AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM,
+        usage: AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE
+            | AHARDWAREBUFFER_USAGE_GPU_FRAMEBUFFER
+            | AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN
+            | AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN,
+        ..Desc::default()
+    };
+    let mut buffers = Vec::with_capacity(ring);
+    let mut actual_desc = Desc::default();
+    for slot in 0..ring {
+        let mut buffer: *mut Ahb = core::ptr::null_mut();
+        let rc = (s.allocate)(&requested, &mut buffer);
+        crate::log(&format!(
+            "ahb|ring|allocate|slot={slot}|rc={rc}|ptr={buffer:p}"
+        ));
+        if rc != 0 || buffer.is_null() {
+            for &buffer in &buffers {
+                (s.release)(buffer);
+            }
+            return false;
+        }
+        actual_desc = Desc::default();
+        (s.describe)(buffer, &mut actual_desc);
+        let linear_ok = probe_linear_view(s, buffer, &actual_desc);
+        crate::log(&format!(
+            "ahb|ring|describe|slot={slot}|{}x{}|stride={}|linear={linear_ok}",
+            actual_desc.width, actual_desc.height, actual_desc.stride
+        ));
+        if !linear_ok {
+            (s.release)(buffer);
+            for &buffer in &buffers {
+                (s.release)(buffer);
+            }
+            return false;
+        }
+        buffers.push(buffer);
+    }
+
+    let ok = serve_ring_bridge(lib, s, &buffers, &actual_desc, frames);
+    for &buffer in &buffers {
+        (s.release)(buffer);
+    }
+    crate::log(&format!(
+        "ahb|ring|DONE|ok={ok}|buffers_released={}",
+        buffers.len()
+    ));
+    ok
+}
+
 unsafe fn inspect_handle(label: &str, handle: *const c_void) -> c_int {
     if handle.is_null() {
         crate::log(&format!("ahb|{label}|handle=null"));
@@ -566,6 +981,13 @@ fn probe() {
             crate::log("ahb|probe|FAIL|symbols");
             return;
         };
+        let (ring, frames) = bridge_config().unwrap_or((1, 1));
+        if ring > 1 {
+            let ok = probe_ring(lib, &s, ring, frames);
+            crate::log(&format!("ahb|probe|RING|ok={ok}"));
+            dlclose(lib);
+            return;
+        }
 
         let desc = Desc {
             width: PROBE_WIDTH,

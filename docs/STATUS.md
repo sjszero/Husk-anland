@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 04:00）
+# 当前状态（2026-11-23 04:06）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -12,9 +12,9 @@ host-visible storage buffer、compute job 和离屏 graphics draw；GPU 写回 `
 像素回读 `0xff0000ff` 均已由 fence 后确认。发行版 Zink 也已在 surfaceless EGL 报出
 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`；AHB 的 LINEAR 2D image 导入也已由 GPU clear
 后回读确认；evidence 52 又把同一块 AHB 经 app EGLImage 上屏，证明 Android 窗口展示链路可走通。
-evidence 53 又用纯 Rust JNI 读取平台 SurfaceView 的 BLAST `SurfaceControl`，通过 `ASurfaceControl` 把同一 AHB 直接提交给 SurfaceFlinger，截图正文全红，证明**静态单帧零拷贝展示已打通**。剩余是 fence、连续帧、buffer 复用、窗口生命周期与 WSI。
+evidence 53 又用纯 Rust JNI 读取平台 SurfaceView 的 BLAST `SurfaceControl`，通过 `ASurfaceControl` 把同一 AHB 直接提交给 SurfaceFlinger；evidence 54 再用 3-buffer ring 连续上屏 12 帧，按 SF release fence 回收 slot，证明**连续帧零拷贝与背压已打通**。剩余是 producer/acquire fence、持久资源池、窗口生命周期、长稳与 WSI。
 
-## SoC 直连最新（evidence 53，2026-11-23）
+## SoC 直连最新（evidence 54，2026-11-23）
 
 - **Vulkan 扩展面已实测（evidence 48，FACT）**：PanVK 实例扩展 18 项、设备扩展 171 项；
   `VK_KHR_external_memory_fd` / `VK_EXT_external_memory_dma_buf` 等 dma-buf 导入路径存在，
@@ -24,7 +24,8 @@ evidence 53 又用纯 Rust JNI 读取平台 SurfaceView 的 BLAST `SurfaceContro
 - **surfaceless EGL/Zink 已通过（FACT）**：`eglinfo -B` 和纯 Rust `gl_probe` 都报出
   `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`；壳应用的 guest bash 实际使用 `rootfs-full`，
   子进程环境已注入 PanVK ICD + Zink。GBM / Wayland / X11 / swapchain 仍未通；Android 窗口的
-  静态单帧 SurfaceControl 零拷贝提交已由 evidence 53 打通，连续帧与 WSI 仍待做。
+  SurfaceControl 零拷贝已由 evidence 53 / 54 打通到 3-buffer ring 连续 12 帧，producer/acquire
+  fence 与 WSI 仍待做。
 - **壳应用环境已验证（FACT）**：`/proc/<guest bash>/environ` 含 `VK_ICD_FILENAMES`、
   `VK_DRIVER_FILES`、`__EGL_VENDOR_LIBRARY_FILENAMES`、`MESA_LOADER_DRIVER_OVERRIDE=zink`、
   `GALLIUM_DRIVER=zink`；logcat 显示会话与窗口尺寸正常。
@@ -33,11 +34,15 @@ evidence 53 又用纯 Rust JNI 读取平台 SurfaceView 的 BLAST `SurfaceContro
   + `ASurfaceTransaction_setBuffer` 将 guest 已写红的同一 AHB 直接提交给 SurfaceFlinger。
   截图正文 24,192/24,192 个采样点为纯红，SF 层树确认 `husk-ahb` BufferStateLayer 可见且为
   `DEVICE` 合成。
+- **连续帧 / 背压已验证（evidence 54，FACT）**：app 一次分配 3 个 AHB，guest 连续 GPU 渲染
+  12 帧；app `submitted=12 completed=12`，guest `rendered=12/12 releases=9`，3 个 slot 各复用
+  4 次。app 用 `ASurfaceTransaction_setOnComplete` 取得上一 buffer 的 release fence，实测 fd
+  `143/153/150` 均 signal 后才向 guest 发 RELEASE；最终蓝色截图正文 37,800/37,800 采样点纯蓝。
 - **展示回退保留（evidence 52，FACT）**：app 也可用 `eglGetNativeClientBufferANDROID` +
   `eglCreateImageKHR` + `glEGLImageTargetTexture2DOES` 将同一 AHB GPU 采样上屏；该路径仍作为
   SurfaceControl 字段缺失时的降级，不冒充零拷贝。
 
-## 显示零拷贝四段（evidence 49–53，2026-11-23）
+## 显示零拷贝五段（evidence 49–54，2026-11-23）
 
 - **FACT**：纯 Rust app 进程成功分配 `64x64 RGBA8` AHardwareBuffer；带 CPU 读写能力的探针版
   为 usage `0x322`、stride 64。
@@ -58,9 +63,11 @@ evidence 53 又用纯 Rust JNI 读取平台 SurfaceView 的 BLAST `SurfaceContro
 - **FACT（evidence 53）**：app 侧 `ASurfaceControl` 已把同一 AHB 零拷贝提交并上屏；SurfaceFlinger
   层树里 `husk-ahb` 有 64x64 RGBA_8888 activeBuffer，显示区域为 `[0,120,1080,2359]`，
   合成类型为 `DEVICE`。
-- **UNKNOWN / 未完成**：acquire/release fence、连续帧与背压、buffer 复用、GBM / Wayland / X11、
-  WSI / swapchain、旋转 / DPI / 多窗口、SurfaceView 重建和 10 分钟泄漏仍未验证，不能写成
-  “显示目标完成”。
+- **FACT（evidence 54）**：3-buffer ring 连续 12 帧、slot 复用、release-fence 背压均通过；这不是
+  单帧演示。
+- **UNKNOWN / 未完成**：producer/acquire fence 仍为 `-1`（guest 先 `vkWaitForFences`），
+  Vulkan 资源池、GBM / Wayland / X11、WSI / swapchain、旋转 / DPI / 多窗口、SurfaceView 重建和
+  10 分钟泄漏仍未验证，不能写成“显示目标完成”。
 
 ## GPU 基线（evidence 46，2026-11-23）
 
@@ -76,8 +83,9 @@ evidence 53 又用纯 Rust JNI 读取平台 SurfaceView 的 BLAST `SurfaceContro
 - **离屏 graphics 已通过（FACT）**：真实顶点缓冲、vertex/fragment SPIR-V、render pass、
   `vkCmdDraw`、image-to-buffer copy + fence 后回读红色像素 `0xff0000ff`，连续两次 PASS。
 - **evidence 46 当时未验证（FACT）**：swapchain、WSI、Android Surface 和实际窗口显示尚未打通；
-  后续 evidence 52 用 EGLImage 回退上屏，evidence 53 用 SurfaceControl 完成静态单帧零拷贝上屏；
-  acquire/release fence、连续帧、buffer 复用和 WSI/swapchain 仍未验证。
+  后续 evidence 52 用 EGLImage 回退上屏，evidence 53 用 SurfaceControl 完成静态单帧零拷贝上屏，
+  evidence 54 完成 3-buffer ring 连续 12 帧与 release-fence 背压；producer/acquire fence 和
+  WSI/swapchain 仍未验证。
 - **保留对照（FACT）**：`funnymdzz/mesa` `kbase-v0.1.2` 在 `vkCreateDevice` 处因 kbase fd 上
   `drmSyncobjCreate()` 失败而报 `VK_ERROR_OUT_OF_HOST_MEMORY`，不再作为主动路线。
 
@@ -131,7 +139,7 @@ evidence 53 又用纯 Rust JNI 读取平台 SurfaceView 的 BLAST `SurfaceContro
 | PanVK compute job | **通过**：SPIR-V shader + compute pipeline + `vkQueueSubmit` + fence + GPU readback | 46 |
 | PanVK graphics | **离屏 draw 通过**：真实顶点缓冲 + vertex/fragment + draw + GPU 像素回读 | 46 |
 | Zink surfaceless renderer | **通过**：`eglinfo -B` / 纯 Rust `gl_probe` 报 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))` | 47 |
-| PanVK swapchain / WSI / Surface | **部分通过**：Android 窗口静态单帧经 SurfaceControl 零拷贝上屏（evidence 53），EGLImage 回退保留（evidence 52）；fence、连续帧、GBM / Wayland / X11、swapchain / WSI 仍未通 | 47 / 52 / 53 / 后续 |
+| PanVK swapchain / WSI / Surface | **部分通过**：Android 窗口 3-buffer ring 连续 12 帧经 SurfaceControl 零拷贝上屏，SF release fence 回收 slot（evidence 54），EGLImage 回退保留（evidence 52）；producer/acquire fence、资源池、GBM / Wayland / X11、swapchain / WSI 仍未通 | 47 / 52 / 53 / 54 / 后续 |
 | 软作业（`SOFT_EVENT_SET/WAIT`） | **本机无效果**：6 种偏移 + `compat_core_req` 双写 + 先 `MEM_JIT_INIT` + 换分配标志（CACHED_CPU / COHERENT_SYSTEM），显存里的标志字节始终为 0 | 40 |
 
 ## 本轮（21:24–21:31）做了什么

@@ -96,8 +96,11 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
    image 导入 PanVK，GPU clear 后 staging buffer 与直接 dma-buf CPU mmap 均回读 9/9 红色；
    每次外部 memory import 使用独立 `dup(fd)`。**已完成（evidence 53）**：同一 AHB 经平台
    SurfaceView 的 BLAST SurfaceControl 用 `ASurfaceTransaction_setBuffer` 直接上屏，静态单帧
-   零拷贝和 SF `DEVICE` 合成已确认。下一步是 GBM/Wayland/X11、WSI/swapchain、fence、连续帧和
-   窗口生命周期；静态单帧不等于完整窗口系统验收。
+   零拷贝和 SF `DEVICE` 合成已确认。**已完成（evidence 54）**：app 分配 3 个 AHB 组成 ring，
+   guest 连续 GPU 渲染 12 帧；app `12/12` transaction complete，guest `12/12` 渲染并复用 3 个
+   slot 各 4 次，`ASurfaceTransaction_setOnComplete` 返回的 release fence signal 后才回 RELEASE。
+   下一步是 producer/acquire fence、持久 Vulkan 资源池、GBM/Wayland/X11、WSI/swapchain、窗口
+   生命周期和 10 分钟长稳；连续短跑不等于完整窗口系统验收。
 5. `funnymdzz/mesa` 的 `kbase-v0.1.2` 已实测卡在 `drmSyncobjCreate()`，保留为失败证据和对照，
    不再作为唯一主动路线。
 6. DRM 语义层代码保留：它是已经完成的 M1/M2 资产，也是 panfrost 路线的后备，不删除。
@@ -127,7 +130,10 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
   24,192/24,192 个采样点为纯红，SF 层树确认 `husk-ahb` 为可见 `DEVICE` 层。
   `ASurfaceControl_createFromWindow` 对 NativeActivity 窗口仍返回 null（AOSP BLAST
   `createWithSurfaceParent` BAD_VALUE），所以 SurfaceView handle 是当前路径；
-  下一步是 acquire/release fence、连续帧、buffer 复用、窗口生命周期和 WSI；
+  evidence 54 已进一步完成 3-buffer ring 连续 12 帧、slot 复用和 SF release-fence 背压：
+   app 取得上一 buffer 的 release fence，poll 到 signal 后才向 guest 发 RELEASE。
+  下一步是 producer/acquire fence（目前仍为 `-1`，guest 先 CPU 等 VkFence）、持久资源池、
+   窗口生命周期和 WSI；
 - 同一块 buffer 由 app `queueBuffer` 给 SurfaceFlinger，目标是零拷贝；
 - kbase 没有 export，所以方向必须是 app → guest 导入，不能假装有 kbase 导出。
 - 退化路径可以 CPU 拷贝，但必须记录原因和实测开销。
@@ -213,10 +219,12 @@ eglinfo 报 Mali-G77；音频出声并有延迟数字；H.264/HEVC 硬解、AV �
 1. 读本文件、`GOALS.md`、`STATUS.md`、`references.md`、`mali-kbase-prior-art.md`。
 2. 查 `git status --short --branch`，确认没有未提交改动；没有用户授权不要动 LinuxHub 2.0 分支。
 3. 继续显示主线：FristOneRR glibc PanVK 已完成 compute job、离屏 graphics、surfaceless Zink
-   （evidence 46–47）、AHB LINEAR 2D image GPU 写入（evidence 51）、EGLImage 回退（evidence 52）
-   和 SurfaceControl 静态单帧零拷贝上屏（evidence 53）。下一步接 acquire/release fence、连续帧与
-   buffer 复用，再进 GBM / Wayland / X11、WSI、旋转 / DPI / 多窗口和 10 分钟泄漏。
+   （evidence 46–47）、AHB LINEAR 2D image GPU 写入（evidence 51）、EGLImage 回退（evidence 52）、
+   SurfaceControl 静态单帧零拷贝（evidence 53）和 3-buffer ring 连续 12 帧 + release-fence 背压
+   （evidence 54）。下一步接 producer/acquire fence、持久资源池、GBM / Wayland / X11、WSI、旋转 /
+   DPI / 多窗口和 10 分钟泄漏。
 4. 每次失败也写清楚失败点和下一假设；证据放 `docs/design/evidence/`。
-5. 显示主线已完成 SurfaceControl 静态单帧零拷贝；下一步做 fence、连续帧与 buffer 复用，再推进
-   GBM / Wayland / X11、WSI 和窗口生命周期；视频、音频按第 5 节并行设计但不能跳过硬解验收。
+5. 显示主线已完成 SurfaceControl 3-buffer ring 连续 12 帧和 release-fence 背压；下一步把 guest
+   GPU fence 导出成 acquire fence、做持久资源池，再推进 GBM / Wayland / X11、WSI、窗口生命周期
+   和 10 分钟长稳；视频、音频按第 5 节并行设计但不能跳过硬解验收。
 6. 最后做 2.0 proot 替换与补丁清除。

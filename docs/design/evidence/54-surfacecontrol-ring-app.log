@@ -1,0 +1,93 @@
+--------- beginning of main
+11-23 04:04:59.335 32251 32251 I Husk    : onCreate activity=0xb400007aca323740
+11-23 04:04:59.335 32251 32251 I Husk    : surface: activity|PASS|ActivityThread.mActivities
+11-23 04:04:59.339 32251 32251 I Husk    : surface: install|PASS|SurfaceView on Activity 0x195
+11-23 04:04:59.339 32251 32251 I Husk    : onCreate callbacks=0xb400007aca323790 -> in-place copy (128 bytes)
+11-23 04:04:59.345  2479  2479 I Husk    : probe: rt_sigaction ret=0
+11-23 04:04:59.350 32251 32251 I Husk    : probe: openat2 semantics = TRAP (handler ran: in-process emulation possible)
+11-23 04:04:59.351 32251  2501 I Husk    : ahb|probe|BEGIN
+11-23 04:04:59.351 32251  2501 I Husk    : ahb|loader|PASS|libandroid.so
+11-23 04:04:59.351 32251  2501 I Husk    : ahb|symbol|PASS|AHardwareBuffer_allocate
+11-23 04:04:59.351 32251  2501 I Husk    : ahb|symbol|PASS|AHardwareBuffer_describe
+11-23 04:04:59.351 32251  2501 I Husk    : ahb|symbol|PASS|AHardwareBuffer_release
+11-23 04:04:59.351 32251  2501 I Husk    : ahb|symbol|PASS|AHardwareBuffer_getNativeHandle
+11-23 04:04:59.351 32251  2501 I Husk    : ahb|symbol|PASS|AHardwareBuffer_sendHandleToUnixSocket
+11-23 04:04:59.351 32251  2501 I Husk    : ahb|symbol|PASS|AHardwareBuffer_recvHandleFromUnixSocket
+11-23 04:04:59.351 32251  2501 I Husk    : ahb|symbol|PASS|AHardwareBuffer_lock
+11-23 04:04:59.351 32251  2501 I Husk    : ahb|symbol|PASS|AHardwareBuffer_unlock
+11-23 04:04:59.351 32251  2501 I Husk    : ahb|ring|BEGIN|buffers=3|frames=12
+11-23 04:04:59.352 32251  2513 I Husk    : run: thread up
+11-23 04:04:59.352 32251  2513 I Husk    : sync: waiting for onNativeWindowCreated
+11-23 04:04:59.352 32251 32251 I Husk    : cb: onStart
+11-23 04:04:59.353 32251 32251 I Husk    : cb: onResume
+11-23 04:04:59.359 32251  2513 I Husk    : spawned pid=2518 fd=96 tee=97
+11-23 04:04:59.360 32251  2513 I Husk    : session: running pid=2518 (pgid=sid=pid by setsid) 80x24 fds=99
+11-23 04:04:59.362 32251  2501 I Husk    : ahb|ring|allocate|slot=0|rc=0|ptr=0xb400007aa5448800
+11-23 04:04:59.362 32251  2501 I Husk    : ahb|linear|lock_write|rc=0 cpu=0x7b6df6a000
+11-23 04:04:59.362 32251  2501 I Husk    : ahb|linear|unlock_write|rc=0
+11-23 04:04:59.362 32251  2501 I Husk    : ahb|linear|lock_read|rc=0 cpu=0x7b6df6a000
+11-23 04:04:59.362 32251  2501 I Husk    : ahb|linear|cpu_view|match=9/9|got=[2589720576, 2589724736, 2589728894, 2589732896, 2589737056, 2589741150, 2589745215, 2589749375, 2589753409]|unlock=0
+11-23 04:04:59.362 32251  2501 I Husk    : ahb|ring|describe|slot=0|64x64|stride=64|linear=true
+11-23 04:04:59.362 32251  2501 I Husk    : ahb|ring|allocate|slot=1|rc=0|ptr=0xb400007aa54c5500
+11-23 04:04:59.362 32251  2501 I Husk    : ahb|linear|lock_write|rc=0 cpu=0x7b6df66000
+11-23 04:04:59.362 32251  2501 I Husk    : ahb|linear|unlock_write|rc=0
+11-23 04:04:59.362 32251  2501 I Husk    : ahb|linear|lock_read|rc=0 cpu=0x7b6df66000
+11-23 04:04:59.362 32251  2501 I Husk    : ahb|linear|cpu_view|match=9/9|got=[2589720576, 2589724736, 2589728894, 2589732896, 2589737056, 2589741150, 2589745215, 2589749375, 2589753409]|unlock=0
+11-23 04:04:59.362 32251  2501 I Husk    : ahb|ring|describe|slot=1|64x64|stride=64|linear=true
+11-23 04:04:59.363 32251  2501 I Husk    : ahb|ring|allocate|slot=2|rc=0|ptr=0xb400007aa54c5600
+11-23 04:04:59.363 32251  2501 I Husk    : ahb|linear|lock_write|rc=0 cpu=0x7b6df3e000
+11-23 04:04:59.363 32251  2501 I Husk    : ahb|linear|unlock_write|rc=0
+11-23 04:04:59.363 32251  2501 I Husk    : ahb|linear|lock_read|rc=0 cpu=0x7b6df3e000
+11-23 04:04:59.363 32251  2501 I Husk    : ahb|linear|cpu_view|match=9/9|got=[2589720576, 2589724736, 2589728894, 2589732896, 2589737056, 2589741150, 2589745215, 2589749375, 2589753409]|unlock=0
+11-23 04:04:59.363 32251  2501 I Husk    : ahb|ring|describe|slot=2|64x64|stride=64|linear=true
+11-23 04:04:59.363 32251  2501 I Husk    : ahb|ring|LISTEN|/data/user/0/com.linuxhub.husk/files/ahb-bridge.sock
+11-23 04:04:59.384 32251 32251 I Husk    : cb: onInputQueueCreated q=0xb400007a46cc8c80
+11-23 04:04:59.400 32251 32251 I Husk    : cb: onNativeWindow win=0xb400007a46c56010 1080x2400
+11-23 04:04:59.400 32251 32251 I Husk    : cb: onNativeWindow win=0xb400007a46c56010 1080x2400
+11-23 04:04:59.409 32251 32251 I Husk    : cb: onNativeWindow win=0xb400007a46c56010 1080x2400
+11-23 04:04:59.417 32251 32251 I Husk    : cb: onNativeWindow win=0xb400007a46c56010 1080x2400
+11-23 04:04:59.421 32251 32251 I Husk    : cb: onWindowFocusChanged focused=1
+11-23 04:04:59.453 32251  2513 I Husk    : session: resize 80x24 -> 67x58 (TIOCSWINSZ, pid=2518)
+11-23 04:05:07.388 32251  2501 I Husk    : ahb|ring|send|slot=0|rc=0
+11-23 04:05:07.388 32251  2501 I Husk    : ahb|ring|send|slot=1|rc=0
+11-23 04:05:07.388 32251  2501 I Husk    : ahb|ring|send|slot=2|rc=0
+11-23 04:05:07.390 32251  2501 I Husk    : surface: parent|PASS|native=0xb400007a46cbada0
+11-23 04:05:07.399 32251  2501 I Husk    : ahb|ring|present|slot=0|previous=None|1080x2400
+11-23 04:05:07.401 32251  2501 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|1080x2400
+11-23 04:05:07.402 32251  2501 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|1080x2400
+11-23 04:05:07.419 32251  2425 I Husk    : ahb|ring|complete|frame_slot=0|previous=None|release_fd=-1|released=true|completed=1
+11-23 04:05:07.435 32251  2425 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=143|released=true|completed=2
+11-23 04:05:07.435 32251  2425 I Husk    : ahb|ring|release_sent|slot=0
+11-23 04:05:07.436 32251  2425 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=-1|released=true|completed=3
+11-23 04:05:07.436 32251  2425 I Husk    : ahb|ring|release_sent|slot=1
+11-23 04:05:07.441 32251  2501 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|1080x2400
+11-23 04:05:07.443 32251  2501 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|1080x2400
+11-23 04:05:07.485 32251  2425 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=153|released=true|completed=4
+11-23 04:05:07.485 32251  2425 I Husk    : ahb|ring|release_sent|slot=2
+11-23 04:05:07.485 32251  2425 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=-1|released=true|completed=5
+11-23 04:05:07.485 32251  2425 I Husk    : ahb|ring|release_sent|slot=0
+11-23 04:05:07.493 32251  2501 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|1080x2400
+11-23 04:05:07.498 32251  2501 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|1080x2400
+11-23 04:05:07.518 32251  2425 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=153|released=true|completed=6
+11-23 04:05:07.518 32251  2425 I Husk    : ahb|ring|release_sent|slot=1
+11-23 04:05:07.518 32251  2425 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=-1|released=true|completed=7
+11-23 04:05:07.518 32251  2425 I Husk    : ahb|ring|release_sent|slot=2
+11-23 04:05:07.522 32251  2501 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|1080x2400
+11-23 04:05:07.528 32251  2501 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|1080x2400
+11-23 04:05:07.568 32251  2425 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=153|released=true|completed=8
+11-23 04:05:07.568 32251  2425 I Husk    : ahb|ring|release_sent|slot=0
+11-23 04:05:07.568 32251  2425 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=-1|released=true|completed=9
+11-23 04:05:07.569 32251  2425 I Husk    : ahb|ring|release_sent|slot=1
+11-23 04:05:07.578 32251  2501 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|1080x2400
+11-23 04:05:07.584 32251  2501 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|1080x2400
+11-23 04:05:07.618 32251  2425 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=153|released=true|completed=10
+11-23 04:05:07.618 32251  2425 I Husk    : ahb|ring|release_sent|slot=2
+11-23 04:05:07.618 32251  2425 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=-1|released=true|completed=11
+11-23 04:05:07.618 32251  2425 I Husk    : ahb|ring|release_sent|slot=0
+11-23 04:05:07.628 32251  2501 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|1080x2400
+11-23 04:05:07.628 32251  2501 I Husk    : ahb|ring|GUEST_DONE|DONE 12
+11-23 04:05:07.668 32251  2425 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=150|released=true|completed=12
+11-23 04:05:07.668 32251  2425 I Husk    : ahb|ring|release_sent|slot=1
+11-23 04:05:07.679 32251  2501 I Husk    : ahb|ring|SUMMARY|submitted=12|completed=12|guest_done=true
+11-23 04:05:10.686 32251  2501 I Husk    : ahb|ring|DONE|ok=true|buffers_released=3
+11-23 04:05:10.686 32251  2501 I Husk    : ahb|probe|RING|ok=true

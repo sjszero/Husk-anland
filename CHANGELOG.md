@@ -1,5 +1,19 @@
 # 变更记录
 
+## 2026-11-23 — 3-buffer AHB ring 连续 12 帧与 release-fence 背压
+
+- **evidence 54**：app 一次分配 3 个 AHardwareBuffer，经 `SCM_RIGHTS` 交给 guest；guest 连续 GPU
+  渲染 12 帧并按 slot 等待 app 的 RELEASE。实测 app `submitted=12 completed=12`，guest
+  `rendered=12/12 releases=9`，3 个 slot 各复用 4 次。
+- app 用 `ASurfaceTransaction_setOnComplete` 取得上一 buffer 的 SurfaceFlinger release fence，
+  实测 fd `143/153/150` 均 signal；signal 后才回 guest RELEASE，避免覆盖仍在合成的 buffer。
+- 最终第 12 帧为蓝色，截图正文按 8 像素采样 `37,800/37,800` 点纯蓝。APK sha256
+  `ef6d88c866494aa3f12e151c1a515a1a8e3109f08aed2805806473892c36573f`；guest probe sha256
+  `d939442c51c77f77845d9cc303d25e5f80063040c68c363130a3b2e499af22ae`。
+- **仍未完成**：producer/acquire fence 仍为 `-1`（guest 先 `vkWaitForFences`），Vulkan 资源每帧
+  重建，尚无性能基准；10 分钟泄漏、旋转 / DPI、SurfaceView 重建、GBM / Wayland / X11 与 WSI
+  未验证。
+
 ## 2026-11-23 — 同一 guest AHB 经 SurfaceControl 零拷贝上屏
 
 - **evidence 53**：纯 Rust JNI 从 `ActivityThread.mActivities` 找到当前 Activity，创建平台
@@ -13,8 +27,8 @@
   NativeActivity BLAST window 仍返回 null，SurfaceView handle 是当前可用路径，EGLImage 保留为降级。
 - APK sha256 `e7e5da9ab3dcf7f0fee84afef48fc4c04b94074cecec181af7a950e1ca9e827c`；
   `libhuskapp.so` sha256 `8644002c82f50317553e72f514b35c8b7327d56fe8fe76f2441566c99d1f42be`。
-- **仍未完成**：acquire/release fence、连续帧与背压、buffer 复用、GBM / Wayland / X11、WSI /
-  swapchain、旋转 / DPI / 多窗口、SurfaceView 重建和 10 分钟泄漏。
+- **截至 evidence 53 时未完成**：acquire/release fence、连续帧与背压、buffer 复用、GBM / Wayland /
+  X11、WSI / swapchain、旋转 / DPI / 多窗口、SurfaceView 重建和 10 分钟泄漏。
 
 ## 2026-11-23 — AHardwareBuffer dma-buf 已跨进程导入 PanVK 并由 GPU 访问
 

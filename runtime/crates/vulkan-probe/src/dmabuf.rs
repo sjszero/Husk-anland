@@ -8,7 +8,7 @@
 
 use super::*;
 use core::ffi::{c_int, c_void};
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 
@@ -72,11 +72,14 @@ struct AhbMeta {
     format: u32,
     usage: u64,
     cookies: [u32; 9],
+    count: usize,
+    frames: usize,
 }
 
 fn parse_meta(text: &str) -> Result<AhbMeta, String> {
     let mut lines = text.lines();
-    if lines.next() != Some("HUSK-AHB-1") {
+    let magic = lines.next();
+    if magic != Some("HUSK-AHB-1") && magic != Some("HUSK-AHB-2") {
         return Err("bad magic".to_string());
     }
     let mut width = None;
@@ -85,6 +88,8 @@ fn parse_meta(text: &str) -> Result<AhbMeta, String> {
     let mut format = None;
     let mut usage = None;
     let mut cookies = None;
+    let mut count = 1usize;
+    let mut frames = 1usize;
     for line in lines {
         let Some((key, value)) = line.split_once('=') else {
             continue;
@@ -107,6 +112,8 @@ fn parse_meta(text: &str) -> Result<AhbMeta, String> {
                     cookies = Some(out);
                 }
             }
+            "count" => count = value.parse().unwrap_or(1),
+            "frames" => frames = value.parse().unwrap_or(1),
             _ => {}
         }
     }
@@ -117,6 +124,8 @@ fn parse_meta(text: &str) -> Result<AhbMeta, String> {
         format: format.ok_or_else(|| "missing format".to_string())?,
         usage: usage.ok_or_else(|| "missing usage".to_string())?,
         cookies: cookies.ok_or_else(|| "missing cookies".to_string())?,
+        count: count.clamp(1, 8),
+        frames: frames.clamp(1, 100_000),
     })
 }
 
@@ -211,7 +220,7 @@ unsafe fn probe_linear_dmabuf(fd: c_int, meta: &AhbMeta) -> bool {
     ok
 }
 
-unsafe fn probe_linear_image(
+unsafe fn render_linear_image(
     lib: *mut c_void,
     physical: VkPhysicalDevice,
     device: VkDevice,
@@ -219,6 +228,8 @@ unsafe fn probe_linear_image(
     family_index: u32,
     fd: c_int,
     meta: &AhbMeta,
+    color: [f32; 4],
+    expected_pixel: u32,
 ) -> bool {
     if meta.width == 0
         || meta.height == 0
@@ -608,9 +619,7 @@ unsafe fn probe_linear_image(
         1,
         &to_dst,
     );
-    let clear = VkClearColorValue {
-        float32: [1.0, 0.0, 0.0, 1.0],
-    };
+    let clear = VkClearColorValue { float32: color };
     clear_color(
         command,
         image,
@@ -751,21 +760,21 @@ unsafe fn probe_linear_image(
         if map_rc == VK_SUCCESS && !mapped.is_null() {
             let base = mapped as *const u8;
             let mut checked = 0;
-            let mut red = 0;
+            let mut matched = 0;
             for (x, y) in probe_points(meta.width, meta.height) {
                 let off = (y as usize * pitch as usize) + x as usize * 4;
                 let pixel = (base.add(off) as *const u32).read_unaligned();
                 checked += 1;
-                if pixel == 0xff00_00ff {
-                    red += 1;
+                if pixel == expected_pixel {
+                    matched += 1;
                 }
             }
-            pixels_ok = checked == 9 && red == 9;
+            pixels_ok = checked == 9 && matched == 9;
             line(
                 "dmabuf",
                 "image_readback",
                 format!(
-                    "{}|red={red}/{checked} first={:#x}",
+                    "{}|match={matched}/{checked} expected={expected_pixel:#010x} first={:#010x}",
                     if pixels_ok { "PASS" } else { "FAIL" },
                     (base as *const u32).read_unaligned()
                 ),
@@ -785,19 +794,19 @@ unsafe fn probe_linear_image(
         );
         if dma_map as isize != -1 {
             let base = dma_map as *const u8;
-            let mut dma_red = 0;
+            let mut dma_matched = 0;
             for (x, y) in probe_points(meta.width, meta.height) {
                 let off = (y as usize * pitch as usize) + x as usize * 4;
-                if (base.add(off) as *const u32).read_unaligned() == 0xff00_00ff {
-                    dma_red += 1;
+                if (base.add(off) as *const u32).read_unaligned() == expected_pixel {
+                    dma_matched += 1;
                 }
             }
-            dma_view_ok = dma_red == 9;
+            dma_view_ok = dma_matched == 9;
             line(
                 "dmabuf",
                 "image_dma_buf_view",
                 format!(
-                    "{}|red={dma_red}/9 first={:#x}",
+                    "{}|match={dma_matched}/9 expected={expected_pixel:#010x} first={:#010x}",
                     if dma_view_ok { "PASS" } else { "FAIL" },
                     (base as *const u32).read_unaligned()
                 ),
@@ -1076,33 +1085,7 @@ fn cmsg_align(n: usize) -> usize {
     (n + a - 1) & !(a - 1)
 }
 
-unsafe fn receive_handle(path: &str) -> Result<(AhbMeta, Vec<c_int>, UnixStream), String> {
-    let mut stream = UnixStream::connect(path).map_err(|e| format!("connect {path}: {e}"))?;
-    line("dmabuf", "socket", format!("PASS|{path}"));
-
-    let mut frame_len = [0u8; 4];
-    stream
-        .read_exact(&mut frame_len)
-        .map_err(|e| format!("read meta length: {e}"))?;
-    let meta_len = u32::from_be_bytes(frame_len) as usize;
-    if meta_len == 0 || meta_len > 4096 {
-        return Err(format!("bad meta length {meta_len}"));
-    }
-    let mut meta_buf = vec![0u8; meta_len];
-    stream
-        .read_exact(&mut meta_buf)
-        .map_err(|e| format!("read meta: {e}"))?;
-    let meta_text = core::str::from_utf8(&meta_buf).map_err(|e| format!("meta utf8: {e}"))?;
-    let meta = parse_meta(meta_text).map_err(|e| format!("meta: {e}"))?;
-    line(
-        "dmabuf",
-        "meta",
-        format!(
-            "PASS|{}x{} stride={} format={} usage={:#x}",
-            meta.width, meta.height, meta.stride, meta.format, meta.usage
-        ),
-    );
-
+unsafe fn recv_handle_fds(stream: &UnixStream) -> Result<Vec<c_int>, String> {
     let mut data = [0u8; 512];
     let mut control = [0u8; 512];
     let mut iov = IoVec {
@@ -1151,8 +1134,47 @@ unsafe fn receive_handle(path: &str) -> Result<(AhbMeta, Vec<c_int>, UnixStream)
         }
         off += cmsg_align(len);
     }
+    if fds.is_empty() {
+        return Err("SCM_RIGHTS message contained no fds".to_string());
+    }
     line("dmabuf", "fd_count", format!("{}", fds.len()));
-    Ok((meta, fds, stream))
+    Ok(fds)
+}
+
+unsafe fn receive_handle(path: &str) -> Result<(AhbMeta, Vec<Vec<c_int>>, UnixStream), String> {
+    let mut stream = UnixStream::connect(path).map_err(|e| format!("connect {path}: {e}"))?;
+    line("dmabuf", "socket", format!("PASS|{path}"));
+
+    let mut frame_len = [0u8; 4];
+    stream
+        .read_exact(&mut frame_len)
+        .map_err(|e| format!("read meta length: {e}"))?;
+    let meta_len = u32::from_be_bytes(frame_len) as usize;
+    if meta_len == 0 || meta_len > 4096 {
+        return Err(format!("bad meta length {meta_len}"));
+    }
+    let mut meta_buf = vec![0u8; meta_len];
+    stream
+        .read_exact(&mut meta_buf)
+        .map_err(|e| format!("read meta: {e}"))?;
+    let meta_text = core::str::from_utf8(&meta_buf).map_err(|e| format!("meta utf8: {e}"))?;
+    let meta = parse_meta(meta_text).map_err(|e| format!("meta: {e}"))?;
+    line(
+        "dmabuf",
+        "meta",
+        format!(
+            "PASS|{}x{} stride={} format={} usage={:#x} count={} frames={}",
+            meta.width, meta.height, meta.stride, meta.format, meta.usage, meta.count, meta.frames
+        ),
+    );
+
+    let mut handles = Vec::with_capacity(meta.count);
+    for slot in 0..meta.count {
+        let fds = recv_handle_fds(&stream)
+            .map_err(|e| format!("receive handle {slot}/{}: {e}", meta.count))?;
+        handles.push(fds);
+    }
+    Ok((meta, handles, stream))
 }
 
 unsafe fn find_dmabuf(fds: &[c_int]) -> Option<c_int> {
@@ -1173,6 +1195,175 @@ unsafe fn find_dmabuf(fds: &[c_int]) -> Option<c_int> {
     None
 }
 
+fn frame_color(frame: usize) -> ([f32; 4], u32) {
+    match frame % 3 {
+        0 => ([1.0, 0.0, 0.0, 1.0], 0xff00_00ff),
+        1 => ([0.0, 1.0, 0.0, 1.0], 0xff00_ff00),
+        _ => ([0.0, 0.0, 1.0, 1.0], 0xffff_0000),
+    }
+}
+
+unsafe fn run_ring(
+    lib: *mut c_void,
+    physical: VkPhysicalDevice,
+    device: VkDevice,
+    queue: VkQueue,
+    family_index: u32,
+    meta: &AhbMeta,
+    handles: &[Vec<c_int>],
+    stream: UnixStream,
+) -> bool {
+    line(
+        "ring",
+        "BEGIN",
+        format!(
+            "buffers={} frames={} {}x{}",
+            meta.count, meta.frames, meta.width, meta.height
+        ),
+    );
+    if handles.len() != meta.count {
+        line(
+            "ring",
+            "FAIL",
+            format!("handle count {} != {}", handles.len(), meta.count),
+        );
+        return false;
+    }
+
+    let mut dmabufs = Vec::with_capacity(handles.len());
+    let mut linear_ok = true;
+    for (slot, fds) in handles.iter().enumerate() {
+        let Some(fd) = find_dmabuf(fds) else {
+            line("ring", "FAIL", format!("slot {slot} has no dmabuf"));
+            linear_ok = false;
+            break;
+        };
+        let ok = probe_linear_dmabuf(fd, meta);
+        line("ring", "linear", format!("slot={slot} fd={fd} ok={ok}"));
+        linear_ok &= ok;
+        dmabufs.push(fd);
+    }
+    if !linear_ok || dmabufs.len() != meta.count {
+        for fds in handles {
+            for &fd in fds {
+                close(fd);
+            }
+        }
+        return false;
+    }
+
+    let reader_stream = match stream.try_clone() {
+        Ok(v) => v,
+        Err(e) => {
+            line("ring", "FAIL", format!("clone reader: {e}"));
+            for fds in handles {
+                for &fd in fds {
+                    close(fd);
+                }
+            }
+            return false;
+        }
+    };
+    if let Err(e) = reader_stream.set_read_timeout(Some(std::time::Duration::from_secs(15))) {
+        line("ring", "WARN", format!("read timeout: {e}"));
+    }
+    let mut reader = BufReader::new(reader_stream);
+    let mut writer = stream;
+    let mut used = vec![false; meta.count];
+    let mut rendered = 0usize;
+    let mut releases = 0usize;
+    let mut ok = true;
+
+    for frame in 0..meta.frames {
+        let slot = frame % meta.count;
+        if used[slot] {
+            line("ring", "WAIT_RELEASE", format!("frame={frame} slot={slot}"));
+            loop {
+                let mut response = String::new();
+                match reader.read_line(&mut response) {
+                    Ok(0) => {
+                        line("ring", "FAIL", "app closed before releasing buffer");
+                        ok = false;
+                        break;
+                    }
+                    Ok(_) => {
+                        let response = response.trim();
+                        if response == format!("RELEASE {slot}") {
+                            releases += 1;
+                            line("ring", "RELEASE", format!("frame={frame} slot={slot}"));
+                            break;
+                        }
+                        line("ring", "RX", response);
+                    }
+                    Err(e) => {
+                        line("ring", "FAIL", format!("wait release slot={slot}: {e}"));
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+        }
+        if !ok {
+            break;
+        }
+
+        let (color, expected) = frame_color(frame);
+        line(
+            "ring",
+            "RENDER",
+            format!("frame={frame} slot={slot} expected={expected:#010x}",),
+        );
+        let rendered_ok = render_linear_image(
+            lib,
+            physical,
+            device,
+            queue,
+            family_index,
+            dmabufs[slot],
+            meta,
+            color,
+            expected,
+        );
+        let ready = rendered_ok
+            && writeln!(writer, "READY {slot} {frame} {expected:08x}")
+                .and_then(|_| writer.flush())
+                .is_ok();
+        line(
+            "ring",
+            "READY",
+            format!("frame={frame} slot={slot} rendered={rendered_ok} sent={ready}"),
+        );
+        if !ready {
+            ok = false;
+            break;
+        }
+        used[slot] = true;
+        rendered += 1;
+    }
+
+    let done = writeln!(writer, "DONE {rendered}").is_ok();
+    line(
+        "ring",
+        if ok && rendered == meta.frames && done {
+            "PASS"
+        } else {
+            "FAIL"
+        },
+        format!(
+            "rendered={rendered}/{} releases={releases} done={done}",
+            meta.frames
+        ),
+    );
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    for fds in handles {
+        for &fd in fds {
+            close(fd);
+        }
+    }
+    line("ring", "teardown", "all received AHB fds closed");
+    ok && rendered == meta.frames && done
+}
+
 pub unsafe fn run(
     lib: *mut c_void,
     physical: VkPhysicalDevice,
@@ -1181,10 +1372,29 @@ pub unsafe fn run(
     family_index: u32,
     path: &str,
 ) -> bool {
-    let (meta, fds, mut stream) = match receive_handle(path) {
+    let (meta, handles, mut stream) = match receive_handle(path) {
         Ok(v) => v,
         Err(e) => {
             line("dmabuf", "FAIL", format!("{e}"));
+            return false;
+        }
+    };
+    if meta.count > 1 || meta.frames > 1 {
+        return run_ring(
+            lib,
+            physical,
+            device,
+            queue,
+            family_index,
+            &meta,
+            &handles,
+            stream,
+        );
+    }
+    let fds = match handles.into_iter().next() {
+        Some(v) => v,
+        None => {
+            line("dmabuf", "FAIL", "no AHB handle");
             return false;
         }
     };
@@ -1444,8 +1654,18 @@ pub unsafe fn run(
     );
     free_memory(device, memory, ptr::null());
     destroy_buffer(device, buffer, ptr::null());
-    let image_ok =
-        gpu_ok && probe_linear_image(lib, physical, device, queue, family_index, fd, &meta);
+    let image_ok = gpu_ok
+        && render_linear_image(
+            lib,
+            physical,
+            device,
+            queue,
+            family_index,
+            fd,
+            &meta,
+            [1.0, 0.0, 0.0, 1.0],
+            0xff00_00ff,
+        );
     line(
         "dmabuf",
         "image_summary",
