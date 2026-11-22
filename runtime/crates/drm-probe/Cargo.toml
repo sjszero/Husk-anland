@@ -14,3 +14,7 @@ drm-shim = { path = "../drm-shim" }
 [[bin]]
 name = "drmfake"
 path = "src/bin/drmfake.rs"
+
+[[bin]]
+name = "gl_probe"
+path = "src/bin/gl_probe.rs"

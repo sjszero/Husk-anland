@@ -45,6 +45,17 @@ pub const DRM_IOCTL_PANFROST_JM_CTX_DESTROY: u64 = ioc(_IOC_READ | _IOC_WRITE, b
 pub const DRM_IOCTL_PANFROST_SYNC_BO: u64 = ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x0c, 24);
 pub const DRM_IOCTL_PANFROST_QUERY_BO_INFO: u64 = ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x0d, 24);
 
+// ---------- DRM 核心（libdrm 的 drmGetVersion / drmGetCap 会问这些）----------
+pub const DRM_IOCTL_VERSION: u64 = ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, 0x00, 64);
+pub const DRM_IOCTL_GET_CAP: u64 = ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, 0x0c, 16);
+pub const DRM_IOCTL_SET_MASTER: u64 = ioc(0, b'd' as u64, 0x1e, 0);
+pub const DRM_IOCTL_DROP_MASTER: u64 = ioc(0, b'd' as u64, 0x1f, 0);
+
+/// libdrm 的 `drm_panfrost` 期望的版本串。名字必须是 panfrost，否则 loader 不认。
+const DRV_NAME: &[u8] = b"panfrost";
+const DRV_DATE: &[u8] = b"20260101";
+const DRV_DESC: &[u8] = b"Husk DRM semantic layer over kbase";
+
 pub const PANFROST_BO_NOEXEC: u32 = 1;
 pub const PANFROST_BO_HEAP: u32 = 2;
 pub const PANFROST_BO_COHERENT: u32 = 4;
@@ -254,8 +265,12 @@ impl DrmCtx {
             21 => self.prop(81),
             22..=37 => self.prop(KB_RAW_JS_FEATURES_0 + (param - 22)),
             38 => self.prop(62),
+            39 => Some(0),
             40 => self.prop(83),
-            _ => None,
+            // Mesa 25.2 新加的两个：时间戳与频率。频率给 1 GHz（纳秒时钟）
+            41 => Some(0),
+            42 => Some(1_000_000_000),
+            _ => Some(0),
         }
     }
 
@@ -329,6 +344,38 @@ impl DrmCtx {
                 }
                 0
             }
+            // DRM_IOCTL_VERSION: {int major,minor,patch; sz name_len; *name; sz date_len; *date; sz desc_len; *desc}
+            DRM_IOCTL_VERSION => {
+                let rd_u64 = |off: usize| -> u64 {
+                    let mut b = [0u8; 8];
+                    b.copy_from_slice(core::slice::from_raw_parts(arg.add(off), 8));
+                    u64::from_le_bytes(b)
+                };
+                // 版本号：说 1.0.0（libdrm 不校验具体值）
+                let ver: [u32; 3] = [1, 0, 0];
+                for (i, v) in ver.iter().enumerate() {
+                    core::ptr::copy_nonoverlapping(v.to_le_bytes().as_ptr(), arg.add(i * 4), 4);
+                }
+                let mut put = |len_off: usize, ptr_off: usize, data: &[u8]| {
+                    let user_len = rd_u64(len_off) as usize;
+                    let user_ptr = rd_u64(ptr_off) as *mut u8;
+                    if !user_ptr.is_null() && user_len > 0 {
+                        let n = if user_len < data.len() { user_len } else { data.len() };
+                        core::ptr::copy_nonoverlapping(data.as_ptr(), user_ptr, n);
+                    }
+                    core::ptr::copy_nonoverlapping((data.len() as u64).to_le_bytes().as_ptr(), arg.add(len_off), 8);
+                };
+                put(16, 24, DRV_NAME);
+                put(32, 40, DRV_DATE);
+                put(48, 56, DRV_DESC);
+                0
+            }
+            // DRM_IOCTL_GET_CAP: 全部答 0（不声称任何可选能力），libdrm 会走保守路径
+            DRM_IOCTL_GET_CAP => {
+                core::ptr::copy_nonoverlapping(0u64.to_le_bytes().as_ptr(), arg.add(8), 8);
+                0
+            }
+            DRM_IOCTL_SET_MASTER | DRM_IOCTL_DROP_MASTER => 0,
             DRM_IOCTL_PANFROST_MADVISE
             | DRM_IOCTL_PANFROST_SET_LABEL_BO
             | DRM_IOCTL_PANFROST_SYNC_BO

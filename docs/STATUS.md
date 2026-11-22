@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 00:40）
+# 当前状态（2026-11-23 01:30）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -8,6 +8,16 @@
 在 RMX3357（MT6893 / Android 13 / kernel 4.19.191 / 4 KiB 页）上，普通应用域（`untrusted_app`）
 里跑起了 glibc bash 交互会话；壳应用是纯 Rust NativeActivity（无 Java）；GPU 侧已证明
 **guest 进程能打开 `/dev/mali0` 并建成 kbase 上下文**（evidence 31）。
+
+## GPU 侧最新（evidence 45，2026-11-23）
+
+- **假 `/dev/dri/renderD128` 全链路打通**：loader 里的 path-shim 与 LD_PRELOAD 层通过
+  `HUSK_DRM_API` 函数表共用一份 kbase 状态；`open → gbm_create_device` 全 PASS。
+- **Mesa panfrost gallium 已在 guest 内加载**，并通过我们的 Rust DRM 语义层从 kbase 读到
+  真实 GPU 参数（PROD_ID `0x9080` = Mali-G77 等 15 项 ×2 轮）。
+- **未完成**：`panfrost_open_device()` 仍失败 → `egl: failed to create dri2 screen`，
+  `GL_RENDERER` 还没变成 Mali。下一步按 `mali-kbase-prior-art.md` 核对 panfrost 需要的语义。
+- 参考仓库审计表：`docs/design/references.md`（70 项第三方清单逐条核实，41 项对上真实仓库）。
 
 ## 能力表（FACT）
 

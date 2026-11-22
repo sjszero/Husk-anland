@@ -10,6 +10,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "drm-preload"
+version = "0.1.0"
+dependencies = [
+ "drm-shim",
+]
+
+[[package]]
 name = "drm-probe"
 version = "0.1.0"
 dependencies = [

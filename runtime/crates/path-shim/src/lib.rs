@@ -507,6 +507,20 @@ unsafe fn dbg(parts: &[&[u8]]) {
     }
 }
 
+unsafe fn dbghex(v: u64) {
+    if !dbg_on() { return; }
+    let hex = b"0123456789abcdef";
+    let mut out = [0u8; 19];
+    out[0] = b'0';
+    out[1] = b'x';
+    let mut i = 0;
+    while i < 16 {
+        out[2 + i] = hex[((v >> (60 - 4 * i)) & 0xf) as usize];
+        i += 1;
+    }
+    syscall4(SYS_WRITE, 2, out.as_ptr() as usize, out.len(), 0);
+}
+
 unsafe fn dbgn(parts: &[&[u8]], v: i64) {
     if !dbg_on() { return; }
     let mut b = [0u8; 24];
@@ -746,7 +760,24 @@ pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mo
             let mut gp = [0u8; PATH_MAX];
             let n = match abs_guest(path, &mut gp) { Some(n) => n, None => PATH_MAX };
             // DRM 假节点：先于 passthrough 判断，否则 /dev/* 会直接落到宿主上 ENOENT
-            if is_drm_node(&gp[..n]) { return drm_fake_open(); }
+            if verbose_on() && n >= 4 && &gp[..4] == b"/dev".as_ref() {
+                dbg(&[b"nrshim open ", &gp[..n], b"\n"]);
+            }
+            if is_drm_node(&gp[..n]) {
+                if let Some(api) = drm_api() { return drm_api_open(&api); }
+                if !drm_shim_off() { return drm_fake_open(); }
+            }
+            if is_drm_dir(&gp[..n]) {
+                if let Some(d) = drm_dir_host() {
+                    return ret_or_errno(syscall4(
+                        SYS_OPENAT,
+                        AT_FDCWD as usize,
+                        d.as_ptr() as usize,
+                        flags as usize,
+                        mode as usize,
+                    ));
+                }
+            }
             if passthrough(&gp[..n]) {
                 return ret_or_errno(syscall4(SYS_OPENAT, AT_FDCWD as usize, gp.as_ptr() as usize, flags as usize, mode as usize));
             }
@@ -764,7 +795,10 @@ pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mo
         while i < PATH_MAX && buf[i] != 0 { i += 1; }
         i
     };
-    if is_drm_node(&buf[..bl]) { return drm_fake_open(); }
+    if is_drm_node(&buf[..bl]) {
+        if let Some(api) = drm_api() { return drm_api_open(&api); }
+        return drm_fake_open();
+    }
     ret_or_errno(syscall4(SYS_OPENAT, dirfd as usize, buf.as_ptr() as usize, flags as usize, mode as usize))
 }
 
@@ -2803,8 +2837,121 @@ unsafe fn syscall6(n: usize, a: usize, b: usize, c: usize, d: usize, e: usize, f
     ret
 }
 
+/// `/dev/dri` 在 app 域里打不开（card0 EACCES、没有 renderD128），
+/// 但 Mesa 的 loader 是**枚举目录**找设备的。所以给 guest 的 `/dev/dri`
+/// 换成一个我们能控制的真目录：`<rootfs>/dev-dri-fake/`，里面有两个空文件
+/// `renderD128` / `card0`。目录是真的，readdir 就是真的；具体设备的 open
+/// 由 openat 的假节点分支接管，所以文件内容无所谓。
+static mut DRM_DIR_HOST: [u8; PATH_MAX] = [0; PATH_MAX];
+static mut DRM_DIR_LEN: usize = 0;
+static mut DRM_DIR_READY: u8 = 0;
+
+unsafe fn drm_dir_host() -> Option<&'static [u8]> {
+    if DRM_DIR_READY == 1 {
+        return Some(&DRM_DIR_HOST[..DRM_DIR_LEN]);
+    }
+    let rl = ROOT_REAL_LEN;
+    if rl == 0 || rl > PATH_MAX - 32 {
+        return None;
+    }
+    let mut d = [0u8; PATH_MAX];
+    d[..rl].copy_from_slice(&ROOT_REAL[..rl]);
+    let suffix = b"/dev-dri-fake";
+    d[rl..rl + suffix.len()].copy_from_slice(suffix);
+    d[rl + suffix.len()] = 0;
+    let dl = rl + suffix.len();
+    // mkdir（EEXIST 无所谓）
+    syscall4(SYS_MKDIRAT, AT_FDCWD as usize, d.as_ptr() as usize, 0o755, 0);
+    // 两个空文件
+    for name in [b"renderD128".as_ref(), b"card0".as_ref()] {
+        let mut f = [0u8; PATH_MAX];
+        f[..dl].copy_from_slice(&d[..dl]);
+        f[dl] = b'/';
+        f[dl + 1..dl + 1 + name.len()].copy_from_slice(name);
+        f[dl + 1 + name.len()] = 0;
+        let fd = syscall4(
+            SYS_OPENAT,
+            AT_FDCWD as usize,
+            f.as_ptr() as usize,
+            (0o100 | 0o2) as usize, // O_CREAT|O_WRONLY
+            0o644,
+        );
+        if fd >= 0 {
+            syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+        }
+    }
+    DRM_DIR_HOST = d;
+    DRM_DIR_LEN = dl;
+    DRM_DIR_READY = 1;
+    Some(&DRM_DIR_HOST[..DRM_DIR_LEN])
+}
+
+fn is_drm_dir(p: &[u8]) -> bool {
+    p == b"/dev/dri" || p == b"/dev/dri/"
+}
+
 fn is_drm_node(p: &[u8]) -> bool {
     p == b"/dev/dri/renderD128" || p == b"/dev/dri/card0"
+}
+
+
+/* ---- 与 LD_PRELOAD 层（libhusk-drm.so）的交接 -------------------------------
+ *
+ * 我们靠 _dl_init 钩子改 GOT，只能覆盖**启动时**已加载的对象；Mesa 运行时
+ * dlopen 的 libdrm / libgbm / panfrost_dri.so 只有 LD_PRELOAD 能盖住。两层必须
+ * 共用一份 DRM 状态（一个 kbase context），所以由 preload 独占，我们把调用转过去。
+ * 表：[fake_open, ioctl, mmap, is_fake]，地址由 preload 的构造函数写进环境变量。
+ */
+type DrmFakeOpen = unsafe extern "C" fn() -> CInt;
+type DrmIoctlFn = unsafe extern "C" fn(CInt, u64, *mut u8) -> CInt;
+type DrmMmapFn = unsafe extern "C" fn(*mut u8, usize, CInt, CInt, CInt, i64) -> *mut u8;
+type DrmIsFakeFn = unsafe extern "C" fn(CInt) -> CInt;
+
+unsafe fn drm_api() -> Option<[usize; 4]> {
+    let v = env_lookup(b"HUSK_DRM_API")?;
+    if v.len() < 4 || v[0] != b'0' || (v[1] | 0x20) != b'x' { return None; }
+    let mut p: usize = 0;
+    let mut i = 2;
+    while i < v.len() {
+        let c = v[i];
+        let d = match c {
+            b'0'..=b'9' => c - b'0',
+            b'a'..=b'f' => c - b'a' + 10,
+            b'A'..=b'F' => c - b'A' + 10,
+            _ => return None,
+        };
+        p = (p << 4) | d as usize;
+        i += 1;
+    }
+    if p == 0 { return None; }
+    let t = p as *const usize;
+    Some([*t, *t.add(1), *t.add(2), *t.add(3)])
+}
+
+unsafe fn drm_api_is_fake(api: &[usize; 4], fd: CInt) -> bool {
+    let f: DrmIsFakeFn = core::mem::transmute(api[3]);
+    f(fd) != 0
+}
+
+unsafe fn drm_api_open(api: &[usize; 4]) -> CInt {
+    let f: DrmFakeOpen = core::mem::transmute(api[0]);
+    f()
+}
+
+unsafe fn drm_api_ioctl(api: &[usize; 4], fd: CInt, request: u64, arg: *mut u8) -> CInt {
+    let f: DrmIoctlFn = core::mem::transmute(api[1]);
+    f(fd, request, arg)
+}
+
+unsafe fn drm_api_mmap(api: &[usize; 4], addr: *mut u8, len: usize, prot: CInt, flags: CInt, fd: CInt, off: i64) -> *mut u8 {
+    let f: DrmMmapFn = core::mem::transmute(api[2]);
+    f(addr, len, prot, flags, fd, off)
+}
+
+unsafe fn drm_shim_off() -> bool {
+    // LD_PRELOAD 版（libhusk-drm.so）在场时，DRM 由它负责：它能看到运行时 dlopen 的
+    // libdrm / libgbm / panfrost_dri.so，而我们的 loader GOT patch 看不到。
+    env_lookup(b"NR_DRM_SHIM_OFF").is_some()
 }
 
 unsafe fn is_fake_fd(fd: CInt) -> bool {
@@ -2827,6 +2974,7 @@ unsafe fn register_fake_fd(fd: CInt) {
 /// 假节点打开：懒初始化 kbase context，然后给调用方一个真 fd（/dev/null），
 /// 这样 close/poll/dup 都不会炸；对它的 ioctl/mmap 都进我们这里。
 unsafe fn drm_fake_open() -> CInt {
+    if verbose_on() { dbg(&[b"nrshim drm: fake open\n"]); }
     if DRM_MALI_FD < 0 {
         let fd = syscall4(
             SYS_OPENAT,
@@ -2843,11 +2991,13 @@ unsafe fn drm_fake_open() -> CInt {
             syscall4(SYS_IOCTL, f as usize, req as usize, arg as usize, 0) as i64
         });
     }
+    // 用 memfd：名字可辨识，LD_PRELOAD 那一层靠 /proc/self/fd 也能认出这个 fd
+    const SYS_MEMFD_CREATE: usize = 279;
     let fd = syscall4(
-        SYS_OPENAT,
-        AT_FDCWD as usize,
-        b"/dev/null\0".as_ptr() as usize,
-        2,
+        SYS_MEMFD_CREATE,
+        b"husk-drm\0".as_ptr() as usize,
+        0,
+        0,
         0,
     );
     if fd < 0 {
@@ -2859,7 +3009,11 @@ unsafe fn drm_fake_open() -> CInt {
 
 #[no_mangle]
 pub unsafe extern "C" fn ioctl(fd: CInt, request: u64, arg: *mut u8) -> CInt {
+    if let Some(api) = drm_api() {
+        if drm_api_is_fake(&api, fd) { return drm_api_ioctl(&api, fd, request, arg); }
+    }
     if is_fake_fd(fd) {
+        if verbose_on() { dbg(&[b"nrshim drm ioctl req="]); dbghex(request); dbg(&[b"\n"]); }
         let r = DRM_CTX.dispatch(
             |f, req, a| syscall4(SYS_IOCTL, f as usize, req as usize, a as usize, 0) as i64,
             request,
@@ -2882,6 +3036,9 @@ pub unsafe extern "C" fn mmap(
     fd: CInt,
     off: i64,
 ) -> *mut u8 {
+    if let Some(api) = drm_api() {
+        if drm_api_is_fake(&api, fd) { return drm_api_mmap(&api, addr, len, prot, flags, fd, off); }
+    }
     let r = if is_fake_fd(fd) && DRM_MALI_FD >= 0 {
         // DRM 的 offset 就是 BO 的 GPU VA；kbase 要求 prot == 分配 flags 的低两位。
         syscall6(

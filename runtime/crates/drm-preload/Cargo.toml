@@ -1,0 +1,16 @@
+[package]
+name = "drm-preload"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+drm-shim = { path = "../drm-shim" }
+
+[profile.release]
+panic = "abort"
+opt-level = 3
