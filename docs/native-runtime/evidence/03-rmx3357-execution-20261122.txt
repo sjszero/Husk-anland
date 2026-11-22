@@ -1,0 +1,22 @@
+# A. Direct exec of a dynamically linked glibc ELF (PT_INTERP=/lib/ld-linux-aarch64.so.1)
+sh: files/glibc/usr/bin/bash: No such file or directory
+
+# B. Same bash via its own ld.so --library-path (SELinux runas_app, app uid)
+GLIBC_LOADER_OK
+uid=10301(u0_a301) gid=10301(u0_a301) groups=10301(u0_a301),1004(input),1007(log),1011(adb),1015(sdcard_rw),1028(sdcard_r),1078(ext_data_rw),1079(ext_obb_rw),3001(net_bt_admin),3002(net_bt),3003(inet),3006(net_bw_stats),3009(readproc),3011(uhid),3012(readtracefs),50301(all_a301) context=u:r:runas_app:s0:c45,c257,c512,c768
+aarch64
+head: /etc/os-release: No such file or directory
+
+# C. exec of a binary located in app data from an untrusted_app process (Activity)
+probe|exec_android_elf|PASS|status=exit status: 0
+probe|exec_app_data_binary|FAIL|spawn error: Permission denied (os error 13); raw=Some(13)
+probe|memfd_create|PASS|exec_map=ok
+
+# D. glibc ld.so + bash launched from app data by an untrusted_app process (Activity)
+probe|exec_android_elf|PASS|status=exit status: 0
+probe|exec_glibc_via_loader|FAIL|spawn error: Permission denied (os error 13); raw=Some(13)
+probe|memfd_create|PASS|exec_map=ok
+
+# E. Timing: 30 sequential spawns, RMX3357
+    0m00.29s real     0m00.12s user     0m00.16s system
+    0m00.10s real     0m00.05s user     0m00.05s system

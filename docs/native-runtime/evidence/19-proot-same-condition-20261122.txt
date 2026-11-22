@@ -1,0 +1,54 @@
+LinuxHub native runtime - evidence 19: PRoot on the target device, same conditions as the shim
+Date: 2026-11-22   Device: PLE110 (OPPO, Android 16 / kernel 6.6.118)   Page size: 4096
+SELinux domain: untrusted_app (uid 10512)   Same rootfs: Ubuntu 24.04, glibc 2.39
+PRoot: the binary LinuxHub 2.0 ships today (app/src/main/assets/runtime/arm64-v8a/proot,
+       v5.1.107.87, bionic), pushed to files/ with libtalloc.so.2 + libandroid-shmem.so,
+       LD_LIBRARY_PATH=files. Its own accelerators report: process_vm = yes,
+       seccomp_filter = yes.
+
+PURPOSE (item 4 of the sole plan)
+  A same-device, same-rootfs, same-domain comparison of the three costs that matter:
+  syscalls, path resolution and exec. The honest result is that the comparison cannot
+  be completed on this device, because PRoot cannot execute anything here at all. The
+  numbers below are therefore PRoot's *availability*, plus the shim's own cost measured
+  in the same domain (evidence/13, evidence/18) and PRoot's cost measured on the device
+  where it does run (RMX3357, evidence/05).
+
+A. PRoot running a guest glibc binary (the intended use)
+  ./proot -r $PWD/nrfull/root /usr/bin/cat /etc/os-release          (4 temp-dir variants)
+    proot error: execve("/usr/bin/cat"): Permission denied
+      * the program is an ELF but its interpreter (eg. ld-linux.so) was not found;
+  `llvm-readelf -l usr/bin/cat` -> [Requesting program interpreter: /lib/ld-linux-aarch64.so.1]
+  PRoot rewrites the execve path, but the kernel resolves PT_INTERP against the *host*
+  root, and Android has no /lib/ld-linux-aarch64.so.1. (evidence/11 has the full log.)
+
+B. PRoot with LinuxHub 2.0's own interpreter shim (assets/runtime/arm64-v8a/loader,
+   statically linked, pushed to files/loader, 755):
+  ./proot -r $PWD/nrfull/root -b $PWD/loader:/lib/ld-linux-aarch64.so.1 -w / /usr/bin/true
+    proot error: execve("/usr/bin/true"): Permission denied
+  Same with PROOT_TMP_DIR set, with and without PROOT_NO_SECCOMP=1: identical EACCES.
+  The error changes from ENOENT to EACCES, i.e. the interpreter is now found and the
+  child exec is still refused. No proot configuration we tried executes a guest binary.
+
+C. PRoot running a *host* bionic binary (a control that removes the interpreter question):
+  ./proot -r / -w / /system/bin/sh -c 'echo ok'                     -> loader not found
+  ./proot -r $PWD/nrfull/root -b /system:/system -b /dev -b /proc -w / /system/bin/toybox echo ok
+                                                                    -> loader not found
+  while, in the same domain and the same second:
+  run-as com.linuxhub.probe /system/bin/sh -c 'echo direct-host-exec-ok'
+    direct-host-exec-ok
+  FACT: the domain is allowed to exec host binaries, so the failures above are PRoot's,
+  not the sandbox's.
+
+CONCLUSION (FACT)
+  On PLE110 / Android 16 / untrusted_app, the PRoot build LinuxHub 2.0 ships cannot
+  execute a guest glibc binary (ENOENT, then EACCES once an interpreter is bound) nor a
+  host bionic binary. There is no PRoot runtime to measure here: the alternative is not
+  slower, it does not start. UNKNOWN: whether some other proot version or an Android
+  version-specific workaround would run - not pursued, it is the route being replaced.
+
+WHERE PRoot DOES run (RMX3357, Android 13 / 4.19, evidence/05, same harness):
+  5000 x stat(/dev/null)   without PRoot 0.06s      with PRoot 0.41-0.76s
+  100  x exec(cat)         shim 0.18s                PRoot 0.76s
+  i.e. 70-140us per trapped operation, ~50-100us of it being the ptrace round trip
+  (INFERENCE from the arithmetic; the mechanism is documented in PRoot's design).

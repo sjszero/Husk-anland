@@ -1,0 +1,4 @@
+*.o
+ld-linux-aarch64.so.1.orig
+ld-stage1.so
+init-hook.bin

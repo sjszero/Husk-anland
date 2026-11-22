@@ -1,0 +1,497 @@
+//! Bootstrap for the loader-embedded path shim.
+//!
+//! This module runs inside the guest loader before anything else of ours is
+//! usable, so it must reference **no external symbol at all**: every external
+//! call it makes would go through a PLT slot that nobody has resolved yet.
+//! Only volatile reads/writes, pointer arithmetic and one raw `mprotect`.
+//!
+//! What it does, in order:
+//!   0. add the load bias to its own R_AARCH64_RELATIVE targets - the image was
+//!      linked at a fixed address but mapped at a random one;
+//!   1. for every entry of the build-time extern table, look the name up in the
+//!      loaded objects (or in this object, if the name is ours) and write the
+//!      real address into our own GOT slot;
+//!   2. for every object in the link map, walk its relocations and point the GOT
+//!      slots of the interposed names at our functions.
+//!
+//! Step 2 is what replaces LD_PRELOAD: symbol interposition normally comes from
+//! the preload being earlier in the global scope, but an embedded object has no
+//! scope of its own, so we do it by hand instead.
+
+const DT_NULL: i64 = 0;
+const DT_PLTRELSZ: i64 = 2;
+const DT_STRTAB: i64 = 5;
+const DT_SYMTAB: i64 = 6;
+const DT_RELA: i64 = 7;
+const DT_RELASZ: i64 = 8;
+const DT_JMPREL: i64 = 23;
+const DT_GNU_HASH: i64 = 0x6ffffef5;
+
+const R_AARCH64_GLOB_DAT: u32 = 1025;
+const R_AARCH64_JUMP_SLOT: u32 = 1026;
+
+const STT_GNU_IFUNC: u8 = 10;
+
+const SYS_MPROTECT: usize = 226;
+const PROT_READ: usize = 1;
+const PROT_WRITE: usize = 2;
+
+// glibc 2.39 struct link_map, 64-bit. Only the first four fields matter here.
+const L_ADDR: usize = 0;
+const L_NAME: usize = 8;
+const L_LD: usize = 16;
+const L_NEXT: usize = 24;
+
+#[inline]
+unsafe fn rd8(p: usize) -> u64 { core::ptr::read_volatile(p as *const u64) }
+#[inline]
+unsafe fn rd4(p: usize) -> u32 { core::ptr::read_volatile(p as *const u32) }
+#[inline]
+unsafe fn rd1(p: usize) -> u8 { core::ptr::read_volatile(p as *const u8) }
+#[inline]
+unsafe fn wr8(p: usize, v: u64) { core::ptr::write_volatile(p as *mut u64, v) }
+
+unsafe fn sys_mprotect(addr: usize, len: usize, prot: usize) -> isize {
+    let ret: isize;
+    core::arch::asm!("svc 0", in("x8") SYS_MPROTECT, in("x0") addr, in("x1") len,
+        in("x2") prot, lateout("x0") ret, options(nostack));
+    ret
+}
+
+const SYS_WRITE: usize = 64;
+
+/// Raw write to fd 2. No formatting machinery: this runs before anything is
+/// safe to call, and a boot failure with no output is unresearchable.
+unsafe fn say(parts: &[&[u8]]) {
+    let mut i = 0;
+    while i < parts.len() {
+        let p = parts[i];
+        let _: isize;
+        core::arch::asm!("svc 0", in("x8") SYS_WRITE, in("x0") 2usize,
+            in("x1") p.as_ptr() as usize, in("x2") p.len(),
+            lateout("x0") _, options(nostack));
+        i += 1;
+    }
+}
+
+unsafe fn say_hex(mut v: usize) {
+    let mut buf = [b'0'; 18];
+    let mut n = 0;
+    let mut tmp = [0u8; 16];
+    if v == 0 { say(&[b"0"]); return; }
+    while v != 0 { tmp[n] = b"0123456789abcdef"[v & 0xf]; v >>= 4; n += 1; }
+    buf[0] = b'0';
+    buf[1] = b'x';
+    let mut i = 0;
+    while i < n { buf[2 + i] = tmp[n - 1 - i]; i += 1; }
+    say(&[&buf[..2 + n]]);
+}
+
+unsafe fn mem_eq(a: usize, b: usize, n: usize) -> bool {
+    let mut i = 0;
+    while i < n {
+        if rd1(a + i) != rd1(b + i) { return false; }
+        i += 1;
+    }
+    true
+}
+
+/// Look one value up in an object's PT_DYNAMIC.
+unsafe fn dyn_val(l_ld: usize, tag: i64) -> u64 {
+    if l_ld == 0 { return 0; }
+    let mut p = l_ld;
+    loop {
+        let t = rd8(p) as i64;
+        if t == DT_NULL { return 0; }
+        if t == tag { return rd8(p + 8); }
+        p += 16;
+    }
+}
+
+fn gnu_hash(name: usize, len: usize) -> u32 {
+    let mut h: u32 = 5381;
+    let mut i = 0;
+    unsafe {
+        while i < len {
+            h = h.wrapping_mul(33).wrapping_add(rd1(name + i) as u32);
+            i += 1;
+        }
+    }
+    h
+}
+
+/// Resolve `name` in one object. Returns an absolute address or 0.
+unsafe fn find_sym(l_addr: u64, l_ld: usize, name: usize, len: usize) -> u64 {
+    let strtab = dyn_val(l_ld, DT_STRTAB) as usize;
+    let symtab = dyn_val(l_ld, DT_SYMTAB) as usize;
+    let hash = dyn_val(l_ld, DT_GNU_HASH) as usize;
+    if strtab == 0 || symtab == 0 || hash == 0 || len == 0 || len > 255 { return 0; }
+
+    let nbuckets = rd4(hash) as usize;
+    let symndx = rd4(hash + 4) as usize;
+    let maskwords = rd4(hash + 8) as usize;
+    if nbuckets == 0 { return 0; }
+    let buckets = hash + 16 + maskwords * 8;
+    let chain = buckets + nbuckets * 4;
+
+    let h = gnu_hash(name, len);
+    let mut idx = rd4(buckets + (h as usize % nbuckets) * 4) as usize;
+    if idx < symndx { return 0; }
+    loop {
+        let c = rd4(chain + (idx - symndx) * 4);
+        if (c | 1) == (h | 1) {
+            let st_name = rd4(symtab + idx * 24) as usize;
+            let nm = strtab + st_name;
+            if rd1(nm + len) == 0 && mem_eq(nm, name, len) {
+                let st_value = rd8(symtab + idx * 24 + 8);
+                let st_info = rd1(symtab + idx * 24 + 4);
+                let addr = l_addr + st_value;
+                // An IFUNC resolves to a resolver function; call it, exactly like
+                // the loader does, otherwise callers get the resolver's address.
+                if (st_info & 0xf) == STT_GNU_IFUNC {
+                    let f: extern "C" fn() -> usize = core::mem::transmute(addr as usize);
+                    return f() as u64;
+                }
+                return addr;
+            }
+        }
+        if c & 1 != 0 { return 0; }
+        idx += 1;
+    }
+}
+
+/// Resolve `name` anywhere in the link map chain.
+unsafe fn resolve(main_map: usize, name: usize, len: usize) -> u64 {
+    let mut l = main_map;
+    let mut guard = 0;
+    while l != 0 && guard < 64 {
+        let a = find_sym(rd8(l + L_ADDR), rd8(l + L_LD) as usize, name, len);
+        if a != 0 { return a; }
+        l = rd8(l + L_NEXT) as usize;
+        guard += 1;
+    }
+    0
+}
+
+static mut PAGE: usize = 0;
+
+unsafe fn page_size() -> usize {
+    if PAGE != 0 { return PAGE; }
+    // Probe on our own BSS: the loader hook has already made that window
+    // writable, so this only asks "is a 4K-aligned address a legal page start
+    // here?". A 16K/64K page kernel answers EINVAL. If the probe address happens
+    // to be aligned for both, 4K is assumed; every window we then mprotect comes
+    // from a page-aligned object segment, so a wrong answer degrades to a failed
+    // make_writable() rather than to corruption.
+    let here = core::ptr::addr_of!(PAGE) as usize;
+    let a4 = here & !0xfff;
+    PAGE = if sys_mprotect(a4, 4096, PROT_READ | PROT_WRITE) == 0 { 4096 } else { 16384 };
+    PAGE
+}
+
+unsafe fn make_writable(addr: usize, len: usize) -> bool {
+    let ps = page_size();
+    let start = addr & !(ps - 1);
+    let end = (addr + len + ps - 1) & !(ps - 1);
+    sys_mprotect(start, end - start, PROT_READ | PROT_WRITE) == 0
+}
+
+struct Tables;
+
+impl Tables {
+    #[inline]
+    unsafe fn count(t: usize) -> usize { rd8(t) as usize }
+    // entry layout, 24 bytes: { name_vaddr, name_len, payload }
+    //   externs   payload = loader-relative address of our PLT slot
+    //   interpose payload = loader-relative address of our function
+    #[inline]
+    unsafe fn entry(t: usize, i: usize) -> usize { t + 8 + i * 24 }
+    #[inline]
+    unsafe fn slot(t: usize, i: usize) -> usize { rd8(Tables::entry(t, i) + 16) as usize }
+    #[inline]
+    unsafe fn name(t: usize, i: usize) -> (usize, usize) {
+        let e = Tables::entry(t, i);
+        (rd8(e) as usize, rd8(e + 8) as usize)
+    }
+}
+
+/// Entry point called from the loader hook with `main_map` (the link_map the
+/// loader would hand to _dl_init) and loader-relative table addresses.
+/// Returns 0 on success, otherwise a step code so a failure is visible.
+static mut BOOTED: u32 = 0;
+static mut ENVP: usize = 0;
+static mut MAIN_MAP: usize = 0;
+static mut AT_RANDOM_WORDS: u64 = 0;
+
+/// Per-process entropy the kernel already placed in memory (auxv AT_RANDOM).
+/// Read here because the only other source, getrandom(2), is trapped by this
+/// device's seccomp policy and kills the process with SIGSYS.
+pub unsafe fn at_random() -> u64 { AT_RANDOM_WORDS }
+
+/// The environment vector the loader was started with (NULL before glibc's
+/// start-up installs `environ`).
+pub unsafe fn envp() -> usize { ENVP }
+
+static mut EXECFN: usize = 0;
+
+unsafe fn auxv_ptr(envp: usize) -> usize {
+    if envp == 0 { return 0; }
+    let mut p = envp;
+    let mut i = 0;
+    while i < 4096 && rd8(p) != 0 { p += 8; i += 1; }
+    if i >= 4096 { return 0; }
+    p + 8
+}
+
+unsafe fn auxv_val(envp: usize, tag: u64) -> u64 {
+    let mut p = auxv_ptr(envp);
+    if p == 0 { return 0; }
+    let mut j = 0;
+    while j < 64 {
+        let k = rd8(p);
+        if k == 0 { return 0; }
+        if k == tag { return rd8(p + 8); }
+        p += 16;
+        j += 1;
+    }
+    0
+}
+
+unsafe fn read_at_random(envp: usize) -> u64 {
+    let mut p = auxv_ptr(envp);
+    if p == 0 { return 0; }
+    let mut j = 0;
+    while j < 64 {
+        let k = rd8(p);
+        if k == 0 { return 0; }
+        if k == 25 { return rd8(p + 8); } // AT_RANDOM -> 16 random bytes
+        p += 16;
+        j += 1;
+    }
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nr_boot(base: usize, main_map: usize, ext: usize, interp: usize,
+                                  envp: usize, relocs: usize) -> usize {
+    // _dl_init is reached once per process, but be explicit about it: running the
+    // GOT rewrite twice would be harmless, while a partial second run (e.g. after
+    // a failed first one) would be confusing.
+    if BOOTED != 0 { return 0; }
+    BOOTED = 1;
+
+    // 0. finish our own relocation. The build bakes "link-time address" into
+    //    every R_AARCH64_RELATIVE target; the load bias is only known now, so
+    //    it is added here before anything dereferences those pointers.
+    if relocs != 0 {
+        let n = rd8(relocs) as usize;
+        let mut i = 0;
+        while i < n {
+            // same 24-byte entry layout as the other tables; only the payload
+            // (the slot address) is used here
+            let slot = base + rd8(relocs + 8 + i * 24 + 16) as usize;
+            wr8(slot, rd8(slot).wrapping_add(base as u64));
+            i += 1;
+        }
+    }
+
+    MAIN_MAP = main_map;
+    ENVP = envp;
+    if AT_RANDOM_WORDS == 0 { AT_RANDOM_WORDS = read_at_random(envp); }
+    if EXECFN == 0 { EXECFN = auxv_val(envp, 31) as usize; } // AT_EXECFN
+    if debug2_on() {
+        say(&[b"nr-boot: exec="]);
+        if EXECFN != 0 { say(&[core::slice::from_raw_parts(EXECFN as *const u8, strlen(EXECFN))]); }
+        say(&[b"\n"]);
+    }
+
+    // 1. our own externals
+    let n = Tables::count(ext);
+    let mut i = 0;
+    while i < n {
+        let (name, len) = Tables::name(ext, i);
+        // A symbol this object also exports (a PLT call to one of our own
+        // functions) binds to the object itself, exactly as it would if this
+        // were a preloaded DSO: the first definition in scope wins.
+        let addr = match self_lookup(base, interp, base + name, len) {
+            0 => resolve(main_map, base + name, len),
+            a => a,
+        };
+        if addr == 0 {
+            say(&[b"nr-boot: unresolved import: "]);
+            say(&[core::slice::from_raw_parts((base + name) as *const u8, len), b"\n"]);
+            return 10 + i;
+        }
+        let slot = base + Tables::slot(ext, i);
+        if !make_writable(slot, 8) { return 40 + i; }
+        wr8(slot, addr);
+        i += 1;
+    }
+
+    // 2. interpose by rewriting the GOT of every loaded object
+    let count = Tables::count(interp);
+    let mut l = main_map;
+    let mut guard = 0;
+    let mut objects = 0;
+    let mut patched = 0;
+    while l != 0 && guard < 64 {
+        let l_addr = rd8(l + L_ADDR);
+        let l_ld = rd8(l + L_LD) as usize;
+        let n_here = patch_object(l_addr, l_ld, base, interp, count);
+        if debug2_on() {
+            let nm = rd8(l + L_NAME) as usize;
+            say(&[b"nr-boot: patch @"]); say_hex(l_addr as usize); say(&[b" "]);
+            if nm != 0 { say(&[core::slice::from_raw_parts(nm as *const u8, strlen(nm))]); }
+            else { say(&[b"?"]); }
+            say(&[b"="]); say_hex(n_here); say(&[b"\n"]);
+        }
+        patched += n_here;
+        objects += 1;
+        l = rd8(l + L_NEXT) as usize;
+        guard += 1;
+    }
+
+    // 3. the seccomp trap catcher. This device's policy answers some optional
+    //    syscalls with SIGSYS, and a handler can only be installed by us: the
+    //    embedded object has no .init_array of its own that the loader would run.
+    crate::install_sigsys();
+
+    // 4. start at the guest root, not at the host directory the app launcher
+    //    picked (see set_guest_cwd).
+    crate::set_guest_cwd();
+
+
+    if debug_on() {
+        say(&[b"nr-boot: imports="]);
+        say_hex(n);
+        say(&[b" objects="]);
+        say_hex(objects);
+        say(&[b" slots="]);
+        say_hex(patched);
+        say(&[b"\n"]);
+    }
+    0
+}
+
+/// Diagnostics are opt-in through the environment (`NR_BOOT_DEBUG=1`) so the
+/// default run stays silent. The environment comes from the loader (_dl_init's
+/// fourth argument), not from `environ`: glibc has not run __libc_start_main
+/// yet at this point, so `environ` is still NULL.
+unsafe fn strlen(p: usize) -> usize {
+    let mut n = 0;
+    while n < 4096 && rd1(p + n) != 0 { n += 1; }
+    n
+}
+
+unsafe fn debug_var(want: &[u8]) -> bool {
+    let env = ENVP;
+    if env == 0 { return false; }
+    let mut i = 0;
+    while i < 512 {
+        let e = rd8(env + i * 8) as usize;
+        if e == 0 { return false; }
+        if mem_eq(e, want.as_ptr() as usize, want.len()) { return true; }
+        i += 1;
+    }
+    false
+}
+
+unsafe fn debug2_on() -> bool { debug_var(b"NR_BOOT_DEBUG2=1") }
+
+unsafe fn debug_on() -> bool {
+    let env = ENVP;
+    if env == 0 { return false; }
+    let want = b"NR_BOOT_DEBUG=1";
+    let mut i = 0;
+    while i < 512 {
+        let e = rd8(env + i * 8) as usize;
+        if e == 0 { return false; }
+        if mem_eq(e, want.as_ptr() as usize, want.len()) { return true; }
+        i += 1;
+    }
+    false
+}
+
+/// Look a name up in this object's own interpose table. Returns an absolute
+/// address, or 0 if the name is not ours.
+unsafe fn self_lookup(base: usize, interp: usize, name: usize, len: usize) -> u64 {
+    let count = Tables::count(interp);
+    let mut i = 0;
+    while i < count {
+        let (nm, nl) = Tables::name(interp, i);
+        if nl == len && mem_eq(base + nm, name, len) {
+            return (base + Tables::slot(interp, i)) as u64;
+        }
+        i += 1;
+    }
+    0
+}
+
+unsafe fn patch_object(l_addr: u64, l_ld: usize, base: usize, interp: usize, count: usize) -> usize {
+    let mut done = 0;
+    if l_ld == 0 { return 0; }
+    let strtab = dyn_val(l_ld, DT_STRTAB) as usize;
+    let symtab = dyn_val(l_ld, DT_SYMTAB) as usize;
+    if strtab == 0 || symtab == 0 { return 0; }
+
+    let tables = [(DT_RELA, DT_RELASZ), (DT_JMPREL, DT_PLTRELSZ)];
+    let mut t = 0;
+    while t < 2 {
+        let mut addr = dyn_val(l_ld, tables[t].0) as usize;
+        let size = dyn_val(l_ld, tables[t].1) as usize;
+        // glibc pre-adjusts DT_JMPREL/DT_STRTAB/DT_SYMTAB with l_addr but resolves
+        // DT_RELA through D_PTR() at the use site, so DT_RELA stays relative.
+        // A relative table address is always below its own load bias.
+        if addr != 0 && (addr as u64) < l_addr { addr += l_addr as usize; }
+        t += 1;
+        if debug2_on() {
+            say(&[b"  table "]); say_hex((t - 1) as usize); say(&[b" addr="]); say_hex(addr);
+            say(&[b" size="]); say_hex(size); say(&[b" l_addr="]); say_hex(l_addr as usize); say(&[b"\n"]);
+        }
+        if addr == 0 || size == 0 { continue; }
+        let mut p = addr;
+        while p < addr + size {
+            let r_offset = rd8(p);
+            let r_info = rd8(p + 8);
+            let sym = (r_info >> 32) as usize;
+            let kind = (r_info & 0xffff_ffff) as u32;
+            p += 24;
+            if sym == 0 { continue; }
+            if kind != R_AARCH64_JUMP_SLOT && kind != R_AARCH64_GLOB_DAT { continue; }
+            let st_name = rd4(symtab + sym * 24) as usize;
+            if st_name == 0 { continue; }
+            let cand_name = strtab + st_name;
+            let mut i = 0;
+            while i < count {
+                let (name, len) = Tables::name(interp, i);
+                let nm = base + name;
+                if mem_eq(nm, cand_name, len) && rd1(cand_name + len) == 0 {
+                    if debug2_on() {
+                        say(&[b"  hit ", core::slice::from_raw_parts(cand_name as *const u8, len), b"\n"]);
+                    }
+                    let slot = (l_addr + r_offset) as usize;
+                    let target = (base + Tables::slot(interp, i)) as u64;
+                    if rd8(slot) != target && make_writable(slot, 8) {
+                        wr8(slot, target);
+                        done += 1;
+                    }
+                    break;
+                }
+                i += 1;
+            }
+        }
+    }
+    done
+}
+
+/// Resolve a name at runtime for the rest of the shim (replaces dlsym on the
+/// objects that matter). Far slower than dlsym, so callers must cache.
+#[no_mangle]
+pub unsafe extern "C" fn nr_resolve_name(main_map: usize, name: usize, len: usize) -> usize {
+    resolve(main_map, name, len) as usize
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nr_set_main_map(m: usize) { MAIN_MAP = m; }
+#[no_mangle]
+pub unsafe extern "C" fn nr_get_main_map() -> usize { MAIN_MAP }

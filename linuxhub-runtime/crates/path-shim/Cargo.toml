@@ -1,0 +1,17 @@
+[package]
+name = "path-shim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+runtime-core = { path = "../runtime-core" }
+
+[lib]
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[profile.release]
+panic = "abort"
+lto = true
+opt-level = 3

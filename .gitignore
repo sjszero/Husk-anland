@@ -1,0 +1,9 @@
+.DS_Store
+build/
+.gradle/
+local.properties
+*.iml
+target/
+*.o
+tools/nr-loader-hook/init-hook.bin
+tools/native-runtime-probe-apk/app/src/main/jniLibs/

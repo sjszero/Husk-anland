@@ -1,0 +1,57 @@
+# PRoot vs pure-Rust shim on PLE110 (Android 16, 6.6.118), runas_app domain, 2026-11-22
+# proot binary: app/src/main/assets/runtime/arm64-v8a/proot (v5.1.107.87), bionic-linked,
+#   pushed to files/ with libtalloc.so.2 + libandroid-shmem.so, LD_LIBRARY_PATH=files
+# rootfs: files/nrfull/root (Ubuntu 24.04 arm64, glibc 2.39), /lib -> usr/lib present
+
+## proot runs at all
+built-in accelerators: process_vm = yes, seccomp_filter = yes
+
+Visit http://proot.me for help, bug reports, suggestions, patchs, ...
+Copyright (C) 2015 STMicroelectronics, licensed under GPL v2 or later.
+
+## proot -r <rootfs> /usr/bin/cat /etc/os-release  (several temp-dir settings)
+== A: PROOT_TMP_DIR=/data/user/0/com.linuxhub.probe/files/tmp, PROOT_NO_SECCOMP=1
+proot error: execve("/usr/bin/cat"): Permission denied
+proot info: possible causes:
+  * the program is a script but its interpreter (eg. /bin/sh) was not found;
+  * the program is an ELF but its interpreter (eg. ld-linux.so) was not found;
+  * the program is a foreign binary but qemu was not specified;
+== B: PROOT_TMP_DIR=/data/user/0/com.linuxhub.probe/files
+proot error: execve("/usr/bin/cat"): Permission denied
+proot info: possible causes:
+  * the program is a script but its interpreter (eg. /bin/sh) was not found;
+  * the program is an ELF but its interpreter (eg. ld-linux.so) was not found;
+  * the program is a foreign binary but qemu was not specified;
+== C: default, -0
+proot error: execve("/usr/bin/cat"): Permission denied
+proot info: possible causes:
+  * the program is a script but its interpreter (eg. /bin/sh) was not found;
+  * the program is an ELF but its interpreter (eg. ld-linux.so) was not found;
+  * the program is a foreign binary but qemu was not specified;
+
+## fact: the guest ELF asks for an absolute interpreter path
+$ llvm-readelf -l usr/bin/cat | grep INTERP
+     [Requesting program interpreter: /lib/ld-linux-aarch64.so.1]
+# PRoot translates the execve() pathname but the kernel resolves PT_INTERP against the
+# host root, so /lib/ld-linux-aarch64.so.1 must exist on the *host*. It does not on
+# Android; LinuxHub 2.0 works around this with its own loader (jniLibs/libproot-loader.so
+# + assets/runtime/arm64-v8a/loader).
+
+## meanwhile, the same rootfs under the pure-Rust shim
+abs=NAME="Ubuntu"
+ID=ubuntu
+pwd=/etc
+rel=NAME="Ubuntu"
+ID=ubuntu
+rel-dotdot=NAME="Ubuntu"
+
+# Reading:
+# - FACT: proot v5.1 as shipped cannot execute guest glibc binaries here
+#   (ENOENT then EACCES once /lib exists). Reproduced with 4 temp-dir variants.
+# - INFERENCE: the PT_INTERP above is the blocker; PRoot without LinuxHub's loader has
+#   no way to satisfy it inside an app uid.
+# - UNKNOWN: whether some proot option we did not try (e.g. their own loader path) fixes
+#   it; we did not spend more device time on it because it is the route we are replacing.
+# - The shim instead resolves the binary itself, notices the dynamic interpreter and
+#   re-execs rootfs' ld.so with --library-path, so stock ld.so is enough and no ptrace,
+#   no custom loader, and no extra daemon are needed.

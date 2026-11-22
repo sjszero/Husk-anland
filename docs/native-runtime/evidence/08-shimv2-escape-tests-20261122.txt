@@ -1,0 +1,13 @@
+# PLE110 / Android 16 / 6.6.118, runas_app domain, shim v2 (symlink-aware resolver)
+# rootfs = files/shimv2a, NR_ROOTFS=., 2026-11-22
+/etc/os-release => NAME="Ubuntu"
+ID=ubuntu
+/etc/link-abs => NAME="Ubuntu"
+ID=ubuntu
+/etc/link-rel => NAME="Ubuntu"
+ID=ubuntu
+/up => NAME="Ubuntu"
+ID=ubuntu
+/../etc/os-release => NAME="Ubuntu"
+ID=ubuntu
+/evil => ./usr/bin/cat: /evil: No such file or directory

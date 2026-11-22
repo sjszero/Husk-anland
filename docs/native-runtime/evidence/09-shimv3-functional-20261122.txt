@@ -1,0 +1,70 @@
+# shim v3.1 functional matrix - PLE110 (Android 16, kernel 6.6.118), run-as app uid
+# 2026-11-22. rootfs: Ubuntu 24.04 arm64 bash+coreutils 9.4+grep+findutils, real
+#   glibc 2.39 + real ld.so, at files/nrfull/root. Shim: no_std, zero DT_NEEDED.
+# env: LD_PRELOAD=<root>/../../libpath_shim.so NR_ROOTFS=<root> PATH=/usr/bin:/bin
+# runner: adb shell run-as com.linuxhub.probe sh files/nr-final.sh
+# scripts: tools/native-runtime-tests/01-functional-matrix.sh
+# note: the trailing '.' in ls -l means lgetxattr(security.selinux) is mapped too.
+
+PASS mkdirp
+PASS mkdirp-place
+PASS deepwrite
+PASS redirect
+PASS cp
+PASS mv
+PASS chmod
+PASS readlink
+PASS symlink-follow
+PASS symlink-abs
+PASS symlink-dotdot
+PASS find-files
+PASS find-links
+PASS readdir
+PASS ls-long
+PASS pwd
+PASS pwd-root
+PASS dotdot
+PASS dotdot-read
+PASS escape-link
+PASS escape-write
+PASS rm-rf
+PASS sort
+PASS sha256
+PASS glob
+PASS stdin
+PASS subshell
+PASS exec-abs
+PASS exec-rel
+PASS bigio
+PASS write-read
+---- host side check (no leakage outside rootfs)
+
+# ---- containment: /evil -> /system/build.prop must stay unreachable ----
+# (script: tools/native-runtime-tests/03-containment.sh)
+abs=NAME="Ubuntu"
+ID=ubuntu
+pwd=/etc
+rel=NAME="Ubuntu"
+ID=ubuntu
+rel-dotdot=NAME="Ubuntu"
+ID=ubuntu
+pwd2=/
+NAME="Ubuntu"
+ID=ubuntu
+abs-link=NAME="Ubuntu"
+ID=ubuntu
+up=NAME="Ubuntu"
+ID=ubuntu
+dotdot=NAME="Ubuntu"
+ID=ubuntu
+/data/user/0/com.linuxhub.probe/files/nrroot/usr/bin/cat: /evil: No such file or directory
+
+# ---- strace of: ls -l /tmp/f/y, rootfs prefix replaced by ROOT ----
+newfstatat(AT_FDCWD, "/", {st_mode=S_IFDIR|0755, st_size=1008, ...}, 0) = 0
+openat(AT_FDCWD, "/etc/nsswitch.conf", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+openat(AT_FDCWD, "/etc/passwd", O_RDONLY|O_CLOEXEC) = 7
+newfstatat(AT_FDCWD, "/etc/nsswitch.conf", 0x7fdb2b9340, 0) = -1 ENOENT (No such file or directory)
+openat(AT_FDCWD, "/etc/group", O_RDONLY|O_CLOEXEC) = 7
+openat(AT_FDCWD, "/etc/localtime", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+-rw-rw-rw-. 1 10512 10512 2 Nov 22 06:26 /tmp/f/y
++++ exited with 0 +++

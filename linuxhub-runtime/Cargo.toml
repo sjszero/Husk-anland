@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = ["crates/capability-probe", "crates/nr-tools", "crates/path-shim", "crates/runtime-core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[profile.release]
+panic = "abort"
+opt-level = 3

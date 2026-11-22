@@ -1,0 +1,34 @@
+# Activity process, SELinux untrusted_app, uid 10301, targetSdk 33
+begin|memfd
+probe|memfd_create|PASS|exec_map=ok
+---
+begin|openat2
+---
+begin|fuse
+probe|open_dev_fuse|FAIL|errno=13
+---
+begin|userns
+probe|unshare_userns|FAIL|errno=22
+---
+begin|mountns
+probe|unshare_mountns|FAIL|errno=1
+---
+begin|pidns
+probe|unshare_pidns|FAIL|errno=1
+---
+begin|mount
+probe|mount_tmpfs|FAIL|errno=-1
+---
+begin|chroot
+probe|chroot|FAIL|errno=-1
+---
+begin|ptrace
+probe|ptrace_traceme|PASS|child_status=-1
+---
+begin|vmreadv
+probe|process_vm_readv|PASS|read=0x1122334455667788
+---
+begin|seccomp
+probe|seccomp_install_listener|FAIL|errno=22
+probe|seccomp_user_notify|FAIL|listener unavailable
+---

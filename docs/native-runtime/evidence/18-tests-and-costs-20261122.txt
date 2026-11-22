@@ -1,0 +1,71 @@
+LinuxHub native runtime - evidence 18: the test suite becomes runnable, and what the path layer costs
+Date: 2026-11-22   Device: PLE110 (OPPO, Android 16 / kernel 6.6.118)   Page size: 4096
+SELinux domain: untrusted_app (uid 10512)   Rootfs: Ubuntu 24.04, glibc 2.39
+Loader under test: sha256 1600a850985624b05c8b1c1f9cee5fe8185462da91d0de369dcb9ff30f21cbee
+
+WHY THIS FILE EXISTS
+  The three device tests still described the LD_PRELOAD era: they cd'd into the rootfs
+  and preloaded libpath_shim.so, which no longer exists as a separate object (the shim
+  has been a PT_LOAD inside the loader since evidence/14). They are now guest-side
+  scripts plus one host-side runner:
+      tools/native-runtime-tests/run-guest.sh <script>     [ENV=K=V] [EXTRA=file.c]
+  01-functional-matrix.sh  31 checks      -> 31 PASS / 0 FAIL / exit 0   (evidence/17)
+  03-containment.sh       11 checks      -> 0 escapes / exit 0
+  02-bench.sh             bench.c        -> numbers below
+  accept-gcc-make.sh      gcc + make     -> evidence/16 workload re-run clean (evidence/17)
+
+CONTAINMENT (FACT): 03-containment.sh, full output
+  blocked read-abs-symlink        symlink -> /system/build.prop
+  blocked read-dotdot-symlink     symlink -> ../../../../../../system/build.prop
+  blocked list-hostdir-symlink    symlink -> /data/local/tmp
+  blocked abs-up                  cat /../../../../system/build.prop
+  blocked abs-up2                 cat /../system/build.prop
+  blocked open-escape             exec 9</../../../system/build.prop
+  ok      clamp-cd-root           cd /..; pwd -P  == /
+  ok      clamp-mkdir             mkdir -p /../esc  creates /esc *inside* the root
+  ok      rootfs-file             test -e /etc/os-release
+  ok      host-proc               head -1 /proc/self/status  (mount points pass through)
+  ok      host-dev-null           : > /dev/null
+  #escapes=0
+
+  The two mount-point checks are the intended design, not a hole being tolerated:
+  /proc, /dev and /sys are the *host's*, passed through on purpose (the guest needs a
+  real /proc/self and the device nodes the kernel actually has). An untrusted_app sees
+  only its own process there; /proc/self/root answers EACCES under this ROM's policy
+  (measured: "ls: cannot open directory '/proc/self/root': Permission denied").
+
+COST (FACT): bench.c, one process, N=20000, guest gcc -O2
+  stat-real                     2916 ns/op   20000/20000   path already under the root:
+                                                            our interception, no resolver
+  stat-guest                    5399 ns/op   20000/20000   resolver + interception
+  stat-deep                    11070 ns/op   20000/20000   /usr/lib/aarch64-linux-gnu/libc.so.6
+  open-real                     4407 ns/op   20000/20000
+  open-guest                    7536 ns/op   20000/20000
+  fork+execve+wait           2489924 ns/op   100/100       a whole loader boot per child
+
+  READING IT (INFERENCE):
+  * resolution costs roughly 2.5us for a one-component path and about 8us for four
+    components - i.e. ~2us per component walked (each component is a symlink-aware
+    lookup against the root fd, then the real path is recomposed).
+  * interception alone (stat-real vs a raw syscall) is inside the noise of this
+    measurement setup; the numbers above are not a native-versus-shim comparison.
+  * the number evidence/06 §3 carried (+1.5us) came from the LD_PRELOAD build and is
+    not comparable. The resolver is the next thing worth optimising: a per-component
+    cache keyed on the resolved (parent fd, name) pair is the obvious move.
+  * exec is unchanged by construction: the kernel does the exec, we only rewrite argv
+    before it, and a child is a fresh loader boot (2.5ms here, evidence/14 measured
+    2.58ms for the same digest).
+
+KNOWN GAP FOUND WHILE WRITING THE BENCHMARK (FACT, then why it stays open)
+  A C program doing fork() + execl("/usr/bin/true", ...) fails: the child exits 127 and
+  nothing is executed, while the same program with posix_spawn() succeeds (r=0, st=0).
+  Cause: glibc's execl() builds its argv on the stack and calls its *own* internal
+  execve, so no GOT slot in the caller can be patched (same class as __open64_nocancel in
+  evidence/16). Interposing a C-variadic function needs `c_variadic`, which is unstable,
+  and an assembly trampoline would have to be exported through rustc's cdylib export
+  list - a global_asm label is localised by rustc's version script, so nr-embed.py would
+  not see it in .dynsym (both attempts were measured and abandoned).
+  What this does NOT affect: execve, execv, execvpe, execvp, posix_spawn/posix_spawnp are
+  interposed, and those are what bash, dash, make, gcc, collect2 and python use - which is
+  why the 31-check matrix and the gcc/make acceptance both pass with zero traps.
+  Workaround for any C program in the guest: use execve(2)/execv(3)/posix_spawn(3).

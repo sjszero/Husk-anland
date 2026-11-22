@@ -1,0 +1,29 @@
+# Pure-Rust path shim prototype — 2026-11-22, RMX3357, Android 13, kernel 4.19
+# Device domain: runas_app (app uid 10301). Guest: Ubuntu 24.04 noble glibc 2.39 bash/cat.
+
+## Shipped object
+Dynamic section at offset 0x2d58 contains 19 entries:
+  Tag                Type           Name/Value
+  0x000000000000001e (FLAGS)        BIND_NOW 
+  0x000000006ffffffb (FLAGS_1)      NOW 
+  0x0000000000000007 (RELA)         0x5a0
+  0x0000000000000008 (RELASZ)       240 (bytes)
+(no NEEDED entries: the shim is no_std and links nothing)
+
+## Run: rootfs /etc/os-release through the shim
+NAME="Ubuntu"
+VERSION="24.04.4 LTS (Noble Numbat)"
+ID=ubuntu
+
+## Run: same command without the shim (control)
+cat: /etc/os-release: No such file or directory
+
+## Timing: 100 native execs of glibc cat through the shim, and 100 bash no-ops
+--- cat output ---
+NAME="Ubuntu"
+VERSION="24.04.4 LTS (Noble Numbat)"
+ID=ubuntu
+--- 100 execs of glibc cat (shim, no ptrace) ---
+--- 100 bash no-ops (control) ---
+    0m00.25s real     0m00.09s user     0m00.15s system
+    0m00.00s real     0m00.00s user     0m00.00s system

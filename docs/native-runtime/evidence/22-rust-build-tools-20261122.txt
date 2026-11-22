@@ -1,0 +1,59 @@
+LinuxHub Husk - evidence 22: the build tools are Rust now, byte for byte
+Date: 2026-11-22   Host: macOS aarch64   Target of the product: PLE110 / Android 16 / 6.6.118
+Task: take the ELF surgery out of Python, with byte identity as the acceptance test.
+
+WHY
+  The loader is a patched glibc binary; whoever builds it must be able to prove the
+  patch is exactly what was verified. Two implementations of that surgery (Python and
+  Rust) that agree to the byte are worth more than either one alone: the Rust one can
+  live in the workspace, share types with the shim, and drop the python3 requirement;
+  the Python one stays as the oracle.
+
+WHAT WAS PORTED (crates/nr-tools, no dependencies)
+  nr-tools scan-syscalls report <elf> [--version V] [--expect NAME=COUNT ...]
+  nr-tools scan-syscalls patch  <elf> <out> [...]     <- nr-scan-syscalls.py
+  nr-tools embed <shim.so> <loader.orig> <hook.bin> <out.so>   <- nr-embed.py
+  Every assertion, message and exit code of the originals is preserved, because a
+  refusal is part of the contract (a different glibc must fail loudly).
+
+BYTE IDENTITY (FACT, all run today)
+  1. report on the pristine loader
+       python3 nr-scan-syscalls.py report ld-linux-aarch64.so.1.orig
+       target/release/nr-tools scan-syscalls report ld-linux-aarch64.so.1.orig
+       -> diff: empty (9 lines identical, including the site listing and the
+          "result ignored" verdicts)
+  2. stage 1 (the two nop'd sites)
+       both tools, same flags (--version 2.35 --expect set_robust_list=1 --expect rseq=1)
+       sha256 434a64bce9408fe53d49f39c215b81d6cb1f0d6c2af0e7e27ce1558eb6e22840   (both)
+       cmp: identical
+  3. stage 2 (embed the shim)
+       both tools, same inputs
+       stdout/JSON: diff empty (76 interposed, 31 externs, 24 self-rel slots,
+       descriptor_vaddr 352256, total_load 86016, out_size 290816)
+       sha256 1600a850985624b05c8b1c1f9cee5fe8185462da91d0de369dcb9ff30f21cbee   (both)
+       and that is the same file the device has been running since evidence/17.
+  4. whole build, both paths
+       tools/nr-loader-hook/build-embedded-loader.sh              -> 1600a850...
+       NR_TOOLS=python OUT=/tmp/pybuild tools/nr-loader-hook/...  -> 1600a850...
+  5. device regression with the Rust-built loader
+       01-functional-matrix.sh -> 31 PASS / 0 FAIL / exit 0
+
+TWO BUGS THE PORT FOUND (both in the port, not in the shipped loader)
+  * NOT_INTERPOSED had drifted: the Rust copy carried two names that no longer exist
+    ("nr_execv_v", "nr_execvp_v", left over from an abandoned experiment) and had lost
+    "bcmp". Result: 77 interposed names instead of 76, one extra table entry, a
+    different descriptor address and a loader one page shorter. Fixed by diffing
+    against the Python constant rather than from memory.
+  * align() in nr-embed.py defaults to PAGE, not to 8: the hook is padded to a whole
+    page before the tables (hook 288 B -> 4096 B). The port initially padded to 8,
+    which moved descriptor_vaddr by 3808 bytes. Fixed, with a comment.
+  Both were caught by the byte comparison, which is exactly why the acceptance test is
+  bytes and not "it looks right".
+
+REMAINING (deliberately not done in this pass)
+  * tools/native-runtime-tests/provision-toolchain.sh (deb dependency resolution,
+    ar/xz/zst unpacking, symlinks) is still shell+python. That is the next port.
+  * tools/nr-loader-hook/nr-ld-patch.py is dead code: it patched the forwarder-style
+    entry stub that init-hook.S + nr-embed replaced (evidence/14). It is kept only as
+    a reference and is not ported.
+  * the 271 lines of assembly stay: they run before libc exists (see the plan §2).

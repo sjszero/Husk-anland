@@ -1,0 +1,26 @@
+Copyright (c) 2026 戏山 (xishanp). All rights reserved.
+
+This repository is PRIVATE and not licensed for redistribution. No permission is
+granted to copy, modify, or redistribute any part of it without written consent
+from the copyright holder.
+
+--------------------------------------------------------------------------------
+THIRD-PARTY MATERIAL
+
+binaries/ and tools/nr-loader-hook/ contain byte-patched derivatives of Ubuntu
+24.04 (glibc 2.39) binaries:
+
+  ld-linux-aarch64.so.1.orig   unmodified Ubuntu arm64 ld.so
+  ld-embedded.so               ld.so + one extra PT_LOAD (the Rust path shim)
+  libc-nop.so.6                libc.so.6 with two svc sites nop'ed
+  libpath_shim.so              the standalone build of the shim, pre-embedding
+
+glibc is distributed under the GNU LGPL v2.1 (and GPL v2 for parts); the
+corresponding source is the Ubuntu 24.04 source package for glibc 2.39, and the
+modifications made here are limited to the byte edits described in
+docs/native-runtime/06-sole-plan-t2t1.md and the evidence files. These binaries
+exist in this repository only to pin the identity (sha256) of the artefacts under
+test. They are not distributed to anyone outside this private repository.
+
+tools/native-runtime-probe-apk/gradle/ contains the Gradle wrapper
+(Apache License 2.0, Copyright the Gradle authors).

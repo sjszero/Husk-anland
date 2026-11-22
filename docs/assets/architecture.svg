@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" width="960" height="620" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6b7c"/>
+    </marker>
+    <style>
+      .box{fill:#fff;stroke:#c9d3de;stroke-width:1.5;rx:10}
+      .lbl{font-size:13px;fill:#42505f}
+      .hd{font-size:15px;font-weight:600;fill:#1d2733}
+      .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;fill:#42505f}
+      .tag{font-size:11px;fill:#6b7a8a}
+    </style>
+  </defs>
+
+  <text x="30" y="36" font-size="20" font-weight="700" fill="#1d2733">Husk — 一次 execve 的分层</text>
+  <text x="30" y="58" class="tag">运行时没有第二层：内核直接执行 guest 代码；路径在调用前改写，syscall 一条不拦</text>
+
+  <!-- app -->
+  <rect class="box" x="30" y="80" width="900" height="70" rx="10" fill="#f6f9fc"/>
+  <text x="50" y="108" class="hd">Android app 进程</text>
+  <text x="50" y="132" class="mono">untrusted_app · uid 10512 · 无 root · 无虚拟化</text>
+
+  <!-- loader -->
+  <rect class="box" x="30" y="170" width="900" height="250" rx="10"/>
+  <text x="50" y="198" class="hd">guest loader（唯一被改过的文件）</text>
+  <text x="640" y="198" class="tag">203,968 B → 290,816 B</text>
+
+  <rect class="box" x="50" y="212" width="260" height="88" fill="#fffdf5" stroke="#e8d9a8"/>
+  <text x="66" y="236" class="lbl" font-weight="600">entry-stub.S</text>
+  <text x="66" y="258" class="mono">glibc 自举前接管</text>
+  <text x="66" y="278" class="mono">2 处 svc 已 nop</text>
+
+  <rect class="box" x="330" y="212" width="280" height="88" fill="#fffdf5" stroke="#e8d9a8"/>
+  <text x="346" y="236" class="lbl" font-weight="600">init-hook.S → nr_boot()</text>
+  <text x="346" y="258" class="mono">_dl_init 钩子（176 B）</text>
+  <text x="346" y="278" class="mono">自举重定位 · 改 76 个 GOT 槽</text>
+
+  <rect class="box" x="630" y="212" width="280" height="88" fill="#f3fbf6" stroke="#bfe3cd"/>
+  <text x="646" y="236" class="lbl" font-weight="600">path shim（Rust）</text>
+  <text x="646" y="258" class="mono">no_std · 零依赖</text>
+  <text x="646" y="278" class="mono">嵌入为一个额外 PT_LOAD</text>
+
+  <text x="50" y="330" class="tag">T1 构建期静态改写</text>
+  <text x="330" y="330" class="tag">T2 用户态路径解析</text>
+  <text x="630" y="330" class="tag">两者合成一个文件</text>
+
+  <rect class="box" x="50" y="344" width="860" height="60" fill="#f6f9fc"/>
+  <text x="66" y="368" class="mono">open("/etc/os-release") → 以 rootfd 为基逐组件解析（符号链接感知，.. 在边界截断）</text>
+  <text x="66" y="390" class="mono">→ 换成真实路径 → 真正的 open()。每组件约 2 us。</text>
+
+  <!-- kernel -->
+  <rect class="box" x="30" y="450" width="900" height="70" rx="10" fill="#eef3f8"/>
+  <text x="50" y="478" class="hd">内核</text>
+  <text x="50" y="502" class="mono">真正执行 syscall · 真正 mmap · 真正 ioctl — Husk 不参与</text>
+
+  <line x1="480" y1="150" x2="480" y2="168" stroke="#5b6b7c" stroke-width="1.5" marker-end="url(#a)"/>
+  <line x1="480" y1="420" x2="480" y2="448" stroke="#5b6b7c" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- not doing -->
+  <rect class="box" x="30" y="545" width="900" height="52" rx="10" fill="#fdf3f3" stroke="#eccfcf"/>
+  <text x="50" y="568" class="lbl" font-weight="600">明确不做：</text>
+  <text x="126" y="568" class="mono">ptrace · seccomp supervisor · FUSE · namespace · 虚拟机 · 常驻翻译进程 · 软件图形加速层</text>
+  <text x="50" y="587" class="tag">排除它们的原因与实测代价见表 docs/native-runtime/06 §1</text>
+</svg>

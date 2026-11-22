@@ -1,0 +1,6 @@
+# Guest (aarch64 linux-gnu) builds link with rust-lld so no NDK is needed.
+[target.aarch64-unknown-linux-gnu]
+linker = "rust-lld"
+
+# The probe APK is built by Gradle; the Android target linker comes from the NDK
+# (set NDK / org.gradle.project.ndk.dir or keep the default in build.gradle.kts).

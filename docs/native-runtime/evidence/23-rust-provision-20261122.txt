@@ -1,0 +1,82 @@
+evidence 23 - `nr-tools provision`: the toolchain provisioning ported to Rust
+2026-11-22   device (serial redacted) PLE110, Android 16, PAGE_SIZE 4096
+
+WHAT WAS PORTED
+  tools/native-runtime-tests/provision-toolchain.sh was a sh+python3 script:
+  parse ports.ubuntu.com Packages.gz, resolve the dependency closure, download
+  the .debs, split them with the `ar` format by hand, unpack data.tar.{xz,zst}
+  through the python tarfile module, create the generic /usr/bin names, then push
+  the tree to the app's private rootfs as a tar stream through `run-as`.
+
+  It is now `nr-tools provision` (Rust, crates/nr-tools/src/provision.rs, ~400
+  lines, zero external crates). provision-toolchain.sh is a thin wrapper that
+  forwards its environment to the binary; provision-toolchain-legacy.sh keeps the
+  old sh+python implementation as the reference the port is checked against,
+  reachable with NR_TOOLS=python.
+
+  Deliberately still external processes: gzip/xz/zstd and tar. Every macOS and
+  Linux install has them, and pulling in decompression crates would add a
+  dependency tree for no benefit. The HTTP transport is std::net::TcpStream with
+  a plain HTTP/1.0 GET on port 80 (ports.ubuntu.com answers with 200 and no
+  redirect; a Location header back to the same host is followed anyway).
+
+HOW IT WAS CHECKED  (all FACT, run on this host today)
+
+1) Build: cargo build --release -p nr-tools -> OK, no errors.
+   (One compile error on the way: `MetadataExt::nlink()` needs the trait imported
+   in scope inside the nested `walk` fn. Fixed locally in that fn.)
+
+2) Stage parity, same deb cache, different implementations:
+     nr-tools provision --no-push --stage /tmp/nr-toolchain-rs/root
+     NO_PUSH=1 STAGE=/tmp/nr-toolchain-sh/root ./provision-toolchain.sh
+   Both resolved 53 packages / 55.3 MB and staged 137 entries in usr/bin.
+   Full tree compare (relative path, file type, sha256 of contents, symlink
+   target):
+     entries 2866 vs 2866
+     content/link differences: 0
+     path differences: 8+8, all of them the *same* pair of files differing only
+     in letter case (usr/include/linux/netfilter/xt_connmark.h vs xt_CONNMARK.h,
+     ... ipt_ecn.h vs ipt_ECN.h, ...). linux-libc-dev ships both; this Mac's
+     filesystem is case-insensitive, so only one can exist and which one survives
+     depends on extraction order. Not a porting difference and not observable on
+     ext4/EROFS inside the rootfs.
+
+3) The wrapper itself, end to end:
+     NO_PUSH=1 STAGE=/tmp/nr-toolchain-w/root ./provision-toolchain.sh
+   Same result: 2866 entries, 0 content differences against the shell stage.
+
+4) Real push with the Rust tool:
+     nr-tools provision --serial <device serial>
+     -> "PUSHED" in 1:47 (53 packages already cached)
+   Before:  usr/lib/aarch64-linux-gnu/libc.so.6
+            18acad63e69559c974c0ae093333d9cfa661c18ba4ad04a48268d8d1405e1bcc
+   After:   identical  (the rootfs libc is patched; libc6 stays in the skip list)
+   usr/bin entry count 247 before and after: the pushed tree is the same set the
+   shell version had installed, nothing was duplicated or dropped.
+
+5) Regression on the device, on the toolchain the Rust tool pushed:
+     accept-gcc-make.sh  gcc 13.3.0 driver, C compile+run, collect2/as/ld
+                         subprocesses, parallel make, incremental + clean: exit 0
+     01-functional-matrix.sh  31 PASS / 0 FAIL
+
+RESULT
+  Build tools are now Rust-only: scan-syscalls, embed (evidence 22) and
+  provision. The two reference implementations remain in the tree, are reachable
+  on demand, and both differ from the Rust ones only in the case-collision set
+  described above.
+
+  nr-tools sha256 62352bc325ef4f8e96db0d85c8c7e9eef25e4fc755592010ff17767b29d8df5b
+  (host build, this machine; not a shipped artefact)
+
+  deb cache, for the record (2026-11-22):
+    gcc-13-aarch64-linux-gnu_13.3.0-6ubuntu2~24.04.1_arm64.deb
+      618086c3f64d780d0d8ffff2a07bef6115a301e71ee364bcf92c10b9b7dd499c
+    make_4.3-4.1build2_arm64.deb
+      3bbbf5d426bc68fc232fc4e20f135aaf3eb76a514839acf82eeffa0dce9c81d4
+
+NOT DONE / NOT VERIFIED
+  - Download integrity: the tool checks only the Size field from the index, same
+    as the shell version. SHA256 in Packages.gz is not verified yet.
+  - nr-ld-patch.py is not ported and will not be: it patches the forwarder-style
+    entry stub that init-hook.S + nr-tools embed replaced (evidence 14). It stays
+    in the tree as history only.

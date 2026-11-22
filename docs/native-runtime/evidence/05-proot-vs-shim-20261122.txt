@@ -1,0 +1,28 @@
+# PRoot vs pure-Rust path shim, same rootfs, same device (RMX3357, Android 13, 4.19), runas_app domain
+# 2026-11-22
+
+## PRoot 5.x from the LinuxHub 2.0 APK (ptrace), rootfs = files/shimtest
+--- smoke ---
+NAME="Ubuntu"
+VERSION="24.04.4 LTS (Noble Numbat)"
+ID=ubuntu
+--- 100 execs of cat under PRoot ---
+--- 5000 stat() on /dev/null under PRoot ---
+    0m00.76s real     0m00.21s user     0m00.43s system
+    0m00.41s real     0m00.08s user     0m00.28s system
+
+## Pure-Rust preload shim (no ptrace, no chroot, no namespaces)
+--- cat output ---
+NAME="Ubuntu"
+VERSION="24.04.4 LTS (Noble Numbat)"
+ID=ubuntu
+--- 100 execs of glibc cat (shim, no ptrace) ---
+--- 100 bash no-ops (control) ---
+    0m00.18s real     0m00.11s user     0m00.06s system
+    0m00.00s real     0m00.00s user     0m00.00s system
+
+## Shim overhead on stat-only loop (5000 iterations, /dev/null pass-through)
+--- 5000 stat() on /dev/null, WITHOUT shim ---
+--- 5000 stat() on /dev/null, WITH shim ---
+    0m00.06s real     0m00.05s user     0m00.00s system
+    0m00.05s real     0m00.04s user     0m00.01s system
