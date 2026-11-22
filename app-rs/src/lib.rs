@@ -133,6 +133,7 @@ impl App {
                 return;
             }
         }
+        log("session: restart requested by user");
         self.term = None;
         self.ensure_term();
     }
@@ -148,6 +149,10 @@ impl App {
             if mine {
                 if let Some(t) = self.term.as_mut() {
                     t.note_exit(st);
+                    log(&format!(
+                        "session: exited pid={pid} status={st} ({})",
+                        t.exit_text
+                    ));
                 }
                 self.dirty = true;
             } else {
@@ -156,6 +161,42 @@ impl App {
                 crate::log(&format!("reaped orphan pid={pid} status={st}"));
             }
         }
+    }
+
+    /// End the session the way a terminal hangs up (L6/L7/L11).
+    ///
+    /// Order matters and mirrors tini/runc: closing the PTY master is the kernel's
+    /// own hangup -- the slave's foreground process group gets SIGHUP -- and only
+    /// then do we escalate in the background. Doing it the other way round (KILL
+    /// first) loses whatever the shell wanted to do on the way out.
+    fn teardown(&mut self, why: &str) {
+        let Some(t) = self.term.take() else {
+            log(&format!("session: teardown({why}) no session"));
+            return;
+        };
+        let pid = t.pid;
+        let fd = t.fd;
+        log(&format!(
+            "session: teardown({why}) pid={pid} dead={} exit=\"{}\"",
+            t.dead, t.exit_text
+        ));
+        if fd >= 0 {
+            let l = LOOPER.load(Ordering::SeqCst);
+            if !l.is_null() {
+                // L7: never close a fd that is still registered with the looper --
+                // the number gets reused and the looper then hands us the new fd's
+                // readiness under the old identity.
+                unsafe { ALooper_removeFd(l, fd) };
+            }
+            unsafe { close(fd) };
+            if t.tee >= 0 {
+                unsafe { close(t.tee) };
+            }
+        }
+        if !t.dead && pid > 0 {
+            std::thread::spawn(move || escalate(pid));
+        }
+        log("session: teardown done");
     }
 
     fn ensure_term(&mut self) {
@@ -175,9 +216,17 @@ impl App {
         match Term::spawn(&loader, &libpath, &rootfs, cols, rows) {
             Some(t) => {
                 self.last_spawn = Some(std::time::Instant::now());
-                log("guest session started");
+                log(&format!(
+                    "session: running pid={} (pgid=sid=pid by setsid) {}x{}",
+                    t.pid, cols, rows
+                ));
                 if let Some(old) = self.term.take() {
                     if old.fd >= 0 {
+                        // L7: deregister first, then close.
+                        let l = LOOPER.load(Ordering::SeqCst);
+                        if !l.is_null() {
+                            unsafe { ALooper_removeFd(l, old.fd) };
+                        }
                         unsafe { close(old.fd) };
                     }
                 }
@@ -335,6 +384,14 @@ unsafe extern "C" fn on_input_queue_gone(_a: *mut ANativeActivity, _q: *mut c_vo
 
 unsafe extern "C" fn on_destroy(_a: *mut ANativeActivity) {
     log("cb: onDestroy");
+    // L11: the guest must not outlive the reader of its PTY. onDestroy is not
+    // guaranteed (the system may kill us outright), which is exactly why the
+    // PTY-close path also has to be correct on its own.
+    if let Ok(mut g) = APP.lock() {
+        if let Some(app) = g.as_mut() {
+            app.teardown("onDestroy");
+        }
+    }
     DESTROYED.store(true, Ordering::SeqCst);
     let l = LOOPER.load(Ordering::SeqCst);
     if !l.is_null() {
@@ -347,6 +404,14 @@ unsafe extern "C" fn on_destroy(_a: *mut ANativeActivity) {
 #[no_mangle]
 pub unsafe extern "C" fn ANativeActivity_onCreate(activity: *mut ANativeActivity, _state: *mut c_void, _size: usize) {
     log(&format!("onCreate activity={:p}", activity));
+    // The platform may call onCreate again in the *same* process (activity
+    // recreated after onDestroy while the process lives). Everything the run
+    // loop keys on has to be reset here, or the new activity gets a loop that
+    // exits on its first iteration and never spawns a session.
+    DESTROYED.store(false, Ordering::SeqCst);
+    WINDOW.store(core::ptr::null_mut(), Ordering::SeqCst);
+    INPUTQ.store(core::ptr::null_mut(), Ordering::SeqCst);
+    FOCUSED.store(false, Ordering::SeqCst);
     if activity.is_null() {
         return;
     }
@@ -458,6 +523,31 @@ fn trace_requested() -> bool {
     }
 }
 
+/// Signal escalation for a session that will not go away (L6).
+///
+/// `pid` is the session leader, so `-pid` addresses the whole process group:
+/// bash, its jobs and anything they forked. Terminated processes are reaped by
+/// the single reaper thread, never here.
+fn escalate(pid: i32) {
+    const TERM_DELAY: core::time::Duration = core::time::Duration::from_millis(300);
+    const KILL_DELAY: core::time::Duration = core::time::Duration::from_millis(700);
+    std::thread::sleep(TERM_DELAY);
+    let alive = unsafe { kill(-pid, 0) } == 0;
+    if !alive {
+        log("session: group gone after SIGHUP");
+        return;
+    }
+    unsafe { kill(-pid, SIGTERM) };
+    log("session: SIGTERM -> process group");
+    std::thread::sleep(KILL_DELAY);
+    if unsafe { kill(-pid, 0) } == 0 {
+        unsafe { kill(-pid, SIGKILL) };
+        log("session: SIGKILL -> process group");
+    } else {
+        log("session: group gone after SIGTERM");
+    }
+}
+
 /// One thread, one waitpid(-1), for the whole process.
 ///
 /// `PR_SET_CHILD_SUBREAPER` makes orphaned grandchildren (bash's children, vim's
@@ -558,6 +648,9 @@ fn run() {
     }
     log("loop exit");
     if let Ok(mut g) = APP.lock() {
+        if let Some(app) = g.as_mut() {
+            app.teardown("loop exit");
+        }
         *g = None;
     }
 }
@@ -583,6 +676,16 @@ fn drain_input(q: *mut c_void, app: &mut App) -> bool {
                         app.scroll = 0;
                         if let Some(t) = app.term.as_mut() {
                             match code {
+                                // Lifecycle: BACK leaves the activity, which is what
+                                // triggers onPause/onStop/onDestroy -> teardown. Without
+                                // this the key is consumed by us and the activity can
+                                // never be finished by the user at all.
+                                AKEYCODE_BACK => {
+                                    let a = ACTIVITY.load(Ordering::SeqCst);
+                                    if !a.is_null() {
+                                        ANativeActivity_finish(a);
+                                    }
+                                }
                                 AKEYCODE_DEL => t.send(&[0x7f]),
                                 AKEYCODE_ENTER => t.send(b"\r"),
                                 AKEYCODE_TAB => t.send(b"\t"),

@@ -93,12 +93,15 @@ pub struct ANativeActivity {
 
 extern "C" {
     pub fn ANativeActivity_showSoftInput(activity: *mut ANativeActivity, flags: u32);
+    pub fn ANativeActivity_finish(activity: *mut ANativeActivity);
     pub fn ANativeWindow_getWidth(window: *mut c_void) -> i32;
     pub fn ANativeWindow_getHeight(window: *mut c_void) -> i32;
     pub fn ANativeActivity_setWindowFlags(activity: *mut ANativeActivity, addFlags: u32, removeFlags: u32);
 
     pub fn ALooper_prepare(opts: c_int) -> *mut c_void;
     pub fn ALooper_wake(looper: *mut c_void);
+    pub fn ALooper_removeFd(looper: *mut c_void, fd: c_int) -> c_int;
+
     pub fn ALooper_addFd(
         looper: *mut c_void,
         fd: c_int,
@@ -140,6 +143,7 @@ pub const AMOTION_EVENT_ACTION_DOWN: i32 = 0;
 pub const AMOTION_EVENT_ACTION_MOVE: i32 = 2;
 pub const AMOTION_EVENT_ACTION_UP: i32 = 1;
 
+pub const AKEYCODE_BACK: i32 = 4;
 pub const AKEYCODE_DEL: i32 = 67;
 pub const AKEYCODE_ENTER: i32 = 66;
 pub const AKEYCODE_DPAD_UP: i32 = 19;
@@ -259,6 +263,7 @@ pub const GL_ONE_MINUS_SRC_ALPHA: u32 = 0x0303;
 
 extern "C" {
     pub fn prctl(option: c_int, ...) -> c_int;
+    pub fn sigprocmask(how: c_int, set: *const c_void, oldset: *mut c_void) -> c_int;
     pub fn ptrace(request: c_int, ...) -> c_long;
     pub fn syscall(num: c_long, ...) -> c_long;
     pub fn kill(pid: c_int, sig: c_int) -> c_int;
@@ -266,7 +271,9 @@ extern "C" {
 
 /// Constants bionic does not export as Rust macros.
 pub const PR_SET_CHILD_SUBREAPER: c_int = 36;
+pub const SIG_SETMASK: c_int = 2;
 pub const SIGHUP: c_int = 1;
+pub const SIGTERM: c_int = 15;
 pub const SIGKILL: c_int = 9;
 pub const SIGSYS: c_int = 31;
 pub const WNOHANG: c_int = 1;

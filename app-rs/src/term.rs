@@ -118,8 +118,20 @@ impl Term {
             return None;
         }
         if pid == 0 {
+            // Between fork() and execve() only async-signal-safe calls are legal:
+            // write(2) is, log()/format!() are not. So the failure paths below
+            // write a fixed byte string straight to fd 2 instead of logging.
+            const SETSID_FAILED: &[u8] = b"husk: setsid failed\n";
             unsafe {
-                setsid();
+                if setsid() < 0 {
+                    write(2, SETSID_FAILED.as_ptr() as *const _, SETSID_FAILED.len());
+                    _exit(126);
+                }
+                // A child of a multi-threaded process inherits the parent's signal
+                // mask. glibc's loader wants a clean one; anything blocked here
+                // would silently change the guest's semantics.
+                let empty = [0u64; 2];
+                sigprocmask(SIG_SETMASK, empty.as_ptr() as *const _, core::ptr::null_mut());
                 let sfd = open(slave.as_ptr(), O_RDWR);
                 if sfd >= 0 {
                     ioctl(sfd, TIOCSCTTY, 0usize);
@@ -131,6 +143,14 @@ impl Term {
                     }
                 }
                 close(mfd);
+                // Nothing above fd 2 belongs to the guest. Leaving EGL/looper/log
+                // fds open would hand the guest descriptors it can neither name
+                // nor close, and would keep surfaces alive past teardown.
+                let mut fd = 3;
+                while fd < 256 {
+                    close(fd);
+                    fd += 1;
+                }
                 let _ = chdir(root_c.as_ptr());
                 let mut argv: Vec<*const core::ffi::c_char> = argv_s.iter().map(|c| c.as_ptr()).collect();
                 argv.push(core::ptr::null());
@@ -224,13 +244,34 @@ impl Term {
                 if e != EAGAIN && e != EINTR {
                     crate::log(&format!("pty read errno={e}; session closed"));
                     self.dead = true;
-                    unsafe { close(self.fd) };
-                    self.fd = -1;
+                    self.close_master();
                 }
             }
             break;
         }
         got
+    }
+
+    /// Close the PTY master the only correct way: deregister from the looper,
+    /// then close (lifecycle L7).
+    ///
+    /// A closed fd that is still registered with the looper is worse than a leak:
+    /// the number is reused, and the looper then reports readiness for whatever
+    /// took it, under this session's identity.
+    pub fn close_master(&mut self) {
+        if self.fd < 0 {
+            return;
+        }
+        let l = unsafe { crate::LOOPER.load(core::sync::atomic::Ordering::SeqCst) };
+        if !l.is_null() {
+            unsafe { ALooper_removeFd(l, self.fd) };
+        }
+        unsafe { close(self.fd) };
+        self.fd = -1;
+        if self.tee >= 0 {
+            unsafe { close(self.tee) };
+            self.tee = -1;
+        }
     }
 
     /// The reaper thread saw this session's pid exit. Records the real reason and
