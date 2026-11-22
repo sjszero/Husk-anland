@@ -1,15 +1,17 @@
 //! Minimal Vulkan capability probe for a Husk guest.
 //!
-//! This deliberately does not submit a GPU job. It proves the layer above the
-//! kbase probe: the guest can create a Vulkan instance, enumerate a real Mali
-//! physical device, create a logical device and one queue, allocate/bind/map a
-//! small host-visible buffer, then tear everything down. All Vulkan entry
-//! points are resolved dynamically so the binary has no build-time dependency
-//! on a particular ICD manifest or loader soname.
+//! It proves the layer above the kbase probe: the guest can create a Vulkan
+//! instance, enumerate a real Mali physical device, create a logical device and
+//! one queue, allocate/bind/map a small host-visible buffer, execute a compute
+//! shader, render an offscreen triangle, and tear everything down. All Vulkan
+//! entry points are resolved dynamically so the binary has no build-time
+//! dependency on a particular ICD manifest or loader soname.
 
 use core::ffi::{c_char, c_int, c_void};
 use std::ffi::CString;
 use std::ptr;
+
+mod graphics;
 
 type VkResult = i32;
 type VkFlags = u32;
@@ -1477,6 +1479,7 @@ unsafe fn run() -> i32 {
     }
 
     let compute_ok = map_ok && submit_compute(lib, device, queue, family_index, buffer, memory);
+    let graphics_ok = compute_ok && graphics::run_graphics(lib, dev, device, queue, family_index);
 
     free_memory(device, memory, ptr::null());
     destroy_buffer(device, buffer, ptr::null());
@@ -1484,7 +1487,7 @@ unsafe fn run() -> i32 {
     destroy_instance(instance, ptr::null());
     dlclose(lib);
     line("teardown", "PASS", "device/instance/loader released");
-    if compute_ok {
+    if compute_ok && graphics_ok {
         0
     } else {
         1

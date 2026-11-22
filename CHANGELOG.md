@@ -1,5 +1,16 @@
 # 变更记录
 
+## 2026-11-23 — PanVK 离屏 graphics draw 在 Mali-G77 上通过
+
+- **evidence 46** 扩展：纯 Rust `vulkan-probe` 新增 `graphics.rs` 与 vertex/fragment SPIR-V，
+  创建颜色附件、render pass、framebuffer、真实顶点缓冲和 graphics pipeline，执行
+  `vkCmdDraw(3,1,0,0)`，再 `vkCmdCopyImageToBuffer`，fence 后回读红色像素 `0xff0000ff`。
+- 真机连续两次 PASS；compute job 与离屏 graphics 共用同一条 guest 内 PanVK / kbase 路径。
+- 首次 combo（仅 `gl_VertexIndex`、无顶点缓冲）未产生可见 fragment；改为真实顶点缓冲后通过。
+  没有把第一版失败武断归因成 driver bug，仍标 UNKNOWN。
+- **仍未完成**：swapchain / WSI / SurfaceFlinger、Zink、`eglinfo/glxinfo` renderer；
+  目标升到 **v16**。
+
 ## 2026-11-23 — PanVK 最小验证：Mali-G77 compute job 已由 GPU 执行
 
 - **evidence 46**：从 `FristOneRR-Admin/FristOneRR-Panvk-Source`

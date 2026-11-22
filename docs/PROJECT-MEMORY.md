@@ -79,11 +79,13 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
    `libvulkan_panfrost.so`。选择它的原因是源码同时具备 G77 型号行和 kbase 的
    CPU-backed sync（替代 kbase fd 上不可用的 DRM syncobj）。
 2. **已完成（evidence 46）**：`vulkaninfo --summary` 和纯 Rust `vulkan-probe` 都能枚举 Mali-G77；
-   probe 已提交 SPIR-V compute job，fence 后读回 GPU 写入 `0x4855534b`。
+   probe 已提交 SPIR-V compute job，fence 后读回 GPU 写入 `0x4855534b`，并完成离屏 graphics
+   三角形 draw + 像素回读 `0xff0000ff`。
 3. **已完成（evidence 46）**：把 `MEM_EXEC_INIT` 移到 `MEM_JIT_INIT` 之前，并把 EXEC_VA 设为
    4G；本机 warning 消失。可复现 patch 见 `docs/design/patches/fristonerr-exec-va-order.patch`。
-4. 下一步：验证 graphics pipeline / tiler / swapchain / surface，再让发行版自带 Zink
-   （GL on Vulkan）走这颗 PanVK，验证 `eglinfo` / `glxinfo`。
+4. 下一步：接 swapchain / WSI / Surface，再让发行版自带 Zink
+   （GL on Vulkan）走这颗 PanVK，验证 `eglinfo` / `glxinfo`。离屏 graphics 已通过，
+   但它不等于窗口系统验收。
 5. `funnymdzz/mesa` 的 `kbase-v0.1.2` 已实测卡在 `drmSyncobjCreate()`，保留为失败证据和对照，
    不再作为唯一主动路线。
 6. DRM 语义层代码保留：它是已经完成的 M1/M2 资产，也是 panfrost 路线的后备，不删除。
@@ -180,8 +182,8 @@ eglinfo 报 Mali-G77；音频出声并有延迟数字；H.264/HEVC 硬解、AV �
 
 1. 读本文件、`GOALS.md`、`STATUS.md`、`references.md`、`mali-kbase-prior-art.md`。
 2. 查 `git status --short --branch`，确认没有未提交改动；没有用户授权不要动 LinuxHub 2.0 分支。
-3. 继续 GPU 主线：FristOneRR glibc PanVK 已完成 compute job + GPU readback（evidence 46）；
-   下一步做最小 graphics draw，再进入 Zink / renderer 验收。
+3. 继续 GPU 主线：FristOneRR glibc PanVK 已完成 compute job、离屏 graphics draw + GPU readback
+   （evidence 46）；下一步接 swapchain / Surface，再进入 Zink / renderer 验收。
 4. 每次失败也写清楚失败点和下一假设；证据放 `docs/design/evidence/`。
 5. GPU renderer 通过后再进入显示零拷贝；视频、音频按第 5 节并行设计但不能跳过硬解验收。
 6. 最后做 2.0 proot 替换与补丁清除。

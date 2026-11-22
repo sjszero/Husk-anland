@@ -11,8 +11,8 @@
 > 生命周期（旋转 / 切后台 / Surface 重建 / 会话不重启）全部实测通过；
 > SoC 侧 guest 进程可直接打开 `/dev/mali0`，分配 GPU 显存并在 CPU 侧读写（kbase 11.38）。
 > GPU 最新证据：FristOneRR PanVK 的 glibc 构建已在 guest 内枚举 Mali-G77 MC9，纯 Rust 探针
-> 已提交 compute job 并由 GPU 写回 storage buffer；graphics draw / renderer 仍未验收
-> （见 evidence 46 / `docs/PROJECT-MEMORY.md`）。
+> 已提交 compute job，并完成离屏 graphics 三角形 draw + GPU 像素回读；swapchain / WSI /
+> renderer 仍未验收（见 evidence 46 / `docs/PROJECT-MEMORY.md`）。
 
 ---
 
@@ -97,9 +97,9 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 
 ## 7. 当前限制
 
-- **GPU 图形渲染未通**：FristOneRR PanVK 已枚举 Mali-G77，logical device、host-visible
-  storage buffer 和 compute job 都通过；但 graphics draw、swapchain、surface 与
-  `eglinfo/glxinfo` renderer 尚未验证，不能把本次结果当成完整 GPU 验收（evidence 46）；
+- **GPU 窗口渲染未通**：FristOneRR PanVK 已枚举 Mali-G77，logical device、host-visible
+  storage buffer、compute job 和离屏 graphics draw + 像素回读都通过；但 swapchain、surface 与
+  `eglinfo/glxinfo` renderer 尚未验证，不能把离屏结果当成完整 GPU 验收（evidence 46）；
   DRM 语义层保留为后备；
 - **显示 / 视频 / 音频桥未开始**：dma-buf → Surface、MediaCodec 硬解回传、AAudio 通路都还没写；
 - `execl` 系列函数不生效；`freopen`、`glob`、`nftw`、`dlmopen` 未覆盖；
@@ -155,7 +155,7 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 | 显存 | `mem_alloc` + `mmap` 实测可分配并 CPU 读写（`prot` 必须等于 flags 低两位） |
 | 上游 Mesa | 25.2 与 main 均**没有** kbase 后端；Ubuntu 25.2.8 panfrost 模型表也无 G77/G78 |
 | 当前 GPU 路线 | FristOneRR PanVK（Mesa 26.3.0-devel，glibc 构建）+ 发行版 Zink；DRM 语义层保留为后备 |
-| PanVK 最小验证 | `vulkaninfo` + 纯 Rust probe：Mali-G77 / logical device / compute job + GPU readback PASS；graphics renderer 未验收 |
+| PanVK 最小验证 | `vulkaninfo` + 纯 Rust probe：Mali-G77 / logical device / compute job / 离屏 graphics draw + GPU 像素回读 PASS；swapchain / renderer 未验收 |
 | 显示 / 视频 / 音频 | 未开始；路线见 [GOALS](docs/GOALS.md) 第 3、4、5 条（视频硬解可行性见 [evidence 39](docs/design/evidence/39-video-decode-path.md)） |
 
 细节与原始输出：[evidence 35](docs/design/evidence/35-gpu-ioctl-surface-from-vendor-driver.md)、

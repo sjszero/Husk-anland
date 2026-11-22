@@ -4,7 +4,8 @@
 > 依据：[evidence 41](evidence/41-csf-dead-import-only-panfrost.md)、[evidence 36](evidence/36-gpu-route-reality-check.md)。
 > 2026-11-23 路线更新：evidence 45 证明 Ubuntu Mesa 25.2 panfrost 在 `panfrost_open_device()` 前失败，
 > 当前主动路线改为 FristOneRR PanVK（glibc）+ Zink；evidence 46 已在该路线完成 G77 设备枚举、
-> logical device、host-visible storage buffer 和 compute job + GPU readback。图形 renderer 尚未验收；
+> logical device、host-visible storage buffer、compute job 和离屏 graphics draw + 像素回读。
+> swapchain / WSI / renderer 尚未验收；
 > 本文件保留为已完成的 M1/M2 资产和后备方案。
 
 ## 0. 一句话

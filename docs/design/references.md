@@ -253,7 +253,8 @@ gh api repos/<owner>/<repo> --jq '.full_name+" @"+.default_branch+" "+(.pushed_a
   并设为 4G 后，警告消失。修复后产物 sha256
   `ead96201dc84b653f9b643db00e2af239b763c3ecf61f5cf2caa6f44c96de5ec`。
 - **FACT**：纯 Rust probe 已提交 compute job，`vkQueueSubmit` + fence 后读回 GPU 写入
-  `0x4855534b`；但没有 graphics draw / swapchain / renderer，不能把 compute 结果写成完整 GPU 完成。
+  `0x4855534b`；并完成真实顶点缓冲 + vertex/fragment shader + `vkCmdDraw` 的离屏 graphics
+  管线，回读红色像素 `0xff0000ff`。仍没有 swapchain / WSI / renderer，不能写成完整 GPU 完成。
 - **FACT**：FristOneRR 文档警告 kbase 在容器/chroot/proot 中可能触发厂商内核 bug，
   某些设备需要内核侧修复；因此在 RMX3357 上只先做 `vulkaninfo --summary` 级别的
   device-create 验证，跑通前不盲目提交 job。

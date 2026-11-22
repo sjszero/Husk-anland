@@ -1,0 +1,26 @@
+; Offscreen triangle vertex shader with a real vertex buffer input.
+OpCapability Shader
+OpMemoryModel Logical GLSL450
+OpEntryPoint Vertex %main "main" %in_pos %out_color %gl_Position
+OpDecorate %in_pos Location 0
+OpDecorate %out_color Location 0
+OpDecorate %gl_Position BuiltIn Position
+%void = OpTypeVoid
+%fn = OpTypeFunction %void
+%float = OpTypeFloat 32
+%v4float = OpTypeVector %float 4
+%ptr_input_v4 = OpTypePointer Input %v4float
+%ptr_output_v4 = OpTypePointer Output %v4float
+%in_pos = OpVariable %ptr_input_v4 Input
+%out_color = OpVariable %ptr_output_v4 Output
+%gl_Position = OpVariable %ptr_output_v4 Output
+%float_0 = OpConstant %float 0
+%float_1 = OpConstant %float 1
+%red = OpConstantComposite %v4float %float_1 %float_0 %float_0 %float_1
+%main = OpFunction %void None %fn
+%entry = OpLabel
+%pos = OpLoad %v4float %in_pos
+OpStore %gl_Position %pos
+OpStore %out_color %red
+OpReturn
+OpFunctionEnd

@@ -1,4 +1,4 @@
-# evidence 46 — FristOneRR PanVK 在 guest 内枚举 Mali-G77，并提交 compute job
+# evidence 46 — FristOneRR PanVK 在 guest 内跑通 Mali-G77 compute 与离屏图形
 
 日期：2026-11-23 · 设备：RMX3357 / MT6893 / Mali-G77 MC9 / Android 13 / kernel 4.19.191
 执行域：`com.linuxhub.husk` 的 `untrusted_app`，guest rootfs：`files/rootfs-full`
@@ -12,8 +12,12 @@
   读回 GPU 写入的 `0x4855534b`。
 - **FACT**：初次设备打开时 `KBASE_IOCTL_MEM_EXEC_INIT` 返回 `EPERM`；按 `jm-v9` 先例把
   `MEM_EXEC_INIT` 移到 `MEM_JIT_INIT` 之前并把 exec VA 设为 4G 后，警告消失，compute job 成功。
-- **UNKNOWN**：还没有 graphics pipeline、swapchain 或 `eglinfo`/`glxinfo` renderer 结果；
-  因此不能写成 GPU 图形渲染完成，也不能替代第 2 条完整验收。
+- **FACT**：纯 Rust `vulkan-probe` 已跑通一条离屏 graphics 管线：创建 R8G8B8A8 颜色附件、
+  render pass、framebuffer、真实顶点缓冲、vertex/fragment shader 和 graphics pipeline，
+  执行 `vkCmdDraw(3,1,0,0)`，再 `vkCmdCopyImageToBuffer`，fence 后回读到红色像素
+  `0xff0000ff`。连续重复两次均为同一结果。
+- **UNKNOWN**：swapchain / WSI / SurfaceFlinger、`eglinfo` / `glxinfo` 和 Zink renderer 尚未验证；
+  离屏 draw 通过不等于窗口系统或完整 GPU 产品验收完成。
 
 ## 1. 采用的源码与为什么换掉 funnymdzz
 
@@ -123,17 +127,24 @@ files/rootfs-full/usr/share/vulkan/icd.d/husk_panvk_frist370_execva.json
 
 ## 3. 纯 Rust `vulkan-probe`
 
-源码：`runtime/crates/vulkan-probe/src/main.rs`。它 `dlopen("libvulkan.so.1")`，动态解析
+源码：`runtime/crates/vulkan-probe/src/main.rs`、`src/graphics.rs` 和
+`shaders/{compute,tri.vert,tri.frag}.spv*`。它 `dlopen("libvulkan.so.1")`，动态解析
 Vulkan 入口，不链接 Vulkan loader/ICD；流程是：
 
 ```text
 instance -> physical device -> queue family -> logical device -> queue
--> storage buffer -> allocate/bind/map -> SPIR-V compute pipeline -> descriptor set
--> command buffer -> vkQueueSubmit -> fence -> map/readback -> teardown
+-> compute: storage buffer -> descriptor -> SPIR-V compute pipeline
+   -> vkCmdDispatch -> vkQueueSubmit -> fence -> GPU readback
+
+-> graphics: color image/view -> render pass + framebuffer
+   -> vertex buffer -> vertex/fragment SPIR-V -> graphics pipeline
+   -> vkCmdDraw -> image-to-buffer copy -> vkQueueSubmit -> fence -> pixel readback
+
+-> teardown
 ```
 
-本阶段**没有** graphics draw、swapchain 或窗口；compute job 只证明 shader 管线和 queue submit
-已经到达硬件并完成，不能替代 renderer 验收。
+离屏 graphics 只覆盖 render pass / draw / image copy 和像素回读；没有 swapchain 或窗口，
+不能替代 Surface / WSI / `eglinfo` / `glxinfo` 验收。
 
 设备运行命令：
 
@@ -143,10 +154,11 @@ adb -s UKHMMB8PYTGECMNV shell 'run-as com.linuxhub.husk sh -c "cd files && \
   export VK_DRIVER_FILES=\$VK_ICD_FILENAMES && \
   export PANVK_DEBUG=startup && \
   export PANVK_KBASE_DVFS=none && \
-  timeout 30 sh gexec2.sh rootfs-full usr/bin/vulkan-probe-v3"'
+  timeout 40 sh gexec2.sh rootfs-full usr/bin/vulkan-probe-v4"'
 ```
 
-实际输出（FACT）：
+实际输出（FACT；最终构建的 probe sha256 为
+`0d78a48db5f5c29de53efbeac921580102db18d28e94a3fefc9aefd81dfc7666`）：
 
 ```text
 MESA: info: panvk_debug: startup|noafbc
@@ -161,7 +173,7 @@ MESA: info: panvk (Mali-G77 MC9) FristOneRR 1.2.0 (Mesa 26.3.0-devel)
 MESA: info: panvk: gpu_id=0x90800011 variant=0x0 texture_features0=0xf7fffffe afbc=1 afrc=0
 vk|physical|PASS|count=1 name=Mali-G77 MC9
 vk|queue_family|PASS|index=0 flags=0x7 queues=1
-vk|device|PASS|queue=0x55905633f0 VkResult=0
+vk|device|PASS|queue=0x55748057c0 VkResult=0
 vk|memory_types|PASS|count=3
 vk|buffer|PASS|created/bound/mapped size=4096 type=2 readback=0x4855534b
 vk|compute|PASS|shader words=98
@@ -170,11 +182,26 @@ vk|compute|PASS|descriptor
 vk|compute|PASS|commands
 vk|compute|PASS|queue_submit+fence
 vk|compute|PASS|readback=0x4855534b
+vk|graphics|PASS|pipeline
+vk|graphics|PASS|commands
+vk|graphics|PASS|queue_submit+fence
+vk|graphics|PASS|pixel=0xff0000ff expected=0xff0000ff
+vk|graphics|PASS|teardown
 vk|teardown|PASS|device/instance/loader released
 ```
 
 第一次运行时 compute readback 是 `0x4855634b`；原因是手写的 SPIR-V 常量十进制值写错，
 不是 GPU 结果错误。把它修正为 `0x4855534b` 后重复运行两次，均得到期望值。
+
+graphics 首次尝试时 pipeline / commands / queue submit / fence 都返回成功，但像素读回仍是
+清屏值。为了排除“copy 没执行”和“fence 假完成”：
+
+1. 把清屏色改成绿色，回读得到 `0xff00ff00`，证明 render pass clear + image-to-buffer copy 生效；
+2. 提交前把 readback buffer 填成 sentinel，提交后不再看到 sentinel，进一步证明 copy 覆盖了缓冲区；
+3. 根因取证只做到组合层面：第一版 vertex shader 只靠 `gl_VertexIndex` 且不绑定顶点缓冲，
+   没有产生可见 fragment；改为真实顶点缓冲 + 输入 `Location 0` 后连续两次得到红色像素。
+   这足以证明当前可工作的最小管线，但**没有**把第一版失败武断归因成 PanVK 的
+   `gl_VertexIndex` bug（UNKNOWN）。
 
 `vulkaninfo --summary` 也在同一 ICD 下 exit 0，并报出：
 
@@ -198,7 +225,11 @@ GPU0:
 - **FACT**：未改顺序前该 ioctl 返回 `EPERM`，日志说 “executable BO allocation will not work”。
 - **FACT**：改成 EXEC_VA 先于 JIT 后，本机 compute probe 已成功提交并由 GPU 写回 storage buffer；
   因此该告警不是“GPU 不可用”的充分证据。
-- **UNKNOWN**：graphics pipeline、tiler/IDVS、swapchain 和 WSI 尚未验证；这些仍需单独上机取证。
+- **FACT**：本机离屏 graphics pipeline、vertex/fragment draw、image copy 和像素回读已经跑通；
+  这只覆盖无窗口路径。
+- **INFERENCE**：该产物运行在 FristOneRR 的 JM 提交路径上，图形 job 会经过 tiler/IDVS；
+  本轮通过像素结果验证了整条路径，但没有单独插桩计数每个硬件阶段。
+- **UNKNOWN**：swapchain、WSI、SurfaceFlinger、Zink、`eglinfo` / `glxinfo` 仍未验证。
 
 ### atom stride
 
@@ -207,8 +238,8 @@ GPU0:
 
 ### 下一步顺序
 
-1. 继续验证 atom stride / JM 提交路径，记录 compute job 的实际 submit 计数和完成事件。
-2. 做最小 graphics draw（离屏三角形或 `vkcube`），验证 tiler/IDVS 与像素回读。
-3. 接上 surface / Zink，最终通过 `eglinfo`/`glxinfo` renderer、硬件 vs llvmpipe
+1. 保持 `vulkan-probe` 的 compute + offscreen graphics 作为回归门禁；每次 ICD 更新都重跑。
+2. 接上 surface / swapchain / WSI，验证 Android Surface 与 guest 渲染面的交换路径。
+3. 让发行版自带 Zink 走这颗 PanVK，最终通过 `eglinfo`/`glxinfo` renderer、硬件 vs llvmpipe
    和长稳测试，才算 GPU 完成。
 4. 显示零拷贝、视频硬解、音频 AAudio 按 `docs/GOALS.md` 继续，不能拿软件渲染或软解冒充验收。

@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 02:35）
+# 当前状态（2026-11-23 02:39）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -8,7 +8,8 @@
 在 RMX3357（MT6893 / Android 13 / kernel 4.19.191 / 4 KiB 页）上，普通应用域（`untrusted_app`）
 里跑起了 glibc bash 交互会话；壳应用是纯 Rust NativeActivity（无 Java）；GPU 侧已由
 FristOneRR PanVK 在 guest 内报出 **Mali-G77 MC9**，纯 Rust 探针完成 logical device、queue、
-host-visible storage buffer，并提交 compute job；GPU 写回 `0x4855534b` 已由 fence 后回读确认。
+host-visible storage buffer、compute job 和离屏 graphics draw；GPU 写回 `0x4855534b`、
+像素回读 `0xff0000ff` 均已由 fence 后确认。
 
 ## GPU 侧最新（evidence 46，2026-11-23）
 
@@ -21,8 +22,10 @@ host-visible storage buffer，并提交 compute job；GPU 写回 `0x4855534b` �
   queue / memory types / 4 KiB buffer allocate+bind+map+readback / teardown 全部 PASS。
 - **compute job 已通过（FACT）**：`vkCmdDispatch` + `vkQueueSubmit` + fence 后，GPU 将
   `0x4855534b` 写入 storage buffer；修复了 `MEM_EXEC_INIT` 在 JIT 前初始化的顺序问题。
-- **仍未完成（FACT）**：graphics draw、tiler/IDVS、swapchain、surface 与 `eglinfo`/`glxinfo`
-  renderer 均未验证，不能把 compute job 当成 GPU 验收完成。
+- **离屏 graphics 已通过（FACT）**：真实顶点缓冲、vertex/fragment SPIR-V、render pass、
+  `vkCmdDraw`、image-to-buffer copy + fence 后回读红色像素 `0xff0000ff`，连续两次 PASS。
+- **仍未完成（FACT）**：swapchain、WSI、Surface、Zink 与 `eglinfo`/`glxinfo` renderer
+  均未验证，不能把离屏 draw 当成 GPU 验收完成。
 - **保留对照（FACT）**：`funnymdzz/mesa` `kbase-v0.1.2` 在 `vkCreateDevice` 处因 kbase fd 上
   `drmSyncobjCreate()` 失败而报 `VK_ERROR_OUT_OF_HOST_MEMORY`，不再作为主动路线。
 
@@ -73,7 +76,8 @@ host-visible storage buffer，并提交 compute job；GPU 写回 `0x4855534b` �
 | PanVK kbase 物理设备 | **通过**：guest 内 `vulkaninfo --summary` 报 Mali-G77 MC9 / PanVK | 46 |
 | PanVK logical device + buffer | **通过**：instance、device、queue、4 KiB host-visible buffer map/readback | 46 |
 | PanVK compute job | **通过**：SPIR-V shader + compute pipeline + `vkQueueSubmit` + fence + GPU readback | 46 |
-| PanVK graphics / renderer | **未验证**：还没有 draw、swapchain、`eglinfo/glxinfo` 真实 renderer | 46 / 后续 |
+| PanVK graphics | **离屏 draw 通过**：真实顶点缓冲 + vertex/fragment + draw + GPU 像素回读 | 46 |
+| PanVK swapchain / renderer | **未验证**：还没有 swapchain、Surface、`eglinfo/glxinfo` 真实 renderer | 46 / 后续 |
 | 软作业（`SOFT_EVENT_SET/WAIT`） | **本机无效果**：6 种偏移 + `compat_core_req` 双写 + 先 `MEM_JIT_INIT` + 换分配标志（CACHED_CPU / COHERENT_SYSTEM），显存里的标志字节始终为 0 | 40 |
 
 ## 本轮（21:24–21:31）做了什么
