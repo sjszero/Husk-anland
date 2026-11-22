@@ -13,6 +13,8 @@ Husk 运行时的设计与证据。产品介绍见 [../../README.md](../../READM
 | [evidence/](evidence/) | 原始设备输出 01–46，编号被方案与其他文档引用 |
 | [reference-request-20261122.md](reference-request-20261122.md) | 用户提供的参考仓库原始清单（12 类、120 条，未审计） |
 | [references.md](references.md) | 参考仓库真实路径、可用性、已拉取 commit 与借鉴结论 |
+| [reference-audit-matrix.md](reference-audit-matrix.md) | 原始 12 类 / 120 条逐项审计矩阵（完整、保留重复项） |
+| [reference-audit-20261123.json](reference-audit-20261123.json) | 与矩阵同源的机器可读审计快照 |
 | [mali-kbase-prior-art.md](mali-kbase-prior-art.md) | Mali kbase / PanVK / Panfrost 前人实现的源码级规格 |
 | [history/](history/) | 定案前的探索记录（候选枚举、原型、决策日志），仅存档 |
 

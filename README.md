@@ -141,6 +141,8 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 | [证据](docs/design/evidence/) | 01–46：设备原始输出，与方案引用一一对应 |
 | [参考仓库原始清单](docs/design/reference-request-20261122.md) | 用户提供的 12 类、120 个条目，逐字保存 |
 | [参考仓库审计](docs/design/references.md) | 真实路径、可用性、已拉取 commit 与借鉴结论 |
+| [参考仓库逐条矩阵](docs/design/reference-audit-matrix.md) | 原始 120 条逐项对应：69 GitHub + 45 官方上游/组件 + 6 UNKNOWN |
+| [参考仓库机器记录](docs/design/reference-audit-20261123.json) | 120 条审计快照：来源、级别、star、push 日期、状态 |
 | [变更记录](CHANGELOG.md) | 版本与已完成事项 |
 
 开发者上手请见 [QUICKSTART.md](QUICKSTART.md)。

@@ -143,7 +143,12 @@ eglinfo 报 Mali-G77；音频出声并有延迟数字；H.264/HEVC 硬解、AV �
 ## 7. 前人植树：参考仓库纪律
 
 - 原始用户清单：`docs/design/reference-request-20261122.md`（逐字保留，仅作资料）。
-- 审计与真实路径：`docs/design/references.md`。
+- 功能归并结论：`docs/design/references.md`。
+- 120/120 逐条矩阵：`docs/design/reference-audit-matrix.md`；机器快照：
+  `docs/design/reference-audit-20261123.json`。
+- 2026-11-23 审计口径：69 条 GitHub、45 条官方上游/组件、6 条 UNKNOWN；
+  GitHub 身份用 `gh api` 核对，官方源用代理实测 HTTP 200，UNKNOWN 不猜链接。
+- 不是每个仓库都逐行读过。A 级 28 条是下一阶段优先源码阅读面，不能把“已定位”冒充“已采纳”。
 - Mali kbase 源码级规格：`docs/design/mali-kbase-prior-art.md`。
 - 规则：先审计别人怎么做，再决定自己写；清单里的名字不等于真实仓库；参考实现不等于可直接依赖。
 - 只把**当前会用到的**仓库拉到 `/tmp/refs2`，记录 URL + commit；不要把大仓库 vendoring 进 Husk。

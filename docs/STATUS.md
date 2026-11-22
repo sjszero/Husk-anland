@@ -41,7 +41,8 @@ host-visible storage buffer、compute job 和离屏 graphics draw；GPU 写回 `
   当前主动路线改用前人已验证的 **panvk kbase fork（glibc 构建）+ 发行版 Zink**。
   DRM 语义层保留为 M1/M2 资产和后备，不删。
 - 原始参考清单：`docs/design/reference-request-20261122.md`（12 类、120 个条目，逐字保存）。
-  真实路径与审计：`docs/design/references.md`。
+  真实路径与结论：`docs/design/references.md`；逐条矩阵：`docs/design/reference-audit-matrix.md`
+  （120/120：69 GitHub + 45 官方上游/组件 + 6 UNKNOWN；机器快照 JSON 同目录）。
 
 ## 能力表（FACT）
 

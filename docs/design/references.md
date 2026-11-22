@@ -5,8 +5,10 @@
 >
 > 来源：用户提供的一份第三方清单（12 类、120 个条目，含重复项；逐字归档于
 > [`reference-request-20261122.md`](reference-request-20261122.md)）。清单本身是别的 AI 生成的，
-> **名字不等于仓库**；本表按功能去重为 63 组，并核对真实路径与 star（核对时间 2026-11-22，`gh api`）。
-> 核对状态：✅ 存在且已核对 · 🔎 未核对（上游在 gitlab/git.kernel.org 等非 GitHub 源） · ❌ 查无此仓库
+> **名字不等于仓库**。本文件按功能合并，保留面向实现的结论；逐条 120/120 的最终审计矩阵在
+> [`reference-audit-matrix.md`](reference-audit-matrix.md)，机器可读快照在
+> [`reference-audit-20261123.json`](reference-audit-20261123.json)。
+> 核对状态：✅ GitHub/官方上游已核对 · 🔎 仅作外围参考 · ❌ 无法唯一确认（不猜链接）
 >
 > 约束提醒：这些是**参考**，不是依赖清单。有的要 root / 虚拟化 / 特权，只能借思路。
 
@@ -162,14 +164,15 @@ GIT_CONFIG_GLOBAL=/dev/null git -c http.proxy=http://127.0.0.1:7897 clone --dept
 
 ## 审计进度
 
-- 2026-11-22 第一遍：逐条核对真实路径（`gh api` + 搜索）。清单 120 个条目去重后，能对上真实仓库的 **41** 项；
-  对上不上的集中在 proot 替代类（清单来自第三方 AI，有编造/记错）。
+- 2026-11-22 第一遍：逐条核对真实路径（`gh api` + 搜索）。当时只对上 **41** 项，未对上项集中在 proot 替代类。
 - 2026-11-22 第二遍（走代理补查）：`Shroot→mekhontsev/shroot`、`zproot→zproot/zproot`、
   `Piperella/Piperella-Wayland-Compositor`、`Anland→SuperTurtleDev/anland`、`MagicDesk→mekhontsev/magicdesk`、
   `DroidDesk→orailnoor/DroidDesk`、`DroidDeck→Droid-Deck/DroidDeck`；
   并补到三份**同代 Mali 实现**：`Noysz/panvk-g99-jm`（v9 JM）、`apexspan-svg/mesa-panvk-mali-g57`（kbase+X11）、
   `m8l8th814n-eng/mesa-gs101`（写明 G77）。
-- 仍然 ❌ 未找到：`proroot`、`elf_loader`（同名仓库无关）、`usix-termux`、`mesa-tu8` 原名。
+- 当时仍 ❌ 未找到：`proroot`、`elf_loader`（同名仓库无关）、`usix-termux`、`mesa-tu8` 原名。
+- 2026-11-23 第四遍（最终逐条矩阵）：`proroot→coderredlab/proroot`、`mesa-tu8→Droid-VM/turnip`、
+  `Droid-Deck Drivers→Droid-Deck/Drivers`、`Adreno Tools→K11MCH1/AdrenoToolsDrivers` 均已定位。
 - **已真读过源码的**（不只是看 README）：`manoedinata/mesa-kbase-j4lte`（libdrm-kbase 1785 行 C + Mesa 补丁）、
   `BkaNeko/panvk-mtk-driver`（903 行 MTK panvk 补丁）、`zenithblue-oss/panvk-kbase-android`（README + 目录树）。
 
@@ -270,10 +273,10 @@ gh api repos/<owner>/<repo> --jq '.full_name+" @"+.default_branch+" "+(.pushed_a
 
 ### 0.5.4 其余清单的审计口径
 
-- 原始清单 120 条，去重后 113 个名字；`references.md` 前面的 12 类表格按功能合并为 63 组。
-- `elf_loader` 仍未能对应到可信的唯一仓库：GitHub 上的同名项目都是通用/嵌入式 ELF loader，
-  不是“Bionic 进程加载 glibc ELF”的那个项目；因此状态保持 **UNKNOWN**，不伪造链接。
-- `mesa-patches`、`Local Desktop`、`Adreno Tools` 等泛化名字按搜索结果只能确认到同名/近似项目，
-  未把它们当作已审计的上游；其中 `localdesktop/localdesktop.github.io` 是产品项目而非驱动源码。
+- 原始清单 120 条全部逐条落盘，**保留重复项**：69 条 GitHub 仓库、45 条官方上游/组件、6 条无法唯一确认。
+- 无法唯一确认的 6 条：`elf_loader`、`mesa-patches`、`Local Desktop`、`ARM Mali GPU Tools`、
+  `usix-termux`、`pr`。同名或近似项目不作为原项目，避免伪造链接。
+- 已确认但实用性受限：`proroot` 是闭源二进制；`mesa-tu8` 与 `libtar` 已归档。
+- `Adreno Tools` 已在第四遍确认到 `K11MCH1/AdrenoToolsDrivers`；不再保持 UNKNOWN。
 - 高优先级顺序不变：`proroot`（架构旁证，bin-only）→ `FristOneRR` / `faux123` / `zenithblue`
   （Mali kbase 源码）→ `mesa` 上游 → `libhybris` / Zink（容器 GPU 对照）→ 其余桌面/媒体/系统参考。

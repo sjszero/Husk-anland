@@ -1,5 +1,17 @@
 # 变更记录
 
+## 2026-11-23 — 参考仓库 120/120 逐条审计落盘
+
+- 新增 `docs/design/reference-audit-matrix.md`：用户原始清单 12 类、120 条全部保留，
+  每条给出真实来源、核验状态、A/B/C 优先级与 Husk 用法；不再用 63 组合并表代替逐条结论。
+- 新增 `docs/design/reference-audit-20261123.json`：机器可读审计快照。结果：
+  69 条 GitHub、45 条官方上游/组件、6 条 UNKNOWN；A/B/C = 28/44/48。
+- 纠正旧审计遗漏：`proroot→coderredlab/proroot`、`mesa-tu8→Droid-VM/turnip`、
+  `Droid-Deck Drivers→Droid-Deck/Drivers`、`Adreno Tools→K11MCH1/AdrenoToolsDrivers`。
+- 明确不猜的 6 项：`elf_loader`、`mesa-patches`、`Local Desktop`、`ARM Mali GPU Tools`、
+  `usix-termux`、`pr`。`proroot` 为闭源二进制，`mesa-tu8` / `libtar` 已归档。
+- `references.md`、README、STATUS、设计索引、PROJECT-MEMORY 已同步，后续模块先查矩阵再决定自研。
+
 ## 2026-11-23 — PanVK 离屏 graphics draw 在 Mali-G77 上通过
 
 - **evidence 46** 扩展：纯 Rust `vulkan-probe` 新增 `graphics.rs` 与 vertex/fragment SPIR-V，
