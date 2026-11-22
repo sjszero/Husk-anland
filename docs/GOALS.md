@@ -53,7 +53,21 @@ FACT：`com.linuxhub.myth` 不是 debuggable 包，`run-as` 直接拒绝（`pack
 设备无 root，所以**读不到** `/data/user/0/com.linuxhub.myth/files/...`。这与签名无关，
 是 Android 的沙箱。
 
-不需要读它：2.0 的 rootfs 是可复现的（`linuxhub-repo/OFFLINE_ASSETS.md`）：
+**本机就有完整的包（2026-11-22 找到，FACT）**：
+
+```
+~/Downloads/LinuxHub-1.2.0-MediaTek-X11-compositor.apk        (856 MB)
+  assets/rootfs/ubuntu-26.04-x11-plasma6-arm64.tar           (557,023,292 B)  ← 完整 rootfs
+  assets/offline/firefox/firefox-arm64.tar                   (291,635,200 B)
+  assets/offline/fastfetch/fastfetch-linux-aarch64.deb       (5,966,464 B)
+  assets/runtime/arm64-v8a/{loader,proot,libandroid-shmem.so,libgetifaddrs_bridge.so,libtalloc.so.2}
+```
+
+用法：主机上 `unzip` 取出来 → 解到 Husk 自己的私有目录（例如
+`/data/data/com.linuxhub.husk/files/rootfs-full`），**不读也不写** `com.linuxhub.myth`。
+这就是"复制一份再弄"的正确形态。
+
+另一条路（可复现构建，`linuxhub-repo/OFFLINE_ASSETS.md`）：
 
 - `app/src/main/assets/rootfs/ubuntu-base-24.04.4-base-arm64.tar`（Ubuntu 官方 base）
 - `app/src/main/assets/offline/bootstrap-arm64.tar`
