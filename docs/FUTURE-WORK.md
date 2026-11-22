@@ -44,7 +44,24 @@ bionic 侧进程 → EGL → Android Surface → 屏幕
 4. per-SoC 格式 quirk：仅像素格式与 modifier 接受范围不同，运行时查询
    `VK_EXT_image_drm_format_modifier` 能力即可，不需要为高通/天玑分别写分支。
 
-### 1.5 可行度与相对工作量
+### 1.5 2026-11-22 实测（evidence 24）
+
+| 探测 | 结果 |
+|---|---|
+| `/dev/ptmx` | **可打开** → PTY 可用，产品壳可以做真终端 |
+| `/dev/kgsl-3d0` | **可打开**，`/sys/class/kgsl/kgsl-3d0/gpu_model` = Adreno825 |
+| `/dev/dri/renderD128`、`/dev/dri/card0` | **拒绝** → 无显示控制通路 |
+| guest 视图中的 `/vendor`、`/system`、`/apex` | **不存在** → guest 看不到厂商图形栈 |
+| `/vendor/lib64/egl/*`、`vulkan.adreno.so` | 在 guest 中不可见 |
+
+两条修正：
+
+1. **"厂商内核节点对 untrusted_app 一律关闭"不成立**——本机 kgsl 是 `crw-rw-rw-` 且可打开。
+   是否连 ioctl 也能用**尚未测试**，所以设计上把它当作运行时探测项，不作为假设。
+2. **桥必须放在 bionic 进程**——guest 连 `/vendor` 都看不见，无法自行加载厂商驱动。
+   这不是推断，是实测。
+
+### 1.6 可行度与相对工作量
 
 | 目标 | 可行度 | 相对工作量 |
 |---|---|---|
@@ -98,8 +115,8 @@ Termux 包形态的技术前提（**均未验证**）：
 
 | 项 | 影响 | 状态 |
 |---|---|---|
-| `open("/dev/ptmx")` 在 `untrusted_app` 是否可用 | 决定产品壳是 PTY 终端还是管道协议（后者失去 `vim`/`htop`） | 未测 |
-| `/dev/dri/renderD128` 能否打开 | 决定图形走 dmabuf 共享还是更绕的路 | 未测 |
-| `/dev/fastrpc-cdsp` 访问权 | 决定 NPU 是否只剩 NNAPI | 未测 |
+| `open("/dev/ptmx")` 在 `untrusted_app` 是否可用 | 决定产品壳是 PTY 终端还是管道协议（后者失去 `vim`/`htop`） | **已测：可用**（evidence 24） |
+| `/dev/dri/renderD128` 能否打开 | 决定图形走 dmabuf 共享还是更绕的路 | **已测：拒绝**；`/dev/kgsl-3d0` 反而已开放（evidence 24） |
+| `/dev/fastrpc-cdsp` 访问权 | 决定 NPU 是否只剩 NNAPI | 本机该节点不存在（高通平台） |
 | 16K 页内核 | 只保证 4K | 未测 |
 | Termux prefix 可执行性 | 决定 Termux 发行形态是否成立 | 未测 |

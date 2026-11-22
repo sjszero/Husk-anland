@@ -1,0 +1,67 @@
+evidence 24 - what the guest can actually reach: PTY, GPU nodes, vendor trees
+2026-11-22   device PLE110 (snapdragon, Adreno825), Android 16, PAGE_SIZE 4096
+domain untrusted_app, uid 10512, rootfs Ubuntu 24.04 / glibc 2.39
+
+WHY
+  Four design questions were open and would change the product shape, so they were
+  measured instead of assumed: can we get a real PTY, can we reach the GPU, and can
+  the guest see Android's vendor libraries.
+
+METHOD
+  tools/native-runtime-tests/04-device-probe.sh    (nodes + open tests)
+  tools/native-runtime-tests/04b-mounts-probe.sh   (mount view + kgsl sysfs)
+  Read-only. Run through run-guest.sh inside the loader.
+
+RESULT 1 - PTY: available  (FACT)
+  /dev/ptmx            crw-rw-rw- 0 0      OPEN ok
+  /dev/pts             drwxr-xr-x 0 0
+  /dev/pts/ptmx                            OPEN DENIED
+  => posix_openpt() works from untrusted_app. The product shell can offer a real
+     terminal (vim/htop class programs are viable). The /dev/pts/ptmx gating node
+     being denied is expected and harmless; only /dev/ptmx is needed.
+
+RESULT 2 - GPU: the device node is open, the DRM nodes are not  (FACT)
+  /dev/kgsl-3d0        crw-rw-rw- 1000 1000   OPEN ok
+  /dev/dri/renderD128                         OPEN DENIED
+  /dev/dri/card0                              OPEN DENIED
+  /dev/mali0                                  MISSING (Qualcomm device)
+  /dev/fastrpc-cdsp                           MISSING
+  /sys/class/kgsl/kgsl-3d0/gpu_model          readable -> Adreno825
+  /sys/class/kgsl/kgsl-3d0 (directory)        permission denied
+
+  This contradicts the assumption that vendor kernel interfaces are always closed
+  to untrusted_app. On this ROM the Adreno KGSL node is world-rw and the domain may
+  open it. Whether KGSL ioctls actually succeed (vs. plain open) is NOT tested; the
+  sepolicy may still filter specific commands.
+
+  What does not change: /dev/dri (DRM/KMS) stays denied, so there is no display
+  control path. Rendering still has to go through the vendor EGL/Vulkan driver.
+
+RESULT 3 - the guest cannot see Android's vendor trees  (FACT)
+  /        dir
+  /dev     dir
+  /proc    dir
+  /sys     dir
+  /vendor  MISSING
+  /system  MISSING
+  /apex    MISSING
+  /vendor/lib64/egl/libGLESv2_adreno.so     absent
+  /vendor/lib64/hw/vulkan.adreno.so         absent
+
+  => the guest cannot load the vendor graphics stack itself: it cannot even see it.
+     Any GPU bridge must therefore live in a bionic process of the app, which sees
+     /vendor normally, and hand buffers to the guest over dmabuf. This is a
+     structural confirmation of the planned architecture, not a guess.
+
+CONSEQUENCES FOR THE PRODUCT
+  - PTY is real: the shell/session feature can be built as designed.
+  - Graphics: the primary path is guest (Vulkan/GL) -> dmabuf -> bionic EGL ->
+    Android Surface. Direct KGSL use is a research/fallback path, gated by a
+    runtime probe, not a design assumption.
+  - Desktop environments must be chosen for a systemd-free, mount-free, no-polkit
+    environment; that is a separate decision (see docs/FUTURE-WORK.md).
+
+CAVEAT
+  The rootfs used for these probes has no awk/sed on PATH, so parts of the first
+  script degraded to "command not found". The measurements above do not depend on
+  them (they use open(2) and read(2) through the shell).
