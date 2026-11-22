@@ -1,6 +1,7 @@
 //! nr-tools - the host-side build tools for the LinuxHub Husk loader.
 //!
-//! Rust port of tools/loader/{nr-scan-syscalls.py,nr-embed.py}. The rule
+//! Rust port of the original tools/loader Python scripts (removed from the tree
+//! after byte-for-byte verification; see tag v0.1.0). The rule
 //! for the port is byte identity: for the same inputs these must produce the
 //! same output bytes as the Python tools (the loader's sha256 is the test).
 //!
@@ -513,7 +514,7 @@ fn embed(shim_path: &str, loader_path: &str, hook_path: &str, out_path: &str) ->
 
     // ---------------------------------------------------------- hook + data --
     let hook_off = span;
-    // NB the hook is padded to a whole page, not to 8: nr-embed.py's align()
+    // NB the hook is padded to a whole page, not to 8: the Python reference's align()
     // defaults to PAGE, and the table addresses are baked from data_off.
     let data_off = hook_off + align(hook.len() as u64, PAGE);
     let mut tables: Vec<u8> = Vec::new();

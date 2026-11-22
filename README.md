@@ -32,7 +32,9 @@ Husk 是**运行时**，不是终端模拟器：终端只是它的一个前端�
 - 用户看到的是应用里的一个会话窗口，而不是一个独立的操作系统。
 
 `app/` 把 guest 的 `bash` 跑在一个真正的 PTY 里，这是目前唯一的用户入口。
-界面仍是演示级——单会话、提示符渲染与窗口尺寸变化尚未完成。
+壳应用本身没有 Java 也没有 C：APK 声明 `android.app.NativeActivity`，入口直接落在
+`app-rs/` 编出来的 Rust 库里（PTY、EGL 渲染、字体光栅化、输入、生命周期全在里面）。
+界面仍是演示级——提示符渲染与滚动回看尚未完成。
 `tools/probe-app` 是最小探针，只用于设备测试。
 
 ## 3. 它解决什么问题
@@ -96,7 +98,7 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 
 | 路径 | 内容 |
 |---|---|
-| `app/` | 壳应用：Android 工程，单会话终端（Java + JNI `forkpty`） |
+| `app/` | APK 打包工程（manifest + gradle）；**全部逻辑在一个 Rust 动态库里** |
 | `runtime/` | 运行时本体与构建工具（Rust workspace，`no_std` 路径层 + `nr-tools`） |
 | `tools/loader/` | loader 手术：`init-hook.S`、构建脚本、Python 参考实现 |
 | `tools/device-tests/` | 设备验收脚本（`run-as` 下跑矩阵、越界、gcc/make） |

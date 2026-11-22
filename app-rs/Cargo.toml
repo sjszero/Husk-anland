@@ -1,0 +1,18 @@
+[package]
+name = "husk-app"
+version = "0.2.0"
+edition = "2021"
+
+[lib]
+name = "huskapp"
+crate-type = ["cdylib"]
+
+[dependencies]
+fontdue = { version = "0.9", default-features = false, features = ["std"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

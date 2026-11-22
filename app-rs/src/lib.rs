@@ -1,0 +1,393 @@
+//! Husk app shell, in Rust only.
+//!
+//! There is no Java and no C in this process: the APK declares
+//! `android.app.NativeActivity`, the platform calls `ANativeActivity_onCreate`
+//! in this library, and from there everything - PTY, guest loader, GL surface,
+//! text, lifecycle - is done here.
+//!
+//! Lifecycle contract (what this file guarantees):
+//!   * the guest session lives as long as the process, not the window;
+//!   * a destroyed surface only takes the GL objects with it;
+//!   * pause/stop keep the PTY reading, so a backgrounded session keeps its
+//!     output instead of silently dropping it;
+//!   * a dead shell (child exited) is restarted by the next tap.
+#![allow(non_snake_case)]
+
+mod gl;
+mod sys;
+mod term;
+
+use core::ffi::{c_char, c_int, c_void};
+use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
+use std::sync::Mutex;
+use sys::*;
+use term::Term;
+
+static WINDOW: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
+static INPUTQ: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
+static ACTIVITY: AtomicPtr<ANativeActivity> = AtomicPtr::new(core::ptr::null_mut());
+static DESTROYED: AtomicBool = AtomicBool::new(false);
+static FOCUSED: AtomicBool = AtomicBool::new(false);
+static LOOPER: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
+static APP: Mutex<Option<Box<App>>> = Mutex::new(None);
+
+extern "C" {
+    fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int;
+}
+
+pub fn log(msg: &str) {
+    if let Ok(c) = std::ffi::CString::new(msg) {
+        unsafe {
+            __android_log_write(4, b"Husk\0".as_ptr() as *const c_char, c.as_ptr());
+        }
+    }
+}
+
+// The pointers inside are only touched from the loop thread; the platform
+// callbacks publish raw handles through atomics and never touch this.
+unsafe impl Send for App {}
+
+struct App {
+    term: Option<Term>,
+    gfx: Option<gl::Gfx>,
+    attached_queue: usize,
+    win_ptr: usize,
+    dirty: bool,
+    /// Screen size the terminal was last laid out for, so a resize is a diff and
+    /// not a repaint storm.
+    laid_out: (usize, usize),
+}
+
+impl App {
+    fn new() -> App {
+        App { term: None, gfx: None, attached_queue: 0, win_ptr: 0, dirty: true, laid_out: (0, 0) }
+    }
+
+    fn paths(&self) -> Option<(String, String, String)> {
+        let act = ACTIVITY.load(Ordering::Relaxed);
+        if act.is_null() {
+            return None;
+        }
+        let act = unsafe { &*act };
+        if act.internalDataPath.is_null() {
+            return None;
+        }
+        let files = unsafe { std::ffi::CStr::from_ptr(act.internalDataPath) }.to_string_lossy().to_string();
+        let rootfs = format!("{files}/rootfs");
+        let libdir = native_lib_dir()?;
+        let loader = format!("{libdir}/libld.so");
+        Some((rootfs, libdir, loader))
+    }
+
+    fn ensure_term(&mut self) {
+        if let Some(t) = &self.term {
+            if !t.dead {
+                return;
+            }
+        }
+        let Some((rootfs, _libdir, loader)) = self.paths() else { return };
+        if !std::path::Path::new(&format!("{rootfs}/usr/bin/bash")).exists() {
+            log(&format!("no rootfs at {rootfs}"));
+            return;
+        }
+        let libpath = format!("{rootfs}/usr/lib/aarch64-linux-gnu");
+        let (cols, rows) = self.laid_out;
+        let (cols, rows) = if cols > 0 { (cols, rows) } else { (80, 24) };
+        match Term::spawn(&loader, &libpath, &rootfs, cols, rows) {
+            Some(t) => {
+                log("guest session started");
+                if let Some(old) = self.term.take() {
+                    if old.fd >= 0 {
+                        unsafe { close(old.fd) };
+                    }
+                }
+                let fd = t.fd;
+                self.term = Some(t);
+                let l = LOOPER.load(Ordering::Relaxed);
+                if !l.is_null() && fd >= 0 {
+                    unsafe {
+                        ALooper_addFd(l, fd, 1000, ALOOPER_EVENT_INPUT, core::ptr::null_mut(), core::ptr::null_mut());
+                    }
+                }
+                self.dirty = true;
+            }
+            None => log("PTY spawn failed"),
+        }
+    }
+
+    /// Rebuilds the GL side when the platform hands us a new surface, and lays
+    /// the terminal out for the current pixel size.
+    fn sync_surface(&mut self) {
+        let win = WINDOW.load(Ordering::SeqCst) as usize;
+        if win == 0 {
+            if self.gfx.is_some() {
+                self.gfx = None; // Drop tears down EGL; the session keeps running.
+            }
+            self.win_ptr = 0;
+            return;
+        }
+        if self.gfx.is_none() || win != self.win_ptr {
+            self.gfx = gl::Gfx::new(win as *mut c_void);
+            self.win_ptr = win;
+            self.dirty = true;
+            if self.gfx.is_none() {
+                log("EGL surface failed");
+                return;
+            }
+        }
+        if let Some(g) = &self.gfx {
+            let (w, h) = g.size();
+            let (cw, ch) = g.cell();
+            if w > 0 && h > 0 && cw > 1.0 && ch > 1.0 {
+                let cols = ((w as f32 / cw).floor() as usize).max(1);
+                let rows = ((h as f32 / ch).floor() as usize).max(1);
+                if (cols, rows) != self.laid_out {
+                    self.laid_out = (cols, rows);
+                    match &mut self.term {
+                        Some(t) => t.resize(cols, rows),
+                        None => self.term = Some(Term::blank(cols, rows)),
+                    }
+                    self.dirty = true;
+                }
+            }
+        }
+    }
+}
+
+fn native_lib_dir() -> Option<String> {
+    let addr = native_lib_dir as *const c_void;
+    let mut info = DlInfo {
+        dli_fname: core::ptr::null(),
+        dli_fbase: core::ptr::null_mut(),
+        dli_sname: core::ptr::null(),
+        dli_saddr: core::ptr::null_mut(),
+    };
+    let ok = unsafe { dladdr(addr, &mut info) };
+    if ok == 0 || info.dli_fname.is_null() {
+        return None;
+    }
+    let p = unsafe { std::ffi::CStr::from_ptr(info.dli_fname) }.to_string_lossy().to_string();
+    let idx = p.rfind('/')?;
+    Some(p[..idx].to_string())
+}
+
+// ------------------------------------------------------------- callbacks ---
+
+static CALLBACKS: ANativeActivityCallbacks = ANativeActivityCallbacks {
+    onStart: Some(on_start),
+    onResume: Some(on_resume),
+    onSaveInstanceState: None,
+    onPause: Some(on_pause),
+    onStop: None,
+    onDestroy: Some(on_destroy),
+    onWindowFocusChanged: Some(on_focus),
+    onNativeWindowCreated: Some(on_window),
+    onNativeWindowResized: Some(on_window),
+    onNativeWindowRedrawNeeded: Some(on_window),
+    onNativeWindowDestroyed: Some(on_window_gone),
+    onInputQueueCreated: Some(on_input_queue),
+    onInputQueueDestroyed: Some(on_input_queue_gone),
+    onContentRectChanged: None,
+    onConfigurationChanged: Some(on_config),
+    onLowMemory: None,
+};
+
+unsafe extern "C" fn on_start(_a: *mut ANativeActivity) {}
+unsafe extern "C" fn on_resume(_a: *mut ANativeActivity) {}
+unsafe extern "C" fn on_pause(_a: *mut ANativeActivity) {}
+unsafe extern "C" fn on_config(_a: *mut ANativeActivity) {
+    if let Ok(mut g) = APP.lock() {
+        if let Some(app) = g.as_mut() {
+            app.dirty = true;
+        }
+    }
+}
+
+unsafe extern "C" fn on_focus(_a: *mut ANativeActivity, focused: c_int) {
+    FOCUSED.store(focused != 0, Ordering::SeqCst);
+    if let Ok(mut g) = APP.lock() {
+        if let Some(app) = g.as_mut() {
+            app.dirty = true;
+        }
+    }
+}
+
+unsafe extern "C" fn on_window(_a: *mut ANativeActivity, w: *mut c_void) {
+    WINDOW.store(w, Ordering::SeqCst);
+}
+
+unsafe extern "C" fn on_window_gone(_a: *mut ANativeActivity, _w: *mut c_void) {
+    WINDOW.store(core::ptr::null_mut(), Ordering::SeqCst);
+}
+
+unsafe extern "C" fn on_input_queue(_a: *mut ANativeActivity, q: *mut c_void) {
+    INPUTQ.store(q, Ordering::SeqCst);
+    let looper = LOOPER.load(Ordering::SeqCst);
+    if !looper.is_null() {
+        AInputQueue_attachLooper(q, looper, 2000, core::ptr::null_mut(), core::ptr::null_mut());
+    }
+}
+
+unsafe extern "C" fn on_input_queue_gone(_a: *mut ANativeActivity, _q: *mut c_void) {
+    INPUTQ.store(core::ptr::null_mut(), Ordering::SeqCst);
+}
+
+unsafe extern "C" fn on_destroy(_a: *mut ANativeActivity) {
+    DESTROYED.store(true, Ordering::SeqCst);
+    let l = LOOPER.load(Ordering::SeqCst);
+    if !l.is_null() {
+        ALooper_wake(l);
+    }
+}
+
+// ---------------------------------------------------------------- the app ---
+
+#[no_mangle]
+pub unsafe extern "C" fn ANativeActivity_onCreate(activity: *mut ANativeActivity, _state: *mut c_void, _size: usize) {
+    if activity.is_null() {
+        return;
+    }
+    ACTIVITY.store(activity, Ordering::SeqCst);
+    (*activity).callbacks = &CALLBACKS as *const _ as *mut ANativeActivityCallbacks;
+    (*activity).instance = core::ptr::null_mut();
+    if let Ok(mut g) = APP.lock() {
+        *g = Some(Box::new(App::new()));
+    }
+    std::thread::spawn(|| {
+        let _ = std::panic::catch_unwind(run);
+    });
+}
+
+fn run() {
+    let looper = unsafe { ALooper_prepare(ALOOPER_PREPARE_ALLOW_NON_CALLBACKS) };
+    if looper.is_null() {
+        log("no looper");
+        return;
+    }
+    LOOPER.store(looper, Ordering::SeqCst);
+
+    let q = INPUTQ.load(Ordering::SeqCst);
+    if !q.is_null() {
+        unsafe { AInputQueue_attachLooper(q, looper, 2000, core::ptr::null_mut(), core::ptr::null_mut()) };
+    }
+
+    while !DESTROYED.load(Ordering::SeqCst) {
+        if let Ok(mut guard) = APP.lock() {
+            if let Some(app) = guard.as_mut() {
+                app.sync_surface();
+                app.ensure_term();
+                let q = INPUTQ.load(Ordering::SeqCst) as usize;
+                if q != 0 && app.attached_queue != q {
+                    unsafe {
+                        AInputQueue_attachLooper(q as *mut c_void, looper, 2000, core::ptr::null_mut(), core::ptr::null_mut());
+                    }
+                    app.attached_queue = q;
+                }
+            }
+        }
+
+        let mut ident: c_int = 0;
+        let mut events: c_int = 0;
+        let mut data: *mut c_void = core::ptr::null_mut();
+        let id = unsafe { ALooper_pollOnce(32, &mut ident, &mut events, &mut data) };
+
+        if let Ok(mut guard) = APP.lock() {
+            if let Some(app) = guard.as_mut() {
+                if id == 1000 {
+                    if let Some(t) = app.term.as_mut() {
+                        if t.read_available() {
+                            app.dirty = true;
+                        }
+                    }
+                } else if id == 2000 {
+                    let q = INPUTQ.load(Ordering::SeqCst);
+                    if !q.is_null() && drain_input(q, app) {
+                        app.dirty = true;
+                    }
+                }
+                if app.dirty {
+                    let focused = FOCUSED.load(Ordering::SeqCst);
+                    if let (Some(gfx), Some(t)) = (app.gfx.as_mut(), app.term.as_ref()) {
+                        gfx.draw(&t.cells, t.cols, t.rows, t.cx, t.cy, focused);
+                    } else {
+                        app.dirty = false;
+                        continue;
+                    }
+                    app.dirty = false;
+                }
+            }
+        }
+    }
+    log("loop exit");
+    if let Ok(mut g) = APP.lock() {
+        *g = None;
+    }
+}
+
+fn drain_input(q: *mut c_void, app: &mut App) -> bool {
+    let mut ev: *mut c_void = core::ptr::null_mut();
+    let mut handled_any = false;
+    loop {
+        let rc = unsafe { AInputQueue_getEvent(q, &mut ev) };
+        if rc < 0 || ev.is_null() {
+            break;
+        }
+        let mut handled = 0;
+        unsafe {
+            if AInputQueue_preDispatchEvent(q, ev) != 0 {
+                handled = 1;
+            } else {
+                let ty = AInputEvent_getType(ev);
+                if ty == AINPUT_EVENT_TYPE_KEY {
+                    if AKeyEvent_getAction(ev) == AKEY_EVENT_ACTION_DOWN {
+                        let meta = AKeyEvent_getMetaState(ev);
+                        let code = AKeyEvent_getKeyCode(ev);
+                        let uni = AKeyEvent_getUnicodeChar(ev, meta);
+                        if let Some(t) = app.term.as_mut() {
+                            match code {
+                                AKEYCODE_DEL => t.send(&[0x7f]),
+                                AKEYCODE_ENTER => t.send(b"\r"),
+                                AKEYCODE_TAB => t.send(b"\t"),
+                                AKEYCODE_DPAD_UP => t.send(b"\x1b[A"),
+                                AKEYCODE_DPAD_DOWN => t.send(b"\x1b[B"),
+                                AKEYCODE_DPAD_RIGHT => t.send(b"\x1b[C"),
+                                AKEYCODE_DPAD_LEFT => t.send(b"\x1b[D"),
+                                _ => {
+                                    if uni > 0 {
+                                        if let Some(ch) = char::from_u32(uni as u32) {
+                                            let mut b = [0u8; 4];
+                                            let s = ch.encode_utf8(&mut b);
+                                            t.send(s.as_bytes());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        handled = 1;
+                    }
+                } else if ty == AINPUT_EVENT_TYPE_MOTION {
+                    let action = AMotionEvent_getAction(ev) & AMOTION_EVENT_ACTION_MASK;
+                    if action == AMOTION_EVENT_ACTION_DOWN {
+                        // Tap: ask for the keyboard, and bring a dead shell back.
+                        if let Some(t) = &app.term {
+                            if t.dead {
+                                app.term = None;
+                                app.ensure_term();
+                            }
+                        }
+                        let act = ACTIVITY.load(Ordering::SeqCst);
+                        if !act.is_null() {
+                            ANativeActivity_showSoftInput(act, 0);
+                        }
+                        handled = 1;
+                    }
+                }
+                AInputQueue_finishEvent(q, ev, handled);
+            }
+        }
+        if handled == 1 {
+            handled_any = true;
+        }
+    }
+    handled_any
+}

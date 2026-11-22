@@ -6,7 +6,7 @@
  * RELRO-protected, and no constructor has run yet, so this is the earliest point
  * at which the GOT of the loaded objects can be rewritten for interposition.
  *
- * Nothing here is hard-coded: nr-embed.py fills nr_hook_data and the descriptor
+ * Nothing here is hard-coded: nr-tools embed fills nr_hook_data and the descriptor
  * page with loader-relative addresses, and the code finds its own load bias with
  * adr/sub, so it is position independent and relocation free.
  *

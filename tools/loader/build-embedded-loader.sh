@@ -6,10 +6,9 @@
 #     -> init-hook.S  (_dl_init hook, 176 bytes, no relocations)
 #     -> nr-tools embed  (one extra R|E PT_LOAD in ld.so, all relocations baked)
 #
-# The ELF surgery is `nr-tools` (Rust, crates/nr-tools). The original Python
-# implementations (nr-scan-syscalls.py, nr-embed.py) stay in this directory as the
-# reference the Rust port is checked against, byte for byte; set NR_TOOLS=python
-# to build with them instead.
+# The ELF surgery is `nr-tools` (Rust, runtime/crates/nr-tools) and it is the only
+# implementation. The Python scripts it replaced were kept as an oracle until the
+# port reproduced them byte for byte; they are in the git history at tag v0.1.0.
 #
 # Prints the numbers nr-tools asserted/derived. Nothing here is a hard-coded
 # offset: the tool checks the loader it is given and refuses to patch a different
@@ -36,14 +35,8 @@ SHIM=$ROOT/runtime/target/aarch64-unknown-linux-gnu/release/libpath_shim.so
 TOOLS=$ROOT/runtime/target/release/nr-tools
 cd "$ROOT/tools/loader"
 
-# same logic, two implementations; NR_TOOLS=python cross-checks the port
-if [ "${NR_TOOLS:-rust}" = python ]; then
-    scan() { python3 nr-scan-syscalls.py "$@"; }
-    embed() { python3 nr-embed.py "$@"; }
-else
-    scan() { "$TOOLS" scan-syscalls "$@"; }
-    embed() { "$TOOLS" embed "$@"; }
-fi
+scan() { "$TOOLS" scan-syscalls "$@"; }
+embed() { "$TOOLS" embed "$@"; }
 
 $NDK/clang -target aarch64-linux-gnu -c init-hook.S -o init-hook.o
 $NDK/llvm-objcopy -O binary init-hook.o init-hook.bin

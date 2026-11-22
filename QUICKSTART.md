@@ -54,8 +54,7 @@ export NDK=$ANDROID_HOME/ndk/<ver>/toolchains/llvm/prebuilt/<host>/bin
 产物：`tools/probe-app/app/src/main/jniLibs/arm64-v8a/libld.so`
 期望 sha256：`1600a850985624b05c8b1c1f9cee5fe8185462da91d0de369dcb9ff30f21cbee`
 
-> 想验证 Rust 移植没跑偏：`NR_TOOLS=python ./tools/loader/build-embedded-loader.sh`
-> 两条路径必须产出同一个 sha256。
+> 产物必须与上面这个 sha256 一致；不一致说明输入或工具被改过。
 
 ## 3. 装工具链进 rootfs（可选，但这是最好玩的部分）
 
@@ -85,6 +84,7 @@ DEV=$DEV ./run-guest.sh accept-gcc-make.sh        # gcc + make 全链
 ## 5. 跑到壳应用里
 
 `app/` 是当前的产品入口：单会话终端，启动 rootfs 里的交互式 `bash`。
+壳应用没有 Java：APK 声明 `android.app.NativeActivity`，逻辑全在 `app-rs/` 的 Rust 库里。
 
 ```sh
 export NDK=$ANDROID_HOME/ndk/<ver>/toolchains/llvm/prebuilt/<host>/bin
@@ -93,11 +93,14 @@ J=app/app/src/main/jniLibs/arm64-v8a
 # 1) 改过的 loader 进 jniLibs
 NDK=$NDK OUT=$PWD/$J ./tools/loader/build-embedded-loader.sh
 
-# 2) PTY 辅助库
-$NDK/aarch64-linux-android24-clang -shared -fPIC -O2 -o $J/libhuskpty.so \
-  app/app/src/main/jni/pty.c -llog
+# 2) 壳应用本体（Rust -> libhuskapp.so）
+cd app-rs
+CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$NDK/aarch64-linux-android24-clang \
+  cargo build --release --target aarch64-linux-android
+cp target/aarch64-linux-android/release/libhuskapp.so ../$J/
+cd ..
 
-# 3) 构建安装（app/local.properties 被 .gitignore 忽略，需要自己写一行 sdk.dir）
+# 3) 打包安装（gradle 只负责把两个 .so 塞进 APK；app/local.properties 被忽略，需自己写）
 echo "sdk.dir=$ANDROID_HOME" > app/local.properties
 cd app && JAVA_HOME="<JDK 17+>" ./gradlew :app:assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk && cd ..
@@ -106,7 +109,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk && cd ..
 adb shell "run-as com.linuxhub.husk sh -c 'mkdir -p files/rootfs && cd files/rootfs && tar -xf /data/local/tmp/husk-rootfs.tar'"
 ```
 
-打开应用会先跑一次自检（`bash -c 'echo HI; id; pwd; ls /'`），然后进入交互会话。
+终端解析器有单元测试，可以在主机上直接跑：`cd app-rs && cargo test`。
 
 ## 6. 换自己的命令
 

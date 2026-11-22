@@ -28,11 +28,11 @@ nr-tools scan-syscalls patch ld.so --version 2.35 ..           → one `svc` -> 
 nr-tools embed shim.so ld.so hook.bin ld-embedded.so           → the product
 ```
 
-The ELF surgery is `crates/nr-tools` (Rust, no dependencies). `nr-scan-syscalls.py`
-and `nr-embed.py` are kept as the **oracle**: the Rust tools must reproduce their
-output byte for byte, and `NR_TOOLS=python build-embedded-loader.sh` still builds with
-them. evidence/22 records the comparison (identical stdout, identical sha256) and the
-two porting bugs it caught.
+The ELF surgery is `runtime/crates/nr-tools` (Rust, no dependencies) and it is the
+only implementation. The Python scripts it replaces were kept as an oracle until the
+port reproduced them byte for byte; evidence/22 records that comparison (identical
+stdout, identical sha256) and the two porting bugs it caught. The oracle was then
+removed from the tree - recover it with `git show v0.1.0:tools/loader/nr-embed.py`.
 
 The same crate also carries `nr-tools provision`, which replaces the sh+python
 toolchain provisioning script (`../device-tests/provision-toolchain.sh`
@@ -40,7 +40,7 @@ is now a thin wrapper over it; evidence/23).
 
 ## The `svc` sites are found, not remembered
 
-`nr-scan-syscalls.py` does not carry offsets. It reads the image's
+`nr-tools scan-syscalls` does not carry offsets. It reads the image's
 `.gnu.version_d` (and refuses another glibc), finds every `svc #0`, walks
 *backwards* for the `mov x8,#NR` that selects the syscall (glibc sets the
 argument registers after x8, so they are several instructions apart), keeps only
@@ -59,15 +59,15 @@ so the runtime keeps glibc from trying rseq with its own documented switch,
 `./build-embedded-loader.sh` runs all of it and drops the result into the probe
 APK's `jniLibs`. With `LIBC=<pristine libc.so.6>` it also emits `libc-nop.so.6`,
 which is the file that must be installed into the guest rootfs (the device copy
-is byte-identical to it). Output is deterministic (`nr-embed.py` twice → identical bytes).
+is byte-identical to it). Output is deterministic (`nr-tools embed` twice → identical bytes).
 
-`nr-embed.py` asserts, and refuses to emit an image if any of it fails: the loader
+`nr-tools embed` asserts, and refuses to emit an image if any of it fails: the loader
 entry address, that `0x1aa74` really is a `bl` to `_dl_init`, the phdr shape,
 offset/vaddr congruence, that the space it claims is empty, and that the hook is
 inside branch range. Patching a different glibc build therefore fails loudly
 instead of producing a subtly broken loader.
 
-## What `nr-embed.py` builds
+## What `nr-tools embed` builds
 
 * one extra `R|E` `PT_LOAD` at vaddr `0x42000` / file `0x32000`, taken from the
   `PT_NOTE` program header (the loader has no spare slot and no free segment

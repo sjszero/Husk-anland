@@ -1,4 +1,4 @@
-# 当前状态（2026-11-22）
+# 当前状态（2026-11-22 夜）
 
 ## 能用
 
@@ -10,7 +10,8 @@
 | gcc 13.3 全链（`cc1`/`as`/`ld`）+ make | 通过 | evidence 16, 17 |
 | 交互式会话（PTY 里跑 `bash -i`） | 可用 | evidence 25 |
 | 设备可达性：`/dev/ptmx`、`/dev/kgsl-3d0` | 可打开 | evidence 24 |
-| 壳应用（`app/`）单会话终端 | 可运行 | 本机实测 |
+| 壳应用（`app/`）单会话终端 | 旧版（Java+JNI）实测可用 | evidence 25 |
+| 壳应用改为纯 Rust（`app-rs/`） | 已编译、已打包，**未上机** | UNVERIFIED |
 
 交互式会话的根因修复：glibc 2.35+ 启动时注册 `rseq`，被 Android seccomp 判为 SIGSYS，
 发生时路径层还没来得及装处理器——启动器必须带 `GLIBC_TUNABLES=glibc.pthread.rseq=0`。
@@ -32,3 +33,27 @@
 - 图形桥、音频桥（见 [FUTURE-WORK.md](FUTURE-WORK.md)）；
 - 16K 页内核、第二台设备、长稳测试；
 - 与 LinuxHub 应用的正式集成。
+
+## 设备与环境（重要）
+
+- 2026-11-22 白天验证在 **PLE110**（Android 16 / kernel 6.6 / 4K 页）上完成，evidence 01–25 全部来自它。
+- 当晚那块设备已断开，当前接的是 **RMX3357**（realme / Android 13 / kernel 4.19.191 / arm64）。
+  这台机器上**还没有** `com.linuxhub.husk`、也没有 rootfs。
+- 因此纯 Rust 壳应用目前只做到「编译 + 打包通过」，上机验证（原生 Activity 起来、EGL 出画面、
+  PTY 里有 bash）**尚未执行**，不能算通过。
+
+## 下一步（按依赖关系）
+
+不依赖设备的（可先做）：
+
+1. `nr-tools rootfs`：在主机上解析 Ubuntu noble 的包集、解包成 rootfs 目录、装改过的 libc 与 loader、
+   打好 tar —— 现在 rootfs 只能靠现成 tar 包，这是最大的可用性缺口；
+2. 滚动回看与更完整的 ANSI（光标保存/恢复、行内擦除、颜色表），配单元测试；
+3. APK 打包去 gradle（aapt2 + 签名），需要设备验证，先不动。
+
+依赖设备的（等机器接上）：
+
+1. 纯 Rust 壳应用上机：启动、出画面、bash 交互、旋转/尺寸变化、`vim`/`htop`；
+2. 在 RMX3357（4.19 内核 / Android 13）上重跑 31 项矩阵与越界测试 —— 目前全部结论只来自 Android 16；
+3. `apt` 冒烟：dpkg/apt 已能跑（缺 `usr/share/dpkg` 的问题已用 provision 补上），
+   还差 `apt-get update` 与一次真实安装。

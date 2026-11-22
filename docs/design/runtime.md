@@ -92,7 +92,7 @@ L3  产品壳     进程启动、环境变量、PTY、会话（后续）
 0. ~~在 `untrusted_app` 域跑通~~ **已完成**（§详见 `history/03-decision-log.md` §4.5）。
 1. ~~路径解析下沉进 loader，去掉 `LD_PRELOAD`~~ **已完成**（`evidence/14`：shim 是 loader 的第三个 `PT_LOAD`，
    `_dl_init` 钩子做符号介入；31/31 通过；exec 2.58ms vs 原生 8.00ms，路径调用 +1.5us）。
-2. ~~静态改写自动化~~ **已完成**（`evidence/15`）：`nr-scan-syscalls.py` 读 `.gnu.version_d` 自检版本，
+2. ~~静态改写自动化~~ **已完成**（`evidence/15`）：`nr-tools scan-syscalls` 读 `.gnu.version_d` 自检版本，
    反查 `mov x8,#N` 定位 `svc` 调用点，并断言「后继指令只写 x0 不读 x0」（证明返回值被忽略）；
    版本不符/数量不符/调用点消失/后继读 x0 四种情况一律 `REFUSING` 且不写文件。产物与手写偏移逐字节一致。
 3. ~~gcc / make 覆盖~~ **已完成**（验收第 4 项，`evidence/16`）。顺带解决了两件事：
@@ -122,7 +122,7 @@ L3  产品壳     进程启动、环境变量、PTY、会话（后续）
   直接报错，需要人看一眼新报告再更新期望值 —— 这是设计好的行为。
 - **`execl/execle/execlp` 拦不到**（`evidence/18`）：glibc 的 execl 自己拼 argv 后走**内部** execve，
   调用方没有 GOT 槽可改；稳定版 Rust 无法定义 C 变参函数，汇编蹦床又会被 rustc 的 cdylib 导出表
-  本地化（nr-embed.py 读不到它）。影响面很小：`execve/execv/execvpe/execvp/posix_spawn*` 都已拦，
+  本地化（`nr-tools embed` 读不到它）。影响面很小：`execve/execv/execvpe/execvp/posix_spawn*` 都已拦，
   shell、make、gcc、python 全部走这些。guest 里的 C 程序请用 `execve(2)`/`execv(3)`/`posix_spawn(3)`。
 - ~~guest 起始 cwd 继承宿主路径~~ 已修（`evidence/17`）：`nr_boot` 第 4 步做一次 chdir，
   仅当继承的 cwd 在 root 之外时才生效。

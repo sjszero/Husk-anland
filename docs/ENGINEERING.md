@@ -15,14 +15,19 @@
 
 ## 2. 语言构成
 
+产品代码只有 Rust，加 271 行汇编。没有 Java，没有 Python，没有 C（`bench.c` 是测试用的
+参考实现，运行时与构建路径都不经过它）。
+
 | 语言 | 规模 | 负责什么 | 为什么不是别的语言 |
 |---|---|---|---|
-| Rust | 约 4,500 行 | 运行时本体与全部构建工具 | `no_std`、零依赖、无 GC |
-| 汇编 | 271 行 | 链接器入口桩与 `_dl_init` 钩子 | 这段代码必须在任何 Rust 运行时存在之前执行；稳定版 Rust 无法定义 naked function |
-| C | 103 行 | 基准测试程序 | 必须运行在 guest 内部 |
-| Shell | 约 600 行 | 设备测试脚本 | 被测对象本身就是 shell 与 coreutils |
-| Java | 96 行 | 探针应用 | Android 进程入口 |
-| Python | 630 行 | 构建工具的参考实现 | 仅用于与 Rust 版本逐字节对拍，默认不参与构建 |
+| Rust | 5,681 行 / 12 个文件 | 运行时本体、全部构建工具、壳应用（PTY、GL 渲染、字体、输入、生命周期） | 单一实现，`no_std` 路径层零依赖，无 GC |
+| 汇编 | 271 行 / 2 个文件 | loader 入口桩与 `_dl_init` 钩子 | 这段代码必须在任何 Rust 运行时存在之前执行；稳定版 Rust 无法定义 naked function |
+| Shell | 474 行 / 13 个脚本 | 设备测试 | 被测对象本身就是 shell 与 coreutils，换掉等于换掉被测对象 |
+| C | 103 行 / 1 个文件 | 客舱基准的参考实现 | 只在没有推预编译 Rust 基准时兜底；Rust 版在 `runtime/crates/guest-bench` |
+| Gradle kts | 46 行 / 6 个文件 | APK 打包 | Android 官方打包工具，不承载产品逻辑 |
+
+壳应用没有 Activity 的 Java 类：APK 里声明的就是 `android.app.NativeActivity`，
+平台直接调用我们 `.so` 里的 `ANativeActivity_onCreate`，从这里往下全是 Rust。
 
 ## 3. 三处改动与字节账
 
@@ -54,11 +59,12 @@
 
 | 工具 | 作用 | 校验方式 |
 |---|---|---|
-| `nr-tools scan-syscalls` | 定位并改写启动期系统调用点 | 与 `nr-scan-syscalls.py` 输出逐行一致、产物同哈希（evidence 22） |
-| `nr-tools embed` | 生成成品动态链接器 | 与 `nr-embed.py` 产物同哈希（evidence 22） |
-| `nr-tools provision` | 供应 gcc / make 工具链 | 与 sh+Python 版本阶段目录逐文件比对，2,866 项内容差异为零（evidence 23） |
+| `nr-tools scan-syscalls` | 定位并改写启动期系统调用点 | 迁移时与 Python 参考实现逐行一致、产物同哈希（evidence 22） |
+| `nr-tools embed` | 生成成品动态链接器 | 迁移时与 Python 参考实现产物同哈希（evidence 22） |
+| `nr-tools provision` | 供应 gcc / make 工具链 | 迁移时与 sh+Python 版本阶段目录逐文件比对，2,866 项内容差异为零（evidence 23） |
 
-默认构建走 Rust；设置 `NR_TOOLS=python` 可切换到参考实现，用于回归对拍。
+三个工具都是唯一实现。迁移期间的 Python / sh 参考实现在逐字节对拍通过后已从工作树删除
+（`git show v0.1.0:tools/loader/nr-embed.py` 可取回），构建路径上不存在第二种实现。
 
 ## 6. 产物指纹
 

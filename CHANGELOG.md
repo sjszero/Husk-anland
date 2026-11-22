@@ -1,5 +1,21 @@
 # 变更记录
 
+## 2026-11-22 夜 — 壳应用改为纯 Rust
+
+- **去掉 Java 与 C**：APK 改为声明 `android.app.NativeActivity`，入口是 `app-rs/` 里的
+  `ANativeActivity_onCreate`。Java Activity、JNI 外壳、`pty.c` 全部删除。
+- **壳应用现在包含**：PTY 与 `fork`/`execve`（直接跑 guest loader）、EGL + GLES2 渲染、
+  运行时字体光栅化（`fontdue`，字模取自系统等宽字体）、ANSI 子集解析、光标块、
+  生命周期（surface 销毁/重建、窗口尺寸→`TIOCSWINSZ`、失焦不画光标、会话随进程存活、
+  子进程退出后下一次点击自动重启）。
+- **单元测试**：`app-rs` 的终端解析与屏幕缓冲有 9 个主机侧测试（`cargo test`）。
+- **构建工具**：Python 参考实现删除（逐字节对拍已在 evidence 22/23 记录，可从 v0.1.0 取回）；
+  loader 重构后重新构建，sha256 仍为 `1600a850…1cbee`。
+- **基准**：新增 `runtime/crates/guest-bench`（Rust 版客舱基准）；`bench.c` 保留为无预编译
+  二进制时的兜底。
+- 语言构成：Rust 5,681 行 / 汇编 271 行；Java 0、Python 0。
+
+
 ## 2026-11-22 — v0.1 原型（一天内完成）
 
 **结论：在无 root、无虚拟化、无 ptrace 的 `untrusted_app` 域里跑通了 bash + coreutils +

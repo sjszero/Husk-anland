@@ -91,8 +91,8 @@ PRoot 的 5000×stat 数字来自 RMX3357（Android 13）上的同一 harness；
 
 | 工具 | 语言 | 校验方式 | 结果 |
 |---|---|---|---|
-| `nr-tools scan-syscalls` | Rust | 与 `nr-scan-syscalls.py` 输出逐行 diff + 产物 sha256 | 一致（evidence 22） |
-| `nr-tools embed` | Rust | 与 `nr-embed.py` 产物 sha256 | 一致 `1600a850…1cbee`（evidence 22） |
+| `nr-tools scan-syscalls` | Rust | 迁移时与 Python 参考实现逐行 diff + 产物 sha256 | 一致（evidence 22） |
+| `nr-tools embed` | Rust | 迁移时与 Python 参考实现产物 sha256 | 一致 `1600a850…1cbee`（evidence 22） |
 | `nr-tools provision` | Rust | 与 sh+python 版阶段目录逐文件 sha256 | 2866 项，内容差异 0（evidence 23） |
 
 在本仓库里直接跑 `tools/loader/build-embedded-loader.sh`，产出的 loader

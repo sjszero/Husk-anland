@@ -4,11 +4,11 @@
 #
 #   ./provision-toolchain.sh              # resolve, download, unpack, push
 #   NO_PUSH=1 ./provision-toolchain.sh    # stop before pushing
-#   NR_TOOLS=python ./provision-toolchain.sh   # the original sh+python version
 #
-# The implementation is `nr-tools provision` (Rust, crates/nr-tools), same crate
-# as the loader surgery. provision-toolchain-legacy.sh is the sh+python version
-# the port is checked against; both stage byte-identical trees (evidence 23).
+# The implementation is `nr-tools provision` (Rust, runtime/crates/nr-tools), the
+# same crate as the loader surgery. The sh+python version this port was checked
+# against (2,866 staged files, zero differences) has been removed; it is in the
+# git history at tag v0.1.0.
 #
 # No root, no chroot, no namespaces; transport is a plain HTTP GET on port 80.
 #
@@ -17,10 +17,6 @@
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
-
-if [ "${NR_TOOLS:-rust}" = python ]; then
-    exec sh "$HERE/provision-toolchain-legacy.sh" "$@"
-fi
 
 SUITE=${SUITE:-noble}
 SUITE_UPDATES=${SUITE_UPDATES:-$SUITE-updates}
