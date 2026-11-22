@@ -26,15 +26,19 @@ pub struct Gfx {
     pub dpy: EGLDisplay,
     pub surf: EGLSurface,
     prog: GLuint,
+    present_prog: GLuint,
     ctx: EGLContext,
     a_pos: GLint,
     a_uv: GLint,
     u_res: GLint,
     u_tex: GLint,
     u_color: GLint,
+    p_pos: GLint,
+    p_tex: GLint,
     glyphs: [Glyph; 128],
     atlas_w: i32,
     atlas_h: i32,
+    atlas_tex: GLuint,
     /// Size of ONE atlas cell in pixels. It equals the on-screen cell, so a
     /// glyph quad is blitted 1:1 and the atlas offset (xmin, baseline - bottom)
     /// lands where it was rasterised. Using a fixed 32px atlas cell here put
@@ -60,6 +64,28 @@ fn shader(kind: GLenum, src: &str) -> GLuint {
             crate::log("shader compile failed");
         }
         sh
+    }
+}
+
+type FnEglGetNativeClientBuffer =
+    unsafe extern "C" fn(buffer: *mut c_void) -> *mut c_void;
+type FnEglCreateImage = unsafe extern "C" fn(
+    dpy: EGLDisplay,
+    ctx: EGLContext,
+    target: u32,
+    buffer: *mut c_void,
+    attribs: *const i32,
+) -> *mut c_void;
+type FnEglDestroyImage = unsafe extern "C" fn(dpy: EGLDisplay, image: *mut c_void) -> u32;
+type FnGlEglImageTargetTexture = unsafe extern "C" fn(target: GLenum, image: *mut c_void);
+
+unsafe fn resolve_proc(name: &str) -> *mut c_void {
+    let cname = CString::new(name).unwrap();
+    let ptr = eglGetProcAddress(cname.as_ptr());
+    if !ptr.is_null() {
+        ptr
+    } else {
+        dlsym(core::ptr::null_mut(), cname.as_ptr())
     }
 }
 
@@ -126,19 +152,44 @@ impl Gfx {
             }
             glUseProgram(prog);
 
+            let pvs = shader(GL_VERTEX_SHADER, concat!(
+                "attribute vec2 aPos;\n",
+                "varying vec2 vUV;\n",
+                "void main(){ vUV = aPos * 0.5 + 0.5;\n",
+                "  gl_Position = vec4(aPos, 0.0, 1.0); }\n"));
+            let pfs = shader(GL_FRAGMENT_SHADER, concat!(
+                "precision mediump float;\n",
+                "varying vec2 vUV;\n",
+                "uniform sampler2D uTex;\n",
+                "void main(){ gl_FragColor = texture2D(uTex, vUV); }\n"));
+            let present_prog = glCreateProgram();
+            glAttachShader(present_prog, pvs);
+            glAttachShader(present_prog, pfs);
+            glLinkProgram(present_prog);
+            let mut pok: GLint = 0;
+            glGetProgramiv(present_prog, GL_LINK_STATUS, &mut pok);
+            if pok == 0 {
+                crate::log("present program link failed");
+                return None;
+            }
+
             let mut g = Gfx {
                 dpy,
                 surf,
                 ctx,
                 prog,
+                present_prog,
                 a_pos: glGetAttribLocation(prog, b"aPos\0".as_ptr() as *const c_char),
                 a_uv: glGetAttribLocation(prog, b"aUV\0".as_ptr() as *const c_char),
                 u_res: glGetUniformLocation(prog, b"uRes\0".as_ptr() as *const c_char),
                 u_tex: glGetUniformLocation(prog, b"uTex\0".as_ptr() as *const c_char),
                 u_color: glGetUniformLocation(prog, b"uColor\0".as_ptr() as *const c_char),
+                p_pos: glGetAttribLocation(present_prog, b"aPos\0".as_ptr() as *const c_char),
+                p_tex: glGetUniformLocation(present_prog, b"uTex\0".as_ptr() as *const c_char),
                 glyphs: [Glyph::default(); 128],
                 atlas_w: ATLAS_COLS * CELL,
                 atlas_h: ATLAS_ROWS * CELL,
+                atlas_tex: 0,
                 acw: CELL as f32,
                 ach: CELL as f32,
                 cell_w: 16.0,
@@ -251,6 +302,7 @@ impl Gfx {
         unsafe {
             let mut tex: GLuint = 0;
             glGenTextures(1, &mut tex);
+            self.atlas_tex = tex;
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, tex);
             glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -289,6 +341,8 @@ impl Gfx {
             glClearColor(0.04, 0.05, 0.06, 1.0);
             glClear(GL_COLOR_BUFFER_BIT);
             glUseProgram(self.prog);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, self.atlas_tex);
             glUniform2f(self.u_res, w as f32, h as f32);
             glUniform3f(self.u_color, 0.78, 0.84, 0.90);
         }
@@ -351,11 +405,100 @@ impl Gfx {
             eglSwapBuffers(self.dpy, self.surf);
         }
     }
+
+    /// Import the guest's AHardwareBuffer as a GLES texture and blit it to the
+    /// NativeActivity window. This is a GPU-composited fallback for devices
+    /// where `ASurfaceControl_createFromWindow` cannot create a child layer.
+    pub fn present_ahb(&mut self, buffer: *mut c_void, width: u32, height: u32) -> bool {
+        unsafe {
+            let get_client_ptr = resolve_proc("eglGetNativeClientBufferANDROID");
+            let create_image_ptr = resolve_proc("eglCreateImageKHR");
+            let destroy_image_ptr = resolve_proc("eglDestroyImageKHR");
+            let image_target_ptr = resolve_proc("glEGLImageTargetTexture2DOES");
+            if get_client_ptr.is_null()
+                || create_image_ptr.is_null()
+                || destroy_image_ptr.is_null()
+                || image_target_ptr.is_null()
+            {
+                crate::log(&format!(
+                    "ahb|present|egl_proc_missing|get={get_client_ptr:p}|create={create_image_ptr:p}|destroy={destroy_image_ptr:p}|target={image_target_ptr:p}"
+                ));
+                return false;
+            }
+            let get_client: FnEglGetNativeClientBuffer = core::mem::transmute(get_client_ptr);
+            let create_image: FnEglCreateImage = core::mem::transmute(create_image_ptr);
+            let destroy_image: FnEglDestroyImage = core::mem::transmute(destroy_image_ptr);
+            let image_target: FnGlEglImageTargetTexture = core::mem::transmute(image_target_ptr);
+            let client = get_client(buffer);
+            crate::log(&format!(
+                "ahb|present|egl_client={client:p} size={width}x{height}"
+            ));
+            if client.is_null() {
+                return false;
+            }
+            let attrs = [EGL_IMAGE_PRESERVED_KHR, 1, EGL_NONE];
+            let image = create_image(
+                self.dpy,
+                core::ptr::null_mut(),
+                EGL_NATIVE_BUFFER_ANDROID,
+                client,
+                attrs.as_ptr(),
+            );
+            crate::log(&format!("ahb|present|egl_image={image:p}"));
+            if image.is_null() {
+                return false;
+            }
+
+            let mut tex: GLuint = 0;
+            glGenTextures(1, &mut tex);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, tex);
+            image_target(GL_TEXTURE_2D, image);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+            let (w, h) = self.size();
+            if w <= 0 || h <= 0 {
+                destroy_image(self.dpy, image);
+                glDeleteTextures(1, &tex);
+                return false;
+            }
+            glViewport(0, 0, w, h);
+            glClearColor(0.0, 0.0, 0.0, 1.0);
+            glClear(GL_COLOR_BUFFER_BIT);
+            glUseProgram(self.present_prog);
+            glUniform1i(self.p_tex, 0);
+            glBindTexture(GL_TEXTURE_2D, tex);
+            let verts: [f32; 12] = [
+                -1.0, -1.0, 1.0, -1.0, 1.0, 1.0,
+                -1.0, -1.0, 1.0, 1.0, -1.0, 1.0,
+            ];
+            let stride = 2 * core::mem::size_of::<f32>() as GLsizei;
+            glVertexAttribPointer(
+                self.p_pos as GLuint,
+                2,
+                GL_FLOAT,
+                0,
+                stride,
+                verts.as_ptr() as *const c_void,
+            );
+            glEnableVertexAttribArray(self.p_pos as GLuint);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+            let swapped = eglSwapBuffers(self.dpy, self.surf);
+            glDeleteTextures(1, &tex);
+            destroy_image(self.dpy, image);
+            crate::log(&format!("ahb|present|egl_swap={swapped}"));
+            swapped != 0
+        }
+    }
 }
 
 impl Drop for Gfx {
     fn drop(&mut self) {
         unsafe {
+            glDeleteTextures(1, &self.atlas_tex);
             eglMakeCurrent(self.dpy, core::ptr::null_mut(), core::ptr::null_mut(), core::ptr::null_mut());
             eglDestroySurface(self.dpy, self.surf);
             eglDestroyContext(self.dpy, self.ctx);

@@ -202,6 +202,8 @@ extern "C" {
     pub fn eglDestroySurface(dpy: EGLDisplay, surf: EGLSurface) -> u32;
     pub fn eglTerminate(dpy: EGLDisplay) -> u32;
     pub fn eglDestroyContext(dpy: EGLDisplay, ctx: EGLContext) -> u32;
+    pub fn eglGetProcAddress(name: *const c_char) -> *mut c_void;
+    pub fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
     
     pub fn glViewport(x: i32, y: i32, w: i32, h: i32);
     pub fn glClearColor(r: f32, g: f32, b: f32, a: f32);
@@ -229,6 +231,7 @@ extern "C" {
     pub fn glUniform2f(loc: GLint, a: f32, b: f32);
     pub fn glUniform3f(loc: GLint, a: f32, b: f32, c: f32);
     pub fn glDrawArrays(mode: GLenum, first: GLint, count: GLsizei);
+    pub fn glDeleteTextures(n: GLsizei, textures: *const GLuint);
     pub fn glDisable(cap: GLenum);
     pub fn glEnable(cap: GLenum);
     pub fn glBlendFunc(s: GLenum, d: GLenum);
@@ -246,6 +249,8 @@ pub const EGL_NONE: i32 = 0x3038;
 pub const EGL_WIDTH: i32 = 0x3057;
 pub const EGL_HEIGHT: i32 = 0x3056;
 pub const EGL_CONTEXT_CLIENT_VERSION: i32 = 0x3098;
+pub const EGL_NATIVE_BUFFER_ANDROID: u32 = 0x3140;
+pub const EGL_IMAGE_PRESERVED_KHR: i32 = 0x30D2;
 
 pub const GL_TEXTURE_2D: u32 = 0x0DE1;
 pub const GL_TEXTURE0: u32 = 0x84C0;

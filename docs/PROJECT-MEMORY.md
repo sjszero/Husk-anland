@@ -117,8 +117,10 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
   `VK_KHR_external_memory_fd` 导入真实 AHB dma-buf：external buffer + import memory + bind 全 PASS，
   GPU compute 写入/回读 `0x4855534b` PASS；kbase `MEM_IMPORT` 保留为后备；
 - evidence 51 已完成 AHB → dma-buf → `DRM_FORMAT_MOD_LINEAR` 2D image → GPU write；
-  下一步必须是 `ASurfaceControl` / `ANativeWindow_queueBuffer`、present fence 和 SurfaceFlinger
-  生命周期测试，当前 image 导入仍不能冒充显示完成；
+  evidence 52 已完成同一 AHB 的 app EGLImage GPU 采样上屏，截图全屏红色；这是展示回退，
+  仍不是零拷贝。`ASurfaceControl_createFromWindow` 在 NativeActivity 窗口返回 null，
+  SurfaceFlinger 日志为 `createWithSurfaceParent error Invalid argument`（AOSP BLAST 路径）；
+  下一步必须换有 SurfaceControl handle 的窗口或等效提交路径，再做 present fence 和生命周期测试；
 - 同一块 buffer 由 app `queueBuffer` 给 SurfaceFlinger，目标是零拷贝；
 - kbase 没有 export，所以方向必须是 app → guest 导入，不能假装有 kbase 导出。
 - 退化路径可以 CPU 拷贝，但必须记录原因和实测开销。
@@ -204,8 +206,9 @@ eglinfo 报 Mali-G77；音频出声并有延迟数字；H.264/HEVC 硬解、AV �
 1. 读本文件、`GOALS.md`、`STATUS.md`、`references.md`、`mali-kbase-prior-art.md`。
 2. 查 `git status --short --branch`，确认没有未提交改动；没有用户授权不要动 LinuxHub 2.0 分支。
 3. 继续显示主线：FristOneRR glibc PanVK 已完成 compute job、离屏 graphics、surfaceless Zink
-   （evidence 46–47）和 AHB LINEAR 2D image GPU 写入（evidence 51）；
-   下一步接 GBM / Wayland / X11、`ASurfaceControl` 展示、present fence 和实际窗口显示。
+   （evidence 46–47）、AHB LINEAR 2D image GPU 写入（evidence 51）和 app EGLImage 上屏回退
+   （evidence 52）；下一步解决有 SurfaceControl handle 的窗口 / 等效提交，接 GBM / Wayland /
+   X11、present fence、旋转和多窗口，再把 EGLImage 回退替换成零拷贝。
 4. 每次失败也写清楚失败点和下一假设；证据放 `docs/design/evidence/`。
 5. 窗口 renderer 与 Surface 路径通过后再进入显示零拷贝；视频、音频按第 5 节并行设计但不能跳过硬解验收。
 6. 最后做 2.0 proot 替换与补丁清除。

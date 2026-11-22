@@ -19,7 +19,7 @@
 
 use core::ffi::{c_char, c_int, c_void};
 use std::ffi::CStr;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -72,6 +72,37 @@ struct Symbols {
     recv: FnRecvFromSocket,
     lock: FnLock,
     unlock: FnUnlock,
+}
+
+#[repr(C)]
+struct ARect {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
+type SurfaceControl = *mut c_void;
+type SurfaceTransaction = *mut c_void;
+type FnCreateSurfaceControl = unsafe extern "C" fn(*mut c_void, *const c_char) -> SurfaceControl;
+type FnReleaseSurfaceControl = unsafe extern "C" fn(SurfaceControl);
+type FnCreateSurfaceTransaction = unsafe extern "C" fn() -> SurfaceTransaction;
+type FnDeleteSurfaceTransaction = unsafe extern "C" fn(SurfaceTransaction);
+type FnSetBuffer = unsafe extern "C" fn(SurfaceTransaction, SurfaceControl, *mut Ahb, c_int);
+type FnSetGeometry =
+    unsafe extern "C" fn(SurfaceTransaction, SurfaceControl, *const ARect, *const ARect, i32);
+type FnSetZOrder = unsafe extern "C" fn(SurfaceTransaction, SurfaceControl, i32);
+type FnApplySurfaceTransaction = unsafe extern "C" fn(SurfaceTransaction);
+
+struct SurfaceSymbols {
+    create_from_window: FnCreateSurfaceControl,
+    release_control: FnReleaseSurfaceControl,
+    create_transaction: FnCreateSurfaceTransaction,
+    delete_transaction: FnDeleteSurfaceTransaction,
+    set_buffer: FnSetBuffer,
+    set_geometry: FnSetGeometry,
+    set_z_order: FnSetZOrder,
+    apply: FnApplySurfaceTransaction,
 }
 
 unsafe extern "C" {
@@ -133,6 +164,38 @@ unsafe fn load() -> Option<(*mut c_void, Symbols)> {
         unlock: core::mem::transmute(resolved[7]),
     };
     Some((handle, symbols))
+}
+
+unsafe fn load_surface(lib: *mut c_void) -> Option<SurfaceSymbols> {
+    let names = [
+        "ASurfaceControl_createFromWindow",
+        "ASurfaceControl_release",
+        "ASurfaceTransaction_create",
+        "ASurfaceTransaction_delete",
+        "ASurfaceTransaction_setBuffer",
+        "ASurfaceTransaction_setGeometry",
+        "ASurfaceTransaction_setZOrder",
+        "ASurfaceTransaction_apply",
+    ];
+    let mut resolved = [core::ptr::null_mut::<c_void>(); 8];
+    for (slot, name) in resolved.iter_mut().zip(names) {
+        let cname = std::ffi::CString::new(name).ok()?;
+        *slot = dlsym(lib, cname.as_ptr());
+        if slot.is_null() {
+            crate::log(&format!("ahb|surface|missing|{name}"));
+            return None;
+        }
+    }
+    Some(SurfaceSymbols {
+        create_from_window: core::mem::transmute(resolved[0]),
+        release_control: core::mem::transmute(resolved[1]),
+        create_transaction: core::mem::transmute(resolved[2]),
+        delete_transaction: core::mem::transmute(resolved[3]),
+        set_buffer: core::mem::transmute(resolved[4]),
+        set_geometry: core::mem::transmute(resolved[5]),
+        set_z_order: core::mem::transmute(resolved[6]),
+        apply: core::mem::transmute(resolved[7]),
+    })
 }
 
 fn cookie(i: usize, x: u32, y: u32) -> u32 {
@@ -228,6 +291,103 @@ unsafe fn probe_linear_view(s: &Symbols, buffer: *mut Ahb, desc: &Desc) -> bool 
     matched == 9 && unlock_rc == 0
 }
 
+unsafe fn buffer_is_red(s: &Symbols, buffer: *mut Ahb, desc: &Desc) -> bool {
+    let mut cpu: *mut c_void = core::ptr::null_mut();
+    let lock_rc = (s.lock)(
+        buffer,
+        AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN,
+        -1,
+        core::ptr::null(),
+        &mut cpu,
+    );
+    if lock_rc != 0 || cpu.is_null() {
+        crate::log(&format!("ahb|present|lock_read|FAIL|rc={lock_rc}"));
+        return false;
+    }
+    let base = cpu as *const u8;
+    let mut red = 0;
+    for (x, y) in probe_points(desc.width, desc.height) {
+        let pixel = base.add(((y * desc.stride + x) * 4) as usize) as *const u32;
+        if pixel.read_unaligned() == 0xff00_00ff {
+            red += 1;
+        }
+    }
+    let unlock_rc = (s.unlock)(buffer, core::ptr::null_mut());
+    crate::log(&format!(
+        "ahb|present|readback|red={red}/9|unlock={unlock_rc}"
+    ));
+    red == 9 && unlock_rc == 0
+}
+
+unsafe fn egl_fallback(buffer: *mut Ahb, desc: &Desc) -> bool {
+    crate::request_ahb_present(buffer, desc.width, desc.height);
+    let ok = crate::wait_ahb_present(Duration::from_secs(10));
+    crate::log(&format!("ahb|present|EGL_FALLBACK|{ok}"));
+    ok
+}
+
+unsafe fn present_buffer(lib: *mut c_void, s: &Symbols, buffer: *mut Ahb, desc: &Desc) -> bool {
+    if !buffer_is_red(s, buffer, desc) {
+        crate::log("ahb|present|SKIP|guest pixels not red");
+        return false;
+    }
+    let mut window = core::ptr::null_mut();
+    for _ in 0..100 {
+        window = crate::WINDOW.load(Ordering::SeqCst);
+        if !window.is_null() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    if window.is_null() {
+        crate::log("ahb|present|FAIL|no ANativeWindow");
+        return false;
+    }
+    let Some(surface) = load_surface(lib) else {
+        crate::log("ahb|present|FAIL|surface symbols");
+        return egl_fallback(buffer, desc);
+    };
+    let control = (surface.create_from_window)(window, c"husk-ahb".as_ptr());
+    crate::log(&format!("ahb|present|control={control:p}"));
+    if control.is_null() {
+        crate::log("ahb|present|surface_control_unavailable|egl_fallback");
+        return egl_fallback(buffer, desc);
+    }
+    let transaction = (surface.create_transaction)();
+    if transaction.is_null() {
+        crate::log("ahb|present|FAIL|transaction|egl_fallback");
+        (surface.release_control)(control);
+        return egl_fallback(buffer, desc);
+    }
+    let source = ARect {
+        left: 0,
+        top: 0,
+        right: desc.width as i32,
+        bottom: desc.height as i32,
+    };
+    let win_w = crate::sys::ANativeWindow_getWidth(window);
+    let win_h = crate::sys::ANativeWindow_getHeight(window);
+    let destination = ARect {
+        left: 0,
+        top: 0,
+        right: win_w,
+        bottom: win_h,
+    };
+    (surface.set_geometry)(transaction, control, &source, &destination, 0);
+    (surface.set_z_order)(transaction, control, 100);
+    (surface.set_buffer)(transaction, control, buffer, -1);
+    (surface.apply)(transaction);
+    (surface.delete_transaction)(transaction);
+    crate::log(&format!(
+        "ahb|present|PASS|SurfaceControl {win_w}x{win_h} from {}x{}",
+        desc.width, desc.height
+    ));
+    std::thread::sleep(Duration::from_secs(5));
+    (surface.release_control)(control);
+    crate::log("ahb|present|released");
+    true
+}
+
 fn bridge_meta(desc: &Desc) -> String {
     let mut cookies = Vec::with_capacity(9);
     for (i, (x, y)) in probe_points(desc.width, desc.height)
@@ -275,7 +435,7 @@ fn files_dir() -> Option<std::path::PathBuf> {
 /// Keep the buffer alive long enough for a same-UID glibc guest process to
 /// connect and receive the native handle. This is gated by a marker file so a
 /// normal launch only runs the non-invasive allocation test.
-unsafe fn serve_bridge(s: &Symbols, buffer: *mut Ahb, desc: &Desc) {
+unsafe fn serve_bridge(lib: *mut c_void, s: &Symbols, buffer: *mut Ahb, desc: &Desc) {
     let Some(files) = files_dir() else {
         crate::log("ahb|bridge|SKIP|no files dir");
         return;
@@ -311,7 +471,21 @@ unsafe fn serve_bridge(s: &Symbols, buffer: *mut Ahb, desc: &Desc) {
                 }
                 let rc = (s.send)(buffer, stream.as_raw_fd());
                 crate::log(&format!("ahb|bridge|SEND|rc={rc}"));
-                std::thread::sleep(Duration::from_millis(250));
+                if rc == 0 {
+                    let timeout = stream.set_read_timeout(Some(Duration::from_secs(30)));
+                    crate::log(&format!("ahb|bridge|ACK_TIMEOUT|{timeout:?}"));
+                    let mut ack = [0u8; 1];
+                    match stream.read_exact(&mut ack) {
+                        Ok(()) => {
+                            crate::log(&format!("ahb|bridge|ACK|byte=0x{:02x}", ack[0]));
+                            if ack[0] == b'D' {
+                                let presented = present_buffer(lib, s, buffer, desc);
+                                crate::log(&format!("ahb|bridge|PRESENT|{presented}"));
+                            }
+                        }
+                        Err(e) => crate::log(&format!("ahb|bridge|ACK_FAIL|{e}")),
+                    }
+                }
                 let _ = std::fs::remove_file(&path);
                 return;
             }
@@ -439,7 +613,7 @@ fn probe() {
             close(sv[1]);
         }
 
-        serve_bridge(&s, buffer, &actual);
+        serve_bridge(lib, &s, buffer, &actual);
         (s.release)(buffer);
         crate::log("ahb|allocated|released");
         dlclose(lib);

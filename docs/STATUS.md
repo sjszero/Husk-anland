@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 03:32）
+# 当前状态（2026-11-23 03:48）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -11,7 +11,8 @@ FristOneRR PanVK 在 guest 内报出 **Mali-G77 MC9**，纯 Rust 探针完成 lo
 host-visible storage buffer、compute job 和离屏 graphics draw；GPU 写回 `0x4855534b`、
 像素回读 `0xff0000ff` 均已由 fence 后确认。发行版 Zink 也已在 surfaceless EGL 报出
 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`；AHB 的 LINEAR 2D image 导入也已由 GPU clear
-后回读确认。Android Surface 展示仍未完成。
+后回读确认；evidence 52 又把同一块 AHB 经 app EGLImage 上屏，证明 Android 窗口展示链路可走通。
+但 `ASurfaceControl` 零拷贝提交仍未完成，当前只是 **GPU 合成回退**。
 
 ## SoC 直连最新（evidence 51，2026-11-23）
 
@@ -26,6 +27,10 @@ host-visible storage buffer、compute job 和离屏 graphics draw；GPU 写回 `
 - **壳应用环境已验证（FACT）**：`/proc/<guest bash>/environ` 含 `VK_ICD_FILENAMES`、
   `VK_DRIVER_FILES`、`__EGL_VENDOR_LIBRARY_FILENAMES`、`MESA_LOADER_DRIVER_OVERRIDE=zink`、
   `GALLIUM_DRIVER=zink`；logcat 显示会话与窗口尺寸正常。
+- **展示回退已验证（evidence 52，FACT）**：guest GPU clear 后，app 用
+  `eglGetNativeClientBufferANDROID` + `eglCreateImageKHR` + `glEGLImageTargetTexture2DOES`
+  将同一 AHB 采样到 NativeActivity 窗口，`eglSwapBuffers=1`，截图全屏红色。该路径是
+  GPU 合成回退，不是 SurfaceFlinger 零拷贝。
 
 ## 显示零拷贝前三段（evidence 49–51，2026-11-23）
 
@@ -45,8 +50,9 @@ host-visible storage buffer、compute job 和离屏 graphics draw；GPU 写回 `
 - **FACT**：重复使用同一个 glibc fd 分别 import buffer 和 image 会让 image import 报
   `invalid dmabuf size`；每次 import 独立 `dup(fd)` 后两条路径同轮通过。驱动内部精确原因仍为
   UNKNOWN，不把推断写成根因。
-- **UNKNOWN / 未完成**：`ASurfaceControl` / `ANativeWindow_queueBuffer`、SurfaceFlinger、
-  present fence、旋转 / DPI / 多窗口 / 10 分钟泄漏仍未验证，不能写成“显示完成”。
+- **UNKNOWN / 未完成**：`ASurfaceControl` / `ANativeWindow_queueBuffer` 零拷贝、present fence、
+  旋转 / DPI / 多窗口 / 10 分钟泄漏仍未验证，不能写成“显示完成”。evidence 52 的 EGLImage
+  回退已能上屏，但比零拷贝多一次 GPU 采样。
 
 ## GPU 基线（evidence 46，2026-11-23）
 
@@ -116,7 +122,7 @@ host-visible storage buffer、compute job 和离屏 graphics draw；GPU 写回 `
 | PanVK compute job | **通过**：SPIR-V shader + compute pipeline + `vkQueueSubmit` + fence + GPU readback | 46 |
 | PanVK graphics | **离屏 draw 通过**：真实顶点缓冲 + vertex/fragment + draw + GPU 像素回读 | 46 |
 | Zink surfaceless renderer | **通过**：`eglinfo -B` / 纯 Rust `gl_probe` 报 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))` | 47 |
-| PanVK swapchain / WSI / Surface | **未验证**：GBM / Wayland / X11、swapchain、Android Surface、窗口显示均未通 | 47 / 后续 |
+| PanVK swapchain / WSI / Surface | **部分通过**：Android 窗口经 EGLImage AHB 回退上屏（evidence 52）；GBM / Wayland / X11、swapchain、零拷贝 Surface 仍未通 | 47 / 52 / 后续 |
 | 软作业（`SOFT_EVENT_SET/WAIT`） | **本机无效果**：6 种偏移 + `compat_core_req` 双写 + 先 `MEM_JIT_INIT` + 换分配标志（CACHED_CPU / COHERENT_SYSTEM），显存里的标志字节始终为 0 | 40 |
 
 ## 本轮（21:24–21:31）做了什么

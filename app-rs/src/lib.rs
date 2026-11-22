@@ -20,7 +20,7 @@ mod term;
 
 use core::ffi::{c_char, c_int, c_long, c_void};
 use std::ffi::CStr;
-use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use sys::*;
 use term::Term;
@@ -33,6 +33,12 @@ static DESTROYED: AtomicBool = AtomicBool::new(false);
 static FOCUSED: AtomicBool = AtomicBool::new(false);
 static LOOPER: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
 static APP: Mutex<Option<Box<App>>> = Mutex::new(None);
+static PENDING_AHB: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
+static PENDING_AHB_WIDTH: AtomicUsize = AtomicUsize::new(0);
+static PENDING_AHB_HEIGHT: AtomicUsize = AtomicUsize::new(0);
+static AHB_PENDING: AtomicBool = AtomicBool::new(false);
+static AHB_DONE: AtomicBool = AtomicBool::new(false);
+static AHB_OK: AtomicBool = AtomicBool::new(false);
 /// (pid, wait status) collected by the single reaper thread. Nothing else in the
 /// process is allowed to call waitpid(): two waiters is how zombies get leaked.
 static EXITS: Mutex<Vec<(i32, i32)>> = Mutex::new(Vec::new());
@@ -51,6 +57,41 @@ pub fn log(msg: &str) {
             __android_log_write(4, b"Husk\0".as_ptr() as *const c_char, c.as_ptr());
         }
     }
+}
+
+pub(crate) fn request_ahb_present(buffer: *mut c_void, width: u32, height: u32) {
+    PENDING_AHB_WIDTH.store(width as usize, Ordering::SeqCst);
+    PENDING_AHB_HEIGHT.store(height as usize, Ordering::SeqCst);
+    AHB_OK.store(false, Ordering::SeqCst);
+    AHB_DONE.store(false, Ordering::SeqCst);
+    PENDING_AHB.store(buffer, Ordering::SeqCst);
+    AHB_PENDING.store(true, Ordering::SeqCst);
+}
+
+pub(crate) fn pending_ahb_present() -> Option<(*mut c_void, u32, u32)> {
+    if !AHB_PENDING.load(Ordering::SeqCst) {
+        return None;
+    }
+    Some((
+        PENDING_AHB.load(Ordering::SeqCst),
+        PENDING_AHB_WIDTH.load(Ordering::SeqCst) as u32,
+        PENDING_AHB_HEIGHT.load(Ordering::SeqCst) as u32,
+    ))
+}
+
+pub(crate) fn finish_ahb_present(ok: bool) {
+    PENDING_AHB.store(core::ptr::null_mut(), Ordering::SeqCst);
+    AHB_OK.store(ok, Ordering::SeqCst);
+    AHB_DONE.store(true, Ordering::SeqCst);
+    AHB_PENDING.store(false, Ordering::SeqCst);
+}
+
+pub(crate) fn wait_ahb_present(timeout: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    while !AHB_DONE.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    AHB_DONE.load(Ordering::SeqCst) && AHB_OK.load(Ordering::SeqCst)
 }
 
 // The pointers inside are only touched from the loop thread; the platform
@@ -727,6 +768,12 @@ fn run() {
         if let Ok(mut guard) = APP.lock() {
             if let Some(app) = guard.as_mut() {
                 app.sync_surface();
+                if let Some((buffer, width, height)) = pending_ahb_present() {
+                    if let Some(gfx) = app.gfx.as_mut() {
+                        let ok = gfx.present_ahb(buffer, width, height);
+                        finish_ahb_present(ok);
+                    }
+                }
                 app.poll_children();
                 app.maybe_start();
                 let q = INPUTQ.load(Ordering::SeqCst) as usize;

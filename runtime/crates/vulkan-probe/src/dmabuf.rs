@@ -8,7 +8,7 @@
 
 use super::*;
 use core::ffi::{c_int, c_void};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 
@@ -1076,7 +1076,7 @@ fn cmsg_align(n: usize) -> usize {
     (n + a - 1) & !(a - 1)
 }
 
-unsafe fn receive_handle(path: &str) -> Result<(AhbMeta, Vec<c_int>), String> {
+unsafe fn receive_handle(path: &str) -> Result<(AhbMeta, Vec<c_int>, UnixStream), String> {
     let mut stream = UnixStream::connect(path).map_err(|e| format!("connect {path}: {e}"))?;
     line("dmabuf", "socket", format!("PASS|{path}"));
 
@@ -1152,7 +1152,7 @@ unsafe fn receive_handle(path: &str) -> Result<(AhbMeta, Vec<c_int>), String> {
         off += cmsg_align(len);
     }
     line("dmabuf", "fd_count", format!("{}", fds.len()));
-    Ok((meta, fds))
+    Ok((meta, fds, stream))
 }
 
 unsafe fn find_dmabuf(fds: &[c_int]) -> Option<c_int> {
@@ -1181,7 +1181,7 @@ pub unsafe fn run(
     family_index: u32,
     path: &str,
 ) -> bool {
-    let (meta, fds) = match receive_handle(path) {
+    let (meta, fds, mut stream) = match receive_handle(path) {
         Ok(v) => v,
         Err(e) => {
             line("dmabuf", "FAIL", format!("{e}"));
@@ -1455,11 +1455,21 @@ pub unsafe fn run(
             "FAIL|LINEAR 2D image path incomplete"
         },
     );
+    let handoff_ok = image_ok && stream.write_all(b"D").is_ok();
+    line(
+        "dmabuf",
+        "display_handoff",
+        if handoff_ok {
+            "PASS|guest GPU image ready; app may present"
+        } else {
+            "FAIL|guest did not signal app"
+        },
+    );
     for &fd in &fds {
         close(fd);
     }
     line("dmabuf", "teardown", "memory/buffer/fds released");
-    r == VK_SUCCESS && gpu_ok && linear_ok && image_ok
+    r == VK_SUCCESS && gpu_ok && linear_ok && image_ok && handoff_ok
 }
 
 pub fn socket_arg() -> Option<String> {
