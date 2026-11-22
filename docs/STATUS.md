@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 04:06）
+# 当前状态（2026-11-23 04:11）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -13,6 +13,18 @@ host-visible storage buffer、compute job 和离屏 graphics draw；GPU 写回 `
 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`；AHB 的 LINEAR 2D image 导入也已由 GPU clear
 后回读确认；evidence 52 又把同一块 AHB 经 app EGLImage 上屏，证明 Android 窗口展示链路可走通。
 evidence 53 又用纯 Rust JNI 读取平台 SurfaceView 的 BLAST `SurfaceControl`，通过 `ASurfaceControl` 把同一 AHB 直接提交给 SurfaceFlinger；evidence 54 再用 3-buffer ring 连续上屏 12 帧，按 SF release fence 回收 slot，证明**连续帧零拷贝与背压已打通**。剩余是 producer/acquire fence、持久资源池、窗口生命周期、长稳与 WSI。
+
+## acquire fence 当前实验（未通过，FACT + UNKNOWN）
+
+- **FACT**：PanVK 报告 `VK_KHR_external_fence` / `VK_KHR_external_fence_fd`；`vkGetFenceFdKHR`
+  只能经 `vkGetDeviceProcAddr` 取得，`dlsym` 直接查找不存在。
+- **FACT**：submit 后、wait 前导出同一个 fence 返回 `rc=0 fd=-1`，随后对同一 fence 的
+  `vkWaitForFences` 挂起；该实验没有进入 `image_submit/wait`。
+- **FACT**：先 wait 完成再导出同样得到 `fd=-1`，只能说明 fence 已 signal，不能作为 acquire
+  fence 已打通的证据。
+- **UNKNOWN**：挂起根因尚未确定；不得把推断写成 PanVK 或 Vulkan 的既定行为。
+- 详细设计、禁止重跑的失败组合和下一步最小探针见
+  [`docs/design/acquire-fence.md`](design/acquire-fence.md)。未通过前不新建 evidence 55。
 
 ## SoC 直连最新（evidence 54，2026-11-23）
 
@@ -65,9 +77,9 @@ evidence 53 又用纯 Rust JNI 读取平台 SurfaceView 的 BLAST `SurfaceContro
   合成类型为 `DEVICE`。
 - **FACT（evidence 54）**：3-buffer ring 连续 12 帧、slot 复用、release-fence 背压均通过；这不是
   单帧演示。
-- **UNKNOWN / 未完成**：producer/acquire fence 仍为 `-1`（guest 先 `vkWaitForFences`），
-  Vulkan 资源池、GBM / Wayland / X11、WSI / swapchain、旋转 / DPI / 多窗口、SurfaceView 重建和
-  10 分钟泄漏仍未验证，不能写成“显示目标完成”。
+- **UNKNOWN / 未完成**：producer/acquire fence 尚未打通；submit 后导出实验得到 `fd=-1`，
+  随后同一 fence 的 wait 挂起。Vulkan 资源池、GBM / Wayland / X11、WSI / swapchain、
+  旋转 / DPI / 多窗口、SurfaceView 重建和 10 分钟泄漏仍未验证，不能写成“显示目标完成”。
 
 ## GPU 基线（evidence 46，2026-11-23）
 
