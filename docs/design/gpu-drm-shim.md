@@ -2,6 +2,8 @@
 
 > 状态：**M1 完成**——假 `/dev/dri/renderD128` 已生效，只懂 DRM 的程序能 alloc/mmap/读写显存（[evidence 44](evidence/44-fake-renderd128-interpose.md)）；M2 的参数来源已实测（[evidence 42](evidence/42-gpuprops-feeds-panfrost.md)）。
 > 依据：[evidence 41](evidence/41-csf-dead-import-only-panfrost.md)、[evidence 36](evidence/36-gpu-route-reality-check.md)。
+> 2026-11-23 路线更新：evidence 45 证明 Ubuntu Mesa 25.2 panfrost 在 `panfrost_open_device()` 前失败，
+> 当前主动路线已改为 panvk kbase fork（glibc）+ Zink；本文件保留为已完成的 M1/M2 资产和后备方案。
 
 ## 0. 一句话
 

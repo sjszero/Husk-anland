@@ -1,5 +1,16 @@
 # 变更记录
 
+## 2026-11-23 — 长期记忆归档：目标 v13、120 条参考清单、代理规则
+
+- 新增 `docs/PROJECT-MEMORY.md`：把产品边界、硬约束、GPU/显示/视频/音频路线、
+  2.0 替换方案、操作纪律和下一次接手顺序固化成文件，不依赖聊天上下文。
+- 新增 `docs/design/reference-request-20261122.md`：用户提供的 12 类、120 个参考条目逐字归档；
+  `references.md` 记录真实路径、可用性、已拉取 commit 和借鉴结论。
+- 目标升到 **v13**：evidence 45 证伪了“Ubuntu panfrost + DRM 语义层是唯一实现”的假设；
+  当前主动 GPU 路线改为 **panvk kbase fork（glibc）+ Zink**，DRM 语义层保留为后备。
+- 记录代理规则：GitHub 不通时临时使用 `127.0.0.1:7897`，用完立即 `unset`。
+- README / STATUS / 设计索引同步最新状态，避免旧结论继续误导后续工作。
+
 ## 2026-11-23 00:40 — kbase 完成通道：证伪一条、钉死三条
 
 - **evidence 40**（新增）：`gpu-probe` 加 12 个模式（`ddkver`/`badptr`/`stride_probe`/`fence0-6`/`cr`/`sevt`/`sevt2`/`sevtjit`）。

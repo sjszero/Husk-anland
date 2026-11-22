@@ -70,13 +70,15 @@ STICKY_RESOURCE_MAP _IOW(0x80,29) {u64 count, address}
 7. **dma-buf 导入**：`MEM_IMPORT(UMM)` + 每个导入必须 `STICKY_RESOURCE_MAP`，否则 GPU 翻译故障；
    按 ION handle 去重；kbase 对 UMM 的 SAME_VA 映射**不可 CPU 访问（SIGBUS）**，CPU 侧要映射 dma-buf 本身。
 
-## 4. 对本项目的结论（判断 JUDGMENT）
+## 4. 对本项目的结论（2026-11-23 更新，判断 JUDGMENT）
 
-- **主路径不变**：Ubuntu 24.04 自带 Mesa 25.2.8 的 panfrost gallium + 我们的 Rust DRM 语义层。
-  理由：唯一不需要重编 Mesa、不需要 bionic、不引入 C/Python 的路线；而且 A 证明它在 kbase 上可行。
-- **A 的实现直接当规格书**：我们 Rust shim 的 submit / fence / BO 生命周期按它写，不再自己猜 atom。
-- **兜底路径（不改目标，只留后手）**：若 Valhall 上 panfrost gallium 走不通，改走 B ——
-  把 panvk kbase fork 编成 **glibc** 版 Vulkan 驱动，GL 交给发行版自带的 **Zink**（GL on Vulkan）。
-  这条已有 G77 实机验证（faux123），代价是要重编 Mesa。
-- **待验清单（上机）**：① 本机 atom stride 72 与 r32p1 的 `base_jd_atom_v2` 字段排布；
-  ② Valhall 是否需要链拆分；③ exec 区是否仍受 16 MiB / 24 位 PC 限制；④ `MEM_ALLOC_EX` 是否 ENOTTY（MTK 已知会）。
+- **主动路线已调整**：evidence 45 证明 Ubuntu Mesa 25.2.8 的 panfrost 能在 guest 内加载并读到
+  Mali-G77 参数，但模型表没有 G77/G78，且在 `CREATE_BO` 前失败；因此当前主动路线改为
+  **panvk kbase fork（glibc）+ 发行版 Zink**。DRM 语义层路线不再称为“唯一路线”。
+- **DRM 语义层保留**：它是已完成 M1/M2 资产，也是 A 类实现的 Rust 规格和后备；
+  若 panvk 路线失败，再按本文件 §3 恢复提交 / fence / BO 生命周期实现。
+- **A 的实现仍有价值**：本文件 §3 的握手、SAME_VA、atom 依赖、fence、exec 区和 dma-buf 导入规则，
+  对任何 kbase 用户态驱动都适用；panvk 路线也受同一内核约束。
+- **已确认的兜底条件和风险**：MTK 的 `MEM_ALLOC_EX` 可能 ENOTTY；Valhall 的 job chain 是否需要拆分、
+  exec 区限制、timeline/fence 语义仍需按真实客户端验证。
+- **禁止用猜测推进**：命令字和参数必须从真实客户端或可验证源码取得；不能用盲扫 ioctl 代替取证。

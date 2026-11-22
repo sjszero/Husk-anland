@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 01:30）
+# 当前状态（2026-11-23 00:35）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -13,11 +13,15 @@
 
 - **假 `/dev/dri/renderD128` 全链路打通**：loader 里的 path-shim 与 LD_PRELOAD 层通过
   `HUSK_DRM_API` 函数表共用一份 kbase 状态；`open → gbm_create_device` 全 PASS。
-- **Mesa panfrost gallium 已在 guest 内加载**，并通过我们的 Rust DRM 语义层从 kbase 读到
+- **Mesa panfrost gallium 已在 guest 内加载**，并通过 Rust DRM 语义层从 kbase 读到
   真实 GPU 参数（PROD_ID `0x9080` = Mali-G77 等 15 项 ×2 轮）。
-- **未完成**：`panfrost_open_device()` 仍失败 → `egl: failed to create dri2 screen`，
-  `GL_RENDERER` 还没变成 Mali。下一步按 `mali-kbase-prior-art.md` 核对 panfrost 需要的语义。
-- 参考仓库审计表：`docs/design/references.md`（70 项第三方清单逐条核实，41 项对上真实仓库）。
+- **卡点（FACT）**：`panfrost_open_device()` 在发出任何 `CREATE_BO` 之前失败，
+  `egl: failed to create dri2 screen`；Ubuntu Mesa 25.2.8 的模型表没有 G77/G78，伪装成 G57 仍失败。
+- **路线调整（JUDGMENT，未完成）**：暂停把 panfrost + DRM 语义层当作唯一实现；
+  当前主动路线改用前人已验证的 **panvk kbase fork（glibc 构建）+ 发行版 Zink**。
+  DRM 语义层保留为 M1/M2 资产和后备，不删。
+- 原始参考清单：`docs/design/reference-request-20261122.md`（12 类、120 个条目，逐字保存）。
+  真实路径与审计：`docs/design/references.md`。
 
 ## 能力表（FACT）
 
@@ -47,7 +51,7 @@
 | CSF / panthor 可用性 | **不可用**：`CS_GET_GLB_IFACE`（`0xc0188033`）= ENOTTY，内核只编了 JM | 41 |
 | kbase dma-buf 导出 | **没有**；只有 `MEM_IMPORT`（`0xc0188016`，可达，ENOMEM）→ 零拷贝改成 app→guest 导入 | 41 |
 | 完成通道 | `KBASE_IOCTL_KINSTR_JM_FD`（`0xc0088033`，16B 记录 / version 2）；但 COMPLETE 不区分成败，只有 START 有判据 | 40/41 |
-| GPU 实现形态 | 定稿：Mesa 25.2.8 panfrost（JM/Valhall）+ guest 内 DRM 语义层（假 renderD128 → kbase） | 41 |
+| GPU 实现形态 | **路线调整**：panvk kbase fork（glibc）+ Zink 为当前主动路线；Mesa 25.2 panfrost + DRM 语义层保留为后备（evidence 45） | 36 / 45 |
 | DRM 语义层（M1） | **可用**：假 `/dev/dri/renderD128` + CREATE_BO/MMAP_BO/GET_PARAM 全通（kbase MEM_ALLOC / GPU VA） | 43/44 |
 | 软作业（`SOFT_EVENT_SET/WAIT`） | **本机无效果**：6 种偏移 + `compat_core_req` 双写 + 先 `MEM_JIT_INIT` + 换分配标志（CACHED_CPU / COHERENT_SYSTEM），显存里的标志字节始终为 0 | 40 |
 

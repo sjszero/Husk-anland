@@ -5,11 +5,15 @@ Husk 运行时的设计与证据。产品介绍见 [../../README.md](../../READM
 
 | 文件 | 内容 |
 |---|---|
-| [runtime.md](runtime.md) | **权威方案**：为什么只有这一条路、分层、性能预算、验收清单、剩余工作 |
+| [../PROJECT-MEMORY.md](../PROJECT-MEMORY.md) | 长期接手手册：目标、硬约束、路线变更、参考仓库与操作纪律 |
+| [runtime.md](runtime.md) | 运行时架构：分层、性能预算、验收清单、剩余工作 |
 | [capability-baseline.md](capability-baseline.md) | 设备能力与权限边界实测（RMX3357 / Android 13 / 4.19） |
 | [device-matrix.md](device-matrix.md) | Android 16 / GKI 6.6 实测矩阵 |
 | [proot-comparison.md](proot-comparison.md) | 与 PRoot 的同条件对照（syscall / 路径 / exec 三张表） |
-| [evidence/](evidence/) | 原始设备输出 01–25，编号被方案与其他文档引用 |
+| [evidence/](evidence/) | 原始设备输出 01–45，编号被方案与其他文档引用 |
+| [reference-request-20261122.md](reference-request-20261122.md) | 用户提供的参考仓库原始清单（12 类、120 条，未审计） |
+| [references.md](references.md) | 参考仓库真实路径、可用性、已拉取 commit 与借鉴结论 |
+| [mali-kbase-prior-art.md](mali-kbase-prior-art.md) | Mali kbase / PanVK / Panfrost 前人实现的源码级规格 |
 | [history/](history/) | 定案前的探索记录（候选枚举、原型、决策日志），仅存档 |
 
 ## 写作规范

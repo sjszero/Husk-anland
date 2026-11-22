@@ -3,8 +3,9 @@
 > 用途：**先找前人现成实现，再决定要不要自己写**。每开一个新模块，先在这张表里找；
 > 找不到再自己实现，实现完把结论补回本表。
 >
-> 来源：用户提供的一份第三方清单（12 类、~70 项）。清单本身是别的 AI 生成的，
-> **名字不等于仓库**，所以本表逐条核对真实路径与 star（核对时间 2026-11-22，`gh api`）。
+> 来源：用户提供的一份第三方清单（12 类、120 个条目，含重复项；逐字归档于
+> [`reference-request-20261122.md`](reference-request-20261122.md)）。清单本身是别的 AI 生成的，
+> **名字不等于仓库**；本表按功能去重为 63 组，并核对真实路径与 star（核对时间 2026-11-22，`gh api`）。
 > 核对状态：✅ 存在且已核对 · 🔎 未核对（上游在 gitlab/git.kernel.org 等非 GitHub 源） · ❌ 查无此仓库
 >
 > 约束提醒：这些是**参考**，不是依赖清单。有的要 root / 虚拟化 / 特权，只能借思路。
@@ -161,7 +162,7 @@ GIT_CONFIG_GLOBAL=/dev/null git -c http.proxy=http://127.0.0.1:7897 clone --dept
 
 ## 审计进度
 
-- 2026-11-22 第一遍：逐条核对真实路径（`gh api` + 搜索）。清单 70 项里能对上真实仓库的 **41** 项；
+- 2026-11-22 第一遍：逐条核对真实路径（`gh api` + 搜索）。清单 120 个条目去重后，能对上真实仓库的 **41** 项；
   对上不上的集中在 proot 替代类（清单来自第三方 AI，有编造/记错）。
 - 2026-11-22 第二遍（走代理补查）：`Shroot→mekhontsev/shroot`、`zproot→zproot/zproot`、
   `Piperella/Piperella-Wayland-Compositor`、`Anland→SuperTurtleDev/anland`、`MagicDesk→mekhontsev/magicdesk`、
@@ -183,3 +184,27 @@ gh api repos/<owner>/<repo> --jq '.full_name+" @"+.default_branch+" "+(.pushed_a
 ```
 
 注意：`zenithblue-oss/panvk-kbase-android` 仓库体积 ~1.09 GB（含预编译二进制），拉取前先看 `size`。
+
+---
+
+## 原始清单归档
+
+用户 2026-11-22 提供的第三方清单已逐字保存在
+[`reference-request-20261122.md`](reference-request-20261122.md)（12 类、120 个条目，含重复项）。
+本文件中的表格是对它做的去重、真实路径核对和可用性判断，不是对原清单的替代。
+原始清单是**未审计资料**，其中的项目名和描述不能直接当事实。
+
+## 已拉取到本机的工作副本（2026-11-23）
+
+只拉当前会用到的仓库；放在 `/tmp/refs2`，不进 Husk git。记录 commit 是为了可复现：
+
+| 仓库 | 本地目录 | commit | 当前用途 |
+|---|---|---|---|
+| `faux123/panvk-faux123-driver-rp4pro` | `/tmp/refs2/faux123_panvk-faux123-driver-rp4pro` | `cb72a0ba2ec7f160b818917be0c826bf4d57750b` | Mali-G77 / r32p1 / Android 13 实机先例；PanVK kbase + Zink 的最强旁证 |
+| `BkaNeko/panvk-mtk-driver` | `/tmp/refs2/BkaNeko_panvk-mtk-driver` | `594efbf6d2038df81ce0a75603cce72f4c866879` | MTK 的 `MEM_ALLOC_EX` 回退、AFBC、CSF 调度补丁 |
+| `manoedinata/mesa-kbase-j4lte` | `/tmp/refs2/manoedinata_mesa-kbase-j4lte` | `3fd6fc3f0271d2538f93bc5a51a19cedf267b8dd` | libdrm-kbase 1785 行规格；panfrost 语义与 gralloc 参考 |
+| `FristOneRR/FristOneRR-Panvk-Driver` | `/tmp/refs2/FristOneRR_FristOneRR-Panvk-Driver` | `e62405dbe3c9bea626a4afe534746180cea06586` | JM / Valhall v9 提交模型旁证 |
+| `zenithblue-oss/panvk-kbase-android` | `/tmp/refs2/zenithblue-oss_panvk-kbase-android` | `cf70e02b918e1864cbcd746a7fefa57b96c673ce` | 通用 Mali kbase PanVK（v6–v14）、profile、构建与验证；仓库约 1.09 GB，使用 sparse checkout |
+| `funnymdzz/mesa` tag `kbase-v0.1.2` | `/tmp/mesa-kb012` | `4e5323ef35dc580a6140f8d433a6d13ae3724c07` | Mesa 26.3-devel + `src/panfrost/lib/kmod/kbase_kmod.c`；当前 glibc PanVK 交叉构建源 |
+
+拉取规则不变：仅浅克隆/稀疏检出；记录 URL 和 commit；不把第三方源码提交进 Husk。

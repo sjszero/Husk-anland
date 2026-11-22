@@ -10,6 +10,8 @@
 > shell、常用工具、gcc 13.3 + make 全链路通过；2.0 的完整 Ubuntu 24.04 rootfs 能起 GNOME Shell 46；
 > 生命周期（旋转 / 切后台 / Surface 重建 / 会话不重启）全部实测通过；
 > SoC 侧 guest 进程可直接打开 `/dev/mali0`，分配 GPU 显存并在 CPU 侧读写（kbase 11.38）。
+> GPU 最新证据：Mesa panfrost 已能在 guest 内加载并读到 Mali-G77 参数，但屏幕创建失败；
+> 当前主动路线改为 panvk kbase fork（glibc）+ Zink（见 evidence 45 / `docs/PROJECT-MEMORY.md`）。
 
 ---
 
@@ -94,7 +96,8 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 
 ## 7. 当前限制
 
-- **GPU 渲染未通**：命令面与内存已打通，job 的 atom 结构尚未构造（不在"能画一帧"的程度）；
+- **GPU 渲染未通**：kbase 命令面、显存和 panfrost 参数读取已打通；当前卡在 `panfrost_open_device()`，
+  尚未报出 Mali renderer。主动路线已改为 panvk kbase fork（glibc）+ Zink，DRM 语义层保留为后备（evidence 45）；
 - **显示 / 视频 / 音频桥未开始**：dma-buf → Surface、MediaCodec 硬解回传、AAudio 通路都还没写；
 - `execl` 系列函数不生效；`freopen`、`glob`、`nftw`、`dlmopen` 未覆盖；
 - **libc 内部调用**（NSS / locale / `/etc/hosts` / `ld.so.cache`）仍读宿主，槽位方案未实现，
@@ -126,17 +129,20 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 | [工程设计](docs/ENGINEERING.md) | 组件划分、构建工具、产物指纹、语言构成 |
 | [后续工作](docs/FUTURE-WORK.md) | GPU/音频桥、发行形态、厂商接口可行度、待验证前提 |
 | [设计索引](docs/design/) | 设计文档与证据的入口 |
-| [运行时方案](docs/design/runtime.md) | 权威方案：为什么只有这一条路、验收标准、剩余工作 |
+| [长期记忆](docs/PROJECT-MEMORY.md) | 接手手册：目标、硬约束、路线变更、参考仓库、操作纪律 |
+| [运行时方案](docs/design/runtime.md) | 运行时架构、验收标准、剩余工作 |
 | [目标](docs/GOALS.md) | 权威目标：已完成项、剩余工作、验收标准、回滚包指纹 |
 | [状态](docs/STATUS.md) | 逐日进度、修掉的 bug、待办 |
 | [生命周期规格](docs/design/lifecycle.md) | 会话 / PTY / fd / 信号 / 关停的完整契约与不变量 |
 | [libc 内部调用](docs/design/libc-interpose.md) | 槽位方案设计（未实现） |
-| [证据](docs/design/evidence/) | 01–36：设备原始输出，与方案引用一一对应 |
+| [证据](docs/design/evidence/) | 01–45：设备原始输出，与方案引用一一对应 |
+| [参考仓库原始清单](docs/design/reference-request-20261122.md) | 用户提供的 12 类、120 个条目，逐字保存 |
+| [参考仓库审计](docs/design/references.md) | 真实路径、可用性、已拉取 commit 与借鉴结论 |
 | [变更记录](CHANGELOG.md) | 版本与已完成事项 |
 
 开发者上手请见 [QUICKSTART.md](QUICKSTART.md)。
 
-## 10. SoC 直连现状（2026-11-22）
+## 10. SoC 直连现状（2026-11-23）
 
 | 项 | 状态 |
 |---|---|
@@ -144,11 +150,13 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 | 命令面 | 26 条，取自厂商 `libGLES_mali.so`（r32p1）反汇编，不是猜 header |
 | `JOB_SUBMIT` | `0x40108002`（W,16）：实测 EINVAL（命令可达，参数被拒），不是 ENOTTY |
 | 显存 | `mem_alloc` + `mmap` 实测可分配并 CPU 读写（`prot` 必须等于 flags 低两位） |
-| 上游 Mesa | 25.2 与 main 均**没有** kbase 后端 → 由 Rust 侧 DRM 语义层补齐 |
+| 上游 Mesa | 25.2 与 main 均**没有** kbase 后端；Ubuntu 25.2.8 panfrost 模型表也无 G77/G78 |
+| 当前 GPU 路线 | panvk kbase fork（Mesa 26.3-devel，glibc 构建）+ 发行版 Zink；DRM 语义层保留为后备 |
 | 显示 / 视频 / 音频 | 未开始；路线见 [GOALS](docs/GOALS.md) 第 3、4、5 条（视频硬解可行性见 [evidence 39](docs/design/evidence/39-video-decode-path.md)） |
 
 细节与原始输出：[evidence 35](docs/design/evidence/35-gpu-ioctl-surface-from-vendor-driver.md)、
-[evidence 36](docs/design/evidence/36-gpu-route-reality-check.md)。
+[evidence 36](docs/design/evidence/36-gpu-route-reality-check.md)、
+[evidence 45](docs/design/evidence/45-panfrost-loads-over-kbase.md)。
 
 ## 11. 许可与来源
 
