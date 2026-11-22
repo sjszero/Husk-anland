@@ -4,6 +4,7 @@ members = [
     "crates/capability-probe",
     "crates/guest-bench",
     "crates/drm-probe",
+    "crates/drm-shim",
     "crates/gpu-probe",
     "crates/nr-tools",
     "crates/path-shim",

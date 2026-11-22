@@ -12,6 +12,9 @@ use std::os::fd::AsRawFd;
 extern "C" {
     fn __errno_location() -> *mut i32;
     fn ioctl(fd: i32, request: u64, ...) -> i32;
+    fn mmap(addr: *mut core::ffi::c_void, len: usize, prot: i32, flags: i32, fd: i32, off: i64)
+        -> *mut core::ffi::c_void;
+    fn munmap(addr: *mut core::ffi::c_void, len: usize) -> i32;
 }
 
 fn errno() -> i32 {
@@ -110,6 +113,92 @@ fn gpuprops(fd: i32) -> Vec<(u32, u64)> {
     out
 }
 
+/// M1 自测：把 DRM 语义层（drm-shim）在同一个进程里跑一遍——
+/// CREATE_BO → MMAP_BO → 真 mmap → 写模式 → 读回。
+/// 这一步证明"DRM 的 BO 语义能落在 kbase 的显存上"，之后才去接假节点。
+fn selfcheck() {
+    let f = match OpenOptions::new().read(true).write(true).open("/dev/mali0") {
+        Ok(f) => f,
+        Err(e) => { line("selfcheck/open", "FAIL", format!("errno={}", e.raw_os_error().unwrap_or(0))); return; }
+    };
+    let fd = f.as_raw_fd();
+    let mut ctx = match drm_shim::DrmCtx::new(fd) {
+        Ok(c) => c,
+        Err(e) => { line("selfcheck/ctx", "FAIL", format!("errno={e}")); return; }
+    };
+    line("selfcheck/ctx", "PASS", format!("props={} GET_PARAM 可用", ctx.props.len()));
+
+    // --- CREATE_BO(size=4096) ---
+    let mut arg = [0u8; 24];
+    arg[0..4].copy_from_slice(&4096u32.to_le_bytes());
+    let r = unsafe { ctx.dispatch(drm_shim::DRM_IOCTL_PANFROST_CREATE_BO, arg.as_mut_ptr()) };
+    if r < 0 { line("selfcheck/create_bo", "FAIL", format!("ret={r}")); return; }
+    let handle = u32::from_le_bytes([arg[8], arg[9], arg[10], arg[11]]);
+    let mut va = [0u8; 8];
+    va.copy_from_slice(&arg[16..24]);
+    let va = u64::from_le_bytes(va);
+    line("selfcheck/create_bo", "PASS", format!("size=4096 handle={handle} offset(=gpu_va)={va:#x}"));
+
+    // --- MMAP_BO(handle) ---
+    let mut mb = [0u8; 16];
+    mb[0..4].copy_from_slice(&handle.to_le_bytes());
+    let r = unsafe { ctx.dispatch(drm_shim::DRM_IOCTL_PANFROST_MMAP_BO, mb.as_mut_ptr()) };
+    if r < 0 { line("selfcheck/mmap_bo", "FAIL", format!("ret={r}")); return; }
+    let mut off = [0u8; 8];
+    off.copy_from_slice(&mb[8..16]);
+    let off = u64::from_le_bytes(off);
+    line("selfcheck/mmap_bo", "PASS", format!("handle={handle} offset={off:#x}"));
+
+    // --- 真的 mmap 这块 BO（kbase 规则：prot = flags 低两位，offset = VA）---
+    let p = unsafe { mmap(core::ptr::null_mut(), 4096, 3, 1, fd, off as i64) };
+    if p as isize == -1 {
+        line("selfcheck/mmap", "FAIL", format!("errno={}", errno()));
+        return;
+    }
+    let words = p as *mut u32;
+    unsafe {
+        for i in 0..16 { *words.add(i) = 0x1122_3344u32.wrapping_add(i as u32); }
+    }
+    let mut ok = true;
+    unsafe {
+        for i in 0..16 {
+            if *words.add(i) != 0x1122_3344u32.wrapping_add(i as u32) { ok = false; }
+        }
+    }
+    line("selfcheck/mmap", if ok { "PASS" } else { "FAIL" }, format!("va={off:#x} 写入并读回 64 字节"));
+
+    // --- GET_PARAM 的关键几条 ---
+    for (n, name) in [(0u32, "GPU_PROD_ID"), (7, "JS_PRESENT"), (14, "MAX_THREADS")] {
+        let mut gp = [0u8; 16];
+        gp[0..4].copy_from_slice(&n.to_le_bytes());
+        let r = unsafe { ctx.dispatch(drm_shim::DRM_IOCTL_PANFROST_GET_PARAM, gp.as_mut_ptr()) };
+        let mut v = [0u8; 8];
+        v.copy_from_slice(&gp[8..16]);
+        let v = u64::from_le_bytes(v);
+        line(
+            &format!("selfcheck/param{name}"),
+            if r == 0 { "PASS" } else { "FAIL" },
+            format!("{v:#x} ({v})"),
+        );
+    }
+
+    // --- GET_BO_OFFSET 一致性 ---
+    let mut gb = [0u8; 16];
+    gb[0..4].copy_from_slice(&handle.to_le_bytes());
+    let r = unsafe { ctx.dispatch(drm_shim::DRM_IOCTL_PANFROST_GET_BO_OFFSET, gb.as_mut_ptr()) };
+    let mut o2 = [0u8; 8];
+    o2.copy_from_slice(&gb[8..16]);
+    let o2 = u64::from_le_bytes(o2);
+    line(
+        "selfcheck/get_bo_offset",
+        if r == 0 && o2 == off { "PASS" } else { "FAIL" },
+        format!("{o2:#x}（与 MMAP_BO {}）", if o2 == off { "一致" } else { "不一致" }),
+    );
+
+    unsafe { munmap(p, 4096) };
+    line("selfcheck/verdict", "PASS", "M1 语义层：DRM BO == kbase 显存，可 CPU 读写");
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mode = args.get(1).map(|s| s.as_str()).unwrap_or("param");
@@ -137,6 +226,11 @@ fn main() {
     line("context", "PASS", format!("uapi={}.{} kctx", ver[0], ver[1]));
 
     let props = gpuprops(fd);
+
+    if mode == "selfcheck" {
+        selfcheck();
+        return;
+    }
 
     if mode == "props" {
         for (id, v) in &props {

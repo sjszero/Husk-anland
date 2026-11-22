@@ -12,6 +12,13 @@ dependencies = [
 [[package]]
 name = "drm-probe"
 version = "0.1.0"
+dependencies = [
+ "drm-shim",
+]
+
+[[package]]
+name = "drm-shim"
+version = "0.1.0"
 
 [[package]]
 name = "gpu-probe"

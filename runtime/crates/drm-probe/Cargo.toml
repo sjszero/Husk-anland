@@ -9,3 +9,4 @@ name = "drm-probe"
 path = "src/main.rs"
 
 [dependencies]
+drm-shim = { path = "../drm-shim" }
