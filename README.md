@@ -94,6 +94,7 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 | [架构](docs/ARCHITECTURE.md) | 分层、适配点、路径解析、已知边界 |
 | [实测数据](docs/RESULTS.md) | 功能矩阵、越界测试、性能数据、对照与未验证项 |
 | [工程设计](docs/ENGINEERING.md) | 实现选型、构建工具、产物指纹、语言构成 |
+| [后续工作](docs/FUTURE-WORK.md) | GPU/音频桥、发行形态、厂商接口可行度、待验证前提 |
 | [方案](docs/native-runtime/06-sole-plan-t2t1.md) | 路线选择、验收标准、后续计划 |
 | [证据](docs/native-runtime/evidence/) | 01–23：设备原始输出，与方案引用一一对应 |
 | [变更记录](CHANGELOG.md) | 版本与已完成事项 |
