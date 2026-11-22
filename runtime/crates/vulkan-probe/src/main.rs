@@ -317,6 +317,47 @@ struct PollFd {
 }
 
 #[repr(C)]
+#[derive(Default)]
+struct SyncFileInfo {
+    name: [u8; 32],
+    status: i32,
+    flags: u32,
+    num_fences: u32,
+    pad: u32,
+    sync_fence_info: u64,
+}
+
+const SYNC_IOC_FILE_INFO: u64 = 0xc038_3e04;
+
+unsafe fn sync_file_info(label: &str, fd: c_int) {
+    let mut info = SyncFileInfo::default();
+    let rc = ioctl(
+        fd,
+        SYNC_IOC_FILE_INFO,
+        &mut info as *mut SyncFileInfo as *mut c_void,
+    );
+    let name_end = info
+        .name
+        .iter()
+        .position(|b| *b == 0)
+        .unwrap_or(info.name.len());
+    let name = std::str::from_utf8(&info.name[..name_end]).unwrap_or("?");
+    let errno = if rc == 0 {
+        0
+    } else {
+        std::io::Error::last_os_error().raw_os_error().unwrap_or(0)
+    };
+    line(
+        label,
+        if rc == 0 { "PASS" } else { "FAIL" },
+        format!(
+            "rc={rc} name={name:?} status={} num_fences={} flags={:#x} errno={errno}",
+            info.status, info.num_fences, info.flags
+        ),
+    );
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Default)]
 struct VkMemoryRequirements {
     size: VkDeviceSize,
@@ -509,6 +550,7 @@ extern "C" {
     fn dlclose(handle: *mut c_void) -> c_int;
     fn poll(fds: *mut PollFd, nfds: usize, timeout: c_int) -> c_int;
     fn close(fd: c_int) -> c_int;
+    fn ioctl(fd: c_int, request: u64, arg: *mut c_void) -> c_int;
 }
 
 const RTLD_NOW: c_int = 2;
@@ -1303,6 +1345,7 @@ unsafe fn submit_compute(
             },
         );
         if fd >= 0 {
+            sync_file_info("fence_probe|sync_file(pending)", fd);
             let mut pfd = PollFd {
                 fd,
                 events: POLLIN,
@@ -1310,23 +1353,48 @@ unsafe fn submit_compute(
             };
             let poll_rc = poll(&mut pfd, 1, 0);
             line(
-                "fence_probe",
-                "poll",
+                "fence_probe|poll(before gpu)",
+                if poll_rc == 0 {
+                    "TIMEOUT(expected pending)"
+                } else if poll_rc > 0 && pfd.revents & POLLIN != 0 {
+                    "READABLE(too early)"
+                } else {
+                    "POLLERR"
+                },
                 format!("rc={poll_rc} revents={:#x}", pfd.revents),
             );
+
+            let started = std::time::Instant::now();
+            let mut pfd_wait = PollFd {
+                fd,
+                events: POLLIN,
+                revents: 0,
+            };
+            let wait_rc = poll(&mut pfd_wait, 1, 5_000);
+            line(
+                "fence_probe|poll(after gpu)",
+                if wait_rc > 0 && pfd_wait.revents & POLLIN != 0 {
+                    "READABLE"
+                } else if wait_rc == 0 {
+                    "TIMEOUT"
+                } else {
+                    "POLLERR"
+                },
+                format!(
+                    "rc={wait_rc} revents={:#x} elapsed_us={}",
+                    pfd_wait.revents,
+                    started.elapsed().as_micros()
+                ),
+            );
+            sync_file_info("fence_probe|sync_file(signaled)", fd);
             close(fd);
         } else {
             line(
-                "fence_probe",
-                "poll",
+                "fence_probe|poll",
                 "SKIP|fd=-1 means already signaled or no exported payload",
+                "no fd",
             );
         }
-        line(
-            "fence_probe",
-            "warning",
-            "Do not wait this exported fence: SYNC_FD export resets it by spec",
-        );
     } else {
         let r = wait_fences(device, 1, &fence, VK_TRUE, 5_000_000_000);
         if r != VK_SUCCESS {
@@ -1545,7 +1613,10 @@ unsafe fn run() -> i32 {
 
     let ahb_socket = dmabuf::socket_arg();
     let instance_ext_names = if ahb_socket.is_some() {
-        vec![CString::new("VK_KHR_external_memory_capabilities").unwrap()]
+        vec![
+            CString::new("VK_KHR_external_memory_capabilities").unwrap(),
+            CString::new("VK_KHR_external_fence_capabilities").unwrap(),
+        ]
     } else {
         Vec::new()
     };
@@ -1667,7 +1738,7 @@ unsafe fn run() -> i32 {
             CString::new("VK_EXT_image_drm_format_modifier").unwrap(),
         ]);
     }
-    if fence_probe {
+    if fence_probe || ahb_socket.is_some() {
         device_ext_names.extend([
             CString::new("VK_KHR_external_fence").unwrap(),
             CString::new("VK_KHR_external_fence_fd").unwrap(),

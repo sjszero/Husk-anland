@@ -1,5 +1,21 @@
 # 变更记录
 
+## 2026-11-23 — PanVK 真实 SYNC_FD 接入 SurfaceControl ring
+
+- **evidence 58**：FristOneRR kbase 后端补齐 JM out-fence stream，并让
+  `vkGetFenceFdKHR(VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT)` 返回真实
+  `mali-mali.timeline*` sync_file；不再 CPU wait 后返回 `fd=-1`。
+- 3-buffer SurfaceControl ring 连续 120 帧全部 `kind=SYNC_FD`：11 帧导出时 pending，
+  109 帧已 signal；120 帧 completion 后同一 fd 均为 `status=1`，120 次 9 点 GPU 回读 PASS，
+  eventfd fallback = 0，guest/app `FAIL` = 0，app `submitted=120 completed=120`，
+  最终回收 3 个 buffer。
+- 7 文件 Mesa/kbase patch 已固定为
+  `docs/design/patches/fristonerr-kbase-syncfd-export.patch`。
+- **边界**：没有 SurfaceFlinger 内部等待 trace；持久 Vulkan 资源池、`VK_KHR_swapchain` /
+  Wayland / X11 WSI、窗口生命周期和 10 分钟长稳仍未完成。
+- probe sha256 `28095769e2313e6fa65a9bad7748dce94fe1d05381cb2bec468bbe24a2ca6ac0`；
+  driver sha256 `e6d1b6fed4b09ff1e84474b160b8898b8adcc4effd01d08c87d129091c838f5e`。
+
 ## 2026-11-23 — r32p1 kbase 生成真实 pending sync_file
 
 - **evidence 57**：guest 直连 `/dev/mali0`，用 64-byte `base_jd_atom_v2` 提交

@@ -1,0 +1,4 @@
+8f2aab3f754e2d1375b460373221c8bcbf5af31bb97dcc5485ec76f637217bb0  docs/design/evidence/58-panvk-syncfd-ring-guest.log
+0295e08abdd745316182fe5ace8fd428c779634e20d2884091fec6a133fd7881  docs/design/evidence/58-panvk-syncfd-ring-app.log
+2390f61c8e60146e8da7a14124af9fde5a95eb62e38f9472242879c7f07ecc98  docs/design/evidence/58-panvk-syncfd-ring.png
+0afcb634a99fb253dfe2b80b607dce8262ee0d5b6f9ba6ad513751d5fe4cbe47  docs/design/patches/fristonerr-kbase-syncfd-export.patch

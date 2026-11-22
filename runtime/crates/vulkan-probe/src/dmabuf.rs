@@ -71,7 +71,9 @@ struct CompletionResources {
     readback: usize,
     image_memory: usize,
     image: usize,
+    completion_fd: c_int,
     write_fd: c_int,
+    gpu_complete: bool,
     wait_fences: FnWaitForFences,
     destroy_fence: FnDestroyFence,
     destroy_pool: FnDestroyCommandPool,
@@ -155,8 +157,22 @@ impl Drop for CompletionResources {
             // This also covers a thread-spawn failure and a panic in the
             // completion path: never destroy objects while the GPU may use
             // them.
+            if !self.gpu_complete {
+                if self.completion_fd >= 0 {
+                    let mut pfd = PollFd {
+                        fd: self.completion_fd,
+                        events: POLLIN,
+                        revents: 0,
+                    };
+                    let _ = poll(&mut pfd, 1, 30_000);
+                } else if !fence.is_null() {
+                    let _ = (self.wait_fences)(device, 1, &fence, VK_TRUE, u64::MAX);
+                }
+            }
+            if self.completion_fd >= 0 {
+                close(self.completion_fd);
+            }
             if !fence.is_null() {
-                let _ = (self.wait_fences)(device, 1, &fence, VK_TRUE, u64::MAX);
                 (self.destroy_fence)(device, fence, ptr::null());
             }
             if self.command_pool != 0 {
@@ -849,9 +865,18 @@ unsafe fn render_linear_image(
         return false;
     }
 
+    let export_info = VkExportFenceCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_EXPORT_FENCE_CREATE_INFO,
+        p_next: ptr::null(),
+        handle_types: VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT,
+    };
     let fence_info = VkFenceCreateInfo {
         s_type: VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-        p_next: ptr::null(),
+        p_next: if async_out.is_some() {
+            &export_info as *const _ as *const c_void
+        } else {
+            ptr::null()
+        },
         flags: 0,
     };
     let mut fence: VkFence = ptr::null_mut();
@@ -879,6 +904,157 @@ unsafe fn render_linear_image(
     let submit_rc = queue_submit(queue, 1, &submit, fence);
     if submit_rc == VK_SUCCESS {
         if let Some(out) = async_out.as_deref_mut() {
+            match export_fence_sync_fd(lib, device, fence) {
+                Ok(acquire_fd) if acquire_fd >= 0 => {
+                    super::sync_file_info(
+                        &format!("dmabuf|sync_file(export frame={frame} slot={slot})"),
+                        acquire_fd,
+                    );
+                    let mut initial_pfd = PollFd {
+                        fd: acquire_fd,
+                        events: POLLIN,
+                        revents: 0,
+                    };
+                    let initial_rc = poll(&mut initial_pfd, 1, 0);
+                    line(
+                        "dmabuf",
+                        "sync_file(export poll)",
+                        if initial_rc == 0 {
+                            "PENDING".to_string()
+                        } else if initial_rc > 0 && initial_pfd.revents & POLLIN != 0 {
+                            "ALREADY_SIGNALED".to_string()
+                        } else {
+                            format!("POLLERR rc={initial_rc} revents={:#x}", initial_pfd.revents)
+                        },
+                    );
+                    let completion_fd = dup(acquire_fd);
+                    if completion_fd >= 0 {
+                        let resources = CompletionResources {
+                            device: device as usize,
+                            fence: fence as usize,
+                            command_pool: pool as usize,
+                            readback_memory: readback_memory as usize,
+                            readback: readback as usize,
+                            image_memory: image_memory as usize,
+                            image: image as usize,
+                            completion_fd,
+                            write_fd: -1,
+                            gpu_complete: false,
+                            wait_fences,
+                            destroy_fence,
+                            destroy_pool,
+                            free_memory,
+                            destroy_buffer,
+                            destroy_image,
+                            map_memory,
+                            unmap_memory,
+                            readback_size: readback_req.size,
+                            pitch,
+                            width: meta.width,
+                            height: meta.height,
+                            expected_pixel,
+                            frame,
+                            slot,
+                        };
+                        let join = std::thread::Builder::new()
+                            .name(format!("husk-gpu-frame-{frame}"))
+                            .spawn(move || {
+                                let mut resources = resources;
+                                let mut pfd = PollFd {
+                                    fd: resources.completion_fd,
+                                    events: POLLIN,
+                                    revents: 0,
+                                };
+                                let started = std::time::Instant::now();
+                                let poll_rc = poll(&mut pfd, 1, 30_000);
+                                let complete =
+                                    poll_rc > 0 && pfd.revents & POLLIN != 0;
+                                if complete {
+                                    resources.gpu_complete = true;
+                                    super::sync_file_info(
+                                        &format!(
+                                            "dmabuf|sync_file(signaled frame={} slot={})",
+                                            resources.frame, resources.slot
+                                        ),
+                                        resources.completion_fd,
+                                    );
+                                    line(
+                                        "dmabuf",
+                                        "image_complete",
+                                        format!(
+                                            "frame={} slot={} sync_file=READABLE elapsed_us={}",
+                                            resources.frame,
+                                            resources.slot,
+                                            started.elapsed().as_micros()
+                                        ),
+                                    );
+                                    resources.verify_readback();
+                                } else {
+                                    line(
+                                        "dmabuf",
+                                        "image_complete",
+                                        format!(
+                                            "frame={} slot={} sync_file=FAIL poll={poll_rc} revents={:#x}",
+                                            resources.frame,
+                                            resources.slot,
+                                            pfd.revents
+                                        ),
+                                    );
+                                }
+                                drop(resources);
+                            });
+                        match join {
+                            Ok(join) => {
+                                out.acquire_fd = acquire_fd;
+                                out.join = Some(join);
+                                line(
+                                    "dmabuf",
+                                    "image_async",
+                                    format!(
+                                        "frame={frame} slot={slot} acquire_fd={acquire_fd} kind=SYNC_FD submit=PASS"
+                                    ),
+                                );
+                                return true;
+                            }
+                            Err(e) => {
+                                close(completion_fd);
+                                close(acquire_fd);
+                                line(
+                                    "dmabuf",
+                                    "image_async",
+                                    format!("frame={frame} slot={slot} FAIL|sync_file spawn: {e}"),
+                                );
+                                return false;
+                            }
+                        }
+                    }
+                    close(acquire_fd);
+                    line(
+                        "dmabuf",
+                        "image_async",
+                        format!("frame={frame} slot={slot} FAIL|dup sync_file"),
+                    );
+                    return false;
+                }
+                Ok(fd) => {
+                    line(
+                        "dmabuf",
+                        "image_async",
+                        format!(
+                            "frame={frame} slot={slot} WARN|SYNC_FD already signaled fd={fd}; using eventfd fallback"
+                        ),
+                    );
+                }
+                Err(e) => {
+                    line(
+                        "dmabuf",
+                        "image_async",
+                        format!(
+                            "frame={frame} slot={slot} WARN|SYNC_FD: {e}; using eventfd fallback"
+                        ),
+                    );
+                }
+            }
             let acquire_fd = eventfd(0, 0);
             let write_fd = if acquire_fd >= 0 { dup(acquire_fd) } else { -1 };
             if acquire_fd >= 0 && write_fd >= 0 {
@@ -890,7 +1066,9 @@ unsafe fn render_linear_image(
                     readback: readback as usize,
                     image_memory: image_memory as usize,
                     image: image as usize,
+                    completion_fd: -1,
                     write_fd,
+                    gpu_complete: false,
                     wait_fences,
                     destroy_fence,
                     destroy_pool,
@@ -910,17 +1088,15 @@ unsafe fn render_linear_image(
                 let join = std::thread::Builder::new()
                     .name(format!("husk-gpu-frame-{frame}"))
                     .spawn(move || {
+                        let mut resources = resources;
                         let device = resources.device as VkDevice;
                         let fence = resources.fence as VkFence;
-                        let wait_rc =
-                            (resources.wait_fences)(device, 1, &fence, VK_TRUE, u64::MAX);
+                        let wait_rc = (resources.wait_fences)(device, 1, &fence, VK_TRUE, u64::MAX);
                         if wait_rc == VK_SUCCESS {
                             let one = 1u64;
-                            let wrote = write(
-                                resources.write_fd,
-                                &one as *const u64 as *const c_void,
-                                8,
-                            );
+                            let wrote =
+                                write(resources.write_fd, &one as *const u64 as *const c_void, 8);
+                            resources.gpu_complete = true;
                             line(
                                 "dmabuf",
                                 "image_complete",
@@ -1456,6 +1632,33 @@ fn frame_color(frame: usize) -> ([f32; 4], u32) {
         1 => ([0.0, 1.0, 0.0, 1.0], 0xff00_ff00),
         _ => ([0.0, 0.0, 1.0, 1.0], 0xffff_0000),
     }
+}
+
+unsafe fn export_fence_sync_fd(
+    lib: *mut c_void,
+    device: VkDevice,
+    fence: VkFence,
+) -> Result<c_int, String> {
+    let get_proc: FnGetDeviceProcAddr = symbol(lib, "vkGetDeviceProcAddr")
+        .ok_or_else(|| "vkGetDeviceProcAddr missing".to_string())?;
+    let name = std::ffi::CString::new("vkGetFenceFdKHR").unwrap();
+    let raw = get_proc(device, name.as_ptr());
+    if raw.is_null() {
+        return Err("vkGetDeviceProcAddr(vkGetFenceFdKHR) returned null".to_string());
+    }
+    let get_fence_fd: FnGetFenceFdKhr = std::mem::transmute(raw);
+    let info = VkFenceGetFdInfoKhr {
+        s_type: VK_STRUCTURE_TYPE_FENCE_GET_FD_INFO_KHR,
+        p_next: ptr::null(),
+        fence,
+        handle_type: VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT,
+    };
+    let mut fd = -1;
+    let rc = get_fence_fd(device, &info, &mut fd);
+    if rc != VK_SUCCESS {
+        return Err(format!("vkGetFenceFdKHR rc={rc}"));
+    }
+    Ok(fd)
 }
 
 unsafe fn send_ready_with_fd(stream: &UnixStream, text: &str, acquire_fd: c_int) -> bool {

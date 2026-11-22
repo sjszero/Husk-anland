@@ -1,0 +1,517 @@
+11-23 05:19:12.189 26397 26913 I Husk    : ahb|probe|BEGIN
+11-23 05:19:12.189 26397 26913 I Husk    : ahb|loader|PASS|libandroid.so
+11-23 05:19:12.189 26397 26913 I Husk    : ahb|symbol|PASS|AHardwareBuffer_allocate
+11-23 05:19:12.190 26397 26913 I Husk    : ahb|symbol|PASS|AHardwareBuffer_describe
+11-23 05:19:12.190 26397 26913 I Husk    : ahb|symbol|PASS|AHardwareBuffer_release
+11-23 05:19:12.190 26397 26913 I Husk    : ahb|symbol|PASS|AHardwareBuffer_getNativeHandle
+11-23 05:19:12.190 26397 26913 I Husk    : ahb|symbol|PASS|AHardwareBuffer_sendHandleToUnixSocket
+11-23 05:19:12.190 26397 26913 I Husk    : ahb|symbol|PASS|AHardwareBuffer_recvHandleFromUnixSocket
+11-23 05:19:12.190 26397 26913 I Husk    : ahb|symbol|PASS|AHardwareBuffer_lock
+11-23 05:19:12.190 26397 26913 I Husk    : ahb|symbol|PASS|AHardwareBuffer_unlock
+11-23 05:19:12.190 26397 26913 I Husk    : ahb|ring|BEGIN|buffers=3|frames=120
+11-23 05:19:12.204 26397 26913 I Husk    : ahb|ring|allocate|slot=0|rc=0|ptr=0xb400007aa5448800
+11-23 05:19:12.204 26397 26913 I Husk    : ahb|linear|lock_write|rc=0 cpu=0x7b70c03000
+11-23 05:19:12.204 26397 26913 I Husk    : ahb|linear|unlock_write|rc=0
+11-23 05:19:12.204 26397 26913 I Husk    : ahb|linear|lock_read|rc=0 cpu=0x7b70c03000
+11-23 05:19:12.204 26397 26913 I Husk    : ahb|linear|cpu_view|match=9/9|got=[2589720576, 2589724736, 2589728894, 2589732896, 2589737056, 2589741150, 2589745215, 2589749375, 2589753409]|unlock=0
+11-23 05:19:12.204 26397 26913 I Husk    : ahb|ring|describe|slot=0|64x64|stride=64|linear=true
+11-23 05:19:12.204 26397 26913 I Husk    : ahb|ring|allocate|slot=1|rc=0|ptr=0xb400007aa5517500
+11-23 05:19:12.204 26397 26913 I Husk    : ahb|linear|lock_write|rc=0 cpu=0x7b70bb1000
+11-23 05:19:12.204 26397 26913 I Husk    : ahb|linear|unlock_write|rc=0
+11-23 05:19:12.204 26397 26913 I Husk    : ahb|linear|lock_read|rc=0 cpu=0x7b70bb1000
+11-23 05:19:12.204 26397 26913 I Husk    : ahb|linear|cpu_view|match=9/9|got=[2589720576, 2589724736, 2589728894, 2589732896, 2589737056, 2589741150, 2589745215, 2589749375, 2589753409]|unlock=0
+11-23 05:19:12.204 26397 26913 I Husk    : ahb|ring|describe|slot=1|64x64|stride=64|linear=true
+11-23 05:19:12.205 26397 26913 I Husk    : ahb|ring|allocate|slot=2|rc=0|ptr=0xb400007aa5517600
+11-23 05:19:12.205 26397 26913 I Husk    : ahb|linear|lock_write|rc=0 cpu=0x7b70b1e000
+11-23 05:19:12.205 26397 26913 I Husk    : ahb|linear|unlock_write|rc=0
+11-23 05:19:12.205 26397 26913 I Husk    : ahb|linear|lock_read|rc=0 cpu=0x7b70b1e000
+11-23 05:19:12.205 26397 26913 I Husk    : ahb|linear|cpu_view|match=9/9|got=[2589720576, 2589724736, 2589728894, 2589732896, 2589737056, 2589741150, 2589745215, 2589749375, 2589753409]|unlock=0
+11-23 05:19:12.205 26397 26913 I Husk    : ahb|ring|describe|slot=2|64x64|stride=64|linear=true
+11-23 05:19:12.205 26397 26913 I Husk    : ahb|ring|LISTEN|/data/user/0/com.linuxhub.husk/files/ahb-bridge.sock
+11-23 05:19:19.059 26397 26913 I Husk    : ahb|ring|send|slot=0|rc=0
+11-23 05:19:19.059 26397 26913 I Husk    : ahb|ring|send|slot=1|rc=0
+11-23 05:19:19.059 26397 26913 I Husk    : ahb|ring|send|slot=2|rc=0
+11-23 05:19:19.066 26397 26913 I Husk    : ahb|ring|recv|bytes=19|control_len=24|fds=1|flags=0x0|text=READY 0 0 ff0000ff
+11-23 05:19:19.068 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=None|acquire_fd=143|1080x2400
+11-23 05:19:19.068 26397 26913 I Husk    : ahb|ring|recv|bytes=19|control_len=24|fds=1|flags=0x0|text=READY 1 1 ff00ff00
+11-23 05:19:19.069 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:19.071 26397 26913 I Husk    : ahb|ring|recv|bytes=19|control_len=24|fds=1|flags=0x0|text=READY 2 2 ffff0000
+11-23 05:19:19.073 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:19.083 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=None|release_fd=-1|released=true|completed=1
+11-23 05:19:19.098 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=153|released=true|completed=2
+11-23 05:19:19.099 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:19.099 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=-1|released=true|completed=3
+11-23 05:19:19.099 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:19.102 26397 26913 I Husk    : ahb|ring|recv|bytes=19|control_len=24|fds=1|flags=0x0|text=READY 0 3 ff0000ff
+11-23 05:19:19.104 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:19.107 26397 26913 I Husk    : ahb|ring|recv|bytes=19|control_len=24|fds=1|flags=0x0|text=READY 1 4 ff00ff00
+11-23 05:19:19.109 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:19.132 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=153|released=true|completed=4
+11-23 05:19:19.132 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:19.132 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=-1|released=true|completed=5
+11-23 05:19:19.132 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:19.135 26397 26913 I Husk    : ahb|ring|recv|bytes=19|control_len=24|fds=1|flags=0x0|text=READY 2 5 ffff0000
+11-23 05:19:19.137 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:19.140 26397 26913 I Husk    : ahb|ring|recv|bytes=19|control_len=24|fds=1|flags=0x0|text=READY 0 6 ff0000ff
+11-23 05:19:19.141 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:19.157 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=151|released=true|completed=6
+11-23 05:19:19.157 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:19.162 26397 26913 I Husk    : ahb|ring|recv|bytes=19|control_len=24|fds=1|flags=0x0|text=READY 1 7 ff00ff00
+11-23 05:19:19.163 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=151|1080x2400
+11-23 05:19:19.165 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=7
+11-23 05:19:19.165 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:19.170 26397 26913 I Husk    : ahb|ring|recv|bytes=19|control_len=24|fds=1|flags=0x0|text=READY 2 8 ffff0000
+11-23 05:19:19.172 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:19.190 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=150|released=true|completed=8
+11-23 05:19:19.190 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:19.196 26397 26913 I Husk    : ahb|ring|recv|bytes=19|control_len=24|fds=1|flags=0x0|text=READY 0 9 ff0000ff
+11-23 05:19:19.198 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=151|1080x2400
+11-23 05:19:19.198 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=150|released=true|completed=9
+11-23 05:19:19.198 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:19.203 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 10 ff00ff00
+11-23 05:19:19.204 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:19.224 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=153|released=true|completed=10
+11-23 05:19:19.224 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:19.224 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=-1|released=true|completed=11
+11-23 05:19:19.224 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:19.232 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 11 ffff0000
+11-23 05:19:19.235 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:19.237 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 12 ff0000ff
+11-23 05:19:19.239 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:19.257 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=151|released=true|completed=12
+11-23 05:19:19.257 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:19.263 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 13 ff00ff00
+11-23 05:19:19.265 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=151|1080x2400
+11-23 05:19:19.265 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=13
+11-23 05:19:19.265 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:19.270 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 14 ffff0000
+11-23 05:19:19.271 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:19.290 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=153|released=true|completed=14
+11-23 05:19:19.291 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:19.291 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=-1|released=true|completed=15
+11-23 05:19:19.291 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:19.302 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 15 ff0000ff
+11-23 05:19:19.305 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:19.309 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 16 ff00ff00
+11-23 05:19:19.311 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:19.324 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=151|released=true|completed=16
+11-23 05:19:19.324 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:19.332 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=150|released=true|completed=17
+11-23 05:19:19.332 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:19.333 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 17 ffff0000
+11-23 05:19:19.334 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:19.339 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 18 ff0000ff
+11-23 05:19:19.341 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:19.357 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=151|released=true|completed=18
+11-23 05:19:19.357 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:19.363 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 19 ff00ff00
+11-23 05:19:19.365 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=151|1080x2400
+11-23 05:19:19.365 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=19
+11-23 05:19:19.366 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:19.371 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 20 ffff0000
+11-23 05:19:19.373 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:19.391 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=150|released=true|completed=20
+11-23 05:19:19.392 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:19.397 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 21 ff0000ff
+11-23 05:19:19.398 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=147|released=true|completed=21
+11-23 05:19:19.399 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:19.399 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=148|1080x2400
+11-23 05:19:19.403 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 22 ff00ff00
+11-23 05:19:19.405 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:19.424 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=153|released=true|completed=22
+11-23 05:19:19.424 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:19.424 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=-1|released=true|completed=23
+11-23 05:19:19.424 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:19.432 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 23 ffff0000
+11-23 05:19:19.434 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:19.438 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 24 ff0000ff
+11-23 05:19:19.440 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:19.457 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=151|released=true|completed=24
+11-23 05:19:19.457 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:19.464 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 25 ff00ff00
+11-23 05:19:19.466 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=151|1080x2400
+11-23 05:19:19.466 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=25
+11-23 05:19:19.466 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:19.470 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 26 ffff0000
+11-23 05:19:19.472 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:19.490 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=153|released=true|completed=26
+11-23 05:19:19.491 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:19.491 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=-1|released=true|completed=27
+11-23 05:19:19.491 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:19.497 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 27 ff0000ff
+11-23 05:19:19.499 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:19.504 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 28 ff00ff00
+11-23 05:19:19.506 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:19.524 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=151|released=true|completed=28
+11-23 05:19:19.524 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:19.532 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 29 ffff0000
+11-23 05:19:19.532 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=150|released=true|completed=29
+11-23 05:19:19.533 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:19.534 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=151|1080x2400
+11-23 05:19:19.538 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 30 ff0000ff
+11-23 05:19:19.539 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:19.557 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=150|released=true|completed=30
+11-23 05:19:19.557 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:19.564 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 31 ff00ff00
+11-23 05:19:19.565 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=31
+11-23 05:19:19.566 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:19.566 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=151|1080x2400
+11-23 05:19:19.570 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 32 ffff0000
+11-23 05:19:19.571 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:19.590 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=150|released=true|completed=32
+11-23 05:19:19.591 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:19.597 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 33 ff0000ff
+11-23 05:19:19.599 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=151|1080x2400
+11-23 05:19:19.599 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=150|released=true|completed=33
+11-23 05:19:19.599 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:19.603 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 34 ff00ff00
+11-23 05:19:19.604 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:19.624 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=34
+11-23 05:19:19.624 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:19.632 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 35 ffff0000
+11-23 05:19:19.633 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=150|released=true|completed=35
+11-23 05:19:19.633 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:19.634 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=151|1080x2400
+11-23 05:19:19.643 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 36 ff0000ff
+11-23 05:19:19.644 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:19.657 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=150|released=true|completed=36
+11-23 05:19:19.657 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:19.664 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 37 ff00ff00
+11-23 05:19:19.666 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=37
+11-23 05:19:19.666 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:19.666 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=151|1080x2400
+11-23 05:19:19.672 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 38 ffff0000
+11-23 05:19:19.673 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:19.691 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=150|released=true|completed=38
+11-23 05:19:19.691 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:19.698 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 39 ff0000ff
+11-23 05:19:19.699 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=151|1080x2400
+11-23 05:19:19.699 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=150|released=true|completed=39
+11-23 05:19:19.699 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:19.704 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 40 ff00ff00
+11-23 05:19:19.706 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:19.724 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=40
+11-23 05:19:19.724 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:19.730 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 41 ffff0000
+11-23 05:19:19.732 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=151|1080x2400
+11-23 05:19:19.733 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=150|released=true|completed=41
+11-23 05:19:19.733 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:19.738 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 42 ff0000ff
+11-23 05:19:19.739 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:19.758 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=150|released=true|completed=42
+11-23 05:19:19.758 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:19.764 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 43 ff00ff00
+11-23 05:19:19.766 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=43
+11-23 05:19:19.766 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:19.766 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=151|1080x2400
+11-23 05:19:19.770 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 44 ffff0000
+11-23 05:19:19.772 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:19.791 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=150|released=true|completed=44
+11-23 05:19:19.791 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:19.798 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 45 ff0000ff
+11-23 05:19:19.799 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=150|released=true|completed=45
+11-23 05:19:19.799 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=151|1080x2400
+11-23 05:19:19.799 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:19.807 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 46 ff00ff00
+11-23 05:19:19.809 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:19.824 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=46
+11-23 05:19:19.824 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:19.831 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 47 ffff0000
+11-23 05:19:19.833 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=150|released=true|completed=47
+11-23 05:19:19.833 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:19.833 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=151|1080x2400
+11-23 05:19:19.838 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 48 ff0000ff
+11-23 05:19:19.839 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:19.857 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=150|released=true|completed=48
+11-23 05:19:19.858 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:19.863 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 49 ff00ff00
+11-23 05:19:19.865 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=151|1080x2400
+11-23 05:19:19.866 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=49
+11-23 05:19:19.866 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:19.871 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 50 ffff0000
+11-23 05:19:19.873 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:19.891 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=150|released=true|completed=50
+11-23 05:19:19.891 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:19.899 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=150|released=true|completed=51
+11-23 05:19:19.900 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:19.900 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 51 ff0000ff
+11-23 05:19:19.902 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:19.907 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 52 ff00ff00
+11-23 05:19:19.908 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:19.924 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=151|released=true|completed=52
+11-23 05:19:19.925 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:19.933 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=150|released=true|completed=53
+11-23 05:19:19.933 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:19.934 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 53 ffff0000
+11-23 05:19:19.935 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:19.939 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 54 ff0000ff
+11-23 05:19:19.941 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:19.958 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=151|released=true|completed=54
+11-23 05:19:19.958 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:19.963 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 55 ff00ff00
+11-23 05:19:19.965 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=151|1080x2400
+11-23 05:19:19.966 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=55
+11-23 05:19:19.966 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:19.971 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 56 ffff0000
+11-23 05:19:19.973 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:19.991 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=150|released=true|completed=56
+11-23 05:19:19.991 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:19.997 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 57 ff0000ff
+11-23 05:19:19.999 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=151|1080x2400
+11-23 05:19:19.999 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=150|released=true|completed=57
+11-23 05:19:20.000 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:20.003 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 58 ff00ff00
+11-23 05:19:20.005 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:20.024 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=58
+11-23 05:19:20.024 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:20.030 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 59 ffff0000
+11-23 05:19:20.031 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:20.032 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=153|released=true|completed=59
+11-23 05:19:20.033 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:20.037 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 60 ff0000ff
+11-23 05:19:20.039 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:20.058 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=151|released=true|completed=60
+11-23 05:19:20.058 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:20.064 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 61 ff00ff00
+11-23 05:19:20.066 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=151|1080x2400
+11-23 05:19:20.066 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=61
+11-23 05:19:20.066 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:20.071 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 62 ffff0000
+11-23 05:19:20.072 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:20.091 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=150|released=true|completed=62
+11-23 05:19:20.091 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:20.097 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 63 ff0000ff
+11-23 05:19:20.099 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=151|1080x2400
+11-23 05:19:20.099 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=150|released=true|completed=63
+11-23 05:19:20.099 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:20.104 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 64 ff00ff00
+11-23 05:19:20.106 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:20.124 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=64
+11-23 05:19:20.125 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:20.133 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=150|released=true|completed=65
+11-23 05:19:20.133 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:20.140 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 65 ffff0000
+11-23 05:19:20.141 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:20.147 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 66 ff0000ff
+11-23 05:19:20.149 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:20.157 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=151|released=true|completed=66
+11-23 05:19:20.158 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:20.166 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=67
+11-23 05:19:20.166 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:20.167 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 67 ff00ff00
+11-23 05:19:20.168 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=145|1080x2400
+11-23 05:19:20.174 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 68 ffff0000
+11-23 05:19:20.175 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:20.182 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=151|released=true|completed=68
+11-23 05:19:20.183 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:20.189 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 69 ff0000ff
+11-23 05:19:20.190 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:20.199 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=151|released=true|completed=69
+11-23 05:19:20.200 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:20.204 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 70 ff00ff00
+11-23 05:19:20.205 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:20.216 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=151|released=true|completed=70
+11-23 05:19:20.216 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:20.226 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 71 ffff0000
+11-23 05:19:20.227 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:20.233 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=153|released=true|completed=71
+11-23 05:19:20.233 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:20.241 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 72 ff0000ff
+11-23 05:19:20.242 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:20.249 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=143|released=true|completed=72
+11-23 05:19:20.249 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:20.261 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 73 ff00ff00
+11-23 05:19:20.262 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=151|1080x2400
+11-23 05:19:20.266 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=73
+11-23 05:19:20.266 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:20.275 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 74 ffff0000
+11-23 05:19:20.276 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:20.283 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=151|released=true|completed=74
+11-23 05:19:20.283 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:20.290 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 75 ff0000ff
+11-23 05:19:20.291 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:20.300 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=153|released=true|completed=75
+11-23 05:19:20.300 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:20.307 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 76 ff00ff00
+11-23 05:19:20.309 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:20.316 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=153|released=true|completed=76
+11-23 05:19:20.316 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:20.324 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 77 ffff0000
+11-23 05:19:20.326 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:20.333 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=151|released=true|completed=77
+11-23 05:19:20.333 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:20.340 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 78 ff0000ff
+11-23 05:19:20.342 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:20.349 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=151|released=true|completed=78
+11-23 05:19:20.350 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:20.358 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 79 ff00ff00
+11-23 05:19:20.360 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:20.366 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=151|released=true|completed=79
+11-23 05:19:20.366 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:20.372 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 80 ffff0000
+11-23 05:19:20.374 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:20.383 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=151|released=true|completed=80
+11-23 05:19:20.383 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:20.391 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 81 ff0000ff
+11-23 05:19:20.393 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:20.400 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=151|released=true|completed=81
+11-23 05:19:20.400 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:20.406 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 82 ff00ff00
+11-23 05:19:20.407 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:20.416 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=151|released=true|completed=82
+11-23 05:19:20.416 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:20.423 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 83 ffff0000
+11-23 05:19:20.425 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:20.433 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=153|released=true|completed=83
+11-23 05:19:20.433 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:20.440 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 84 ff0000ff
+11-23 05:19:20.442 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:20.450 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=151|released=true|completed=84
+11-23 05:19:20.450 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:20.462 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 85 ff00ff00
+11-23 05:19:20.464 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=151|1080x2400
+11-23 05:19:20.466 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=85
+11-23 05:19:20.466 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:20.472 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 86 ffff0000
+11-23 05:19:20.473 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:20.491 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=150|released=true|completed=86
+11-23 05:19:20.492 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:20.499 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 87 ff0000ff
+11-23 05:19:20.501 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=150|1080x2400
+11-23 05:19:20.508 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=151|released=true|completed=87
+11-23 05:19:20.508 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:20.516 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 88 ff00ff00
+11-23 05:19:20.518 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:20.525 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=88
+11-23 05:19:20.525 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:20.533 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 89 ffff0000
+11-23 05:19:20.535 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:20.542 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=153|released=true|completed=89
+11-23 05:19:20.542 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:20.551 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 90 ff0000ff
+11-23 05:19:20.553 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=149|1080x2400
+11-23 05:19:20.558 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=151|released=true|completed=90
+11-23 05:19:20.558 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:20.566 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=149|released=true|completed=91
+11-23 05:19:20.566 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:20.567 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 91 ff00ff00
+11-23 05:19:20.568 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:20.578 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 92 ffff0000
+11-23 05:19:20.578 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:20.583 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=151|released=true|completed=92
+11-23 05:19:20.583 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:20.590 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 93 ff0000ff
+11-23 05:19:20.592 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=151|1080x2400
+11-23 05:19:20.592 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=150|released=true|completed=93
+11-23 05:19:20.592 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:20.596 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 94 ff00ff00
+11-23 05:19:20.598 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:20.609 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=94
+11-23 05:19:20.609 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:20.617 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=150|released=true|completed=95
+11-23 05:19:20.617 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:20.618 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 95 ffff0000
+11-23 05:19:20.619 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:20.623 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 96 ff0000ff
+11-23 05:19:20.624 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:20.633 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=151|released=true|completed=96
+11-23 05:19:20.633 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:20.639 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 1 97 ff00ff00
+11-23 05:19:20.641 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=150|1080x2400
+11-23 05:19:20.641 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=151|released=true|completed=97
+11-23 05:19:20.641 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:20.645 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 2 98 ffff0000
+11-23 05:19:20.646 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:20.658 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=153|released=true|completed=98
+11-23 05:19:20.658 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:20.658 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=-1|released=true|completed=99
+11-23 05:19:20.658 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:20.665 26397 26913 I Husk    : ahb|ring|recv|bytes=20|control_len=24|fds=1|flags=0x0|text=READY 0 99 ff0000ff
+11-23 05:19:20.666 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:20.669 26397 26913 I Husk    : ahb|ring|recv|bytes=21|control_len=24|fds=1|flags=0x0|text=READY 1 100 ff00ff00
+11-23 05:19:20.670 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:20.692 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=153|released=true|completed=100
+11-23 05:19:20.692 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:20.693 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=-1|released=true|completed=101
+11-23 05:19:20.693 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:20.698 26397 26913 I Husk    : ahb|ring|recv|bytes=21|control_len=24|fds=1|flags=0x0|text=READY 2 101 ffff0000
+11-23 05:19:20.699 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:20.704 26397 26913 I Husk    : ahb|ring|recv|bytes=21|control_len=24|fds=1|flags=0x0|text=READY 0 102 ff0000ff
+11-23 05:19:20.705 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:20.717 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=151|released=true|completed=102
+11-23 05:19:20.717 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:20.725 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=103
+11-23 05:19:20.725 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:20.727 26397 26913 I Husk    : ahb|ring|recv|bytes=21|control_len=24|fds=1|flags=0x0|text=READY 1 103 ff00ff00
+11-23 05:19:20.729 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:20.730 26397 26913 I Husk    : ahb|ring|recv|bytes=21|control_len=24|fds=1|flags=0x0|text=READY 2 104 ffff0000
+11-23 05:19:20.731 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:20.750 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=151|released=true|completed=104
+11-23 05:19:20.751 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:20.757 26397 26913 I Husk    : ahb|ring|recv|bytes=21|control_len=24|fds=1|flags=0x0|text=READY 0 105 ff0000ff
+11-23 05:19:20.758 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=147|released=true|completed=105
+11-23 05:19:20.758 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:20.758 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=148|1080x2400
+11-23 05:19:20.762 26397 26913 I Husk    : ahb|ring|recv|bytes=21|control_len=24|fds=1|flags=0x0|text=READY 1 106 ff00ff00
+11-23 05:19:20.763 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:20.776 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=153|released=true|completed=106
+11-23 05:19:20.776 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:20.776 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=-1|released=true|completed=107
+11-23 05:19:20.776 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:20.782 26397 26913 I Husk    : ahb|ring|recv|bytes=21|control_len=24|fds=1|flags=0x0|text=READY 2 107 ffff0000
+11-23 05:19:20.784 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:20.790 26397 26913 I Husk    : ahb|ring|recv|bytes=21|control_len=24|fds=1|flags=0x0|text=READY 0 108 ff0000ff
+11-23 05:19:20.791 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:20.800 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=151|released=true|completed=108
+11-23 05:19:20.800 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:20.807 26397 26913 I Husk    : ahb|ring|recv|bytes=21|control_len=24|fds=1|flags=0x0|text=READY 1 109 ff00ff00
+11-23 05:19:20.809 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=109
+11-23 05:19:20.809 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=151|1080x2400
+11-23 05:19:20.809 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:20.813 26397 26913 I Husk    : ahb|ring|recv|bytes=21|control_len=24|fds=1|flags=0x0|text=READY 2 110 ffff0000
+11-23 05:19:20.814 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:20.826 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=150|released=true|completed=110
+11-23 05:19:20.826 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:20.833 26397 26913 I Husk    : ahb|ring|recv|bytes=21|control_len=24|fds=1|flags=0x0|text=READY 0 111 ff0000ff
+11-23 05:19:20.834 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=147|1080x2400
+11-23 05:19:20.842 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=152|released=true|completed=111
+11-23 05:19:20.842 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:20.851 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=112
+11-23 05:19:20.851 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:20.853 26397 26913 I Husk    : ahb|ring|recv|bytes=21|control_len=24|fds=1|flags=0x0|text=READY 1 112 ff00ff00
+11-23 05:19:20.855 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:20.857 26397 26913 I Husk    : ahb|ring|recv|bytes=21|control_len=24|fds=1|flags=0x0|text=READY 2 113 ffff0000
+11-23 05:19:20.858 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:20.883 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=153|released=true|completed=113
+11-23 05:19:20.884 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:20.884 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=-1|released=true|completed=114
+11-23 05:19:20.884 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:20.889 26397 26913 I Husk    : ahb|ring|recv|bytes=21|control_len=24|fds=1|flags=0x0|text=READY 0 114 ff0000ff
+11-23 05:19:20.890 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:20.893 26397 26913 I Husk    : ahb|ring|recv|bytes=21|control_len=24|fds=1|flags=0x0|text=READY 1 115 ff00ff00
+11-23 05:19:20.896 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=143|1080x2400
+11-23 05:19:20.917 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=153|released=true|completed=115
+11-23 05:19:20.918 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:20.918 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=-1|released=true|completed=116
+11-23 05:19:20.918 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:20.926 26397 26913 I Husk    : ahb|ring|recv|bytes=21|control_len=24|fds=1|flags=0x0|text=READY 2 116 ffff0000
+11-23 05:19:20.929 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:20.931 26397 26913 I Husk    : ahb|ring|recv|bytes=21|control_len=24|fds=1|flags=0x0|text=READY 0 117 ff0000ff
+11-23 05:19:20.933 26397 26913 I Husk    : ahb|ring|present|slot=0|previous=Some(2)|acquire_fd=143|1080x2400
+11-23 05:19:20.950 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=151|released=true|completed=117
+11-23 05:19:20.950 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:20.956 26397 26913 I Husk    : ahb|ring|recv|bytes=21|control_len=24|fds=1|flags=0x0|text=READY 1 118 ff00ff00
+11-23 05:19:20.958 26397 26913 I Husk    : ahb|ring|present|slot=1|previous=Some(0)|acquire_fd=151|1080x2400
+11-23 05:19:20.958 26397 26905 I Husk    : ahb|ring|complete|frame_slot=0|previous=Some(2)|release_fd=150|released=true|completed=118
+11-23 05:19:20.959 26397 26905 I Husk    : ahb|ring|release_sent|slot=2
+11-23 05:19:20.967 26397 26913 I Husk    : ahb|ring|recv|bytes=21|control_len=24|fds=1|flags=0x0|text=READY 2 119 ffff0000
+11-23 05:19:20.969 26397 26913 I Husk    : ahb|ring|present|slot=2|previous=Some(1)|acquire_fd=143|1080x2400
+11-23 05:19:20.984 26397 26905 I Husk    : ahb|ring|complete|frame_slot=1|previous=Some(0)|release_fd=150|released=true|completed=119
+11-23 05:19:20.984 26397 26905 I Husk    : ahb|ring|release_sent|slot=0
+11-23 05:19:20.986 26397 26913 I Husk    : ahb|ring|recv|bytes=9|control_len=0|fds=0|flags=0x0|text=DONE 120
+11-23 05:19:20.986 26397 26913 I Husk    : ahb|ring|GUEST_DONE|DONE 120
+11-23 05:19:20.992 26397 26905 I Husk    : ahb|ring|complete|frame_slot=2|previous=Some(1)|release_fd=150|released=true|completed=120
+11-23 05:19:20.992 26397 26905 I Husk    : ahb|ring|release_sent|slot=1
+11-23 05:19:21.038 26397 26913 I Husk    : ahb|ring|SUMMARY|submitted=120|completed=120|guest_done=true
+11-23 05:19:24.045 26397 26913 I Husk    : ahb|ring|DONE|ok=true|buffers_released=3
+11-23 05:19:24.045 26397 26913 I Husk    : ahb|probe|RING|ok=true

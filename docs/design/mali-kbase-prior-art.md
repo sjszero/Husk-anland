@@ -76,10 +76,12 @@ STICKY_RESOURCE_MAP _IOW(0x80,29) {u64 count, address}
 7. **dma-buf 导入**：`MEM_IMPORT(UMM)` + 每个导入必须 `STICKY_RESOURCE_MAP`，否则 GPU 翻译故障；
    按 ION handle 去重；kbase 对 UMM 的 SAME_VA 映射**不可 CPU 访问（SIGBUS）**，CPU 侧要映射 dma-buf 本身。
 
-8. **真实 out-fence 已验证（evidence 57）**：64-byte v2 的
+8. **真实 out-fence 已验证（evidence 57 / 58）**：64-byte v2 的
    `SOFT_EVENT_WAIT -> SOFT_FENCE_TRIGGER(ORDER dep)` 可生成真实 `mali-mali.timeline*`
    sync_file；事件未设置时 `SYNC_IOC_FILE_INFO.status=0` 且 poll 超时，设置后同一 fd
-   readable、status=1。尚未接进 PanVK `vkGetFenceFdKHR` / SurfaceFlinger。
+   readable、status=1。evidence 58 已把它接到 FristOneRR PanVK 的
+   `vkGetFenceFdKHR(SYNC_FD)`，并在 SurfaceControl ring 连续 120 帧全部使用真实 fd；
+   patch 见 `docs/design/patches/fristonerr-kbase-syncfd-export.patch`。
 
 ## 4. 对本项目的结论（2026-11-23 更新，判断 JUDGMENT）
 

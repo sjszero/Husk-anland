@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 05:05）
+# 当前状态（2026-11-23 05:19）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -14,15 +14,19 @@ host-visible storage buffer、compute job 和离屏 graphics draw；GPU 写回 `
 evidence 54 完成 12 帧，evidence 55 用 eventfd completion bridge 完成 120 帧，SurfaceFlinger
 接受 acquire fd，release fence 背压和 fd 回收均通过；evidence 56 又把同一路径跑到 5,600 帧 /
 134 秒，app 与 guest 均全量完成。evidence 57 已在 guest 内直接生成真实 pending `sync_file`
-（`status 0 -> 1`，同一 fd pending -> readable）。**eventfd 仍只是 fallback；把该 sync_file
-接进 PanVK / SF、WSI、窗口生命周期和 10 分钟长稳仍未完成。**
+（`status 0 -> 1`，同一 fd pending -> readable）。evidence 58 已把它接到 FristOneRR PanVK 的
+`vkGetFenceFdKHR(SYNC_FD)`：同一 3-buffer SurfaceControl ring 连续 120 帧全部使用真实
+`mali-mali.timeline*` fd，其中 11 帧导出时仍 pending，app `120/120` transaction complete，
+无 eventfd fallback。**eventfd 仅保留为 fallback；持久资源池、WSI / swapchain、窗口生命周期
+和 10 分钟长稳仍未完成。**
 
-## acquire fence 当前实验（内核层通过，集成未完成）
+## acquire fence 当前实验（PanVK → SurfaceControl 已通过，WSI 未完成）
 
 - **FACT**：PanVK 报告 `VK_KHR_external_fence` / `VK_KHR_external_fence_fd`；`vkGetFenceFdKHR`
   只能经 `vkGetDeviceProcAddr` 取得，`dlsym` 直接查找不存在。
-- **FACT**：FristOneRR PanVK 的 kbase CPU-sync 后端会先 CPU 等待 GPU seqno；submit 后导出得到
-  `rc=0 fd=-1`，且 `SYNC_FD` 导出会重置原 fence。导出后继续 wait 同一个 fence 会挂起，禁止重跑。
+- **FACT（旧实现）**：FristOneRR PanVK 旧的 kbase CPU-sync 后端会先 CPU 等待 GPU seqno；submit 后导出得到
+  `rc=0 fd=-1`，且 `SYNC_FD` 导出会重置原 fence。导出后继续 wait 同一个 fence 会挂起，禁止重跑；
+  evidence 58 已用新的 out-fence stream 路径修正。
 - **FACT（evidence 55）**：改为 Rust completion 线程等待 `VkFence`，GPU 完成后写 eventfd；
   将 `READY <slot> <frame> <expected>` 与 eventfd 通过同一个 `sendmsg(SCM_RIGHTS)` 交给 app。
   3 个 slot 连续 120 帧通过：app `submitted=120 completed=120`，guest
@@ -41,14 +45,22 @@ evidence 54 完成 12 帧，evidence 55 用 eventfd completion bridge 完成 120
   set 后同一 fd readable、status=1，两个 atom 均为 DONE。
 - **根因（FACT）**：旧探针一是混用 64/72-byte atom 字段，二是把 `SAME_VA` 的 pre-mmap cookie
   当成 GPU VA；mmap 后的映射地址才是 GPU VA。`MEM_ALLOC_EX` 不是必需项。
-- **UNKNOWN / 未完成**：把该 sync_file 接进 FristOneRR PanVK 的 `vkGetFenceFdKHR` / `SYNC_FD`
-  路径，并证明 SurfaceFlinger 在 GPU 完成前实际等待它。
+- **FACT（evidence 58）**：FristOneRR 的 kbase 后端新增 JM out-fence stream；`vkGetFenceFdKHR`
+  已对真实 GPU atom 返回 `mali-mali.timeline*` sync_file。3-buffer ring 连续 120 帧全部为
+  `kind=SYNC_FD`，其中 11 帧在导出时 `PENDING`、109 帧已 signal，120 帧 completion 后均为
+  `status=1`；120 次 9 点 GPU 回读 PASS，eventfd fallback = 0，guest/app `FAIL` = 0，
+  app `submitted=120 completed=120` 且最终回收 3 个 buffer。
+- **UNKNOWN / 未完成**：没有 SurfaceFlinger 内部 trace，不能声称每个 pending 帧都被 SF 显式
+  等待；能确认真实 sync_file 已交给 `ASurfaceTransaction_setBuffer` 且 transaction 完成。
+- **未完成**：持久 Vulkan 资源池、`VK_KHR_swapchain` / Wayland / X11 WSI、旋转 / DPI / 多窗口、
+  SurfaceView 重建、10 分钟长稳；不能把本实验写成完整显示验收。
 - 详细设计、禁止重跑的失败组合和下一阶段验收见
   [`docs/design/acquire-fence.md`](design/acquire-fence.md)；完整证据见
-[`docs/design/evidence/55-eventfd-acquire-fence.md`](design/evidence/55-eventfd-acquire-fence.md)、
-[`docs/design/evidence/57-pending-kbase-syncfile.md`](design/evidence/57-pending-kbase-syncfile.md)。
+  [`docs/design/evidence/55-eventfd-acquire-fence.md`](design/evidence/55-eventfd-acquire-fence.md)、
+  [`docs/design/evidence/57-pending-kbase-syncfile.md`](design/evidence/57-pending-kbase-syncfile.md)、
+  [`docs/design/evidence/58-panvk-syncfd-ring.md`](design/evidence/58-panvk-syncfd-ring.md)。
 
-## SoC 直连最新（evidence 55，2026-11-23）
+## SoC 直连最新（evidence 58，2026-11-23）
 
 - **Vulkan 扩展面已实测（evidence 48，FACT）**：PanVK 实例扩展 18 项、设备扩展 171 项；
   `VK_KHR_external_memory_fd` / `VK_EXT_external_memory_dma_buf` 等 dma-buf 导入路径存在，
@@ -104,8 +116,10 @@ evidence 54 完成 12 帧，evidence 55 用 eventfd completion bridge 完成 120
   release 背压和资源回收通过；这只证明当前 SurfaceControl 消费路径可用。
 - **FACT（evidence 56）**：3-buffer eventfd ring 连续 5,600 帧、134 秒，guest image_complete
   5,600/5,600，app 5,600/5,600，无 FAIL；但未达到 10 分钟门禁，且每帧仍重建 Vulkan 资源。
-- **UNKNOWN / 未完成**：内核层 pending `sync_file` 已由 evidence 57 打通，但 PanVK
-  `SYNC_FD` 导出、SF pending 等待、Vulkan 资源池、
+- **FACT（evidence 58）**：PanVK `vkGetFenceFdKHR(SYNC_FD)` 已返回真实 sync_file；
+  同一 3-buffer SurfaceControl ring 连续 120 帧全部使用真实 fd，其中 11 帧导出时 pending，
+  120 帧 completion 后均 `status=1`，app `120/120` transaction complete，eventfd fallback 为 0。
+- **UNKNOWN / 未完成**：SurfaceFlinger 内部是否显式等待每个 pending 帧尚无 trace；Vulkan 资源池、
   GBM / Wayland / X11、WSI / swapchain、旋转 / DPI / 多窗口、SurfaceView 重建和 10 分钟泄漏
   仍未验证，不能写成“显示目标完成”。
 
@@ -126,7 +140,8 @@ evidence 54 完成 12 帧，evidence 55 用 eventfd completion bridge 完成 120
   后续 evidence 52 用 EGLImage 回退上屏，evidence 53 用 SurfaceControl 完成静态单帧零拷贝上屏，
   evidence 54 完成 3-buffer ring 连续 12 帧与 release-fence 背压，evidence 55 用 eventfd
   completion bridge 完成 120 帧并把 acquire fd 交给 SurfaceFlinger；evidence 57 已生成真实
-  pending kbase sync_file，但尚未接进 PanVK，WSI/swapchain 仍未验证。
+  pending kbase sync_file，evidence 58 已由 PanVK `vkGetFenceFdKHR(SYNC_FD)` 接入同一
+  SurfaceControl ring 并连续跑通 120 帧；WSI/swapchain 仍未验证。
 - **保留对照（FACT）**：`funnymdzz/mesa` `kbase-v0.1.2` 在 `vkCreateDevice` 处因 kbase fd 上
   `drmSyncobjCreate()` 失败而报 `VK_ERROR_OUT_OF_HOST_MEMORY`，不再作为主动路线。
 
@@ -180,7 +195,8 @@ evidence 54 完成 12 帧，evidence 55 用 eventfd completion bridge 完成 120
 | PanVK compute job | **通过**：SPIR-V shader + compute pipeline + `vkQueueSubmit` + fence + GPU readback | 46 |
 | PanVK graphics | **离屏 draw 通过**：真实顶点缓冲 + vertex/fragment + draw + GPU 像素回读 | 46 |
 | Zink surfaceless renderer | **通过**：`eglinfo -B` / 纯 Rust `gl_probe` 报 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))` | 47 |
-| PanVK swapchain / WSI / Surface | **部分通过**：Android 窗口 3-buffer ring 连续 12 帧经 SurfaceControl 零拷贝上屏（evidence 54），eventfd acquire bridge 连续 120 帧且 SF 接受 fd（evidence 55），同一路径完成 5,600 帧 / 134 秒短 soak（evidence 56），EGLImage 回退保留（evidence 52）；内核层真实 pending sync_file 已通过（evidence 57），但 PanVK / SF 集成、资源池、GBM / Wayland / X11、swapchain / WSI 仍未通 | 47 / 52 / 53 / 54 / 55 / 56 / 57 / 后续 |
+| PanVK swapchain / WSI / Surface | **部分通过**：Android 窗口 3-buffer ring 连续 12 帧经 SurfaceControl 零拷贝上屏（evidence 54），eventfd fallback 连续 120 帧且 SF 接受 fd（evidence 55），同一路径完成 5,600 帧 / 134 秒短 soak（evidence 56），PanVK `vkGetFenceFdKHR(SYNC_FD)` 已在同一 SurfaceControl ring 连续 120 帧使用真实 fd（evidence 58）；持久资源池、SurfaceFlinger 等待 trace、GBM / Wayland / X11、swapchain / WSI 仍未通 | 47 / 52 / 53 / 54 / 55 / 56 / 57 / 58 / 后续 |
+| PanVK external fence | **通过（evidence 58）**：`vkGetFenceFdKHR(SYNC_FD)` 返回 `mali-mali.timeline*`；120/120 帧、11 帧导出时 pending、120 帧 completion 后 status=1、eventfd fallback=0 | 58 |
 | kbase soft event / sync_file | **通过（evidence 57）**：64 B v2 `SOFT_EVENT_WAIT -> SOFT_FENCE_TRIGGER(ORDER)` 生成真实 `mali-mali.timeline*` sync_file；set 前 pending、set 后 readable，status 0→1 | 57 |
 
 ## 本轮（21:24–21:31）做了什么
