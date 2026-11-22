@@ -1,5 +1,18 @@
 # 变更记录
 
+## 2026-11-23 00:40 — kbase 完成通道：证伪一条、钉死三条
+
+- **evidence 40**（新增）：`gpu-probe` 加 12 个模式（`ddkver`/`badptr`/`stride_probe`/`fence0-6`/`cr`/`sevt`/`sevt2`/`sevtjit`）。
+- **FACT**：内核 kbase 自报 `K:r32p1-00bet5(GPL)`，与厂商 `libGLES_mali.so` 同代。
+- **FACT**：atom 72 字节、`stride` 必须 72（56 → EINVAL）；坏指针 → EFAULT，证明数组被 `copy_from_user`。
+- **FACT（推翻旧结论）**：`STREAM_CREATE` 的 timeline fd **不是完成信号** ——
+  任何被接受的 submit（含 `core_req=0`、含本该阻塞的 `SOFT_EVENT_WAIT`）都让它 POLLIN，
+  `read()` 返回 EINVAL。evidence 38 §6 的"可 poll = 完成通道"作废。
+  本轮开头我自己报的 `fence1 PASS` 是假阳性，已被 `fence0` 对照打掉。
+- **FACT**：软作业在本机不产生效果（`SOFT_EVENT_SET` 写显存 0 次，6 种偏移 + compat 双写 + 先 JIT init 全试过）；
+  内核也不把 sync_file fd 写回 `base_fence`。
+- 下一步：拿 r32p1 的 `base_jd_atom_v2` 定义（MTK GPL 内核源），或改用"GPU 写显存"作为唯一完成口径。
+
 ## 2026-11-22 23:20 — 目标 v10：视频补全
 
 - **evidence 39**：把「guest 能不能直连硬解」钉死。`/dev/video0-4` 是 `0660 media:system` 的

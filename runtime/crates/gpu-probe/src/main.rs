@@ -28,6 +28,7 @@ extern "C" {
         -> *mut c_void;
     fn munmap(addr: *mut c_void, len: usize) -> c_int;
     fn poll(fds: *mut core::ffi::c_void, nfds: u64, timeout: c_int) -> c_int;
+    fn read(fd: c_int, buf: *mut core::ffi::c_void, count: usize) -> isize;
     fn close(fd: c_int) -> c_int;
 }
 
@@ -686,6 +687,825 @@ fn stream1() {
     unsafe { close(r) };
 }
 
+
+// ------------------------------------------- completion channel (GOALS B2)
+
+/// `struct base_fence { int fd; int stream_fd; }` — the object the vendor driver
+/// parks in an atom's `jc` for a soft fence-trigger atom
+/// (base_jd_fence_trigger_setup_v2, mali_base_kernel.h).
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct BaseFence {
+    fd: i32,
+    stream_fd: i32,
+}
+
+/// Atom stride, measured twice independently: the vendor driver passes
+/// `mov w9, #0x48` into the submit struct (0x88120c) and indexes the atom array
+/// with `madd x8, x9, #0x48, x8` (0x7c4cb0). Stock headers say 56; on this
+/// kernel 56 is not what the ioctl wants.
+const ATOM_STRIDE: usize = 72;
+
+/// Where the vendor writes `core_req` (`str w9, [x8, #0x40]` with w9 = 0x202,
+/// 0x7c4cd0 / 0x7c4d58 / 0x7c4db8 / 0x7c4e18). The 4.19 stock header layout puts
+/// it at 0x34 -- both are probed so the answer comes from the kernel.
+const ATOM_CORE_REQ_VENDOR: usize = 0x40;
+const ATOM_CORE_REQ_STOCK_HDR: usize = 0x34;
+const ATOM_JC: usize = 0x00;
+const ATOM_ATOM_NUMBER: usize = 0x2c;
+
+const BASE_JD_REQ_SOFT_FENCE_TRIGGER: u32 = (1 << 9) | 0x2; // 0x202
+
+#[repr(C)]
+struct PollFd {
+    fd: i32,
+    events: i16,
+    revents: i16,
+}
+
+fn put_u32(buf: &mut [u8], off: usize, v: u32) {
+    buf[off..off + 4].copy_from_slice(&v.to_le_bytes());
+}
+
+fn put_u64(buf: &mut [u8], off: usize, v: u64) {
+    buf[off..off + 8].copy_from_slice(&v.to_le_bytes());
+}
+
+/// Submit exactly one atom and then ask the timeline whether it completed.
+///
+/// `jc_is_gpu_va = false` passes a user pointer (what the vendor driver does);
+/// `true` allocates a BO, writes the fence into it and passes the GPU VA, which
+/// is the other possible reading of `kbase_pointer`.
+fn fence_probe(label: &str, core_req_off: usize, jc_is_gpu_va: bool) {
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+
+    // timeline fd: the raw ioctl return *is* the fd (measured in stream1)
+    let mut name = [0u8; 32];
+    name[..4].copy_from_slice(b"husk");
+    let sfd = unsafe { ioctl(fd, 0x4020_8018u64, name.as_mut_ptr() as *mut core::ffi::c_void) };
+    if sfd < 0 {
+        let e = errno();
+        line(&format!("{label}/stream_create"), "FAIL", format!("errno={e}"));
+        return;
+    }
+    line(&format!("{label}/stream_create"), "PASS", format!("timeline fd={sfd}"));
+
+    // The fence object: fd = -1 (INVALID_PLATFORM_FENCE), stream_fd = timeline.
+    let fence = BaseFence { fd: -1, stream_fd: sfd };
+    // Keep the BO alive for the whole submission; the kernel reads the fence
+    // during JOB_SUBMIT, and base_kernel.h only forbids freeing it before the
+    // submit call returns.
+    let mut _bo_guard: Option<*mut core::ffi::c_void> = None;
+    let mut _bo_va: u64 = 0;
+    let jc: u64 = if jc_is_gpu_va {
+        match alloc_pages(fd, 1, 0xD) {
+            Some(va) => {
+                let p = unsafe {
+                    mmap(core::ptr::null_mut(), 4096, 3, 1, fd, va as i64)
+                };
+                if p as isize == -1 {
+                    let e = errno();
+                    line(&format!("{label}/alloc"), "FAIL", format!("mmap errno={e}"));
+                    unsafe { close(sfd) };
+                    return;
+                }
+                unsafe {
+                    let b = p as *mut u8;
+                    let src = &fence as *const BaseFence as *const u8;
+                    for i in 0..8 {
+                        *b.add(i) = *src.add(i);
+                    }
+                }
+                _bo_guard = Some(p);
+                _bo_va = va;
+                va
+            }
+            None => {
+                line(&format!("{label}/alloc"), "FAIL", "mem_alloc flags=0xd");
+                unsafe { close(sfd) };
+                return;
+            }
+        }
+    } else {
+        &fence as *const BaseFence as u64
+    };
+
+    let mut atom = [0u8; ATOM_STRIDE];
+    put_u64(&mut atom, ATOM_JC, jc);
+    put_u32(&mut atom, ATOM_ATOM_NUMBER as usize, 1);
+    put_u32(&mut atom, core_req_off, BASE_JD_REQ_SOFT_FENCE_TRIGGER);
+
+    let mut js = JobSubmit { addr: atom.as_ptr() as u64, nr_atoms: 1, stride: ATOM_STRIDE as u32 };
+    let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+    line(
+        &format!("{label}/job_submit"),
+        if e == 0 { "PASS" } else { "FAIL" },
+        format!(
+            "jc={jc:#x} ({} ) core_req@{core_req_off:#x}=0x202 errno={e} ({})",
+            if jc_is_gpu_va { "gpu_va" } else { "user_ptr" },
+            strerror_guess(e)
+        ),
+    );
+    if e != 0 {
+        unsafe { close(sfd) };
+        return;
+    }
+
+    // Completion: the timeline fd becomes readable when the fence is signalled.
+    let mut pfd = PollFd { fd: sfd, events: 1 /* POLLIN */, revents: 0 };
+    let t0 = std::time::Instant::now();
+    let n = unsafe { poll(&mut pfd as *mut PollFd as *mut core::ffi::c_void, 1, 2000) };
+    let ms = t0.elapsed().as_millis();
+    let verdict = match (n, pfd.revents & 0xF) {
+        (0, _) => "TIMEOUT",
+        (_, 0) => "POLLERR",
+        _ => "PASS",
+    };
+    line(
+        &format!("{label}/poll(timeline)"),
+        verdict,
+        format!("poll={n} revents={:#x} after {ms}ms", pfd.revents),
+    );
+
+    unsafe { close(sfd) };
+    if let Some(p) = _bo_guard {
+        unsafe {
+            munmap(p, 4096);
+            if _bo_va != 0 {
+                let mut v = _bo_va;
+                let _ = ioctl_errno(fd, 0x4008_8007, &mut v as *mut u64 as *mut core::ffi::c_void);
+            }
+        }
+    }
+}
+
+
+/// `fence0`: control. Same atom, same timeline, but `core_req` left at 0.
+/// If this also makes the timeline readable then "readable" says nothing about
+/// the fence and fence1 proved nothing.
+fn fence0() {
+    fence_probe_core_req("fence0/control", ATOM_CORE_REQ_VENDOR, 0);
+}
+
+/// Same helper as `fence_probe` but with a caller-chosen `core_req` value, so the
+/// only difference between a passing and a failing run is that one word.
+fn fence_probe_core_req(label: &str, core_req_off: usize, core_req: u32) {
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    let mut name = [0u8; 32];
+    name[..4].copy_from_slice(b"husk");
+    let sfd = unsafe { ioctl(fd, 0x4020_8018u64, name.as_mut_ptr() as *mut core::ffi::c_void) };
+    if sfd < 0 {
+        let e = errno();
+        line(&format!("{label}/stream_create"), "FAIL", format!("errno={e}"));
+        return;
+    }
+    let fence = BaseFence { fd: -1, stream_fd: sfd };
+    let mut atom = [0u8; ATOM_STRIDE];
+    put_u64(&mut atom, ATOM_JC, &fence as *const BaseFence as u64);
+    put_u32(&mut atom, ATOM_ATOM_NUMBER as usize, 1);
+    put_u32(&mut atom, core_req_off, core_req);
+    let mut js = JobSubmit { addr: atom.as_ptr() as u64, nr_atoms: 1, stride: ATOM_STRIDE as u32 };
+    let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+    line(
+        &format!("{label}/job_submit"),
+        if e == 0 { "PASS" } else { "FAIL" },
+        format!("core_req@{core_req_off:#x}={core_req:#x} errno={e} ({})", strerror_guess(e)),
+    );
+    let mut pfd = PollFd { fd: sfd, events: 1, revents: 0 };
+    let t0 = std::time::Instant::now();
+    let n = unsafe { poll(&mut pfd as *mut PollFd as *mut core::ffi::c_void, 1, 1500) };
+    let ms = t0.elapsed().as_millis();
+    line(
+        &format!("{label}/poll(timeline)"),
+        if n == 0 { "TIMEOUT(expected)" } else { "READABLE" },
+        format!("poll={n} revents={:#x} after {ms}ms", pfd.revents),
+    );
+    unsafe { close(sfd) };
+}
+
+/// `fence1`: vendor atom layout (core_req @ 0x40), fence as a user pointer.
+fn fence1() {
+    fence_probe("fence1/vendor", ATOM_CORE_REQ_VENDOR, false);
+}
+
+/// `fence2`: same but core_req at the offset the 4.19 stock header implies.
+fn fence2() {
+    fence_probe("fence2/stock", ATOM_CORE_REQ_STOCK_HDR, false);
+}
+
+/// `fence3`: vendor layout, fence placed in GPU memory and passed as GPU VA.
+fn fence3() {
+    fence_probe("fence3/gpuva", ATOM_CORE_REQ_VENDOR, true);
+}
+
+
+/// `struct kbase_ioctl_soft_event_update { u64 event; u32 new_status; u32 flags; }`
+/// (`0x4010801c`, public kbase UAPI, 16 bytes).
+#[repr(C)]
+struct SoftEventUpdate {
+    event: u64,
+    new_status: u32,
+    flags: u32,
+}
+
+const BASE_JD_REQ_SOFT_EVENT_WAIT: u32 = (1 << 9) | 0x5; // 0x205
+
+/// A soft-event atom that can only complete when we say so.
+///
+/// `fence4` submits EVENT_WAIT on an event word that stays 0: the atom must stay
+/// pending, so the timeline must stay NOT readable. That is the control the
+/// previous experiments lacked -- `fence0` proved a *completed* no-op atom makes
+/// the timeline readable, which says nothing about whether "readable" tracks
+/// completion or just "some submit happened".
+///
+/// `fence5` is the same atom plus `SOFT_EVENT_UPDATE`: we flip the event and the
+/// blocked atom must complete, so the timeline must turn readable only then.
+fn fence_event(label: &str, set_after: bool) {
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+
+    let mut name = [0u8; 32];
+    name[..4].copy_from_slice(b"husk");
+    let sfd = unsafe { ioctl(fd, 0x4020_8018u64, name.as_mut_ptr() as *mut core::ffi::c_void) };
+    if sfd < 0 {
+        let e = errno();
+        line(&format!("{label}/stream_create"), "FAIL", format!("errno={e}"));
+        return;
+    }
+    line(&format!("{label}/stream_create"), "PASS", format!("timeline fd={sfd}"));
+
+    // one page of GPU memory to hold the event word
+    let Some(va) = alloc_pages(fd, 1, 0xF) else {
+        line(&format!("{label}/alloc"), "FAIL", "mem_alloc flags=0xf");
+        unsafe { close(sfd) };
+        return;
+    };
+    let p = unsafe { mmap(core::ptr::null_mut(), 4096, 3, 1, fd, va as i64) };
+    if p as isize == -1 {
+        let e = errno();
+        line(&format!("{label}/alloc"), "FAIL", format!("mmap errno={e} gpu_va={va:#x}"));
+        unsafe { close(sfd) };
+        return;
+    }
+    unsafe { *(p as *mut u8) = 0 };
+    line(&format!("{label}/event"), "INFO", format!("gpu_va={va:#x} value=0"));
+
+    let mut atom = [0u8; ATOM_STRIDE];
+    put_u64(&mut atom, ATOM_JC, va);
+    put_u32(&mut atom, ATOM_ATOM_NUMBER as usize, 1);
+    put_u32(&mut atom, ATOM_CORE_REQ_VENDOR, BASE_JD_REQ_SOFT_EVENT_WAIT);
+    let mut js = JobSubmit { addr: atom.as_ptr() as u64, nr_atoms: 1, stride: ATOM_STRIDE as u32 };
+    let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+    line(
+        &format!("{label}/job_submit"),
+        if e == 0 { "PASS" } else { "FAIL" },
+        format!("EVENT_WAIT on {va:#x} errno={e} ({})", strerror_guess(e)),
+    );
+    if e != 0 {
+        unsafe { close(sfd) };
+        return;
+    }
+
+    let mut pfd = PollFd { fd: sfd, events: 1, revents: 0 };
+    let t0 = std::time::Instant::now();
+    let n = unsafe { poll(&mut pfd as *mut PollFd as *mut core::ffi::c_void, 1, 1500) };
+    let ms = t0.elapsed().as_millis();
+    line(
+        &format!("{label}/poll(before)"),
+        if n == 0 { "NOT-READABLE" } else { "READABLE" },
+        format!("poll={n} revents={:#x} after {ms}ms", pfd.revents),
+    );
+
+    if set_after {
+        let mut upd = SoftEventUpdate { event: va, new_status: 1, flags: 0 };
+        let e = ioctl_errno(
+            fd,
+            0x4010_801c,
+            &mut upd as *mut SoftEventUpdate as *mut core::ffi::c_void,
+        );
+        line(
+            &format!("{label}/soft_event_update"),
+            if e == 0 { "PASS" } else { "FAIL" },
+            format!("event={va:#x} new_status=1 errno={e} ({})", strerror_guess(e)),
+        );
+        let mut pfd2 = PollFd { fd: sfd, events: 1, revents: 0 };
+        let t1 = std::time::Instant::now();
+        let n2 = unsafe { poll(&mut pfd2 as *mut PollFd as *mut core::ffi::c_void, 1, 2000) };
+        let ms2 = t1.elapsed().as_millis();
+        line(
+            &format!("{label}/poll(after set)"),
+            if n2 == 0 { "NOT-READABLE" } else { "READABLE" },
+            format!("poll={n2} revents={:#x} after {ms2}ms", pfd2.revents),
+        );
+    }
+
+    unsafe {
+        munmap(p, 4096);
+        close(sfd);
+        let mut v = va;
+        let _ = ioctl_errno(fd, 0x4008_8007, &mut v as *mut u64 as *mut core::ffi::c_void);
+    }
+}
+
+/// `fence4`: blocked atom, expect the timeline to stay quiet.
+fn fence4() {
+    fence_event("fence4/wait", false);
+}
+
+/// `fence5`: blocked atom + SOFT_EVENT_UPDATE, expect the timeline to speak only
+/// after the update.
+fn fence5() {
+    fence_event("fence5/wait+set", true);
+}
+
+
+/// Does the kernel write the fence's *sync_file* fd back into `base_fence`?
+///
+/// `base_jd_fence_trigger_setup_v2` asserts `basep.fd == INVALID_PLATFORM_FENCE`
+/// before submit, and `base_jd_fence_wait_setup_v2` asserts `basep.fd >= 0`, so
+/// the fd is an *output* of the trigger atom -- the kernel creates a platform
+/// fence and hands it back. If that is the case here, the completion channel is
+/// "poll the fd the kernel wrote", not "poll the stream".
+fn fence6() {
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+
+    let mut name = [0u8; 32];
+    name[..4].copy_from_slice(b"husk");
+    let sfd = unsafe { ioctl(fd, 0x4020_8018u64, name.as_mut_ptr() as *mut core::ffi::c_void) };
+    if sfd < 0 {
+        let e = errno();
+        line("fence6/stream_create", "FAIL", format!("errno={e}"));
+        return;
+    }
+
+    let mut fence = BaseFence { fd: -1, stream_fd: sfd };
+    let mut atom = [0u8; ATOM_STRIDE];
+    put_u64(&mut atom, ATOM_JC, &mut fence as *mut BaseFence as u64);
+    put_u32(&mut atom, ATOM_ATOM_NUMBER as usize, 1);
+    put_u32(&mut atom, ATOM_CORE_REQ_VENDOR, BASE_JD_REQ_SOFT_FENCE_TRIGGER);
+    let mut js = JobSubmit { addr: atom.as_ptr() as u64, nr_atoms: 1, stride: ATOM_STRIDE as u32 };
+    let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+    let raw: [i32; 2] = [fence.fd, fence.stream_fd];
+    line(
+        "fence6/job_submit",
+        if e == 0 { "PASS" } else { "FAIL" },
+        format!("errno={e} fence after submit = {{fd: {}, stream_fd: {}}} (raw {:?})", raw[0], raw[1], raw),
+    );
+    if e != 0 {
+        unsafe { close(sfd) };
+        return;
+    }
+
+    if fence.fd >= 0 {
+        let mut pfd = PollFd { fd: fence.fd, events: 1, revents: 0 };
+        let t0 = std::time::Instant::now();
+        let n = unsafe { poll(&mut pfd as *mut PollFd as *mut core::ffi::c_void, 1, 1000) };
+        let ms = t0.elapsed().as_millis();
+        line(
+            "fence6/poll(sync_file)",
+            if n > 0 && pfd.revents & 1 != 0 { "READABLE" } else { "NOT-READABLE" },
+            format!("fd={} poll={n} revents={:#x} after {ms}ms", fence.fd, pfd.revents),
+        );
+        unsafe { close(fence.fd) };
+    } else {
+        line("fence6/sync_file", "INFO", "kernel did not write an fd back");
+    }
+
+    let mut pfd2 = PollFd { fd: sfd, events: 1, revents: 0 };
+    let n2 = unsafe { poll(&mut pfd2 as *mut PollFd as *mut core::ffi::c_void, 1, 0) };
+    line("fence6/poll(stream)", "INFO", format!("poll={n2} revents={:#x}", pfd2.revents));
+    unsafe { close(sfd) };
+}
+
+
+/// Which offset does this kernel actually read `core_req` from?
+///
+/// A bogus `core_req` must be refused during validation (EINVAL) -- kbase knows
+/// exactly which requirement bits exist. So write 0x202 and 0xffff at each
+/// candidate offset and see which one the driver reacts to. This turns the
+/// "the vendor's binary writes it at 0x40" observation into a measurement about
+/// *this* kernel, which is what we actually have to satisfy.
+fn crmap() {
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    let fence = BaseFence { fd: -1, stream_fd: 5 };
+    for off in [0x34usize, 0x40usize] {
+        for val in [BASE_JD_REQ_SOFT_FENCE_TRIGGER, 0xffffu32] {
+            let mut atom = [0u8; ATOM_STRIDE];
+            put_u64(&mut atom, ATOM_JC, &fence as *const BaseFence as u64);
+            put_u32(&mut atom, ATOM_ATOM_NUMBER as usize, 1);
+            put_u32(&mut atom, off, val);
+            let mut js = JobSubmit { addr: atom.as_ptr() as u64, nr_atoms: 1, stride: ATOM_STRIDE as u32 };
+            let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+            line(
+                "crmap",
+                if e == 0 { "ACCEPTED" } else { "REFUSED" },
+                format!("core_req@{off:#x}={val:#x} errno={e} ({})", strerror_guess(e)),
+            );
+        }
+    }
+}
+
+
+extern "C" {
+    fn alarm(secs: u32) -> u32;
+}
+
+/// One atom, one candidate `core_req` offset/value, one process.
+///
+/// The previous version submitted four atoms in one process and hung inside the
+/// second ioctl, which told us nothing except "some combination blocks". One
+/// case per process plus `alarm(5)` means a blocking combination costs one
+/// process and prints exactly where it stopped.
+fn cr(off_hex: &str, val_hex: &str) {
+    let off = usize::from_str_radix(off_hex.trim_start_matches("0x"), 16).unwrap_or(0x40);
+    let val = u32::from_str_radix(val_hex.trim_start_matches("0x"), 16).unwrap_or(0);
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    // No stream: this probe is only about whether validation reads these bytes.
+    let fence = BaseFence { fd: -1, stream_fd: -1 };
+    let mut atom = [0u8; ATOM_STRIDE];
+    put_u64(&mut atom, ATOM_JC, &fence as *const BaseFence as u64);
+    put_u32(&mut atom, ATOM_ATOM_NUMBER as usize, 1);
+    put_u32(&mut atom, off, val);
+    let mut js = JobSubmit { addr: atom.as_ptr() as u64, nr_atoms: 1, stride: ATOM_STRIDE as u32 };
+    line("cr/pre_submit", "INFO", format!("core_req@{off:#x}={val:#x} stride={ATOM_STRIDE}"));
+    unsafe { alarm(5) };
+    let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+    unsafe { alarm(0) };
+    line(
+        "cr/post_submit",
+        if e == 0 { "ACCEPTED" } else { "REFUSED" },
+        format!("errno={e} ({})", strerror_guess(e)),
+    );
+    line("cr/done", "INFO", "survived exit");
+}
+
+
+/// What comes out of the stream fd?
+///
+/// POLLIN fires after *any* accepted submit, including one whose `core_req` is a
+/// bit pattern the driver cannot possibly accept (0xffff). So the stream is not
+/// "fence signalled" -- it is more likely a queue the driver pushes something
+/// into. Read it and print the bytes instead of guessing.
+fn rd(off_hex: &str, val_hex: &str, submit: bool) {
+    let off = usize::from_str_radix(off_hex.trim_start_matches("0x"), 16).unwrap_or(0x40);
+    let val = u32::from_str_radix(val_hex.trim_start_matches("0x"), 16).unwrap_or(0);
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    let mut name = [0u8; 32];
+    name[..4].copy_from_slice(b"husk");
+    let sfd = unsafe { ioctl(fd, 0x4020_8018u64, name.as_mut_ptr() as *mut core::ffi::c_void) };
+    if sfd < 0 {
+        let e = errno();
+        line("rd/stream_create", "FAIL", format!("errno={e}"));
+        return;
+    }
+    line("rd/stream_create", "PASS", format!("timeline fd={sfd}"));
+
+    if submit {
+        let fence = BaseFence { fd: -1, stream_fd: sfd };
+        let mut atom = [0u8; ATOM_STRIDE];
+        put_u64(&mut atom, ATOM_JC, &fence as *const BaseFence as u64);
+        put_u32(&mut atom, ATOM_ATOM_NUMBER as usize, 1);
+        put_u32(&mut atom, off, val);
+        let mut js = JobSubmit { addr: atom.as_ptr() as u64, nr_atoms: 1, stride: ATOM_STRIDE as u32 };
+        let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+        line("rd/job_submit", if e == 0 { "ACCEPTED" } else { "REFUSED" }, format!("core_req@{off:#x}={val:#x} errno={e}"));
+    }
+
+    for _ in 0..2 {
+        let mut buf = [0u8; 64];
+        let n = unsafe { read(sfd, buf.as_mut_ptr() as *mut core::ffi::c_void, buf.len()) };
+        if n < 0 {
+            let e = errno();
+            line("rd/read", "FAIL", format!("errno={e} ({})", strerror_guess(e)));
+            break;
+        }
+        let hex: Vec<String> = buf[..n as usize].iter().map(|b| format!("{b:02x}")).collect();
+        line("rd/read", "INFO", format!("n={n} bytes=[{}]", hex.join(" ")));
+        if n == 0 {
+            break;
+        }
+    }
+    unsafe { close(sfd) };
+}
+
+
+/// Is JOB_SUBMIT actually reading our array at all?
+///
+/// A pointer that maps nothing must fault (EFAULT) if the driver copies the
+/// atoms; a stride the driver does not agree with must be refused. Both checks
+/// are free -- neither can put work on the GPU. If they all come back 0, then
+/// `JOB_SUBMIT` here is accepting and doing nothing, and the whole kbase route
+/// needs a different entry point.
+fn badptr() {
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    for addr in [0xdead_0000u64, 0x1u64, 0u64] {
+        let mut js = JobSubmit { addr, nr_atoms: 1, stride: ATOM_STRIDE as u32 };
+        unsafe { alarm(5) };
+        let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+        unsafe { alarm(0) };
+        line(
+            "badptr",
+            if e == 0 { "ACCEPTED(suspicious)" } else { "REFUSED" },
+            format!("addr={addr:#x} nr_atoms=1 stride=72 errno={e} ({})", strerror_guess(e)),
+        );
+    }
+}
+
+/// Same atoms pointer, different strides. A driver that cares about the atom
+/// size refuses the wrong ones.
+fn stride_probe() {
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    let atom = [0u8; 72];
+    for stride in [72u32, 56, 64, 0] {
+        let mut js = JobSubmit { addr: atom.as_ptr() as u64, nr_atoms: 1, stride };
+        unsafe { alarm(5) };
+        let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+        unsafe { alarm(0) };
+        line(
+            "stride",
+            if e == 0 { "ACCEPTED" } else { "REFUSED" },
+            format!("stride={stride} errno={e} ({})", strerror_guess(e)),
+        );
+    }
+}
+
+
+
+/// `struct kbase_ioctl_mem_sync { u64 handle; u64 user_addr; u64 size; u8 type;
+/// u8 padding[7]; }` (`0x4020800f`). `type` 0 = clean, 1 = invalidate.
+///
+/// Without this the BO read-back can lie: the GPU/kernel writes into physical
+/// memory while our mapping stays in cache, so a byte that really changed reads
+/// back as the old value (a false negative that looks exactly like "the atom did
+/// not run").
+#[repr(C)]
+struct MemSync {
+    handle: u64,
+    user_addr: u64,
+    size: u64,
+    kind: u8,
+    padding: [u8; 7],
+}
+
+fn mem_sync(fd: c_int, gpu_va: u64, user_ptr: u64, size: u64, kind: u8) -> i32 {
+    let mut ms = MemSync { handle: gpu_va, user_addr: user_ptr, size, kind, padding: [0; 7] };
+    ioctl_errno(fd, 0x4020_800f, &mut ms as *mut MemSync as *mut core::ffi::c_void)
+}
+
+const BASE_JD_REQ_SOFT_EVENT_SET: u32 = (1 << 9) | 0x6; // 0x206
+
+/// Direct evidence that an atom *ran*, with no reliance on any completion API.
+///
+/// `BASE_JD_REQ_SOFT_EVENT_SET` makes the *kernel's* soft-job handler write 1 to
+/// the event word at `jc` (a GPU address). So: zero a BO, submit, wait, read the
+/// BO back through the CPU mapping. Value 1 means the atom was decoded
+/// (right `core_req` offset), scheduled, and executed. Value 0 means the atom
+/// was ignored -- which is what "job_submit returned 0" alone cannot tell us.
+fn sevt(off_hex: &str) {
+    let off = usize::from_str_radix(off_hex.trim_start_matches("0x"), 16).unwrap_or(0x40);
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    let Some(va) = alloc_pages(fd, 1, 0xF) else { line("sevt/alloc", "FAIL", "flags=0xf"); return };
+    let p = unsafe { mmap(core::ptr::null_mut(), 4096, 3, 1, fd, va as i64) };
+    if p as isize == -1 {
+        let e = errno();
+        line("sevt/alloc", "FAIL", format!("mmap errno={e}"));
+        return;
+    }
+    let b = p as *mut u8;
+    unsafe { for i in 0..64 { *b.add(i) = 0 } };
+    line("sevt/bo", "INFO", format!("gpu_va={va:#x} pre=[0x{:02x}]", unsafe { *b }));
+
+    let mut atom = [0u8; ATOM_STRIDE];
+    put_u64(&mut atom, ATOM_JC, va);
+    put_u32(&mut atom, ATOM_ATOM_NUMBER as usize, 1);
+    put_u32(&mut atom, off, BASE_JD_REQ_SOFT_EVENT_SET);
+    let mut js = JobSubmit { addr: atom.as_ptr() as u64, nr_atoms: 1, stride: ATOM_STRIDE as u32 };
+    unsafe { alarm(8) };
+    let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+    unsafe { alarm(0) };
+    line(
+        &format!("sevt/submit@{off:#x}"),
+        if e == 0 { "ACCEPTED" } else { "REFUSED" },
+        format!("core_req=0x206 errno={e} ({})", strerror_guess(e)),
+    );
+
+    for ms in [10u64, 40, 150] {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+        // invalidate before every read: see mem_sync's comment
+        let se = mem_sync(fd, va, p as u64, 64, 1);
+        let v = unsafe { *b };
+        line(&format!("sevt/mem_sync +{ms}ms"), if se == 0 { "PASS" } else { "FAIL" }, format!("errno={se}"));
+        line(
+            &format!("sevt/read +{ms}ms"),
+            if v == 1 { "EXECUTED" } else { "UNCHANGED" },
+            format!("event word = {v}"),
+        );
+    }
+    unsafe {
+        munmap(p, 4096);
+        let mut v = va;
+        let _ = ioctl_errno(fd, 0x4008_8007, &mut v as *mut u64 as *mut core::ffi::c_void);
+    }
+}
+
+
+/// `KBASE_IOCTL_GET_DDK_VERSION` (`0x4010800d`, nr 13): the kernel tells us which
+/// userspace DDK build it was written against. Everything we assume about atom
+/// layout is an assumption about that build, so ask instead of guessing.
+fn ddkver() {
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    let mut buf = [0u8; 128];
+    let mut args: [u64; 2] = [buf.as_mut_ptr() as u64, 128];
+    let r = unsafe { ioctl(fd, 0x4010_800du64, args.as_mut_ptr() as *mut core::ffi::c_void) };
+    if r < 0 {
+        let e = errno();
+        line("ddk_version", "FAIL", format!("errno={e} ({})", strerror_guess(e)));
+        return;
+    }
+    let n = r as usize;
+    let txt: String = buf[..n.min(buf.len())].iter()
+        .take_while(|b| **b != 0)
+        .map(|b| *b as char)
+        .collect();
+    line("ddk_version", "PASS", format!("returned {n} bytes: {txt:?}"));
+}
+
+
+/// r32 keeps a legacy slot: `compat_core_req` (u16 @0x22) is the pre-10.3
+/// `core_req` and the header says it "can be used in ioctl call for job
+/// submission as long as UK 10.2 legacy is supported". If this kernel takes the
+/// legacy path, the u32 at 0x40 is ignored and only this one counts.
+fn sevt_compat(off_hex: &str) {
+    let off = usize::from_str_radix(off_hex.trim_start_matches("0x"), 16).unwrap_or(0x40);
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    let Some(va) = alloc_pages(fd, 1, 0xF) else { line("sevt2/alloc", "FAIL", "flags=0xf"); return };
+    let p = unsafe { mmap(core::ptr::null_mut(), 4096, 3, 1, fd, va as i64) };
+    if p as isize == -1 {
+        let e = errno();
+        line("sevt2/alloc", "FAIL", format!("mmap errno={e}"));
+        return;
+    }
+    let b = p as *mut u8;
+    unsafe { for i in 0..64 { *b.add(i) = 0 } };
+
+    let mut atom = [0u8; ATOM_STRIDE];
+    put_u64(&mut atom, ATOM_JC, va);
+    put_u32(&mut atom, ATOM_ATOM_NUMBER as usize, 1);
+    // compat slot (u16) and the modern slot (u32) both say SOFT_EVENT_SET
+    atom[0x22..0x24].copy_from_slice(&(BASE_JD_REQ_SOFT_EVENT_SET as u16).to_le_bytes());
+    put_u32(&mut atom, off, BASE_JD_REQ_SOFT_EVENT_SET);
+
+    let mut js = JobSubmit { addr: atom.as_ptr() as u64, nr_atoms: 1, stride: ATOM_STRIDE as u32 };
+    unsafe { alarm(8) };
+    let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+    unsafe { alarm(0) };
+    line(
+        &format!("sevt2/submit@{off:#x}+compat"),
+        if e == 0 { "ACCEPTED" } else { "REFUSED" },
+        format!("errno={e} ({})", strerror_guess(e)),
+    );
+    for ms in [20u64, 200] {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+        let v = unsafe { *b };
+        line(&format!("sevt2/read +{ms}ms"), if v == 1 { "EXECUTED" } else { "UNCHANGED" }, format!("event word = {v}"));
+    }
+    unsafe {
+        munmap(p, 4096);
+        let mut v = va;
+        let _ = ioctl_errno(fd, 0x4008_8007, &mut v as *mut u64 as *mut core::ffi::c_void);
+    }
+}
+
+
+/// `KBASE_IOCTL_MEM_JIT_INIT` (`0x4018800e`, nr 14, 24 bytes). r32 grew this
+/// struct past the 16 bytes of older headers, so the fields past `va_pages` are a
+/// guess -- which is why the only thing this mode claims is "does calling it
+/// unlock atom execution", nothing about its contents being right.
+#[repr(C)]
+struct MemJitInit {
+    va_pages: u64,
+    phys_pages: u64,
+    max_allocations: u8,
+    trim_level: u8,
+    group_id: u8,
+    padding: [u8; 5],
+}
+
+fn jitinit_then_sevt(off_hex: &str) {
+    let off = usize::from_str_radix(off_hex.trim_start_matches("0x"), 16).unwrap_or(0x40);
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    for (vap, php) in [(1u64, 1u64), (1024, 1024)] {
+        let mut ji = MemJitInit {
+            va_pages: vap,
+            phys_pages: php,
+            max_allocations: 1,
+            trim_level: 0,
+            group_id: 0,
+            padding: [0; 5],
+        };
+        let e = ioctl_errno(fd, 0x4018_800e, &mut ji as *mut MemJitInit as *mut core::ffi::c_void);
+        line(
+            "jitinit",
+            if e == 0 { "PASS" } else { "FAIL" },
+            format!("va_pages={vap} phys_pages={php} errno={e} ({})", strerror_guess(e)),
+        );
+        if e == 0 {
+            break;
+        }
+    }
+    // same atom-shape test as sevt, now after a JIT init
+    let Some(va) = alloc_pages(fd, 1, 0xF) else { line("sevtjit/alloc", "FAIL", "flags=0xf"); return };
+    let p = unsafe { mmap(core::ptr::null_mut(), 4096, 3, 1, fd, va as i64) };
+    if p as isize == -1 {
+        let e = errno();
+        line("sevtjit/alloc", "FAIL", format!("mmap errno={e}"));
+        return;
+    }
+    let b = p as *mut u8;
+    unsafe { for i in 0..64 { *b.add(i) = 0 } };
+    let mut atom = [0u8; ATOM_STRIDE];
+    put_u64(&mut atom, ATOM_JC, va);
+    put_u32(&mut atom, ATOM_ATOM_NUMBER as usize, 1);
+    put_u32(&mut atom, off, BASE_JD_REQ_SOFT_EVENT_SET);
+    let mut js = JobSubmit { addr: atom.as_ptr() as u64, nr_atoms: 1, stride: ATOM_STRIDE as u32 };
+    unsafe { alarm(8) };
+    let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+    unsafe { alarm(0) };
+    line(&format!("sevtjit/submit@{off:#x}"), if e == 0 { "ACCEPTED" } else { "REFUSED" }, format!("errno={e}"));
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let v = unsafe { *b };
+    line("sevtjit/read +200ms", if v == 1 { "EXECUTED" } else { "UNCHANGED" }, format!("event word = {v}"));
+    unsafe {
+        munmap(p, 4096);
+        let mut vv = va;
+        let _ = ioctl_errno(fd, 0x4008_8007, &mut vv as *mut u64 as *mut core::ffi::c_void);
+    }
+}
+
+
+/// Same side-effect test with a caller-chosen allocation flags word.
+///
+/// The kernel-side soft-job handler has to reach the event word through a kernel
+/// (kcpu) mapping; that mapping may only exist for certain allocation flags. If
+/// `BASE_MEM_CACHED_CPU` (0x1000) or `BASE_MEM_COHERENT_SYSTEM` (0x400) changes
+/// the result, then "soft jobs are dead here" was really "our BO was not
+/// reachable from the kernel".
+fn sevtf(off_hex: &str, flags_hex: &str) {
+    let off = usize::from_str_radix(off_hex.trim_start_matches("0x"), 16).unwrap_or(0x40);
+    let flags = u64::from_str_radix(flags_hex.trim_start_matches("0x"), 16).unwrap_or(0xF);
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    let Some(va) = alloc_pages(fd, 1, flags) else {
+        line("sevtf/alloc", "FAIL", format!("flags={flags:#x}"));
+        return;
+    };
+    let p = unsafe { mmap(core::ptr::null_mut(), 4096, 3, 1, fd, va as i64) };
+    if p as isize == -1 {
+        let e = errno();
+        line("sevtf/alloc", "FAIL", format!("mmap errno={e} flags={flags:#x}"));
+        return;
+    }
+    let b = p as *mut u8;
+    unsafe { for i in 0..64 { *b.add(i) = 0 } };
+    let mut atom = [0u8; ATOM_STRIDE];
+    put_u64(&mut atom, ATOM_JC, va);
+    put_u32(&mut atom, ATOM_ATOM_NUMBER as usize, 1);
+    put_u32(&mut atom, off, BASE_JD_REQ_SOFT_EVENT_SET);
+    let mut js = JobSubmit { addr: atom.as_ptr() as u64, nr_atoms: 1, stride: ATOM_STRIDE as u32 };
+    unsafe { alarm(8) };
+    let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+    unsafe { alarm(0) };
+    line(
+        &format!("sevtf/submit@{off:#x} flags={flags:#x}"),
+        if e == 0 { "ACCEPTED" } else { "REFUSED" },
+        format!("gpu_va={va:#x} errno={e}"),
+    );
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let v = unsafe { *b };
+    line(
+        "sevtf/read +200ms",
+        if v == 1 { "EXECUTED" } else { "UNCHANGED" },
+        format!("event word = {v} (flags={flags:#x})"),
+    );
+    unsafe {
+        munmap(p, 4096);
+        let mut vv = va;
+        let _ = ioctl_errno(fd, 0x4008_8007, &mut vv as *mut u64 as *mut core::ffi::c_void);
+    }
+}
+
 // ------------------------------------------------------------- ioctl surface
 
 /// Walk (nr, size) for the kbase command word with a zeroed 64-byte buffer and
@@ -777,6 +1597,32 @@ fn main() {
         "submit1" => submit1(),
         "free1" => free1(),
         "stream1" => stream1(),
+        "fence0" => fence0(),
+        "fence1" => fence1(),
+        "fence2" => fence2(),
+        "fence3" => fence3(),
+        "fence4" => fence4(),
+        "fence5" => fence5(),
+        "fence6" => fence6(),
+        "crmap" => crmap(),
+        "badptr" => badptr(),
+        "sevt" => sevt(args.get(2).map(|s| s.as_str()).unwrap_or("0x40")),
+        "ddkver" => ddkver(),
+        "sevt2" => sevt_compat(args.get(2).map(|s| s.as_str()).unwrap_or("0x40")),
+        "sevtjit" => jitinit_then_sevt(args.get(2).map(|s| s.as_str()).unwrap_or("0x40")),
+        "sevtf" => sevtf(
+            args.get(2).map(|s| s.as_str()).unwrap_or("0x40"),
+            args.get(3).map(|s| s.as_str()).unwrap_or("0xf"),
+        ),
+        "stride_probe" => stride_probe(),
+        "rd" => rd(
+            args.get(2).map(|s| s.as_str()).unwrap_or("0x40"),
+            args.get(3).map(|s| s.as_str()).unwrap_or("0x202"),
+            args.get(4).map(|s| s.as_str()) != Some("nosubmit"),
+        ),
+        "cr" => {
+            cr(args.get(2).map(|s| s.as_str()).unwrap_or("0x40"), args.get(3).map(|s| s.as_str()).unwrap_or("0x202"))
+        }
         "one" => {
             let major: u16 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
             let minor: u16 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(0);

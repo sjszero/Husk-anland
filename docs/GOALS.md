@@ -109,4 +109,8 @@ FACT：`com.linuxhub.myth` 不是 debuggable 包，`run-as` 直接拒绝（`pack
 | 本机硬解器 | `c2.mtk.{avc,hevc,vp9,av1}.decoder`（另有 mpeg4/h263/mpeg2/vc1/heif） | evidence 39 |
 | 硬解容量 | 厂商自报 1080p：avc 113–248 fps / hevc 125–276 / vp9 114–251（未实测） | evidence 39 |
 | 硬解可达面 | 只能从 bionic 侧 NDK `AMediaCodec` 调；guest 侧无路 | evidence 39 |
+| 内核 kbase 自报版本 | `K:r32p1-00bet5(GPL)`（`GET_DDK_VERSION` 0x4010800d） | evidence 40 |
+| atom 结构 | 72 字节；stride 必须 72（56 → EINVAL）；数组被 copy_from_user | evidence 40 |
+| timeline fd | **不是完成通道**：任何被接受的 submit 都触发 POLLIN，read() → EINVAL | evidence 40 |
+| 软作业 | 本机无效果（SOFT_EVENT_SET 不写显存）；`base_fence` 也不回写 sync_file fd | evidence 40 |
 | `ro.hardware.egl` / `.vulkan` | `meow` / `mali` | evidence 26 |
