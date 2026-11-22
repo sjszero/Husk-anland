@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 04:35）
+# 当前状态（2026-11-23 04:46）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -12,8 +12,9 @@ host-visible storage buffer、compute job 和离屏 graphics draw；GPU 写回 `
 像素回读 `0xff0000ff` 均已由 fence 后确认。发行版 Zink 也已在 surfaceless EGL 报出
 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`。显示链路已从静态单帧推进到 3-buffer ring：
 evidence 54 完成 12 帧，evidence 55 用 eventfd completion bridge 完成 120 帧，SurfaceFlinger
-接受 acquire fd，release fence 背压和 fd 回收均通过。**eventfd 只是当前可用 fallback，不是
-Vulkan `SYNC_FD`；真正的 pending producer fence、WSI、窗口生命周期和 10 分钟长稳仍未完成。**
+接受 acquire fd，release fence 背压和 fd 回收均通过；evidence 56 又把同一路径跑到 5,600 帧 /
+134 秒，app 与 guest 均全量完成。**eventfd 只是当前可用 fallback，不是 Vulkan `SYNC_FD`；
+真正的 pending producer fence、WSI、窗口生命周期和 10 分钟长稳仍未完成。**
 
 ## acquire fence 当前实验（部分通过，FACT + UNKNOWN）
 
@@ -30,6 +31,9 @@ Vulkan `SYNC_FD`；真正的 pending producer fence、WSI、窗口生命周期�
   没有按帧增长。
 - **FACT**：eventfd 是 pollable completion bridge，不是 `sync_file`；本次多数帧在 app 收到
   READY 前已经完成，不能把它写成“SF 等待 pending producer fence”的真实测量。
+- **FACT（evidence 56）**：同一 eventfd 路径完成 3-buffer / 5,600 帧 / 134 秒短 soak；
+  app `submitted=5600 completed=5600`，guest `rendered=5600/5600 releases=5597`，无 `FAIL`，
+  但这不是 10 分钟门禁，也不能证明持久资源池。
 - **UNKNOWN / 未完成**：真正无 CPU 等待的 producer fence。需要验证 kbase
   `STREAM_CREATE` + `BASE_JD_REQ_SOFT_FENCE_TRIGGER` 的真实布局，或修 PanVK kbase 后端让
   `vkGetFenceFdKHR` 返回真实 dma-fence/sync_file。
@@ -91,6 +95,8 @@ Vulkan `SYNC_FD`；真正的 pending producer fence、WSI、窗口生命周期�
   单帧演示。
 - **FACT（evidence 55）**：eventfd acquire bridge 连续 120 帧，app 收到 fd、SF 完成 transaction、
   release 背压和资源回收通过；这只证明当前 SurfaceControl 消费路径可用。
+- **FACT（evidence 56）**：3-buffer eventfd ring 连续 5,600 帧、134 秒，guest image_complete
+  5,600/5,600，app 5,600/5,600，无 FAIL；但未达到 10 分钟门禁，且每帧仍重建 Vulkan 资源。
 - **UNKNOWN / 未完成**：真正 `SYNC_FD` / pending producer fence 尚未打通；Vulkan 资源池、
   GBM / Wayland / X11、WSI / swapchain、旋转 / DPI / 多窗口、SurfaceView 重建和 10 分钟泄漏
   仍未验证，不能写成“显示目标完成”。
@@ -166,7 +172,7 @@ Vulkan `SYNC_FD`；真正的 pending producer fence、WSI、窗口生命周期�
 | PanVK compute job | **通过**：SPIR-V shader + compute pipeline + `vkQueueSubmit` + fence + GPU readback | 46 |
 | PanVK graphics | **离屏 draw 通过**：真实顶点缓冲 + vertex/fragment + draw + GPU 像素回读 | 46 |
 | Zink surfaceless renderer | **通过**：`eglinfo -B` / 纯 Rust `gl_probe` 报 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))` | 47 |
-| PanVK swapchain / WSI / Surface | **部分通过**：Android 窗口 3-buffer ring 连续 12 帧经 SurfaceControl 零拷贝上屏（evidence 54），eventfd acquire bridge 连续 120 帧且 SF 接受 fd（evidence 55），EGLImage 回退保留（evidence 52）；eventfd 不是 `SYNC_FD`，真正 producer fence、资源池、GBM / Wayland / X11、swapchain / WSI 仍未通 | 47 / 52 / 53 / 54 / 55 / 后续 |
+| PanVK swapchain / WSI / Surface | **部分通过**：Android 窗口 3-buffer ring 连续 12 帧经 SurfaceControl 零拷贝上屏（evidence 54），eventfd acquire bridge 连续 120 帧且 SF 接受 fd（evidence 55），同一路径完成 5,600 帧 / 134 秒短 soak（evidence 56），EGLImage 回退保留（evidence 52）；eventfd 不是 `SYNC_FD`，真正 producer fence、资源池、GBM / Wayland / X11、swapchain / WSI 仍未通 | 47 / 52 / 53 / 54 / 55 / 56 / 后续 |
 | 软作业（`SOFT_EVENT_SET/WAIT`） | **本机无效果**：6 种偏移 + `compat_core_req` 双写 + 先 `MEM_JIT_INIT` + 换分配标志（CACHED_CPU / COHERENT_SYSTEM），显存里的标志字节始终为 0 | 40 |
 
 ## 本轮（21:24–21:31）做了什么

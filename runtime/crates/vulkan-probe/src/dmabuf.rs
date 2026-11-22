@@ -1482,16 +1482,12 @@ unsafe fn send_ready_with_fd(stream: &UnixStream, text: &str, acquire_fd: c_int)
         flags: 0,
     };
     let sent = sendmsg(stream.as_raw_fd(), &msg, 0);
-    line(
-        "ring",
-        "sendmsg",
-        format!(
-            "len={} sent={sent} acquire_fd={acquire_fd} errno={}",
-            text.len(),
-            std::io::Error::last_os_error()
-        ),
-    );
     if sent == text.len() as isize {
+        line(
+            "ring",
+            "sendmsg",
+            format!("len={} sent={sent} acquire_fd={acquire_fd}", text.len()),
+        );
         true
     } else {
         line(

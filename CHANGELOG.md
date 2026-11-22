@@ -1,5 +1,17 @@
 # 变更记录
 
+## 2026-11-23 — eventfd ring 5,600 帧短时 soak
+
+- **evidence 56**：同一 3-buffer AHB / eventfd completion bridge 连续运行 5,600 帧，耗时
+  134 秒；app `submitted=5600 completed=5600 guest_done=true`，guest `rendered=5600/5600
+  releases=5597 done=true`，两边 `FAIL` 计数为 0，结束时 3 个 buffer 全部释放。
+- guest 日志有 5,600 条 `image_complete`；最后一帧截图为绿色。
+- **边界**：这不是 10 分钟门禁；每帧仍创建、导入、绑定并销毁 Vulkan image/memory/fence，
+  持久资源池和真正 pending producer fence 都未完成。probe 同时修正了成功 `sendmsg` 后读取
+  陈旧 errno 的日志问题。
+- guest probe sha256 `fc395bbe037617ed658a7a751bfbf38a1ea15102baba203e345f572bab7912e6`；
+  APK sha256 `78d97c9360e4f0489377453d8514a728f73bcf0c4564685ab122c8b9b1c2935d`。
+
 ## 2026-11-23 — eventfd acquire bridge 连续 120 帧（非 SYNC_FD）
 
 - **evidence 55**：guest `vkQueueSubmit` 后由 Rust completion 线程等待 `VkFence`，GPU 完成后写
