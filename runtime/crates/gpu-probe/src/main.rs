@@ -27,6 +27,8 @@ extern "C" {
     fn mmap(addr: *mut c_void, len: usize, prot: c_int, flags: c_int, fd: c_int, off: i64)
         -> *mut c_void;
     fn munmap(addr: *mut c_void, len: usize) -> c_int;
+    fn poll(fds: *mut core::ffi::c_void, nfds: u64, timeout: c_int) -> c_int;
+    fn close(fd: c_int) -> c_int;
 }
 
 fn errno() -> i32 {
@@ -656,6 +658,34 @@ fn free1() {
     }
 }
 
+/// Completion channel, step 1: does the driver hand us a timeline fd?
+/// `STREAM_CREATE` takes a 32-byte NUL-padded name and returns an fd (or -errno).
+fn stream1() {
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+    let mut name = [0u8; 32];
+    for (i, b) in b"husk".iter().enumerate() {
+        name[i] = *b;
+    }
+    let r = unsafe { ioctl(fd, 0x4020_8018u64, name.as_mut_ptr() as *mut core::ffi::c_void) };
+    if r < 0 {
+        let e = errno();
+        line("stream_create 0x40208018", "FAIL", format!("errno={e} ({})", strerror_guess(e)));
+        return;
+    }
+    line("stream_create 0x40208018", "PASS", format!("timeline fd={r}"));
+    // A timeline fd is pollable. Anything other than POLLERR means the channel is real.
+    let mut pfd = [0i32, 0i32];
+    pfd[0] = r;
+    let n = unsafe { poll(pfd.as_mut_ptr() as *mut core::ffi::c_void, 1, 0) };
+    line(
+        "poll(timeline)",
+        if n >= 0 { "PASS" } else { "FAIL" },
+        format!("revents={:#x} errno={}", pfd[1], errno()),
+    );
+    unsafe { close(r) };
+}
+
 // ------------------------------------------------------------- ioctl surface
 
 /// Walk (nr, size) for the kbase command word with a zeroed 64-byte buffer and
@@ -746,13 +776,14 @@ fn main() {
         "query1" => query1(),
         "submit1" => submit1(),
         "free1" => free1(),
+        "stream1" => stream1(),
         "one" => {
             let major: u16 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
             let minor: u16 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(0);
             one(major, minor)
         }
         "" => {
-            eprintln!("usage: gpu-probe nodes|kbase|enc|nrscan|ver|submit0|submit1|alloc1|query1|free1|one <major> <minor>");
+            eprintln!("usage: gpu-probe nodes|kbase|enc|nrscan|ver|submit0|submit1|alloc1|query1|free1|stream1|one <major> <minor>");
             std::process::exit(2);
         }
         other => {

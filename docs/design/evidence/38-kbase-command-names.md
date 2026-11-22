@@ -67,3 +67,16 @@ gpu|alloc#2|PASS|gpu_va=0x41000 reused=true
 - `MEM_QUERY`（6）按公开头的 union 打三种 query 全 EINVAL（evidence 37 §4）。可能与 MTK 改动有关，待查。
 - nr 29/30/38/50/54 五条新命令没有名字，暂不使用。
 - atom 是否真被执行仍 UNKNOWN：需要接上 §4 的完成通道才能判定。
+
+## 6. 完成通道第一步：STREAM_CREATE 可用（FACT，22:56）
+
+```
+gpu|stream_create 0x40208018|PASS|timeline fd=5
+gpu|poll(timeline)|PASS|revents=0x0 errno=0
+```
+
+`STREAM_CREATE`（32 字节 NUL 填充的名字）返回一个 **timeline fd**，并且是可 poll 的
+（`revents=0` = 目前没有待完成的东西，不是错误）。
+
+也就是说"提交后怎么知道 job 跑完"这条通道的第一段已经打通；缺的是把 atom 关联到这条 timeline
+（atom 的 udata / event 字段）以及失败时怎么读错误码。

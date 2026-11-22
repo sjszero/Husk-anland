@@ -261,3 +261,8 @@ O S C 现在也认 `ESC \` 结束符（否则会一直吞到下一个 BEL）。
 * MEM_FREE 实测闭环：alloc 0x41000 → free → alloc 又得 0x41000（行为验证，不只是读头）。
 * 意义：完成通道（stream+fence）与显示零拷贝（MEM_IMPORT）两条路都已有明确命令字。
 * 待办：MEM_QUERY 语义、nr 29/30/38/50/54 未知命令、atom 执行验证。
+
+## 2026-11-22 22:56 STREAM_CREATE 可用（evidence 38 §6）
+
+* `stream_create 0x40208018` → timeline fd=5，poll 正常（revents=0，无待完成）。
+* 完成通道第一段打通；缺 atom↔timeline 的关联与错误读取。
