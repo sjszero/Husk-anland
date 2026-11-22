@@ -1,5 +1,10 @@
 # Evidence 41 — CSF 是死的；UAPI 只有 IMPORT 没有 EXPORT；手搓 atom 到此为止
 
+> **后续更正（evidence 57）**：本文件的 `atom_number u16 @ 0x2c` 是错误布局，不能作为 r32p1
+> ABI 使用。正确布局是 64 B v2（atom_number u8 @ 0x28、core_req u32 @ 0x2c）或 72 B
+> `base_jd_atom`（jc @ 0x08、atom_number @ 0x30、core_req @ 0x34）。CSF 不存在和 kbase 无
+> dma-buf export 的结论仍有效；soft-fence 不能用的结论已被 evidence 57 推翻。
+
 设备：RMX3357 / MT6893 / Mali-G77 / Android 13 / kernel 4.19.191
 时间：2026-11-23 00:4x–01:3x（CST）
 工具：`runtime/crates/gpu-probe`（纯 Rust，guest 内运行，经 Husk loader 启动）

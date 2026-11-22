@@ -705,14 +705,26 @@ struct BaseFence {
 /// with `madd x8, x9, #0x48, x8` (0x7c4cb0). Stock headers say 56; on this
 /// kernel 56 is not what the ioctl wants.
 const ATOM_STRIDE: usize = 72;
+const ATOM_STRIDE_V2: usize = 64;
 
-/// Where the vendor writes `core_req` (`str w9, [x8, #0x40]` with w9 = 0x202,
-/// 0x7c4cd0 / 0x7c4d58 / 0x7c4db8 / 0x7c4e18). The 4.19 stock header layout puts
-/// it at 0x34 -- both are probed so the answer comes from the kernel.
+/// Historical probe offsets. They are kept so the old measurements remain
+/// reproducible; they are not the r32p1 `base_jd_atom_v2` layout. `fence8` and
+/// `fence11` use the real 64-byte layout below.
 const ATOM_CORE_REQ_VENDOR: usize = 0x40;
 const ATOM_CORE_REQ_STOCK_HDR: usize = 0x34;
+/// r32p1 GPL layout: `core_req` is a u32 at 0x34. The historical vendor
+/// probes below use 0x40 to preserve their original measurements.
+const ATOM_CORE_REQ_R32: usize = 0x34;
 const ATOM_JC: usize = 0x00;
+/// Historical offset used by the early 72-byte probes. It is not the location
+/// of `atom_number` in either r32p1 atom structure.
 const ATOM_ATOM_NUMBER: usize = 0x2c;
+
+// r32p1 `base_jd_atom_v2`: atom_number is u8 at 0x28, core_req is u32 at 0x2c.
+const ATOM_V2_ATOM_NUMBER: usize = 0x28;
+const ATOM_V2_CORE_REQ: usize = 0x2c;
+const ATOM_V2_PRE_DEP: usize = 0x24;
+const BASE_JD_DEP_TYPE_ORDER: u8 = 2;
 
 const BASE_JD_REQ_SOFT_FENCE_TRIGGER: u32 = (1 << 9) | 0x2; // 0x202
 
@@ -721,6 +733,14 @@ struct PollFd {
     fd: i32,
     events: i16,
     revents: i16,
+}
+
+fn hex(buf: &[u8]) -> String {
+    buf.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join("")
+}
+
+fn put_u16(buf: &mut [u8], off: usize, v: u16) {
+    buf[off..off + 2].copy_from_slice(&v.to_le_bytes());
 }
 
 fn put_u32(buf: &mut [u8], off: usize, v: u32) {
@@ -910,6 +930,38 @@ struct SoftEventUpdate {
     flags: u32,
 }
 
+#[repr(C)]
+#[derive(Default)]
+struct SyncFileInfo {
+    name: [u8; 32],
+    status: i32,
+    flags: u32,
+    num_fences: u32,
+    pad: u32,
+    sync_fence_info: u64,
+}
+
+const SYNC_IOC_FILE_INFO: u64 = 0xc038_3e04;
+
+fn sync_file_info(label: &str, fd: c_int) {
+    let mut info = SyncFileInfo::default();
+    let e = ioctl_errno(
+        fd,
+        SYNC_IOC_FILE_INFO,
+        &mut info as *mut SyncFileInfo as *mut core::ffi::c_void,
+    );
+    let name_end = info.name.iter().position(|b| *b == 0).unwrap_or(info.name.len());
+    let name = core::str::from_utf8(&info.name[..name_end]).unwrap_or("?");
+    line(
+        label,
+        if e == 0 { "PASS" } else { "FAIL" },
+        format!(
+            "errno={e} name={name:?} status={} num_fences={} flags={:#x}",
+            info.status, info.num_fences, info.flags
+        ),
+    );
+}
+
 const BASE_JD_REQ_SOFT_EVENT_WAIT: u32 = (1 << 9) | 0x5; // 0x205
 
 /// A soft-event atom that can only complete when we say so.
@@ -1080,6 +1132,571 @@ fn fence6() {
     unsafe { close(sfd) };
 }
 
+
+/// Correct-layout soft-fence trigger.
+///
+/// Historical wrong-layout control. It writes a 16-bit atom number at 0x2c and
+/// the r32 `core_req` at 0x34 while also using stride 72. The kernel therefore
+/// parses a different structure and returns `JOB_CONFIG_FAULT`. Keep this as a
+/// negative control proving that a plausible-looking mixed layout is rejected.
+fn fence7() {
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+
+    let mut name = [0u8; 32];
+    name[..4].copy_from_slice(b"husk");
+    let sfd = unsafe { ioctl(fd, 0x4020_8018u64, name.as_mut_ptr() as *mut core::ffi::c_void) };
+    if sfd < 0 {
+        let e = errno();
+        line("fence7/stream_create", "FAIL", format!("errno={e} ({})", strerror_guess(e)));
+        return;
+    }
+    line("fence7/stream_create", "PASS", format!("stream_fd={sfd}"));
+
+    let mut fence = BaseFence { fd: -1, stream_fd: sfd };
+    let mut atom = [0u8; ATOM_STRIDE];
+    put_u64(&mut atom, ATOM_JC, &mut fence as *mut BaseFence as u64);
+    put_u16(&mut atom, ATOM_ATOM_NUMBER, 1);
+    put_u32(&mut atom, ATOM_CORE_REQ_R32, BASE_JD_REQ_SOFT_FENCE_TRIGGER);
+    line(
+        "fence7/atom",
+        "INFO",
+        format!(
+            "stride={ATOM_STRIDE} atom_number@{ATOM_ATOM_NUMBER:#x}=1 core_req@{ATOM_CORE_REQ_R32:#x}={BASE_JD_REQ_SOFT_FENCE_TRIGGER:#x} jc=user_ptr"
+        ),
+    );
+
+    // Drain any context-creation event before submitting the atom, otherwise a
+    // stale atom-0 event can be mistaken for this submission's result.
+    for i in 0..8 {
+        let mut pfd = PollFd { fd, events: 1, revents: 0 };
+        let n = unsafe { poll(&mut pfd as *mut PollFd as *mut core::ffi::c_void, 1, 0) };
+        if n <= 0 || pfd.revents & 1 == 0 {
+            break;
+        }
+        let mut ev = [0u8; 24];
+        let got = unsafe { read(fd, ev.as_mut_ptr() as *mut core::ffi::c_void, ev.len()) };
+        if got != ev.len() as isize {
+            break;
+        }
+        let code = u32::from_le_bytes([ev[0], ev[1], ev[2], ev[3]]);
+        let atom_no = ev[4];
+        line("fence7/pre_event", "INFO", format!("#{i} event_code={code:#x} atom_number={atom_no}"));
+    }
+
+    let mut js = JobSubmit { addr: atom.as_ptr() as u64, nr_atoms: 1, stride: ATOM_STRIDE as u32 };
+    unsafe { alarm(5) };
+    let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+    unsafe { alarm(0) };
+    line(
+        "fence7/job_submit",
+        if e == 0 { "ACCEPTED" } else { "REFUSED" },
+        format!(
+            "errno={e} ({}) fence_after_submit={{fd:{},stream_fd:{}}}",
+            strerror_guess(e), fence.fd, fence.stream_fd
+        ),
+    );
+
+    if e == 0 && fence.fd >= 0 {
+        let mut pfd = PollFd { fd: fence.fd, events: 1, revents: 0 };
+        let t0 = std::time::Instant::now();
+        let n = unsafe { poll(&mut pfd as *mut PollFd as *mut core::ffi::c_void, 1, 1000) };
+        let ms = t0.elapsed().as_millis();
+        let verdict = if n > 0 && pfd.revents & 1 != 0 {
+            "READABLE(no-dependency control)"
+        } else if n == 0 {
+            "TIMEOUT(still pending)"
+        } else {
+            "POLLERR"
+        };
+        line(
+            "fence7/poll(sync_file)",
+            verdict,
+            format!("fd={} poll={n} revents={:#x} after {ms}ms", fence.fd, pfd.revents),
+        );
+        unsafe { close(fence.fd) };
+    } else if e == 0 {
+        line("fence7/sync_file", "FAIL", "accepted trigger did not write an fd back");
+    }
+
+    // Completion events are read from the kbase fd itself. Read the event that
+    // this atom produced, so an accepted-but-invalid soft job cannot masquerade
+    // as a fence-creation failure.
+    for i in 0..8 {
+        let mut epfd = PollFd { fd, events: 1, revents: 0 };
+        let n = unsafe { poll(&mut epfd as *mut PollFd as *mut core::ffi::c_void, 1, if i == 0 { 500 } else { 0 }) };
+        if n <= 0 || epfd.revents & 1 == 0 {
+            if i == 0 {
+                line("fence7/event", "INFO", format!("poll={n} revents={:#x}", epfd.revents));
+            }
+            break;
+        }
+        let mut ev = [0u8; 24];
+        let got = unsafe { read(fd, ev.as_mut_ptr() as *mut core::ffi::c_void, ev.len()) };
+        if got == ev.len() as isize {
+            let code = u32::from_le_bytes([ev[0], ev[1], ev[2], ev[3]]);
+            let verdict = match code {
+                1 => "DONE",
+                0x40 => "CONFIG_FAULT",
+                0x2003 => "JOB_INVALID",
+                _ => "FAIL",
+            };
+            line(
+                "fence7/event",
+                verdict,
+                format!("#{i} event_code={code:#x} atom_number={} bytes={}", ev[4], hex(&ev)),
+            );
+        } else {
+            let e = errno();
+            line("fence7/event", "FAIL", format!("#{i} read={got} errno={e}"));
+            break;
+        }
+    }
+
+    unsafe { close(sfd) };
+}
+
+/// Submit a soft-fence trigger using a caller-selected atom layout.
+///
+/// The driver accepts both the 64-byte `base_jd_atom_v2` and the 72-byte
+/// `base_jd_atom` (the latter has an extra `seq_nr` at offset zero). This
+/// helper keeps every field offset explicit so the two layouts cannot be mixed.
+fn soft_fence_layout(
+    label: &str,
+    stride: usize,
+    jc_off: usize,
+    atom_number_off: usize,
+    core_req_off: usize,
+) {
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+
+    let mut name = [0u8; 32];
+    name[..4].copy_from_slice(b"husk");
+    let sfd = unsafe { ioctl(fd, 0x4020_8018u64, name.as_mut_ptr() as *mut core::ffi::c_void) };
+    if sfd < 0 {
+        let e = errno();
+        line(&format!("{label}/stream_create"), "FAIL", format!("errno={e} ({})", strerror_guess(e)));
+        return;
+    }
+
+    let mut fence = BaseFence { fd: -1, stream_fd: sfd };
+    let mut atom = vec![0u8; stride];
+    put_u64(&mut atom, jc_off, &mut fence as *mut BaseFence as u64);
+    atom[atom_number_off] = 1;
+    put_u32(&mut atom, core_req_off, BASE_JD_REQ_SOFT_FENCE_TRIGGER);
+    line(
+        &format!("{label}/atom"),
+        "INFO",
+        format!(
+            "stride={stride} jc@{jc_off:#x}=user_ptr atom_number@{atom_number_off:#x}=1 core_req@{core_req_off:#x}={BASE_JD_REQ_SOFT_FENCE_TRIGGER:#x}"
+        ),
+    );
+
+    // Do not confuse a context-creation event with our atom's event.
+    for i in 0..8 {
+        let mut pfd = PollFd { fd, events: 1, revents: 0 };
+        let n = unsafe { poll(&mut pfd as *mut PollFd as *mut core::ffi::c_void, 1, 0) };
+        if n <= 0 || pfd.revents & 1 == 0 {
+            break;
+        }
+        let mut ev = [0u8; 24];
+        let got = unsafe { read(fd, ev.as_mut_ptr() as *mut core::ffi::c_void, ev.len()) };
+        if got != ev.len() as isize {
+            break;
+        }
+        let code = u32::from_le_bytes([ev[0], ev[1], ev[2], ev[3]]);
+        line(
+            &format!("{label}/pre_event"),
+            "INFO",
+            format!("#{i} event_code={code:#x} atom_number={}", ev[4]),
+        );
+    }
+
+    let mut js = JobSubmit { addr: atom.as_ptr() as u64, nr_atoms: 1, stride: stride as u32 };
+    unsafe { alarm(5) };
+    let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+    unsafe { alarm(0) };
+    line(
+        &format!("{label}/job_submit"),
+        if e == 0 { "ACCEPTED" } else { "REFUSED" },
+        format!(
+            "errno={e} ({}) fence_after_submit={{fd:{},stream_fd:{}}}",
+            strerror_guess(e), fence.fd, fence.stream_fd
+        ),
+    );
+
+    if e == 0 && fence.fd >= 0 {
+        let mut pfd = PollFd { fd: fence.fd, events: 1, revents: 0 };
+        let t0 = std::time::Instant::now();
+        let n = unsafe { poll(&mut pfd as *mut PollFd as *mut core::ffi::c_void, 1, 1000) };
+        let ms = t0.elapsed().as_millis();
+        line(
+            &format!("{label}/poll(sync_file)"),
+            if n > 0 && pfd.revents & 1 != 0 { "READABLE(no-dependency control)" } else if n == 0 { "TIMEOUT(still pending)" } else { "POLLERR" },
+            format!("fd={} poll={n} revents={:#x} after {ms}ms", fence.fd, pfd.revents),
+        );
+        unsafe { close(fence.fd) };
+    } else if e == 0 {
+        line(&format!("{label}/sync_file"), "FAIL", "accepted trigger did not write an fd back");
+    }
+
+    for i in 0..8 {
+        let mut pfd = PollFd { fd, events: 1, revents: 0 };
+        let n = unsafe { poll(&mut pfd as *mut PollFd as *mut core::ffi::c_void, 1, if i == 0 { 500 } else { 0 }) };
+        if n <= 0 || pfd.revents & 1 == 0 {
+            if i == 0 {
+                line(&format!("{label}/event"), "INFO", format!("poll={n} revents={:#x}", pfd.revents));
+            }
+            break;
+        }
+        let mut ev = [0u8; 24];
+        let got = unsafe { read(fd, ev.as_mut_ptr() as *mut core::ffi::c_void, ev.len()) };
+        if got != ev.len() as isize {
+            break;
+        }
+        let code = u32::from_le_bytes([ev[0], ev[1], ev[2], ev[3]]);
+        let verdict = match code {
+            1 => "DONE",
+            0x40 => "CONFIG_FAULT",
+            0x2003 => "JOB_INVALID",
+            _ => "FAIL",
+        };
+        line(
+            &format!("{label}/event"),
+            verdict,
+            format!("#{i} event_code={code:#x} atom_number={} bytes={}", ev[4], hex(&ev)),
+        );
+    }
+
+    unsafe { close(sfd) };
+}
+
+/// 64-byte `base_jd_atom_v2` from the r32p1 UAPI header.
+fn fence8() {
+    soft_fence_layout("fence8/v2-64", 64, 0x00, 0x28, 0x2c);
+}
+
+/// 72-byte `base_jd_atom`: v2 plus a leading `seq_nr`.
+fn fence9() {
+    soft_fence_layout("fence9/seq-72", 72, 0x08, 0x30, 0x34);
+}
+
+/// Pending producer fence using a soft-event dependency.
+///
+/// Layout is the proven 64-byte `base_jd_atom_v2`. Atom 1 waits on a GPU-memory
+/// event byte; atom 2 is a `SOFT_FENCE_TRIGGER` with an ORDER dependency on atom
+/// 1. The returned sync_file must stay pending until `SOFT_EVENT_UPDATE` sets
+/// the event and atom 1 completes.
+fn fence10() {
+    const SOFT_EVENT_WAIT: u32 = (1 << 9) | 0x5;
+    #[repr(C)]
+    struct SoftEventUpdate {
+        event: u64,
+        new_status: u32,
+        flags: u32,
+    }
+
+    let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+
+    let Some(va) = alloc_pages(fd, 1, 0x200F) else { line("fence10/alloc", "FAIL", "flags=0x200f"); return };
+    let p = unsafe { mmap(core::ptr::null_mut(), 4096, 3, 1, fd, va as i64) };
+    if p as isize == -1 {
+        let e = errno();
+        line("fence10/mmap", "FAIL", format!("errno={e} gpu_va={va:#x}"));
+        return;
+    }
+    unsafe { *(p as *mut u8) = 0 };
+    line("fence10/event_bo", "PASS", format!("gpu_va={va:#x} flags=0x200f value=0"));
+
+    let mut name = [0u8; 32];
+    name[..4].copy_from_slice(b"husk");
+    let sfd = unsafe { ioctl(fd, 0x4020_8018u64, name.as_mut_ptr() as *mut core::ffi::c_void) };
+    if sfd < 0 {
+        let e = errno();
+        line("fence10/stream_create", "FAIL", format!("errno={e} ({})", strerror_guess(e)));
+        unsafe { munmap(p, 4096) };
+        return;
+    }
+
+    let mut fence = BaseFence { fd: -1, stream_fd: sfd };
+    let mut atoms = [0u8; 128];
+
+    // atom 1: wait for the event byte to become 1
+    put_u64(&mut atoms, 0x00, va);
+    put_u32(&mut atoms, 0x28, 1);
+    put_u32(&mut atoms, 0x2c, SOFT_EVENT_WAIT);
+
+    // atom 2: create a sync_file and complete only after atom 1
+    put_u64(&mut atoms, 64, &mut fence as *mut BaseFence as u64);
+    atoms[64 + 0x24] = 1; // pre_dep[0].atom_id
+    atoms[64 + 0x25] = 2; // BASE_JD_DEP_TYPE_ORDER
+    put_u32(&mut atoms, 64 + 0x28, 2);
+    put_u32(&mut atoms, 64 + 0x2c, BASE_JD_REQ_SOFT_FENCE_TRIGGER);
+
+    let mut js = JobSubmit { addr: atoms.as_ptr() as u64, nr_atoms: 2, stride: 64 };
+    unsafe { alarm(5) };
+    let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+    unsafe { alarm(0) };
+    line(
+        "fence10/job_submit",
+        if e == 0 { "ACCEPTED" } else { "REFUSED" },
+        format!(
+            "errno={e} ({}) fence_after_submit={{fd:{},stream_fd:{}}}",
+            strerror_guess(e), fence.fd, fence.stream_fd
+        ),
+    );
+    if e != 0 || fence.fd < 0 {
+        if e == 0 {
+            line("fence10/sync_file", "FAIL", "accepted trigger did not write an fd back");
+        }
+        unsafe {
+            close(sfd);
+            munmap(p, 4096);
+            let mut v = va;
+            let _ = ioctl_errno(fd, 0x4008_8007, &mut v as *mut u64 as *mut core::ffi::c_void);
+        }
+        return;
+    }
+
+    let mut pfd = PollFd { fd: fence.fd, events: 1, revents: 0 };
+    let t0 = std::time::Instant::now();
+    let before_n = unsafe { poll(&mut pfd as *mut PollFd as *mut core::ffi::c_void, 1, 200) };
+    let before_ms = t0.elapsed().as_millis();
+    line(
+        "fence10/poll(before set)",
+        if before_n == 0 { "TIMEOUT(expected pending)" } else if before_n > 0 && pfd.revents & 1 != 0 { "READABLE(too early)" } else { "POLLERR" },
+        format!("fd={} poll={before_n} revents={:#x} after {before_ms}ms", fence.fd, pfd.revents),
+    );
+
+    let mut update = SoftEventUpdate { event: va, new_status: 1, flags: 0 };
+    let ue = ioctl_errno(
+        fd,
+        0x4010_801c,
+        &mut update as *mut SoftEventUpdate as *mut core::ffi::c_void,
+    );
+    line(
+        "fence10/soft_event_set",
+        if ue == 0 { "PASS" } else { "FAIL" },
+        format!("event={va:#x} errno={ue} ({})", strerror_guess(ue)),
+    );
+
+    let mut pfd2 = PollFd { fd: fence.fd, events: 1, revents: 0 };
+    let t1 = std::time::Instant::now();
+    let after_n = unsafe { poll(&mut pfd2 as *mut PollFd as *mut core::ffi::c_void, 1, 1000) };
+    let after_ms = t1.elapsed().as_millis();
+    line(
+        "fence10/poll(after set)",
+        if after_n > 0 && pfd2.revents & 1 != 0 { "READABLE" } else if after_n == 0 { "TIMEOUT" } else { "POLLERR" },
+        format!("fd={} poll={after_n} revents={:#x} after {after_ms}ms", fence.fd, pfd2.revents),
+    );
+
+    for i in 0..8 {
+        let mut epfd = PollFd { fd, events: 1, revents: 0 };
+        let n = unsafe { poll(&mut epfd as *mut PollFd as *mut core::ffi::c_void, 1, if i == 0 { 500 } else { 0 }) };
+        if n <= 0 || epfd.revents & 1 == 0 {
+            break;
+        }
+        let mut ev = [0u8; 24];
+        let got = unsafe { read(fd, ev.as_mut_ptr() as *mut core::ffi::c_void, ev.len()) };
+        if got != ev.len() as isize {
+            break;
+        }
+        let code = u32::from_le_bytes([ev[0], ev[1], ev[2], ev[3]]);
+        let verdict = match code {
+            1 => "DONE",
+            0x40 => "CONFIG_FAULT",
+            0x2003 => "JOB_INVALID",
+            _ => "FAIL",
+        };
+        line(
+            "fence10/event",
+            verdict,
+            format!("#{i} event_code={code:#x} atom_number={}", ev[4]),
+        );
+    }
+
+    unsafe {
+        close(fence.fd);
+        close(sfd);
+        munmap(p, 4096);
+        let mut v = va;
+        let _ = ioctl_errno(fd, 0x4008_8007, &mut v as *mut u64 as *mut core::ffi::c_void);
+    }
+}
+
+/// End-to-end pending producer fence on the r32p1 JM kbase.
+///
+/// The event BO is allocated with `SAME_VA`.  Before `mmap`, `mem_alloc`
+/// returns a cookie (used as the mmap offset), not a GPU VA.  After mmap the
+/// region is mapped at the returned CPU address and that address *is* the GPU
+/// VA.  Passing the pre-mmap cookie to `SOFT_EVENT_WAIT` makes `kbase_vmap()`
+/// fail and produces `BASE_JD_SW_EVENT_JOB_CANCELLED`.
+///
+/// Atom 1 waits on the event byte.  Atom 2 creates a sync_file and has an ORDER
+/// dependency on atom 1.  The sync_file must stay pending until we set the event
+/// through `SOFT_EVENT_UPDATE`, then become readable without another submit.
+fn fence11() {
+    let Some(f) = kbase_open() else { line("fence11/open", "FAIL", "version_check/set_flags"); return };
+    let fd = f.as_raw_fd();
+
+    let Some(cookie) = alloc_pages(fd, 1, 0x300F) else {
+        line("fence11/alloc", "FAIL", "flags=0x300f");
+        return;
+    };
+    let p = unsafe { mmap(core::ptr::null_mut(), 4096, 3, 1, fd, cookie as i64) };
+    if p as isize == -1 {
+        let e = errno();
+        line("fence11/mmap", "FAIL", format!("cookie={cookie:#x} errno={e} ({})", strerror_guess(e)));
+        return;
+    }
+    let event_va = p as u64;
+    unsafe { *(p as *mut u8) = 0 };
+    line(
+        "fence11/event_bo",
+        "PASS",
+        format!("cookie={cookie:#x} mapped={p:p} gpu_va={event_va:#x} flags=0x300f value=0"),
+    );
+
+    let mut name = [0u8; 32];
+    name[..4].copy_from_slice(b"husk");
+    let sfd = unsafe { ioctl(fd, 0x4020_8018u64, name.as_mut_ptr() as *mut core::ffi::c_void) };
+    if sfd < 0 {
+        let e = errno();
+        line("fence11/stream_create", "FAIL", format!("errno={e} ({})", strerror_guess(e)));
+        unsafe { munmap(p, 4096) };
+        return;
+    }
+
+    let mut fence = BaseFence { fd: -1, stream_fd: sfd };
+    let mut atoms = vec![0u8; ATOM_STRIDE_V2 * 2];
+
+    // Atom 1: block on the event byte.
+    put_u64(&mut atoms, ATOM_JC, event_va);
+    atoms[ATOM_V2_ATOM_NUMBER] = 1;
+    put_u32(&mut atoms, ATOM_V2_CORE_REQ, BASE_JD_REQ_SOFT_EVENT_WAIT);
+
+    // Atom 2: create a sync_file only after atom 1 completes.
+    let a2 = ATOM_STRIDE_V2;
+    put_u64(&mut atoms, a2 + ATOM_JC, &mut fence as *mut BaseFence as u64);
+    atoms[a2 + ATOM_V2_PRE_DEP] = 1;
+    atoms[a2 + ATOM_V2_PRE_DEP + 1] = BASE_JD_DEP_TYPE_ORDER;
+    atoms[a2 + ATOM_V2_ATOM_NUMBER] = 2;
+    put_u32(&mut atoms, a2 + ATOM_V2_CORE_REQ, BASE_JD_REQ_SOFT_FENCE_TRIGGER);
+
+    // Drain context-creation events so they cannot be mistaken for our atoms.
+    for i in 0..8 {
+        let mut epfd = PollFd { fd, events: 1, revents: 0 };
+        let n = unsafe { poll(&mut epfd as *mut PollFd as *mut core::ffi::c_void, 1, 0) };
+        if n <= 0 || epfd.revents & 1 == 0 {
+            break;
+        }
+        let mut ev = [0u8; 24];
+        let got = unsafe { read(fd, ev.as_mut_ptr() as *mut core::ffi::c_void, ev.len()) };
+        if got != ev.len() as isize {
+            break;
+        }
+        let code = u32::from_le_bytes([ev[0], ev[1], ev[2], ev[3]]);
+        line(
+            "fence11/pre_event",
+            "INFO",
+            format!("#{i} event_code={code:#x} atom_number={}", ev[4]),
+        );
+    }
+
+    let mut js = JobSubmit { addr: atoms.as_ptr() as u64, nr_atoms: 2, stride: ATOM_STRIDE_V2 as u32 };
+    unsafe { alarm(5) };
+    let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+    unsafe { alarm(0) };
+    line(
+        "fence11/job_submit",
+        if e == 0 { "ACCEPTED" } else { "REFUSED" },
+        format!(
+            "errno={e} ({}) layout=v2-64 atoms=2 fence_after_submit={{fd:{},stream_fd:{}}}",
+            strerror_guess(e), fence.fd, fence.stream_fd
+        ),
+    );
+    if e != 0 || fence.fd < 0 {
+        if e == 0 {
+            line("fence11/sync_file", "FAIL", "accepted trigger did not write an fd back");
+        }
+        unsafe {
+            close(sfd);
+            munmap(p, 4096);
+            let mut v = event_va;
+            let _ = ioctl_errno(fd, 0x4008_8007, &mut v as *mut u64 as *mut core::ffi::c_void);
+        }
+        return;
+    }
+    sync_file_info("fence11/sync_file(pending)", fence.fd);
+
+    let mut before = PollFd { fd: fence.fd, events: 1, revents: 0 };
+    let t0 = std::time::Instant::now();
+    let before_n = unsafe { poll(&mut before as *mut PollFd as *mut core::ffi::c_void, 1, 250) };
+    let before_ms = t0.elapsed().as_millis();
+    line(
+        "fence11/poll(before set)",
+        if before_n == 0 { "TIMEOUT(expected pending)" } else if before_n > 0 && before.revents & 1 != 0 { "READABLE(too early)" } else { "POLLERR" },
+        format!("fd={} poll={before_n} revents={:#x} after {before_ms}ms", fence.fd, before.revents),
+    );
+
+    let mut update = SoftEventUpdate { event: event_va, new_status: 1, flags: 0 };
+    let ue = ioctl_errno(
+        fd,
+        0x4010_801c,
+        &mut update as *mut SoftEventUpdate as *mut core::ffi::c_void,
+    );
+    line(
+        "fence11/soft_event_set",
+        if ue == 0 { "PASS" } else { "FAIL" },
+        format!("event={event_va:#x} errno={ue} ({})", strerror_guess(ue)),
+    );
+    let mut after = PollFd { fd: fence.fd, events: 1, revents: 0 };
+    let t1 = std::time::Instant::now();
+    let after_n = unsafe { poll(&mut after as *mut PollFd as *mut core::ffi::c_void, 1, 2000) };
+    let after_ms = t1.elapsed().as_millis();
+    line(
+        "fence11/poll(after set)",
+        if after_n > 0 && after.revents & 1 != 0 { "READABLE" } else if after_n == 0 { "TIMEOUT" } else { "POLLERR" },
+        format!("fd={} poll={after_n} revents={:#x} after {after_ms}ms", fence.fd, after.revents),
+    );
+    sync_file_info("fence11/sync_file(signaled)", fence.fd);
+
+    for i in 0..8 {
+        let mut epfd = PollFd { fd, events: 1, revents: 0 };
+        let n = unsafe { poll(&mut epfd as *mut PollFd as *mut core::ffi::c_void, 1, if i == 0 { 500 } else { 0 }) };
+        if n <= 0 || epfd.revents & 1 == 0 {
+            break;
+        }
+        let mut ev = [0u8; 24];
+        let got = unsafe { read(fd, ev.as_mut_ptr() as *mut core::ffi::c_void, ev.len()) };
+        if got != ev.len() as isize {
+            break;
+        }
+        let code = u32::from_le_bytes([ev[0], ev[1], ev[2], ev[3]]);
+        let verdict = match code {
+            1 => "DONE",
+            0x40 => "CONFIG_FAULT",
+            0x2003 => "JOB_INVALID",
+            0x4002 => "JOB_CANCELLED",
+            _ => "FAIL",
+        };
+        line(
+            "fence11/event",
+            verdict,
+            format!("#{i} event_code={code:#x} atom_number={}", ev[4]),
+        );
+    }
+
+    unsafe {
+        close(fence.fd);
+        close(sfd);
+        munmap(p, 4096);
+        let mut v = event_va;
+        let _ = ioctl_errno(fd, 0x4008_8007, &mut v as *mut u64 as *mut core::ffi::c_void);
+    }
+}
 
 /// Which offset does this kernel actually read `core_req` from?
 ///
@@ -1987,6 +2604,11 @@ fn main() {
         "fence4" => fence4(),
         "fence5" => fence5(),
         "fence6" => fence6(),
+        "fence7" => fence7(),
+        "fence8" => fence8(),
+        "fence9" => fence9(),
+        "fence10" => fence10(),
+        "fence11" => fence11(),
         "crmap" => crmap(),
         "badptr" => badptr(),
         "sevt" => sevt(args.get(2).map(|s| s.as_str()).unwrap_or("0x40")),

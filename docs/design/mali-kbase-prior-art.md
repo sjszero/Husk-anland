@@ -46,20 +46,26 @@ STICKY_RESOURCE_MAP _IOW(0x80,29) {u64 count, address}
 ```
 
 - `BASE_MEM_*`：CPU_RD 1<<0、CPU_WR 1<<1、GPU_RD 1<<2、GPU_WR 1<<3、GPU_EX 1<<4、
-  GROW_ON_GPF 1<<9、SAME_VA 1<<13、IMPORT_TYPE_UMM = 2。
+  GROW_ON_GPF 1<<9、CACHED_CPU 1<<12、SAME_VA 1<<13、IMPORT_TYPE_UMM = 2。
 - `BASE_JD_REQ_*`：FS 1<<0、CS 1<<1、T 1<<2、COHERENT_GROUP 1<<6、
-  SOFT_FENCE_TRIGGER (1<<9)|0x2、SOFT_FENCE_WAIT (1<<9)|0x3。
-- `base_jd_atom_v2`（Samsung r29p0 = 64 B；**本机 r32p1 实测 stride 72**，见 evidence 40）：
-  `jc, udata[2], extres_list, nr_extres, compat_core_req, pre_dep[2](atom_id,dep_type), atom_number, prio, device_nr, pad, core_req, ...`
+  SOFT_FENCE_TRIGGER (1<<9)|0x2、SOFT_FENCE_WAIT (1<<9)|0x3、SOFT_EVENT_WAIT (1<<9)|0x5。
+- r32p1 有两套不能混用的 atom 结构（FACT，evidence 57）：
+  - `base_jd_atom_v2` = **64 B**：`atom_number` u8 @ `0x28`，`core_req` u32 @ `0x2c`；
+  - `base_jd_atom` = **72 B**：`seq_nr` @ `0x00`，`jc` @ `0x08`，`atom_number` @ `0x30`，
+    `core_req` @ `0x34`。
+  旧记录把 72 B stride 与 64 B 字段偏移混在一起，已由 evidence 57 纠正。
 - 依赖类型：`DATA = 1`、`ORDER = 2`；完成事件 `BASE_JD_EVENT_DONE = 0x01`。
+- `SAME_VA` 分配（例如 flags `0x300f`）在 `mmap` 前返回的是 cookie，不是 GPU VA；cookie 只作
+  mmap offset，映射后的 CPU 地址才是 GPU VA。把 cookie 塞进 `jc` 会让 `kbase_vmap()` 失败。
 
 ## 3. 提交模型（A 的实现，可直接照抄逻辑）
 
 1. **握手**：`VERSION_CHECK` → `SET_FLAGS(0)` → `mmap(4096, PROT_NONE, fd, 3<<12)`（**跟踪页，不映射则
    `MEM_ALLOC` 返回 EINVAL**）→ `GET_GPUPROPS`（变长记录流：`header=(id<<2)|size_code`）→
    `fcntl(F_SETFL, fl|O_NONBLOCK|O_CLOEXEC)`（kbase 的 check_flags 要求带 O_CLOEXEC）。
-2. **BO**：SAME_VA 分配，CPU VA == GPU VA；exec BO 从**一个 16 MiB exec 区**里子分配（Midgard 24 位 shader PC 限制；
-   Valhall 是否仍有此限制 = 待验）。关闭忙 BO 要延迟到提交完成（zombie 表）。
+2. **BO**：SAME_VA 分配；mmap 前返回值是 cookie，mmap 后 CPU VA == GPU VA。exec BO 从
+   **一个 16 MiB exec 区**里子分配（Midgard 24 位 shader PC 限制；Valhall 是否仍有此限制 =
+   待验）。关闭忙 BO 要延迟到提交完成（zombie 表）。
 3. **提交**：每个 DRM submit → 1..N 个 atom，串成依赖链：第一个 atom 与前一个 submit 的末 atom
    `ORDER` 依赖，链内用 `DATA`。FS(片元) 用 `COHERENT_GROUP|FS`，其它用 `COHERENT_GROUP|CS|T`。
 4. **in-fence** → `SOFT_FENCE_WAIT` 软 atom（GPU 等，不让 CPU 等）；**out-fence** →
@@ -69,6 +75,11 @@ STICKY_RESOURCE_MAP _IOW(0x80,29) {u64 count, address}
    需拆成两个 atom（先非 tiler 后 tiler，跨组的 dep 字段清 0）。
 7. **dma-buf 导入**：`MEM_IMPORT(UMM)` + 每个导入必须 `STICKY_RESOURCE_MAP`，否则 GPU 翻译故障；
    按 ION handle 去重；kbase 对 UMM 的 SAME_VA 映射**不可 CPU 访问（SIGBUS）**，CPU 侧要映射 dma-buf 本身。
+
+8. **真实 out-fence 已验证（evidence 57）**：64-byte v2 的
+   `SOFT_EVENT_WAIT -> SOFT_FENCE_TRIGGER(ORDER dep)` 可生成真实 `mali-mali.timeline*`
+   sync_file；事件未设置时 `SYNC_IOC_FILE_INFO.status=0` 且 poll 超时，设置后同一 fd
+   readable、status=1。尚未接进 PanVK `vkGetFenceFdKHR` / SurfaceFlinger。
 
 ## 4. 对本项目的结论（2026-11-23 更新，判断 JUDGMENT）
 

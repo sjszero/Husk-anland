@@ -1,5 +1,9 @@
 # Evidence 40 — atom 布局钉死了一半；timeline fd **不是**完成信号（推翻旧结论）
 
+> **后续更正（evidence 57）**：本文件只得到了“72-byte stride 可被接受”，并没有证明 64-byte
+> v2 不可用。后来确认 r32p1 同时支持 64 B `base_jd_atom_v2` 与 72 B `base_jd_atom`；本文件
+> 的 soft-job 结论受字段偏移混用影响，不是内核不支持。原文保留，作为当时的实测记录。
+
 设备：RMX3357 / MT6893 / Mali-G77 / Android 13 / kernel 4.19.191
 时间：2026-11-22 23:5x–2026-11-23 00:3x（CST）
 工具：`runtime/crates/gpu-probe`（纯 Rust，guest 内运行，经 Husk loader 启动）

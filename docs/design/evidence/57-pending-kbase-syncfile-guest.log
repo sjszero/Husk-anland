@@ -1,0 +1,30 @@
+RUN=
+gpu|fence11/event_bo|PASS|cookie=0x41000 mapped=0x763bbfc000 gpu_va=0x763bbfc000 flags=0x300f value=0
+gpu|fence11/job_submit|ACCEPTED|errno=0 (ok) layout=v2-64 atoms=2 fence_after_submit={fd:6,stream_fd:5}
+gpu|fence11/sync_file(pending)|PASS|errno=0 name="mali-mali.timeline104654-1" status=0 num_fences=1 flags=0x0
+gpu|fence11/poll(before set)|TIMEOUT(expected pending)|fd=6 poll=0 revents=0x0 after 251ms
+gpu|fence11/soft_event_set|PASS|event=0x763bbfc000 errno=0 (ok)
+gpu|fence11/poll(after set)|READABLE|fd=6 poll=1 revents=0x1 after 0ms
+gpu|fence11/sync_file(signaled)|PASS|errno=0 name="mali-mali.timeline104654-1" status=1 num_fences=1 flags=0x0
+gpu|fence11/event|DONE|#0 event_code=0x1 atom_number=1
+gpu|fence11/event|DONE|#1 event_code=0x1 atom_number=2
+RUN=
+gpu|fence11/event_bo|PASS|cookie=0x41000 mapped=0x7eaaf47000 gpu_va=0x7eaaf47000 flags=0x300f value=0
+gpu|fence11/job_submit|ACCEPTED|errno=0 (ok) layout=v2-64 atoms=2 fence_after_submit={fd:6,stream_fd:5}
+gpu|fence11/sync_file(pending)|PASS|errno=0 name="mali-mali.timeline104910-1" status=0 num_fences=1 flags=0x0
+gpu|fence11/poll(before set)|TIMEOUT(expected pending)|fd=6 poll=0 revents=0x0 after 251ms
+gpu|fence11/soft_event_set|PASS|event=0x7eaaf47000 errno=0 (ok)
+gpu|fence11/poll(after set)|READABLE|fd=6 poll=1 revents=0x1 after 0ms
+gpu|fence11/sync_file(signaled)|PASS|errno=0 name="mali-mali.timeline104910-1" status=1 num_fences=1 flags=0x0
+gpu|fence11/event|DONE|#0 event_code=0x1 atom_number=1
+gpu|fence11/event|DONE|#1 event_code=0x1 atom_number=2
+RUN=
+gpu|fence11/event_bo|PASS|cookie=0x41000 mapped=0x711a544000 gpu_va=0x711a544000 flags=0x300f value=0
+gpu|fence11/job_submit|ACCEPTED|errno=0 (ok) layout=v2-64 atoms=2 fence_after_submit={fd:6,stream_fd:5}
+gpu|fence11/sync_file(pending)|PASS|errno=0 name="mali-mali.timeline105166-1" status=0 num_fences=1 flags=0x0
+gpu|fence11/poll(before set)|TIMEOUT(expected pending)|fd=6 poll=0 revents=0x0 after 250ms
+gpu|fence11/soft_event_set|PASS|event=0x711a544000 errno=0 (ok)
+gpu|fence11/poll(after set)|READABLE|fd=6 poll=1 revents=0x1 after 0ms
+gpu|fence11/sync_file(signaled)|PASS|errno=0 name="mali-mali.timeline105166-1" status=1 num_fences=1 flags=0x0
+gpu|fence11/event|DONE|#0 event_code=0x1 atom_number=1
+gpu|fence11/event|DONE|#1 event_code=0x1 atom_number=2

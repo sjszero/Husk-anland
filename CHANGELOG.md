@@ -1,5 +1,18 @@
 # 变更记录
 
+## 2026-11-23 — r32p1 kbase 生成真实 pending sync_file
+
+- **evidence 57**：guest 直连 `/dev/mali0`，用 64-byte `base_jd_atom_v2` 提交
+  `SOFT_EVENT_WAIT -> SOFT_FENCE_TRIGGER(ORDER dep)`。内核回写真实
+  `mali-mali.timeline*` sync_file；事件设置前 `SYNC_IOC_FILE_INFO.status=0` 且 poll 250 ms
+  超时，设置后同一 fd readable、status=1，两个 atom 均为 DONE。
+- 纠正两个 ABI 假阴性：不能混用 64-byte v2 与 72-byte atom 的字段偏移；`SAME_VA` 分配在
+  `mmap` 前返回的是 cookie，mmap 后的映射地址才是 GPU VA。
+- 边界：目前只证明内核层 producer fence；尚未接进 FristOneRR PanVK
+  `vkGetFenceFdKHR` / `SYNC_FD`，也尚未证明 SurfaceFlinger 在 GPU 完成前等待该 fd。
+- guest probe sha256 `c043e256ceecb34d90ed1b21041aca230905286c4fdf77f2df90f5e32bf954c3`；
+  guest log sha256 `987f02a9c82dc06ccebefe6aac5b55804c2fa35a742d23537712fd576fa780b3`。
+
 ## 2026-11-23 — eventfd ring 5,600 帧短时 soak
 
 - **evidence 56**：同一 3-buffer AHB / eventfd completion bridge 连续运行 5,600 帧，耗时

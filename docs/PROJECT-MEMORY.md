@@ -101,10 +101,13 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
    slot 各 4 次，`ASurfaceTransaction_setOnComplete` 返回的 release fence signal 后才回 RELEASE。
    **已完成（evidence 55）**：Rust completion 线程等待 VkFence 后写 eventfd，payload + fd 同一次
    `sendmsg(SCM_RIGHTS)` 交给 app，3-buffer ring 连续 120 帧、app `120/120`、SF 接受 acquire fd、
-   release 背压与 fd 回收通过。eventfd 不是 `SYNC_FD`，不能算真正 pending producer fence；evidence 56 又把同一路径扩展到
-   5,600 帧 / 134 秒短 soak，app/guest 均全量完成，但仍不是 10 分钟门禁。下一步是 kbase soft
-   fence / PanVK dma-fence、持久 Vulkan 资源池、GBM/Wayland/X11、WSI/swapchain、窗口生命周期
-   和 10 分钟长稳；连续短跑不等于完整窗口系统验收。
+   release 背压与 fd 回收通过。eventfd 不是 `SYNC_FD`；evidence 56 又把同一路径扩展到
+   5,600 帧 / 134 秒短 soak，但仍不是 10 分钟门禁。**已完成（evidence 57）**：64-byte
+   `base_jd_atom_v2` 的 `SOFT_EVENT_WAIT -> SOFT_FENCE_TRIGGER(ORDER dep)` 在 glibc guest 内
+   生成真实 pending `mali-mali.timeline*` sync_file；事件设置前 status=0 / poll 超时，设置后
+   同一 fd readable / status=1。下一步是把它接进 PanVK `vkGetFenceFdKHR` / SF、持久 Vulkan
+   资源池、GBM/Wayland/X11、WSI/swapchain、窗口生命周期和 10 分钟长稳；连续短跑不等于完整
+   窗口系统验收。
 5. `funnymdzz/mesa` 的 `kbase-v0.1.2` 已实测卡在 `drmSyncobjCreate()`，保留为失败证据和对照，
    不再作为唯一主动路线。
 6. DRM 语义层代码保留：它是已经完成的 M1/M2 资产，也是 panfrost 路线的后备，不删除。
@@ -137,9 +140,10 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
   evidence 54 已进一步完成 3-buffer ring 连续 12 帧、slot 复用和 SF release-fence 背压：
    app 取得上一 buffer 的 release fence，poll 到 signal 后才向 guest 发 RELEASE。
   evidence 55 已用 eventfd completion bridge 连续跑 120 帧并把 acquire fd 交给 SurfaceFlinger；
-   它由 guest 的 Rust completion 线程等待 VkFence 后 signal，不是 Vulkan `SYNC_FD`，也没有
-   pending producer fence 的测量；evidence 56 已把同一路径跑到 5,600 帧 / 134 秒，但仍未达到
-   10 分钟门禁。下一步是 kbase soft fence / PanVK dma-fence、持久资源池、窗口生命周期和 WSI；
+   它由 guest 的 Rust completion 线程等待 VkFence 后 signal，不是 Vulkan `SYNC_FD`；
+   evidence 56 已把同一路径跑到 5,600 帧 / 134 秒，但仍未达到 10 分钟门禁。evidence 57 已证明
+   kbase soft event + soft fence trigger 能生成真实 pending sync_file，下一步是接进 PanVK /
+   SurfaceFlinger，再做持久资源池、窗口生命周期和 WSI；
 - 同一块 buffer 由 app `queueBuffer` 给 SurfaceFlinger，目标是零拷贝；
 - kbase 没有 export，所以方向必须是 app → guest 导入，不能假装有 kbase 导出。
 - 退化路径可以 CPU 拷贝，但必须记录原因和实测开销。
@@ -227,12 +231,12 @@ eglinfo 报 Mali-G77；音频出声并有延迟数字；H.264/HEVC 硬解、AV �
 3. 继续显示主线：FristOneRR glibc PanVK 已完成 compute job、离屏 graphics、surfaceless Zink
    （evidence 46–47）、AHB LINEAR 2D image GPU 写入（evidence 51）、EGLImage 回退（evidence 52）、
    SurfaceControl 静态单帧零拷贝（evidence 53）、3-buffer ring 连续 12 帧 + release-fence 背压
-   （evidence 54）、eventfd acquire bridge 连续 120 帧（evidence 55）和 5,600 帧短 soak（evidence 56）。下一步接真正 pending
-   producer fence（kbase soft fence 或 PanVK dma-fence）、持久资源池、GBM / Wayland / X11、WSI、
-   旋转 / DPI / 多窗口和 10 分钟泄漏。
+   （evidence 54）、eventfd acquire bridge 连续 120 帧（evidence 55）、5,600 帧短 soak
+   （evidence 56）和真实 pending kbase sync_file（evidence 57）。下一步把 sync_file 接进
+   PanVK / SF，再做持久资源池、GBM / Wayland / X11、WSI、旋转 / DPI / 多窗口和 10 分钟泄漏。
 4. 每次失败也写清楚失败点和下一假设；证据放 `docs/design/evidence/`。
-5. 显示主线已完成 SurfaceControl 3-buffer ring、eventfd acquire bridge 和 5,600 帧短 soak；
-   eventfd 不是 `SYNC_FD`，下一步把 guest GPU fence 变成真正的 dma-fence/sync_file、做持久资源池，再推进
-   GBM / Wayland / X11、WSI、窗口生命周期和 10 分钟长稳；视频、音频按第 5 节并行设计但不能跳过
-   硬解验收。
+5. 显示主线已完成 SurfaceControl 3-buffer ring、eventfd acquire bridge、5,600 帧短 soak，
+   以及真实 pending kbase sync_file 的最小链路；下一步把 sync_file 接进 PanVK / SF，再做
+   持久资源池，再推进 GBM / Wayland / X11、WSI、窗口生命周期和 10 分钟长稳；视频、音频按
+   第 5 节并行设计但不能跳过硬解验收。
 6. 最后做 2.0 proot 替换与补丁清除。
