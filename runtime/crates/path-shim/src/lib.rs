@@ -1085,6 +1085,26 @@ pub unsafe extern "C" fn utimes(path: *const CChar, tv: *const i64) -> CInt {
 #[no_mangle]
 pub unsafe extern "C" fn readlinkat(dirfd: CInt, path: *const CChar, out: *mut CChar, len: CSizet) -> Ssize {
     if path.is_null() { *__errno_location() = 14; return -1; }
+    // `/proc/self/exe` must name the guest program, not the loader (see EXE_GUEST).
+    {
+        const WANT: &[u8] = b"/proc/self/exe";
+        let mut hit = EXE_GUEST_LEN > 0;
+        let mut i = 0usize;
+        while hit && i <= WANT.len() {
+            let c = *path.add(i) as u8;
+            if i < WANT.len() {
+                if c != WANT[i] { hit = false; }
+            } else if c != 0 {
+                hit = false;
+            }
+            i += 1;
+        }
+        if hit {
+            let l = core::cmp::min(EXE_GUEST_LEN, len);
+            core::ptr::copy_nonoverlapping(EXE_GUEST.as_ptr(), out as *mut u8, l);
+            return l as Ssize;
+        }
+    }
     let absolute = *path == b'/' as CChar;
     if verbose_on() { dbg(&[b"READLINKAT fd="]); dbgn(&[], dirfd as i64); dbg(&[b" p=", bytes(path), b"\n"]); }
     let rfd = rootfd();
@@ -1183,6 +1203,15 @@ unsafe fn elf_interp(fd: CInt) -> bool {
     false
 }
 
+
+// ------------------------------------------------------------------ self path
+// The program's own guest path, recorded at exec time. In this model
+// `/proc/self/exe` resolves to the *loader*, not to the program, so anything
+// that derives its install prefix from it (python: sys.executable -> sys.prefix)
+// looks outside the rootfs. Answering readlinkat("/proc/self/exe") with the
+// guest path keeps those users inside it.
+static mut EXE_GUEST: [u8; PATH_MAX] = [0; PATH_MAX];
+static mut EXE_GUEST_LEN: usize = 0;
 
 // ---------------------------------------------------------------------------
 // statx: coreutils >= 9 and many modern binaries use statx() directly, which
@@ -1407,6 +1436,10 @@ pub unsafe extern "C" fn execve(path: *const CChar, argv: *const *const CChar, e
     }
     let mut gp = [0u8; PATH_MAX];
     let n = match abs_guest(path, &mut gp) { Some(n) => n, None => return set_errno(36) };
+    if n < PATH_MAX {
+        EXE_GUEST[..n].copy_from_slice(&gp[..n]);
+        EXE_GUEST_LEN = n;
+    }
     for pre in [b"/dev/".as_ref(), b"/proc/".as_ref(), b"/sys/".as_ref()] {
         if n >= pre.len() && &gp[..pre.len()] == pre {
             return ret_or_errno(syscall4(SYS_EXECVE, gp.as_ptr() as usize, argv as usize, envp as usize, 0));
