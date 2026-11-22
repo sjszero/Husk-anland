@@ -221,3 +221,11 @@ O S C 现在也认 `ESC \` 结束符（否则会一直吞到下一个 BEL）。
   2. `Gfx` 没 `eglTerminate`：每次旋转/重建泄漏 swap-chain 的 `sync_file` / ashmem / gralloc_extra。
 * 实测：旋转 `67x58 -> 142x26 -> 67x58` 同 pid；guest `stty size` = `58 67`；fds 启动 98 → 旋转 12 次后 167（每次重建约 +2，尚未判定为泄漏，需长跑）。
 * 边界写清：运行时只管载体（进程/PTY/fd/信号/Surface 接入），GNOME/浏览器/DPI 属桌面层，不在运行时范围。
+
+## 2026-11-22 22:12 C5 阻塞点解除（evidence 35）
+
+* 从厂商 `libGLES_mali.so`（r32p1）反读出全部 kbase 命令字，确认 `JOB_SUBMIT = 0x40108002`（W,16）。
+* guest 实测：`version_check -> 11.38`、`set_flags -> 0`、`job_submit(nr_atoms=0) -> EINVAL(22)`。
+  EINVAL 而不是 ENOTTY ⇒ 命令可达，evidence 31 的"提交接口待查"是扫描方法错误造成的假阴性。
+* 工具：`gpu-probe submit0`（新增，零 job 提交，不碰 21:30 panic 的那条路径）。
+* 教训写进 evidence 35 §4：判定"内核不支持"必须先从真实客户端取命令字。

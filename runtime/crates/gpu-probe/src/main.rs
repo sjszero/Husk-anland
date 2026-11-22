@@ -365,6 +365,77 @@ fn one(major: u16, minor: u16) {
     }
 }
 
+// --------------------------------------------------- vendor-documented path
+
+/// The exact ioctl words the vendor's own userspace driver sends, read out of
+/// `/vendor/lib64/egl/mt6893/libGLES_mali.so` (r32p1) instead of guessed from a
+/// header. Addresses in that binary:
+///   882614  VERSION_CHECK 0xc0048000  (struct {u16 major, u16 minor})
+///   882670  SET_FLAGS     0x40048001  (u32 flags)
+///   8826cc  JOB_SUBMIT    0x40108002  (struct {u64 addr, u32 nr_atoms, u32 stride})
+///
+/// Sending nr_atoms = 0 makes the driver reject the submission during validation
+/// (EINVAL) before it can touch hardware, so this answers "is the command
+/// reachable at all" without ever putting a job on the GPU. That distinction is
+/// the whole point: ENOTTY means the command number is wrong, EINVAL means it is
+/// right and the payload was refused.
+#[repr(C)]
+struct JobSubmit {
+    addr: u64,
+    nr_atoms: u32,
+    stride: u32,
+}
+
+fn submit0() {
+    let f = match OpenOptions::new().read(true).write(true).open("/dev/mali0") {
+        Ok(f) => f,
+        Err(e) => {
+            line("submit0_open", "FAIL", format!("errno={}", e.raw_os_error().unwrap_or(0)));
+            return;
+        }
+    };
+    let fd = f.as_raw_fd();
+
+    let vc = KbaseVersionCheck { major: 0, minor: 0 };
+    let e = ioctl_errno(fd, KBASE_IOCTL_VERSION_CHECK, &vc as *const _ as *mut core::ffi::c_void);
+    line(
+        "version_check(0,0) 0xc0048000",
+        if e == 0 { "PASS" } else { "FAIL" },
+        format!("errno={e} -> {}.{}", vc.major, vc.minor),
+    );
+
+    // Same word the vendor uses: _IOW(0x80, 1, 4).
+    let mut flags: u32 = 0;
+    let e = ioctl_errno(fd, 0x4004_8001, &mut flags as *mut u32 as *mut core::ffi::c_void);
+    line("set_flags 0x40048001", if e == 0 { "PASS" } else { "FAIL" }, format!("errno={e}"));
+
+    let mut js = JobSubmit { addr: 0, nr_atoms: 0, stride: 0 };
+    let e = ioctl_errno(fd, 0x4010_8002, &mut js as *mut JobSubmit as *mut core::ffi::c_void);
+    let verdict = match e {
+        0 => "PASS (accepted, unexpected)",
+        25 => "ACCEPTED (ENOTTY=25 would mean wrong command)",
+        _ => "ANSWERED",
+    };
+    line("job_submit 0x40108002 nr_atoms=0", verdict, format!("errno={e} ({})", strerror_guess(e)));
+}
+
+fn strerror_guess(e: i32) -> &'static str {
+    match e {
+        0 => "ok",
+        1 => "EPERM",
+        2 => "ENOENT",
+        12 => "ENOMEM",
+        13 => "EACCES",
+        14 => "EFAULT",
+        16 => "EBUSY",
+        22 => "EINVAL",
+        25 => "ENOTTY",
+        38 => "ENOSYS",
+        95 => "EOPNOTSUPP",
+        _ => "?",
+    }
+}
+
 // ------------------------------------------------------------- ioctl surface
 
 /// Walk (nr, size) for the kbase command word with a zeroed 64-byte buffer and
@@ -450,13 +521,14 @@ fn main() {
         "enc" => enc(),
         "nrscan" => nrscan(),
         "ver" => ver(),
+        "submit0" => submit0(),
         "one" => {
             let major: u16 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
             let minor: u16 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(0);
             one(major, minor)
         }
         "" => {
-            eprintln!("usage: gpu-probe nodes|kbase|enc|nrscan|ver|one <major> <minor>");
+            eprintln!("usage: gpu-probe nodes|kbase|enc|nrscan|ver|submit0|one <major> <minor>");
             std::process::exit(2);
         }
         other => {
