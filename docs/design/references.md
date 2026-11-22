@@ -126,6 +126,25 @@ crosvm（设备模型）、scrcpy（编码链路）—— 上游 🔎。
 
 ---
 
+## 网络：GitHub 连不上就开代理（用完关掉）
+
+本机有代理，端口 `127.0.0.1:7897`（mixed，HTTP/SOCKS 同口）。实测（2026-11-22）：
+直连 `api.github.com` 偶发超时、`git clone`/`ls-remote` 会 `Recv failure: Operation timed out`；
+走代理 `200 / 0.24s`。
+
+```sh
+export ALL_PROXY=http://127.0.0.1:7897 https_proxy=http://127.0.0.1:7897
+# 拉仓库/查 API 走这里
+unset ALL_PROXY https_proxy   # 用完立刻关（用户要求：用完就关）
+```
+
+只用一条命令级的 `-x` 也行，不污染 shell：
+
+```sh
+curl -x http://127.0.0.1:7897 -sSL <url>
+GIT_CONFIG_GLOBAL=/dev/null git -c http.proxy=http://127.0.0.1:7897 clone --depth 1 <url>
+```
+
 ## 审计进度
 
 - 2026-11-22：第一遍核对（`gh api` 逐条）。已确认存在 **24** 个；**7** 个名字查无此仓库（清单来自第三方 AI，存在编造/记错）。
