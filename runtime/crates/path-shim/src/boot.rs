@@ -174,9 +174,18 @@ unsafe fn resolve(main_map: usize, name: usize, len: usize) -> u64 {
 }
 
 static mut PAGE: usize = 0;
+/// The kernel's page size, read once from the auxiliary vector (AT_PAGESZ).
+/// Zero when the auxv is missing, in which case we fall back to a probe. Never
+/// assume 4096: a 16 KiB kernel would silently round every mprotect wrong.
+static mut KERNEL_PAGE: usize = 0;
 
 unsafe fn page_size() -> usize {
     if PAGE != 0 { return PAGE; }
+    let k = KERNEL_PAGE;
+    if k >= 4096 && k.is_power_of_two() {
+        PAGE = k;
+        return PAGE;
+    }
     // Probe on our own BSS: the loader hook has already made that window
     // writable, so this only asks "is a 4K-aligned address a legal page start
     // here?". A 16K/64K page kernel answers EINVAL. If the probe address happens
@@ -305,6 +314,7 @@ pub unsafe extern "C" fn nr_boot(base: usize, main_map: usize, ext: usize, inter
     LOADER_BASE = base;
     if AT_RANDOM_WORDS == 0 { AT_RANDOM_WORDS = read_at_random(envp); }
     if EXECFN == 0 { EXECFN = auxv_val(envp, 31) as usize; } // AT_EXECFN
+    if KERNEL_PAGE == 0 { KERNEL_PAGE = auxv_val(envp, 6) as usize; } // AT_PAGESZ
     if debug2_on() {
         say(&[b"nr-boot: exec="]);
         if EXECFN != 0 { say(&[core::slice::from_raw_parts(EXECFN as *const u8, strlen(EXECFN))]); }

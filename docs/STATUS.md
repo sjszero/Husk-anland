@@ -193,3 +193,15 @@ O S C 现在也认 `ESC \` 结束符（否则会一直吞到下一个 BEL）。
 
 **仍未做**：滚动回看的手势之外的键盘滚动、SGR 颜色、宽字符/中文（需要 UTF-8 解码 +
 字体回退，当前只处理 ASCII）、选中复制粘贴、`SIGWINCH` 之外的尺寸变化通知。
+
+---
+
+# 2026-11-22 21:25 追加：A3 页大小（可查、不猜）
+
+- 新增 `nr-tools check-elf <elf|dir>… [--page N]…`：按 `p_offset ≡ p_vaddr (mod PAGE_SIZE)`
+  逐段判定，默认报 4K/16K/64K 三档，任一 PT_LOAD 不满足就 `FAIL` 并 exit 1。
+- `nr-tools embed` 现在自带 16 KiB 同余断言，产物不可在 16K 内核上加载时**构建失败**。
+- `boot.rs` 运行期不再假设 4096：入口从 auxv 的 `AT_PAGESZ` 读一次，`page_size()` 优先用它。
+- 实测：guest 的 bash/libc/loader 三种页大小全通过（本来就 64K 对齐）；我们的 `libld.so`
+  三种全通过；`libhuskapp.so`（NDK 29 = 16K 对齐）在 64K 页内核上会失败（Android 无此情况）。
+  证据：[evidence 30](design/evidence/30-check-elf-20261122.md)。

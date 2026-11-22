@@ -675,14 +675,180 @@ fn print_summary(s: &EmbedSummary) {
     println!("{o}");
 }
 
+/// `nr-tools check-elf <elf|dir>... [--page N]...`
+///
+/// The only thing that decides whether an ELF runs on a 4K/16K/64K kernel is
+/// the PT_LOAD congruence `p_offset == p_vaddr (mod PAGE_SIZE)` (plus p_align as
+/// a lower bound). A device label is not evidence. This walks one file or a
+/// whole rootfs and prints the verdict per page size, so "can this run on a 16K
+/// device" is answered by looking, not by guessing.
+fn check_elf_main(args: &[String]) {
+    if args.is_empty() {
+        die("usage: nr-tools check-elf <elf|dir>... [--page N]...");
+    }
+    let mut roots: Vec<String> = Vec::new();
+    let mut pages: Vec<u64> = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--page" {
+            i += 1;
+            let a = args.get(i).unwrap_or_else(|| die("--page needs a value"));
+            pages.push(parse_page(a));
+        } else {
+            roots.push(args[i].clone());
+        }
+        i += 1;
+    }
+    if pages.is_empty() {
+        pages = vec![4096, 16384, 65536];
+    }
+
+    let mut files: Vec<std::path::PathBuf> = Vec::new();
+    for r in &roots {
+        walk_elf_candidates(std::path::Path::new(r), &mut files);
+    }
+    files.sort();
+    if files.is_empty() {
+        die("no ELF files found");
+    }
+
+    let mut bad = vec![0usize; pages.len()];
+    let mut checked = 0usize;
+    for f in &files {
+        let Ok(data) = fs::read(f) else { continue };
+        if data.len() < 64 || &data[..4] != b"\x7fELF" || data[4] != 2 {
+            continue;
+        }
+        let e_phoff = u64le(&data, 0x20) as usize;
+        let e_phentsize = u16le(&data, 0x36) as usize;
+        let e_phnum = u16le(&data, 0x38) as usize;
+        if e_phentsize < 56 { continue; }
+        let mut max_align = 0u64;
+        let mut loads = 0usize;
+        let mut verdict = vec![true; pages.len()];
+        for k in 0..e_phnum {
+            let o = e_phoff + k * e_phentsize;
+            if o + 56 > data.len() { break; }
+            if u32le(&data, o) != PT_LOAD { continue; }
+            loads += 1;
+            let off = u64le(&data, o + 8);
+            let vaddr = u64le(&data, o + 16);
+            let align = u64le(&data, o + 48);
+            max_align = max_align.max(align);
+            for (pi, page) in pages.iter().enumerate() {
+                if off % page != vaddr % page {
+                    verdict[pi] = false;
+                }
+            }
+        }
+        if loads == 0 { continue; }
+        checked += 1;
+        let name = f.display();
+        let mut line = format!("{name}  p_align=0x{max_align:x}  loads={loads} ");
+        for (pi, page) in pages.iter().enumerate() {
+            if verdict[pi] {
+                line.push_str(&format!(" {page}:ok"));
+            } else {
+                line.push_str(&format!(" {page}:FAIL"));
+                bad[pi] += 1;
+            }
+        }
+        println!("{line}");
+    }
+
+    println!();
+    println!("checked {checked} ELF file(s)");
+    for (pi, page) in pages.iter().enumerate() {
+        if bad[pi] == 0 {
+            println!("  {page:>6}: all congruent");
+        } else {
+            println!("  {page:>6}: {} file(s) would fail to exec", bad[pi]);
+        }
+    }
+    if bad.iter().any(|n| *n > 0) {
+        std::process::exit(1);
+    }
+}
+
+/// Fail the build when the produced ELF could not be exec'd on a kernel with
+/// `page`-sized pages. Used by `embed` for the 16 KiB case.
+fn assert_page_congruent(path: &str, page: u64) {
+    let data = fs::read(path).unwrap_or_else(|e| die(format!("{path}: {e}")));
+    if data.len() < 64 || &data[..4] != b"\x7fELF" { die(format!("{path}: not an ELF")); }
+    let e_phoff = u64le(&data, 0x20) as usize;
+    let e_phentsize = u16le(&data, 0x36) as usize;
+    let e_phnum = u16le(&data, 0x38) as usize;
+    let mut i = 0;
+    while i < e_phnum {
+        let o = e_phoff + i * e_phentsize;
+        i += 1;
+        if o + 56 > data.len() { break; }
+        if u32le(&data, o) != PT_LOAD { continue; }
+        let off = u64le(&data, o + 8);
+        let vaddr = u64le(&data, o + 16);
+        let align = u64le(&data, o + 48);
+        if off % page != vaddr % page {
+            die(format!(
+                "{path}: PT_LOAD off={off:#x} vaddr={vaddr:#x} is not congruent modulo {page:#x} \
+                 -- this file cannot be exec'd on a {}-KiB page kernel",
+                page / 1024
+            ));
+        }
+        if align != 0 && align < page {
+            eprintln!("{path}: warning: PT_LOAD p_align={align:#x} < {page:#x} (allowed, congruence is what matters)");
+        }
+    }
+}
+
+fn parse_page(a: &str) -> u64 {
+    let v = if let Some(h) = a.strip_prefix("0x") {
+        u64::from_str_radix(h, 16).unwrap_or_else(|_| die(format!("bad page size {a}")))
+    } else {
+        match a {
+            "4k" | "4K" => 4096,
+            "16k" | "16K" => 16384,
+            "64k" | "64K" => 65536,
+            _ => a.parse::<u64>().unwrap_or_else(|_| die(format!("bad page size {a}"))),
+        }
+    };
+    if v < 4096 || v & (v - 1) != 0 { die(format!("page size {a} is not a power of two >= 4096")); }
+    v
+}
+
+fn walk_elf_candidates(p: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    let Ok(md) = fs::symlink_metadata(p) else { return };
+    if md.file_type().is_symlink() {
+        // Symlinks in a rootfs are absolute guest paths; the target resolves
+        // inside the same tree, so skip and let the real file be visited.
+        return;
+    }
+    if md.is_dir() {
+        let Ok(rd) = fs::read_dir(p) else { return };
+        for e in rd.flatten() {
+            walk_elf_candidates(&e.path(), out);
+        }
+        return;
+    }
+    if !md.is_file() { return; }
+    // Cheap pre-filter: ELF magic in the first four bytes.
+    if let Ok(mut f) = fs::File::open(p) {
+        use std::io::Read;
+        let mut m = [0u8; 4];
+        if f.read_exact(&mut m).is_ok() && &m == b"\x7fELF" {
+            out.push(p.to_path_buf());
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(cmd) = args.first() else {
-        eprintln!("usage: nr-tools {{scan-syscalls|embed|provision|rootfs}} ...");
+        eprintln!("usage: nr-tools {{scan-syscalls|check-elf|embed|provision|rootfs}} ...");
         return ExitCode::from(2);
     };
     match cmd.as_str() {
         "scan-syscalls" => scan_main(&args[1..]),
+        "check-elf" => { check_elf_main(&args[1..]); ExitCode::SUCCESS }
         "provision" => { provision::main(&args[1..]); ExitCode::SUCCESS }
         "rootfs" => { rootfs::main(&args[1..]); ExitCode::SUCCESS }
         "embed" => {
@@ -690,6 +856,11 @@ fn main() -> ExitCode {
             if V_BASE < align(LD_TEXT_END, PAGE) { die("shim would overlap the loader's own segments"); }
             if F_BASE % PAGE != V_BASE % PAGE { die("offset/vaddr must be congruent"); }
             let s = embed(&args[1], &args[2], &args[3], &args[4]);
+            // The output must be loadable on a 16 KiB-page kernel, not just on
+            // the 4 KiB page of the build machine: every PT_LOAD has to satisfy
+            // p_offset == p_vaddr (mod 0x4000). Checked on the file that was
+            // actually written, not on the in-memory copy.
+            assert_page_congruent(&args[4], 0x4000);
             print_summary(&s);
             ExitCode::SUCCESS
         }

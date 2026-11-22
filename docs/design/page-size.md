@@ -37,7 +37,10 @@ p_offset ≡ p_vaddr  (mod PAGE_SIZE)        # 每个 PT_LOAD 都要满足
 | guest `libc.so.6` | `0x10000` | ✅ | ✅ | 同上 |
 | guest `ld-linux-aarch64.so.1` | `0x10000` | ✅ | ✅ | 同上 |
 | 我们的 `libhuskapp.so`（NDK 29） | `0x4000` (16K) | ✅ | ✅ | NDK r28+ 默认 16K |
-| 我们的 `libld.so`（改过的 loader） | `0x10000` / `0x1000` 混合 | ✅ | ✅（同余成立，但**靠运气**） | 要显式固定 |
+| 我们的 `libld.so`（改过的 loader） | `0x10000` | ✅ | ✅ | 已由 `nr-tools embed` 断言 |
+
+校验方式（2026-11-22 起）：`nr-tools check-elf <elf|dir>…` 按同余关系逐段判定并给出
+每档页大小的结论，`embed` 内置 16 KiB 断言。见 [evidence 30](evidence/30-check-elf-20261122.md)。
 
 关键事实：**Ubuntu/Debian 的 arm64 用户态本来就 64K 对齐**，所以 16K 内核上 guest 侧不需要任何改造。
 这和"Android App 自己的 `.so` 必须 16K 对齐"是两套独立问题（后者是 Google Play 2025 的强制要求）。
