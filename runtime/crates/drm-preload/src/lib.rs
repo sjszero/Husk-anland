@@ -229,6 +229,25 @@ pub(crate) unsafe fn ioctl_impl(fd: i32, request: u64, arg: *mut u8) -> i32 {
         if CTX.ready {
             let r = CTX.dispatch(|f, req, a| ioctl_raw(f, req, a), request, arg);
             unlock();
+            if debug_on() {
+                let mut b = [0u8; 64];
+                let hex = b"0123456789abcdef";
+                let p0 = b"[ioctl] req=";
+                let mut i = 0;
+                while i < p0.len() { b[i] = p0[i]; i += 1; }
+                let mut sh = 60;
+                while sh >= 0 { b[i] = hex[((request >> sh) & 0xf) as usize]; i += 1; sh -= 4; }
+                let p1 = b" ret=";
+                let mut k = 0;
+                while k < p1.len() { b[i] = p1[k]; i += 1; k += 1; }
+                let neg = r < 0;
+                let v = if neg { (-r) as u64 } else { r as u64 };
+                if neg { b[i] = b'-'; i += 1; }
+                let mut sh2 = 28;
+                while sh2 >= 0 { b[i] = hex[((v >> sh2) & 0xf) as usize]; i += 1; sh2 -= 4; }
+                b[i] = b'\n'; i += 1;
+                sycall_write(&b[..i]);
+            }
             if debug_on() && request == 0xc0106444 && !arg.is_null() {
                 let param = *(arg as *const u32);
                 let value = *((arg as *const u8).add(8) as *const u64);
@@ -340,23 +359,35 @@ pub(crate) unsafe fn syscall_readlinkat(path: *const u8, out: *mut u8, len: usiz
     syscall(SYS_READLINKAT, AT_FDCWD as i64, path as i64, out as i64, len as i64)
 }
 
+static DBG: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(2);
+
 unsafe fn debug_on() -> bool {
-    let p = b"NR_DRM_DEBUG\0".as_ptr();
-    let mut e = ENVIRON;
-    if e.is_null() { return false; }
-    let mut i = 0;
-    let mut name_len = 0;
-    while *p.add(name_len) != 0 { name_len += 1; }
-    while !(*e).is_null() {
-        let s = *e as *const u8;
-        let mut k = 0;
-        while k < name_len && *s.add(k) == *p.add(k) { k += 1; }
-        if k == name_len && *s.add(k) == b'=' { return true; }
-        i += 1;
-        e = e.add(1);
+    use core::sync::atomic::Ordering;
+    match DBG.load(Ordering::Relaxed) {
+        0 => return false,
+        1 => return true,
+        _ => {}
     }
-    let _ = i;
-    false
+    let mut on = false;
+    const SYS_OPENAT2: i64 = 56;
+    const SYS_READ: i64 = 63;
+    let fd = syscall(SYS_OPENAT2, AT_FDCWD as i64, b"/proc/self/environ\0".as_ptr() as i64, 0i64, 0i64);
+    if fd >= 0 {
+        let mut buf = [0u8; 4096];
+        let n = syscall(SYS_READ, fd, buf.as_mut_ptr() as i64, 4096i64);
+        syscall(SYS_CLOSE, fd);
+        if n > 0 {
+            let s = &buf[..n as usize];
+            let needle = b"NR_DRM_DEBUG=";
+            let mut i = 0;
+            while i + needle.len() <= s.len() {
+                if &s[i..i + needle.len()] == needle { on = true; break; }
+                i += 1;
+            }
+        }
+    }
+    DBG.store(if on { 1 } else { 0 }, Ordering::Relaxed);
+    on
 }
 
 extern "C" {

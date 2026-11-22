@@ -67,3 +67,17 @@ adb shell 'run-as com.linuxhub.husk sh -c "cd files && \
   MESA_LOADER_DRIVER_OVERRIDE=panfrost NR_LD=$PWD/ld-gpu.so \
   timeout 30 sh gexec3.sh rootfs-full usr/bin/gl_probe"'
 ```
+
+## 追加（同日 01:4x）：为什么卡在 `create dri2 screen`
+
+1. **FACT**：在 rootfs 的 `libgallium-25.2.8-...so` 里 `strings | grep -c` 实测：
+   `G57` 存在，**`G77` 和 `G78` 都是 0**。Ubuntu 24.04 这版 Mesa 的 panfrost 模型表里
+   没有本机这颗 Mali-G77。
+2. 实验（已回滚，不留在代码里）：把 `GET_PARAM(GPU_PROD_ID)` 伪装成 G57 的 `0x6057`，
+   panfrost 仍然 `failed to create dri2 screen` ⇒ **不只是模型表的问题**。
+3. **FACT**：panfrost 全程只发了 15 个 `GET_PARAM`（×2 轮，全部成功），随后就失败；
+   没有任何 `CREATE_BO` / VM 相关 ioctl。说明失败点在 `panfrost_open_device()` 内部
+   （`pan_kmod_vm_create` 或更早），不是我们的 BO/提交层。
+4. 结论（JUDGMENT）：继续在"Ubuntu 25.2 panfrost + DRM 语义层"上投入的收益在下降；
+   下一步按 `references.md` §3 走**前人已验证过 G77 的 panvk kbase 路线**（编 glibc 版 + Zink），
+   同时保留当前 DRM 语义层代码作为已完成的 M1/M2 资产。
