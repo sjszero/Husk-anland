@@ -3,7 +3,7 @@
 > 本文件是目标的**权威规格**。会话里的 goal 对象不可编辑，重建 goal 时以本文件为准；
 > 改目标就改这里，再把下面的「粘贴块」整段贴进去。
 
-最后更新：2026-11-22（v4：B 段只认 LinuxHub 2.0 的资产，删掉 1.2.0 引用；C 段按 guest 侧实测重写）
+最后更新：2026-11-22（v5：B 段只认 LinuxHub 2.0 的 Ubuntu 24.04 资产链；C 段按 guest 侧实测重写）
 
 ---
 
@@ -41,11 +41,9 @@ FACT：`com.linuxhub.myth` 不是 debuggable 包，`run-as` 直接拒绝（`pack
 
 ```
 /Users/l/Documents/Codex/2026-08-10/linuxhub/LinuxHub-2.0/app/src/main/assets/
-  rootfs/ubuntu-base-24.04.4-base-arm64.tar                    31 MB   ← 主用
-  rootfs/ubuntu-base-26.04.1-base-arm64.tar.gz                 35 MB   ← 备选
+  rootfs/ubuntu-base-24.04.4-base-arm64.tar                    31 MB
   offline/bootstrap-arm64.tar                                 349 MB
-  offline/gnome-24.04-arm64.tar                               532 MB   ← 主用
-  offline/gnome-26.04-arm64.tar                               537 MB   ← 备选
+  offline/gnome-24.04-arm64.tar                               532 MB
   offline/vendor-apps-arm64.tar                               403 MB
   offline/mesa-for-android-container_27.0.0-devel-20261025-r2_ubuntu_noble_arm64.tar  12 MB
   offline/{bootstrap-packages.txt,gnome-packages.txt,vendor-packages.txt,vendor-dependencies.txt}
