@@ -25,7 +25,9 @@
 | 页大小体检（`nr-tools check-elf` 4K/16K/64K） | 可用 | 30 |
 | guest 打开 `/dev/mali0` + kbase 建 kctx | **可用**（UAPI 11.38） | 31 |
 | 厂商 `libGLES_mali.so` 在 guest 内加载 | **不可行，已关闭**（25 个 bionic DT_NEEDED） | 31 |
-| 长稳 10 分钟（goal A1 验收） | **未完成**：跑到 4 分 37 秒时设备 kernel_panic 重启（21:30，见 evidence 31 §6） | 见下 |
+| 长稳 10 分钟（goal A1 验收） | **通过**：600 秒 / 568 tick / 11 360 次 fork-exec，同 pid、零僵尸 | 32 |
+| 2.0 完整 rootfs（Ubuntu 24.04.4，817 bins） | **可用**：GNOME Shell 46.0 / mutter / gjs 1.80.2 / dbus / Xwayland 23.2.6 均能起 | 33 |
+| 带 shebang 的 guest 脚本（如 gnome-terminal） | **不可用**：解释器按宿主路径解析 → ENOENT | 33 §缺口1 |
 
 ## 本轮（21:24–21:31）做了什么
 
@@ -41,6 +43,11 @@
 4. 目标文件升到 **v3**（`docs/GOALS.md`）：C 段按实测重写，厂商 EGL 路线标记关闭。
 
 ## 下一步（按依赖）
+
+刚完成（21:47–21:58）：
+- A1 长稳通过（evidence 32）；旋转期间也不掉（1080x2400 ↔ 2280x1080）；
+- 2.0 完整 rootfs 铺好并跑起来（evidence 33）：`files/rootfs-full` 1.9 GB、
+  用 `nr-tools rootfs --base/--debs` 纯 Rust 构建、本镜像自己的 loader + 补丁过的 glibc 2.39。
 
 不依赖设备的：
 
