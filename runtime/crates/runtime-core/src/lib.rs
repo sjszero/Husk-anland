@@ -27,6 +27,7 @@ const SYS_CLOSE: usize = 57;
 const SYS_DUP: usize = 23;
 const SYS_READLINKAT: usize = 78;
 const SYS_NEWFSTATAT: usize = 79;
+const SYS_FSTAT: usize = 80;
 const AT_EMPTY_PATH: CInt = 0x1000;
 const AT_SYMLINK_NOFOLLOW: CInt = 0x100;
 const SYS_FACCESSAT: usize = 48;
@@ -90,10 +91,6 @@ unsafe fn fd_is_symlink(fd: CInt) -> Result<bool, CInt> {
     if let Some(e) = errno_of(r) { return Err(e); }
     let mode = core::ptr::read_unaligned(st.as_ptr().add(16) as *const u32);
     Ok(mode & S_IFMT == S_IFLNK)
-}
-
-unsafe fn stat_is_symlink(st: *const u8) -> bool {
-    (core::ptr::read_unaligned(st.add(16) as *const u32) & S_IFMT) == S_IFLNK
 }
 
 fn compose_symlink_target(dir: &[u8], target: &[u8], out: &mut [u8; PATH_MAX])
@@ -321,9 +318,16 @@ pub unsafe fn resolve_open(rootfd: CInt, path: &[u8], flags: CInt, mode: CInt) -
     }
 }
 
-pub unsafe fn resolve_fstat(rootfd: CInt, path: &[u8], st: *mut u8, flags: CInt) -> Result<(), CInt> {
+/// Open the final object named by an absolute guest path and pin it with an
+/// `O_PATH` descriptor. Symlinks are resolved manually under `rootfd`, so a
+/// concurrent replacement can change which legitimate guest object is picked,
+/// but cannot redirect the operation outside the guest root. Callers that need
+/// metadata semantics use this descriptor instead of a parentfd + final-name
+/// pair, which closes the final-component replacement race on this kernel.
+pub unsafe fn resolve_final(rootfd: CInt, path: &[u8], follow: bool) -> Result<CInt, CInt> {
+    if path.first() != Some(&b'/') { return Err(EACCES); }
     if path.len() >= PATH_MAX { return Err(ENAMETOOLONG); }
-    let follow = flags & 0x100 == 0;
+    let force_dir = path.len() > 1 && path.last() == Some(&b'/');
     let mut current = [0u8; PATH_MAX];
     current[..path.len()].copy_from_slice(path);
     let mut current_len = path.len();
@@ -331,29 +335,45 @@ pub unsafe fn resolve_fstat(rootfd: CInt, path: &[u8], st: *mut u8, flags: CInt)
     loop {
         if depth > 16 { return Err(ELOOP); }
         let mut name = [0u8; 256];
-        let (parent, dir, dir_len) = resolve_parent_with_dir(rootfd, &current[..current_len], &mut name, false)?;
+        let (parent, dir, dir_len) =
+            resolve_parent_with_dir(rootfd, &current[..current_len], &mut name, false)?;
         let n = name.iter().position(|c| *c == 0).unwrap_or(0);
-        let mut nb = [0u8; 256];
-        nb[..n].copy_from_slice(&name[..n]);
-        let stat_flags = if follow { flags | 0x100 } else { flags };
-        let r = sc4(SYS_NEWFSTATAT, parent as usize, nb.as_ptr() as usize, st as usize, stat_flags as usize);
-        if r == 0 && follow && stat_is_symlink(st) {
-            let mut link = [0u8; PATH_MAX];
-            let lr = readlinkat(parent, &name[..n], &mut link);
+
+        let mut open_flags = O_PATH | O_NOFOLLOW | O_CLOEXEC;
+        if force_dir { open_flags |= O_DIRECTORY; }
+        let fd = match openat(parent, &name[..n], open_flags, 0) {
+            Ok(fd) => fd,
+            Err(e) => { close(parent); return Err(e); }
+        };
+        let is_link = match fd_is_symlink(fd) {
+            Ok(v) => v,
+            Err(e) => { close(fd); close(parent); return Err(e); }
+        };
+        if !follow || !is_link {
             close(parent);
-            let link_len = match lr {
-                Ok(v) if v < link.len() => v,
-                Ok(_) => return Err(ENAMETOOLONG),
-                Err(22) => { depth += 1; continue; }
-                Err(e) => return Err(e),
-            };
-            current_len = compose_symlink_target(&dir[..dir_len], &link[..link_len], &mut current)?;
-            depth += 1;
-            continue;
+            return Ok(fd);
         }
+
+        let mut link = [0u8; PATH_MAX];
+        let r = readlinkat(parent, &name[..n], &mut link);
+        close(fd);
         close(parent);
-        return match errno_of(r) { Some(e) => Err(e), None => Ok(()) };
+        let link_len = match r {
+            Ok(v) if v < link.len() => v,
+            Ok(_) => return Err(ENAMETOOLONG),
+            Err(e) => return Err(e),
+        };
+        current_len = compose_symlink_target(&dir[..dir_len], &link[..link_len], &mut current)?;
+        depth += 1;
     }
+}
+
+pub unsafe fn resolve_fstat(rootfd: CInt, path: &[u8], st: *mut u8, flags: CInt) -> Result<(), CInt> {
+    let follow = flags & 0x100 == 0;
+    let fd = resolve_final(rootfd, path, follow)?;
+    let r = sc3(SYS_FSTAT, fd as usize, st as usize, 0);
+    close(fd);
+    match errno_of(r) { Some(e) => Err(e), None => Ok(()) }
 }
 
 /// Check access through an already-open descriptor. `access()` itself takes a

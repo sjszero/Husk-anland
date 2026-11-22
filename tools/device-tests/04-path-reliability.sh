@@ -33,6 +33,20 @@ ln -s ../../../../../../system/build.prop /tmp/husk-rel/escape-dots
 if cat /tmp/husk-rel/escape-abs >/dev/null 2>&1; then bad escape-abs contained; else ok escape-abs; fi
 if cat /tmp/husk-rel/escape-dots >/dev/null 2>&1; then bad escape-dots contained; else ok escape-dots; fi
 
+# Metadata calls must act on the final inode without letting a final-name lookup
+# race. These checks cover chmod, follow/no-follow utimensat, and stat/statx
+# symlink semantics through the interposed libc entry points.
+echo x > /tmp/husk-rel/target
+ln -s target /tmp/husk-rel/target-link
+chmod 0601 /tmp/husk-rel/target
+chk metadata-chmod "$(stat -c %a /tmp/husk-rel/target)" 601
+touch -h -d @1600000000 /tmp/husk-rel/target-link
+chk metadata-utime-nofollow "$(stat -c %Y /tmp/husk-rel/target-link)" 1600000000
+chk metadata-stat-nofollow "$(stat -c %F /tmp/husk-rel/target-link)" 'symbolic link'
+chk metadata-stat-follow "$(stat -L -c %F /tmp/husk-rel/target-link)" 'regular file'
+touch -d @1600000100 /tmp/husk-rel/target-link
+chk metadata-utime-follow "$(stat -c %Y /tmp/husk-rel/target)" 1600000100
+
 # Optional guest-side Rust probe: exercises faccessat() through the shim's GOT
 # interpose, including dangling symlinks and a relative dirfd.
 if [ -x /path-probe ]; then
@@ -42,6 +56,20 @@ if [ -x /path-probe ]; then
     if [ "$rc" -eq 0 ]; then ok faccessat-nofollow; else bad faccessat-nofollow "probe rc=$rc"; fi
 else
     echo "SKIP faccessat-nofollow -- /path-probe not installed"
+fi
+
+# A real dirfd pins a starting inode, not the guest namespace. Exercise
+# openat/fstatat/faccessat/mkdirat/readlinkat with ".." escapes and an absolute
+# symlink through libc's PLT. Run this while the parent process's cwd is inside
+# the guest root; the host must also check that the attempted host directory was
+# not created.
+if [ -x /dirfd-probe ]; then
+    out=$(/dirfd-probe 2>&1)
+    rc=$?
+    echo "$out"
+    if [ "$rc" -eq 0 ]; then ok relative-dirfd-contained; else bad relative-dirfd-contained "probe rc=$rc"; fi
+else
+    echo "SKIP relative-dirfd-contained -- /dirfd-probe not installed"
 fi
 
 rm -rf /tmp/husk-rel

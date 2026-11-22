@@ -18,6 +18,8 @@ cd "$(dirname "$0")"
 ROOT=$(cd ../.. && pwd)
 NDK=${NDK:?set NDK to your NDK toolchain bin dir, e.g. $ANDROID_HOME/ndk/<ver>/toolchains/llvm/prebuilt/<host>/bin}
 OUT=${OUT:-$ROOT/tools/probe-app/app/src/main/jniLibs/arm64-v8a}
+HOOK_CFLAGS=${HOOK_CFLAGS:-}
+SHIM_STRIP=${SHIM_STRIP:-symbols}
 # The base loader must come from the rootfs that will actually run: ld.so and
 # libc are a matched pair, and the *_dl_init/scan sites are version-checked.
 # ld-noble2404-ld.so is the untouched loader of the Ubuntu 24.04 rootfs used on
@@ -30,7 +32,7 @@ RUSTFLAGS="-C link-arg=-z -C link-arg=max-page-size=4096 \
 CARGO_PROFILE_RELEASE_OPT_LEVEL=z \
 CARGO_PROFILE_RELEASE_LTO=fat \
 CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
-CARGO_PROFILE_RELEASE_STRIP=symbols \
+CARGO_PROFILE_RELEASE_STRIP=$SHIM_STRIP \
   cargo build --release -p path-shim --target aarch64-unknown-linux-gnu \
   --manifest-path "$ROOT/runtime/Cargo.toml"
 
@@ -43,7 +45,7 @@ cd "$ROOT/tools/loader"
 scan() { "$TOOLS" scan-syscalls "$@"; }
 embed() { "$TOOLS" embed "$@"; }
 
-$NDK/clang -target aarch64-linux-gnu -c init-hook.S -o init-hook.o
+$NDK/clang -target aarch64-linux-gnu $HOOK_CFLAGS -c init-hook.S -o init-hook.o
 $NDK/llvm-objcopy -O binary init-hook.o init-hook.bin
 
 # Optional-accelerator `svc` sites are located by pattern, not by offset, and

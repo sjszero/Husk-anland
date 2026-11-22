@@ -35,7 +35,7 @@ files/nrfull/root/            # real rootfs: glibc 2.39, bash, coreutils, grep, 
 |---|---|---|
 | `01-functional-matrix.sh` | 31 checks: mkdir -p, mv/cp/rm, chmod, symlinks (relative/absolute/`..`), stat/ls/find, glob, pipes, subshell, `pwd -P`, `..` clamping, `/evil` containment | `./run-guest.sh 01-functional-matrix.sh` |
 | `03-containment.sh` | 11 escape attempts (symlinks out, `..` climbs, `/proc/self/root`), plus the mount points that pass through by design | `./run-guest.sh 03-containment.sh` |
-| `04-path-reliability.sh` | fd stability, overlength paths, final-symlink containment, and an optional Rust `faccessat(AT_SYMLINK_NOFOLLOW)` probe | run inside the guest with the current embedded loader |
+| `04-path-reliability.sh` | fd stability, overlength paths, final-symlink containment, optional Rust `faccessat` and relative-dirfd probes | run inside the guest with the current embedded loader |
 | `02-bench.sh` + `bench.c` | per-call cost of the path layer, compiled and timed in the guest | `EXTRA=bench.c WAIT=90 ./run-guest.sh 02-bench.sh` |
 | `accept-gcc-make.sh` | gcc -> cc1 -> as -> collect2 -> ld.bfd, then `make -j4` / no-op / clean | `WAIT=60 ./run-guest.sh accept-gcc-make.sh` |
 | `provision-toolchain.sh` | host-side: resolve, unpack and push the Ubuntu gcc/make toolchain (skips libc6 on purpose). Thin wrapper over `nr-tools provision` (Rust), the only implementation | `./provision-toolchain.sh` |
@@ -54,6 +54,22 @@ GLIBC_SYSROOT=/tmp/nr-toolchain/root ./build-path-probe.sh
 
 The source is `path-probe.rs`. It must run through the loader's GOT interpose;
 a direct syscall would bypass the code under test.
+
+The optional relative-dirfd branch needs a second guest-side Rust probe. It uses
+the runtime `libc.so.6` from the same guest, links dynamically so the loader's
+GOT interpose sees every call, and checks `openat`/`fstatat`/`faccessat`/
+`mkdirat` containment plus an absolute symlink:
+
+```sh
+adb exec-out run-as com.linuxhub.husk \
+  cat files/rootfs-full/usr/lib/aarch64-linux-gnu/libc.so.6 > /tmp/husk-glibc.so.6
+LIBC_SO=/tmp/husk-glibc.so.6 ./build-dirfd-probe.sh
+```
+
+Place the result at `/dirfd-probe` inside the guest. `fdops-kernel-probe.rs` is
+the separate static raw-syscall probe used to establish which `O_PATH` metadata
+operations this 4.19 kernel accepts; build it with
+`./build-fdops-kernel-probe.sh`.
 
 The scripts print `PASS`/`FAIL` per check and a final `#checks=`/`#escapes=` line, and
 exit non-zero if anything failed; `run-guest.sh` prints the tail of the app's output,

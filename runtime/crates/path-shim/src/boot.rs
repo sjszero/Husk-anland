@@ -25,6 +25,7 @@ const DT_SYMTAB: i64 = 6;
 const DT_RELA: i64 = 7;
 const DT_RELASZ: i64 = 8;
 const DT_JMPREL: i64 = 23;
+const DT_STRSZ: i64 = 10;
 const DT_GNU_HASH: i64 = 0x6ffffef5;
 
 const R_AARCH64_GLOB_DAT: u32 = 1025;
@@ -42,10 +43,63 @@ const L_NAME: usize = 8;
 const L_LD: usize = 16;
 const L_NEXT: usize = 24;
 
+const PT_LOAD: u32 = 1;
+const PF_X: u32 = 1;
+const MAX_LOAD_RANGES: usize = 16;
+
+#[derive(Clone, Copy)]
+struct MapRange {
+    start: u64,
+    end: u64,
+    flags: u32,
+}
+
+#[derive(Clone, Copy)]
+struct ObjMap {
+    ranges: [MapRange; MAX_LOAD_RANGES],
+    count: usize,
+}
+
+// Boot is single-threaded and every helper only fills/reads this scratch map.
+// Keeping it in BSS avoids compiler-generated stack memcpy/memset before the
+// shim's own imports are resolved.
+static mut MAP_SCRATCH: ObjMap = ObjMap {
+    ranges: [MapRange { start: 0, end: 0, flags: 0 }; MAX_LOAD_RANGES],
+    count: 0,
+};
+
+impl ObjMap {
+    fn contains(&self, addr: usize, len: usize) -> bool {
+        let start = addr as u64;
+        let Some(end) = start.checked_add(len as u64) else { return false };
+        let mut i = 0;
+        while i < self.count {
+            let r = self.ranges[i];
+            if start >= r.start && end <= r.end { return true; }
+            i += 1;
+        }
+        false
+    }
+
+    fn exec_contains(&self, addr: usize, len: usize) -> bool {
+        let start = addr as u64;
+        let Some(end) = start.checked_add(len as u64) else { return false };
+        let mut i = 0;
+        while i < self.count {
+            let r = self.ranges[i];
+            if r.flags & PF_X != 0 && start >= r.start && end <= r.end { return true; }
+            i += 1;
+        }
+        false
+    }
+}
+
 #[inline]
 unsafe fn rd8(p: usize) -> u64 { core::ptr::read_volatile(p as *const u64) }
 #[inline]
 unsafe fn rd4(p: usize) -> u32 { core::ptr::read_volatile(p as *const u32) }
+#[inline]
+unsafe fn rd2(p: usize) -> u16 { core::ptr::read_volatile(p as *const u16) }
 #[inline]
 unsafe fn rd1(p: usize) -> u8 { core::ptr::read_volatile(p as *const u8) }
 #[inline]
@@ -96,12 +150,104 @@ unsafe fn mem_eq(a: usize, b: usize, n: usize) -> bool {
     true
 }
 
-/// Look one value up in an object's PT_DYNAMIC.
-unsafe fn dyn_val(l_ld: usize, tag: i64) -> u64 {
-    if l_ld == 0 { return 0; }
+unsafe fn map_from_phdr(phdr: usize, phnum: usize, l_addr: u64, map: &mut ObjMap) -> bool {
+    map.count = 0;
+    if phdr == 0 || phnum == 0 || phnum > 64 { return false; }
+    let mut i = 0usize;
+    while i < phnum {
+        let off = match i.checked_mul(56) { Some(v) => v, None => return false };
+        let p = match phdr.checked_add(off) { Some(v) => v, None => return false };
+        if debug2_on() { say(&[b"nr-boot: phdr p="]); say_hex(p); say(&[b"\n"]); }
+        let typ = rd4(p);
+        let flags = rd4(p + 4);
+        let vaddr = rd8(p + 16);
+        let memsz = rd8(p + 40);
+        if debug2_on() {
+            say(&[b"nr-boot: phdr typ="]); say_hex(typ as usize);
+            say(&[b" vaddr="]); say_hex(vaddr as usize);
+            say(&[b" memsz="]); say_hex(memsz as usize); say(&[b"\n"]);
+        }
+        if typ == PT_LOAD && memsz != 0 {
+            if map.count >= MAX_LOAD_RANGES { return false; }
+            let start = match l_addr.checked_add(vaddr) { Some(v) => v, None => return false };
+            let end = match start.checked_add(memsz) { Some(v) => v, None => return false };
+            if end <= start { return false; }
+            map.ranges[map.count] = MapRange { start, end, flags };
+            map.count += 1;
+        }
+        i += 1;
+    }
+    map.count != 0
+}
+
+/// Build the load ranges for one link-map object. ET_DYN objects expose their
+/// ELF header at l_addr. The main ET_EXEC object has l_addr == 0, so its header
+/// may be unmapped; use the kernel-provided AT_PHDR/AT_PHNUM instead.
+unsafe fn object_map(l_addr: u64, l_ld: usize, map: &mut ObjMap) -> bool {
+    map.count = 0;
+    // On arm64 Android, every mapped ELF base is either 0 (ET_EXEC) or a real
+    // high userspace address. Small non-zero "addresses" are malformed link-map
+    // data; refuse to dereference them and fail closed instead of faulting.
+    const MIN_USER_MAPPING: u64 = 0x1_0000_0000;
+    if l_addr != 0 && l_addr < MIN_USER_MAPPING { return false; }
+    // ET_EXEC keeps link-time virtual addresses (for example its dynamic table
+    // at 0xa1fdb0) with l_addr == 0. Only a relocated ET_DYN object must have a
+    // high mapped l_ld; the PT_LOAD range check below validates ET_EXEC.
+    if l_addr != 0 && l_ld != 0 && (l_ld as u64) < MIN_USER_MAPPING { return false; }
+    if debug2_on() { say(&[b"nr-boot: objmap magic\n"]); }
+    if l_addr != 0 && rd4(l_addr as usize) == 0x464c_457f {
+        let base = l_addr as usize;
+        if debug2_on() { say(&[b"nr-boot: objmap header\n"]); }
+        if rd1(base + 4) != 2 || rd1(base + 5) != 1 { return false; }
+        let phoff = rd8(base + 32);
+        let phentsize = rd2(base + 54) as usize;
+        let phnum = rd2(base + 56) as usize;
+        if debug2_on() {
+            say(&[b"nr-boot: objmap phoff="]); say_hex(phoff as usize);
+            say(&[b" entsize="]); say_hex(phentsize);
+            say(&[b" phnum="]); say_hex(phnum); say(&[b"\n"]);
+        }
+        if phentsize != 56 || phnum == 0 || phnum > 64 { return false; }
+        let phoff = match usize::try_from(phoff) { Ok(v) => v, Err(_) => return false };
+        let phdr = match base.checked_add(phoff) { Some(v) => v, None => return false };
+        if debug2_on() { say(&[b"nr-boot: objmap computed phdr="]); say_hex(phdr); say(&[b"\n"]); }
+        let ok = map_from_phdr(phdr, phnum, l_addr, map);
+        if debug2_on() {
+            say(&[b"nr-boot: objmap parsed="]);
+            say_hex(if ok { 1 } else { 0 });
+            say(&[b"\n"]);
+        }
+        return ok;
+    }
+    let main_phdr = MAIN_PHDR;
+    let main_phnum = MAIN_PHNUM;
+    if l_addr == 0 && main_phdr != 0 && main_phnum != 0 {
+        if map_from_phdr(main_phdr, main_phnum, 0, map) && map.contains(l_ld, 16) {
+            return true;
+        }
+    }
+    false
+}
+
+unsafe fn norm_dyn(v: u64, l_addr: u64, map: &ObjMap) -> usize {
+    let p = v as usize;
+    if p != 0 && map.contains(p, 1) { return p; }
+    if l_addr != 0 {
+        let q = p.wrapping_add(l_addr as usize);
+        if map.contains(q, 1) { return q; }
+    }
+    0
+}
+
+/// Look one value up in an object's PT_DYNAMIC. Every read is checked against
+/// the object's PT_LOAD ranges; a malformed dynamic table cannot walk into an
+/// unrelated mapping.
+unsafe fn dyn_val(l_ld: usize, tag: i64, map: &ObjMap) -> u64 {
+    if l_ld == 0 || !map.contains(l_ld, 16) { return 0; }
     let mut p = l_ld;
     let mut guard = 0;
     while guard < 1024 {
+        if !map.contains(p, 16) { return 0; }
         let t = rd8(p) as i64;
         if t == DT_NULL { return 0; }
         if t == tag { return rd8(p + 8); }
@@ -125,10 +271,30 @@ fn gnu_hash(name: usize, len: usize) -> u32 {
 
 /// Resolve `name` in one object. Returns an absolute address or 0.
 unsafe fn find_sym(l_addr: u64, l_ld: usize, name: usize, len: usize) -> u64 {
-    let strtab = dyn_val(l_ld, DT_STRTAB) as usize;
-    let symtab = dyn_val(l_ld, DT_SYMTAB) as usize;
-    let hash = dyn_val(l_ld, DT_GNU_HASH) as usize;
-    if strtab == 0 || symtab == 0 || hash == 0 || len == 0 || len > 255 { return 0; }
+    let map_ptr = core::ptr::addr_of_mut!(MAP_SCRATCH);
+    if !object_map(l_addr, l_ld, &mut *map_ptr) { return 0; }
+    let map = &*map_ptr;
+    if debug2_on() {
+        say(&[b"nr-boot: map ranges="]); say_hex(map.count);
+        say(&[b" first="]); say_hex(map.ranges[0].start as usize);
+        say(&[b" last="]); say_hex(map.ranges[map.count - 1].end as usize); say(&[b"\n"]);
+    }
+    if len == 0 || len > 255 { return 0; }
+
+    let strtab = norm_dyn(dyn_val(l_ld, DT_STRTAB, &map), l_addr, &map);
+    let symtab = norm_dyn(dyn_val(l_ld, DT_SYMTAB, &map), l_addr, &map);
+    let hash = norm_dyn(dyn_val(l_ld, DT_GNU_HASH, &map), l_addr, &map);
+    let strsz = dyn_val(l_ld, DT_STRSZ, &map) as usize;
+    if debug2_on() {
+        say(&[b"nr-boot: tables str="]); say_hex(strtab);
+        say(&[b" sym="]); say_hex(symtab);
+        say(&[b" hash="]); say_hex(hash);
+        say(&[b" strsz="]); say_hex(strsz); say(&[b"\n"]);
+    }
+    if strtab == 0 || symtab == 0 || hash == 0 || strsz == 0 ||
+       !map.contains(strtab, strsz) || !map.contains(hash, 16) {
+        return 0;
+    }
 
     let nbuckets = rd4(hash) as usize;
     let symndx = rd4(hash + 4) as usize;
@@ -136,26 +302,55 @@ unsafe fn find_sym(l_addr: u64, l_ld: usize, name: usize, len: usize) -> u64 {
     if nbuckets == 0 || nbuckets > (1 << 20) || maskwords > (1 << 20) || symndx > (1 << 24) {
         return 0;
     }
-    let buckets = hash + 16 + maskwords * 8;
-    let chain = buckets + nbuckets * 4;
+    let bloom_size = match maskwords.checked_mul(8) { Some(v) => v, None => return 0 };
+    let bucket_size = match nbuckets.checked_mul(4) { Some(v) => v, None => return 0 };
+    let buckets = match hash.checked_add(16).and_then(|v| v.checked_add(bloom_size)) {
+        Some(v) => v,
+        None => return 0,
+    };
+    let chain = match buckets.checked_add(bucket_size) { Some(v) => v, None => return 0 };
+    if debug2_on() {
+        say(&[b"nr-boot: hash buckets="]); say_hex(buckets);
+        say(&[b" chain="]); say_hex(chain); say(&[b"\n"]);
+    }
+    if !map.contains(buckets, bucket_size) || !map.contains(chain, 4) { return 0; }
 
     let h = gnu_hash(name, len);
-    let mut idx = rd4(buckets + (h as usize % nbuckets) * 4) as usize;
+    let bucket = match (h as usize % nbuckets).checked_mul(4) { Some(v) => v, None => return 0 };
+    let mut idx = rd4(buckets + bucket) as usize;
+    if debug2_on() {
+        say(&[b"nr-boot: gnu h="]); say_hex(h as usize);
+        say(&[b" bucket="]); say_hex((h as usize % nbuckets) * 4);
+        say(&[b" idx="]); say_hex(idx); say(&[b"\n"]);
+    }
     if idx < symndx { return 0; }
     let mut guard = 0usize;
     loop {
         if guard >= (1 << 20) { return 0; }
-        let c = rd4(chain + (idx - symndx) * 4);
+        let chain_off = match (idx - symndx).checked_mul(4) { Some(v) => v, None => return 0 };
+        let cp = match chain.checked_add(chain_off) { Some(v) => v, None => return 0 };
+        if debug2_on() { say(&[b"nr-boot: chain cp="]); say_hex(cp); say(&[b" idx="]); say_hex(idx); say(&[b"\n"]); }
+        if !map.contains(cp, 4) { return 0; }
+        let c = rd4(cp);
+        if debug2_on() { say(&[b"nr-boot: chain c="]); say_hex(c as usize); say(&[b"\n"]); }
         if (c | 1) == (h | 1) {
-            let st_name = rd4(symtab + idx * 24) as usize;
+            let sym_off = match idx.checked_mul(24) { Some(v) => v, None => return 0 };
+            let sp = match symtab.checked_add(sym_off) { Some(v) => v, None => return 0 };
+            if debug2_on() { say(&[b"nr-boot: sym sp="]); say_hex(sp); say(&[b"\n"]); }
+            if !map.contains(sp, 24) { return 0; }
+            let st_name = rd4(sp) as usize;
+            if st_name >= strsz || len >= strsz - st_name { return 0; }
             let nm = strtab + st_name;
+            if !map.contains(nm, len + 1) { return 0; }
             if rd1(nm + len) == 0 && mem_eq(nm, name, len) {
-                let st_value = rd8(symtab + idx * 24 + 8);
-                let st_info = rd1(symtab + idx * 24 + 4);
-                let addr = l_addr + st_value;
+                let st_value = rd8(sp + 8);
+                let st_info = rd1(sp + 4);
+                let addr = match l_addr.checked_add(st_value) { Some(v) => v, None => return 0 };
+                if !map.contains(addr as usize, 1) { return 0; }
                 // An IFUNC resolves to a resolver function; call it, exactly like
                 // the loader does, otherwise callers get the resolver's address.
                 if (st_info & 0xf) == STT_GNU_IFUNC {
+                    if !map.exec_contains(addr as usize, 4) { return 0; }
                     let f: extern "C" fn() -> usize = core::mem::transmute(addr as usize);
                     return f() as u64;
                 }
@@ -163,7 +358,7 @@ unsafe fn find_sym(l_addr: u64, l_ld: usize, name: usize, len: usize) -> u64 {
             }
         }
         if c & 1 != 0 { return 0; }
-        idx += 1;
+        idx = match idx.checked_add(1) { Some(v) => v, None => return 0 };
         guard += 1;
     }
 }
@@ -173,7 +368,15 @@ unsafe fn resolve(main_map: usize, name: usize, len: usize) -> u64 {
     let mut l = main_map;
     let mut guard = 0;
     while l != 0 && guard < 64 {
-        let a = find_sym(rd8(l + L_ADDR), rd8(l + L_LD) as usize, name, len);
+        let l_addr = rd8(l + L_ADDR);
+        let l_ld = rd8(l + L_LD) as usize;
+        if debug2_on() {
+            say(&[b"nr-boot: lookup obj="]); say_hex(guard);
+            say(&[b" l_addr="]); say_hex(l_addr as usize);
+            say(&[b" l_ld="]); say_hex(l_ld); say(&[b"\n"]);
+        }
+        let a = find_sym(l_addr, l_ld, name, len);
+        if debug2_on() { say(&[b"nr-boot: lookup -> "]); say_hex(a as usize); say(&[b"\n"]); }
         if a != 0 { return a; }
         l = rd8(l + L_NEXT) as usize;
         guard += 1;
@@ -252,6 +455,8 @@ pub unsafe fn envp() -> usize { ENVP }
 static mut EXECFN: usize = 0;
 static mut LOADER_BASE: usize = 0;
 static mut LIBC_BASE: u64 = 0;
+static mut MAIN_PHDR: usize = 0;
+static mut MAIN_PHNUM: usize = 0;
 
 pub unsafe fn loader_base() -> usize { LOADER_BASE }
 pub unsafe fn libc_base() -> u64 { LIBC_BASE }
@@ -327,7 +532,13 @@ pub unsafe extern "C" fn nr_boot(base: usize, main_map: usize, ext: usize, inter
     if AT_RANDOM_WORDS == 0 { AT_RANDOM_WORDS = read_at_random(envp); }
     if EXECFN == 0 { EXECFN = auxv_val(envp, 31) as usize; } // AT_EXECFN
     if KERNEL_PAGE == 0 { KERNEL_PAGE = auxv_val(envp, 6) as usize; } // AT_PAGESZ
+    if MAIN_PHDR == 0 {
+        MAIN_PHDR = auxv_val(envp, 3) as usize; // AT_PHDR
+        MAIN_PHNUM = auxv_val(envp, 5) as usize; // AT_PHNUM
+    }
     if debug2_on() {
+        say(&[b"nr-boot: base="]); say_hex(base);
+        say(&[b" main_map="]); say_hex(main_map); say(&[b"\n"]);
         say(&[b"nr-boot: exec="]);
         if EXECFN != 0 { say(&[core::slice::from_raw_parts(EXECFN as *const u8, strlen(EXECFN))]); }
         say(&[b"\n"]);
@@ -342,6 +553,11 @@ pub unsafe extern "C" fn nr_boot(base: usize, main_map: usize, ext: usize, inter
     let mut i = 0;
     while i < n {
         let (name, len) = Tables::name(ext, i);
+        if debug2_on() {
+            say(&[b"nr-boot: extern "]);
+            say(&[core::slice::from_raw_parts((base + name) as *const u8, len)]);
+            say(&[b"\n"]);
+        }
         // A symbol this object also exports (a PLT call to one of our own
         // functions) binds to the object itself, exactly as it would if this
         // were a preloaded DSO: the first definition in scope wins.
@@ -689,22 +905,29 @@ unsafe fn patch_object(l_addr: u64, l_ld: usize, base: usize, interp: usize, cou
     let mut done = 0;
     let mut failed = 0;
     if l_ld == 0 { return (0, 0); }
-    let strtab = dyn_val(l_ld, DT_STRTAB) as usize;
-    let symtab = dyn_val(l_ld, DT_SYMTAB) as usize;
+    let map_ptr = core::ptr::addr_of_mut!(MAP_SCRATCH);
+    if !object_map(l_addr, l_ld, &mut *map_ptr) { return (0, 1); }
+    let map = &*map_ptr;
+    if !map.contains(l_ld, 16) { return (0, 1); }
+    let strtab = norm_dyn(dyn_val(l_ld, DT_STRTAB, &map), l_addr, &map);
+    let symtab = norm_dyn(dyn_val(l_ld, DT_SYMTAB, &map), l_addr, &map);
+    let strsz = dyn_val(l_ld, DT_STRSZ, &map) as usize;
     // A dynamic object without these tables has nothing for us to patch. A
     // table with one missing is an ELF shape we do not understand and must not
     // silently accept.
-    if strtab == 0 || symtab == 0 { return (0, 1); }
+    if strtab == 0 || symtab == 0 || strsz == 0 || !map.contains(strtab, strsz) {
+        return (0, 1);
+    }
 
     let tables = [(DT_RELA, DT_RELASZ), (DT_JMPREL, DT_PLTRELSZ)];
     let mut t = 0;
     while t < 2 {
-        let mut addr = dyn_val(l_ld, tables[t].0) as usize;
-        let size = dyn_val(l_ld, tables[t].1) as usize;
+        let addr = norm_dyn(dyn_val(l_ld, tables[t].0, &map), l_addr, &map);
+        let size = dyn_val(l_ld, tables[t].1, &map) as usize;
         // glibc pre-adjusts DT_JMPREL/DT_STRTAB/DT_SYMTAB with l_addr but resolves
         // DT_RELA through D_PTR() at the use site, so DT_RELA stays relative.
-        // A relative table address is always below its own load bias.
-        if addr != 0 && (addr as u64) < l_addr { addr += l_addr as usize; }
+        // norm_dyn() accepts either the absolute or l_addr-relative form only
+        // when the resulting pointer lands inside this object's PT_LOAD map.
         t += 1;
         if debug2_on() {
             say(&[b"  table "]); say_hex((t - 1) as usize); say(&[b" addr="]); say_hex(addr);
@@ -715,8 +938,14 @@ unsafe fn patch_object(l_addr: u64, l_ld: usize, base: usize, interp: usize, cou
             failed += 1;
             continue;
         }
+        if !map.contains(addr, size) {
+            failed += 1;
+            continue;
+        }
+        let end = match addr.checked_add(size) { Some(v) => v, None => { failed += 1; continue; } };
         let mut p = addr;
-        while p < addr + size {
+        while p < end {
+            if !map.contains(p, 24) { failed += 1; break; }
             let r_offset = rd8(p);
             let r_info = rd8(p + 8);
             let sym = (r_info >> 32) as usize;
@@ -724,18 +953,27 @@ unsafe fn patch_object(l_addr: u64, l_ld: usize, base: usize, interp: usize, cou
             p += 24;
             if sym == 0 { continue; }
             if kind != R_AARCH64_JUMP_SLOT && kind != R_AARCH64_GLOB_DAT { continue; }
-            let st_name = rd4(symtab + sym * 24) as usize;
+            let sym_off = match sym.checked_mul(24) { Some(v) => v, None => { failed += 1; continue; } };
+            let sp = match symtab.checked_add(sym_off) { Some(v) => v, None => { failed += 1; continue; } };
+            if !map.contains(sp, 24) { failed += 1; continue; }
+            let st_name = rd4(sp) as usize;
             if st_name == 0 { continue; }
+            if st_name >= strsz {
+                failed += 1;
+                continue;
+            }
             let cand_name = strtab + st_name;
             let mut i = 0;
             while i < count {
                 let (name, len) = Tables::name(interp, i);
                 let nm = base + name;
-                if mem_eq(nm, cand_name, len) && rd1(cand_name + len) == 0 {
+                if len < strsz - st_name && map.contains(cand_name, len + 1) &&
+                   mem_eq(nm, cand_name, len) && rd1(cand_name + len) == 0 {
                     if debug2_on() {
                         say(&[b"  hit ", core::slice::from_raw_parts(cand_name as *const u8, len), b"\n"]);
                     }
-                    let slot = (l_addr + r_offset) as usize;
+                    let slot = match l_addr.checked_add(r_offset) { Some(v) => v as usize, None => { failed += 1; break; } };
+                    if !map.contains(slot, 8) { failed += 1; break; }
                     let target = (base + Tables::slot(interp, i)) as u64;
                     if rd8(slot) != target {
                         if make_writable(slot, 8) {
