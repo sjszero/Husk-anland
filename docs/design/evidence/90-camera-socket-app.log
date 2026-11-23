@@ -1,0 +1,15 @@
+11-23 14:48:00.381 25295 26273 I Husk    : camera|looper|0xb400007aa542a800
+11-23 14:48:00.381 25295 26273 I Husk    : camera|manager|pointer-return-abi
+11-23 14:48:00.381 25295 26273 I Husk    : camera|manager|0xb400007aa5426170|raw=0xb400007aa5426170
+11-23 14:48:00.409 25295 26273 I Husk    : camera|list|id=0|facing=BACK|orientation=90|yuv=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720|n=16
+11-23 14:48:00.410 25295 26273 I Husk    : camera|list|id=1|facing=FRONT|orientation=270|yuv=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720|n=16
+11-23 14:48:00.411 25295 26273 I Husk    : camera|list|count=2
+11-23 14:48:00.411 25295 26273 I Husk    : camera|LISTEN|/data/user/0/com.linuxhub.husk/files/rootfs-full/run/husk/camera.sock
+11-23 14:48:00.479 25295 26276 I Husk    : caps|camera|present=yes|husk=absent|backend=-|detail=ids=0,1 / husk: no camera path exists yet
+11-23 14:48:08.429 25295 26277 I Husk    : caps|camera|present=yes|husk=absent|backend=-|detail=ids=0,1 / husk: no camera path exists yet
+11-23 14:48:11.219 25295 26273 I Husk    : camera|session|open|id=1|1280x720|repeat_rc=0
+11-23 14:48:11.625 25295 26273 I Husk    : camera|session|closed
+11-23 14:48:11.625 25295 26273 I Husk    : camera|client|done
+11-23 14:48:17.233 25295 26273 I Husk    : camera|session|open|id=1|1280x720|repeat_rc=0
+11-23 14:48:18.258 25295 26273 I Husk    : camera|session|closed
+11-23 14:48:18.258 25295 26273 I Husk    : camera|client|done

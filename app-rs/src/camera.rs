@@ -582,6 +582,168 @@ struct Selftest {
     camera: Option<String>,
 }
 
+/// One open camera pipeline: device, capture session, ImageReader and the
+/// repeating request. `next_frame` is the only frame source both the self-test
+/// and the socket server use, so there is exactly one conversion path.
+struct CameraSession {
+    device: *mut ACameraDevice,
+    session: *mut ACameraCaptureSession,
+    reader: *mut AImageReader,
+    window: *mut ANativeWindow,
+    request: *mut ACaptureRequest,
+    target: *mut ACameraOutputTarget,
+    output: *mut ACaptureSessionOutput,
+    container: *mut ACaptureSessionOutputContainer,
+    looper: *mut ALooper,
+    width: i32,
+    height: i32,
+    seq: u64,
+}
+
+impl CameraSession {
+    unsafe fn open(
+        api: &CameraApi,
+        manager: *mut ACameraManager,
+        camera_id: &str,
+        width: i32,
+        height: i32,
+    ) -> Result<Self, String> {
+        let looper = (api.looper_prepare)(ALOOPER_PREPARE_ALLOW_NON_CALLBACKS);
+        let mut reader: *mut AImageReader = core::ptr::null_mut();
+        let rc = (api.reader_new)(width, height, AIMAGE_FORMAT_YUV_420_888, 3, &mut reader);
+        if rc != AMEDIA_OK || reader.is_null() {
+            return Err(format!("AImageReader_new({width}x{height}) rc={rc}"));
+        }
+        let mut window: *mut ANativeWindow = core::ptr::null_mut();
+        if (api.reader_get_window)(reader, &mut window) != AMEDIA_OK || window.is_null() {
+            (api.reader_delete)(reader);
+            return Err("AImageReader_getWindow".into());
+        }
+        let mut callbacks = DeviceCallbacks {
+            context: core::ptr::null_mut(),
+            on_disconnected: Some(on_device_disconnected),
+            on_error: Some(on_device_error),
+            _reserved: core::ptr::null_mut(),
+        };
+        let cid = CString::new(camera_id).map_err(|e| format!("camera id: {e}"))?;
+        let mut device: *mut ACameraDevice = core::ptr::null_mut();
+        let open_rc = (api.open_camera)(manager, cid.as_ptr(), &mut callbacks, &mut device);
+        if open_rc != ACAMERA_OK || device.is_null() {
+            (api.reader_delete)(reader);
+            return Err(format!("openCamera({camera_id}) rc={open_rc}"));
+        }
+        let mut container: *mut ACaptureSessionOutputContainer = core::ptr::null_mut();
+        let mut output: *mut ACaptureSessionOutput = core::ptr::null_mut();
+        (api.container_create)(&mut container);
+        (api.session_output_create)(window, &mut output);
+        (api.container_add)(container, output);
+        let mut session_cbs = SessionCallbacks {
+            context: core::ptr::null_mut(),
+            on_closed: Some(on_session_closed),
+            on_ready: Some(on_session_ready),
+            on_active: Some(on_session_active),
+        };
+        let mut session: *mut ACameraCaptureSession = core::ptr::null_mut();
+        let session_rc = (api.session_create)(device, container, &mut session_cbs, &mut session);
+        if session_rc != ACAMERA_OK || session.is_null() {
+            (api.session_output_free)(output);
+            (api.container_free)(container);
+            (api.device_close)(device);
+            (api.reader_delete)(reader);
+            return Err(format!("createCaptureSession rc={session_rc}"));
+        }
+        let mut request: *mut ACaptureRequest = core::ptr::null_mut();
+        (api.device_create_request)(device, ACAMERA_TEMPLATE_RECORD, &mut request);
+        let mut target: *mut ACameraOutputTarget = core::ptr::null_mut();
+        (api.output_target_create)(window, &mut target);
+        (api.request_add_target)(request, target);
+        if let Some(set_u8) = api.request_set_u8 {
+            let auto = [CONTROL_MODE_AUTO];
+            set_u8(request, TAG_CONTROL_MODE, 1, auto.as_ptr());
+            let ae = [CONTROL_AE_MODE_ON];
+            set_u8(request, TAG_CONTROL_AE_MODE, 1, ae.as_ptr());
+        }
+        let mut requests = [request];
+        let repeat_rc = (api.session_set_repeating)(
+            session,
+            core::ptr::null_mut(),
+            1,
+            requests.as_mut_ptr(),
+            core::ptr::null_mut(),
+        );
+        crate::log(&format!(
+            "camera|session|open|id={camera_id}|{width}x{height}|repeat_rc={repeat_rc}"
+        ));
+        Ok(Self {
+            device,
+            session,
+            reader,
+            window,
+            request,
+            target,
+            output,
+            container,
+            looper,
+            width,
+            height,
+            seq: 0,
+        })
+    }
+
+    /// Pump the looper once and try to take a frame. `Ok(None)` means "nothing
+    /// yet"; the caller decides how long to keep trying.
+    unsafe fn try_frame(
+        &mut self,
+        api: &CameraApi,
+        frame: &mut Vec<u8>,
+    ) -> Result<Option<(i32, i32, i64)>, String> {
+        if !self.looper.is_null() {
+            (api.looper_poll_once)(8, core::ptr::null_mut(), core::ptr::null_mut(), core::ptr::null_mut());
+        }
+        let mut image: *mut AImage = core::ptr::null_mut();
+        let rc = (api.reader_acquire_next)(self.reader, &mut image);
+        if rc != AMEDIA_OK || image.is_null() {
+            return Ok(None);
+        }
+        let mut ts = 0i64;
+        (api.image_get_timestamp)(image, &mut ts);
+        let result = to_nv12(api, image, frame);
+        (api.image_delete)(image);
+        let (width, height) = result?;
+        self.seq += 1;
+        Ok(Some((width, height, ts)))
+    }
+
+    unsafe fn next_frame(
+        &mut self,
+        api: &CameraApi,
+        frame: &mut Vec<u8>,
+        timeout: Duration,
+    ) -> Result<Option<(i32, i32, i64)>, String> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if let Some(got) = self.try_frame(api, frame)? {
+                return Ok(Some(got));
+            }
+            if Instant::now() > deadline {
+                return Ok(None);
+            }
+        }
+    }
+
+    unsafe fn close(self, api: &CameraApi) {
+        (api.session_stop_repeating)(self.session);
+        (api.session_close)(self.session);
+        (api.request_free)(self.request);
+        (api.output_target_free)(self.target);
+        (api.session_output_free)(self.output);
+        (api.container_free)(self.container);
+        (api.device_close)(self.device);
+        (api.reader_delete)(self.reader);
+        crate::log("camera|session|closed");
+    }
+}
+
 unsafe fn run_selftest(
     api: &CameraApi,
     manager: *mut ACameraManager,
@@ -604,164 +766,39 @@ unsafe fn run_selftest(
         .copied()
         .find(|(w, h)| *w <= 1280 && *h <= 720)
         .unwrap_or((640, 480));
-
-    let mut reader: *mut AImageReader = core::ptr::null_mut();
-    let rc = (api.reader_new)(
-        want_w,
-        want_h,
-        AIMAGE_FORMAT_YUV_420_888,
-        3,
-        &mut reader,
-    );
-    if rc != AMEDIA_OK || reader.is_null() {
-        crate::log(&format!("camera|selftest|FAIL|AImageReader_new rc={rc}"));
-        return;
-    }
-    let mut window: *mut ANativeWindow = core::ptr::null_mut();
-    if (api.reader_get_window)(reader, &mut window) != AMEDIA_OK || window.is_null() {
-        crate::log("camera|selftest|FAIL|AImageReader_getWindow");
-        (api.reader_delete)(reader);
-        return;
-    }
-
-    let mut callbacks = DeviceCallbacks {
-        context: core::ptr::null_mut(),
-        on_disconnected: Some(on_device_disconnected),
-        on_error: Some(on_device_error),
-        _reserved: core::ptr::null_mut(),
-    };
-    let cid = match CString::new(cam.id.clone()) {
-        Ok(c) => c,
-        Err(_) => {
-            (api.reader_delete)(reader);
+    let mut session = match CameraSession::open(api, manager, &cam.id, want_w, want_h) {
+        Ok(session) => session,
+        Err(e) => {
+            crate::log(&format!("camera|selftest|FAIL|{e}"));
             return;
         }
     };
-    let mut device: *mut ACameraDevice = core::ptr::null_mut();
-    let open_rc = (api.open_camera)(manager, cid.as_ptr(), &mut callbacks, &mut device);
-    if open_rc != ACAMERA_OK || device.is_null() {
-        crate::log(&format!("camera|selftest|FAIL|open_camera id={} rc={open_rc}", cam.id));
-        (api.reader_delete)(reader);
-        return;
-    }
-    crate::log(&format!(
-        "camera|selftest|opened|id={}|request={}x{}",
-        cam.id, want_w, want_h
-    ));
-
-    // This thread already prepared a looper in `run()`; asking again returns
-    // the same one and makes the dependency explicit.
-    let looper = (api.looper_prepare)(ALOOPER_PREPARE_ALLOW_NON_CALLBACKS);
-    crate::log(&format!("camera|step|looper|{looper:p}"));
-    let mut container: *mut ACaptureSessionOutputContainer = core::ptr::null_mut();
-    let mut output: *mut ACaptureSessionOutput = core::ptr::null_mut();
-    crate::log("camera|step|container_create");
-    (api.container_create)(&mut container);
-    crate::log("camera|step|session_output_create");
-    (api.session_output_create)(window, &mut output);
-    crate::log("camera|step|container_add");
-    (api.container_add)(container, output);
-
-    let mut session_cbs = SessionCallbacks {
-        context: core::ptr::null_mut(),
-        on_closed: Some(on_session_closed),
-        on_ready: Some(on_session_ready),
-        on_active: Some(on_session_active),
-    };
-    let mut session: *mut ACameraCaptureSession = core::ptr::null_mut();
-    crate::log("camera|step|device_create_capture_session");
-    let session_rc = (api.session_create)(device, container, &mut session_cbs, &mut session);
-    crate::log(&format!(
-        "camera|step|session_created|rc={session_rc}|session={session:p}"
-    ));
-    if session_rc != ACAMERA_OK || session.is_null() {
-        (api.device_close)(device);
-        (api.reader_delete)(reader);
-        return;
-    }
-
-    // Everything below runs as one event loop: the same thread owns the looper
-    // and the frame pump, so no API call ever waits on a callback that only this
-    // thread could dispatch.
     let mut frame = Vec::new();
     let mut first_ts: i64 = 0;
     let mut last_ts: i64 = 0;
-    let mut repeating_sent = false;
-    let mut request: *mut ACaptureRequest = core::ptr::null_mut();
-    let mut target: *mut ACameraOutputTarget = core::ptr::null_mut();
     let started = Instant::now();
     while selftest.saved < selftest.want && started.elapsed() < Duration::from_secs(12) {
-        if !looper.is_null() {
-            (api.looper_poll_once)(
-                16,
-                core::ptr::null_mut(),
-                core::ptr::null_mut(),
-                core::ptr::null_mut(),
-            );
-        }
-        if !repeating_sent {
-            // The NDK reports session readiness through `ACameraCaptureSession`
-            // state callbacks. On this ROM that callback never reached our
-            // looper, so do not depend on it: try the repeating request and let
-            // its return code decide, retrying briefly.
-            if request.is_null() {
-                (api.device_create_request)(device, ACAMERA_TEMPLATE_RECORD, &mut request);
-                (api.output_target_create)(window, &mut target);
-                (api.request_add_target)(request, target);
-                if let Some(set_u8) = api.request_set_u8 {
-                    let auto = [CONTROL_MODE_AUTO];
-                    set_u8(request, TAG_CONTROL_MODE, 1, auto.as_ptr());
-                    let ae = [CONTROL_AE_MODE_ON];
-                    set_u8(request, TAG_CONTROL_AE_MODE, 1, ae.as_ptr());
-                }
-            }
-            let mut requests = [request];
-            let repeat_rc = (api.session_set_repeating)(
-                session,
-                core::ptr::null_mut(),
-                1,
-                requests.as_mut_ptr(),
-                core::ptr::null_mut(),
-            );
-            crate::log(&format!(
-                "camera|selftest|repeating|rc={repeat_rc}|ready_flag={}",
-                SESSION_READY.load(Ordering::SeqCst)
-            ));
-            if repeat_rc == ACAMERA_OK {
-                repeating_sent = true;
-            } else {
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            continue;
-        }
-        let mut image: *mut AImage = core::ptr::null_mut();
-        let rc = (api.reader_acquire_next)(reader, &mut image);
-        if rc != AMEDIA_OK || image.is_null() {
-            std::thread::sleep(Duration::from_millis(5));
-            continue;
-        }
-        let mut ts = 0i64;
-        (api.image_get_timestamp)(image, &mut ts);
-        match to_nv12(api, image, &mut frame) {
-            Ok((w, h)) => {
+        match session.next_frame(api, &mut frame, Duration::from_millis(500)) {
+            Ok(Some((w, h, ts))) => {
                 let (min, max, mean) = stats(&frame);
                 if first_ts == 0 {
                     first_ts = ts;
                 }
                 last_ts = ts;
-                let path = selftest
-                    .dir
-                    .join(format!("frame-{:02}.nv12", selftest.saved));
+                let path = selftest.dir.join(format!("frame-{:02}.nv12", selftest.saved));
                 let wrote = std::fs::write(&path, &frame).is_ok();
                 crate::log(&format!(
-                    "camera|selftest|frame={}|{}x{}|bytes={}|min={min}|max={max}|mean={mean:.2}|saved={wrote}",
+                    "camera|selftest|frame={}|{}x{}|bytes={}|min={min}|max={max}|mean={mean:.2}|ts={ts}|saved={wrote}",
                     selftest.saved, w, h, frame.len()
                 ));
                 selftest.saved += 1;
             }
-            Err(e) => crate::log(&format!("camera|selftest|convert_fail|{e}")),
+            Ok(None) => crate::log("camera|selftest|no_frame"),
+            Err(e) => {
+                crate::log(&format!("camera|selftest|convert_fail|{e}"));
+                break;
+            }
         }
-        (api.image_delete)(image);
     }
     let elapsed_us = (last_ts - first_ts).max(1) as f64;
     let fps = if selftest.saved > 1 {
@@ -774,15 +811,153 @@ unsafe fn run_selftest(
         selftest.saved,
         started.elapsed().as_millis()
     ));
+    session.close(api);
+}
 
-    (api.session_stop_repeating)(session);
-    (api.session_close)(session);
-    (api.request_free)(request);
-    (api.output_target_free)(target);
-    (api.session_output_free)(output);
-    (api.container_free)(container);
-    (api.device_close)(device);
-    (api.reader_delete)(reader);
+// ---------------------------------------------------------------------------
+// Guest-facing socket. Protocol (one client at a time):
+//
+//   OPEN w=1280 h=720 [id=1]   -> OK w=W h=H fourcc=NV12 bytes=B
+//   FRAME                      -> FRAME seq=N ts=US bytes=B  + B raw NV12 bytes
+//                              -> NOFRAME (if nothing within 1 s)
+//   STOP                       -> BYE
+// ---------------------------------------------------------------------------
+
+const CAMERA_SOCKET: &str = "rootfs-full/run/husk/camera.sock";
+const CAMERA_MARKER: &str = "camera";
+const CAMERA_GUEST_MARKER: &str = "rootfs-full/tmp/husk-camera/enabled";
+
+fn read_command(stream: &mut std::os::unix::net::UnixStream) -> Result<String, String> {
+    use std::io::Read;
+    let mut out = Vec::with_capacity(64);
+    let mut one = [0u8; 1];
+    loop {
+        stream.read_exact(&mut one).map_err(|e| format!("read: {e}"))?;
+        match one[0] {
+            b'\n' => return Ok(String::from_utf8_lossy(&out).into_owned()),
+            b'\r' => {}
+            _ => {
+                if out.len() > 512 {
+                    return Err("command too long".into());
+                }
+                out.push(one[0]);
+            }
+        }
+    }
+}
+
+fn field_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    line.split_whitespace()
+        .filter_map(|f| f.split_once('='))
+        .find_map(|(k, v)| (k == key).then_some(v))
+}
+
+unsafe fn handle_client(
+    api: &CameraApi,
+    manager: *mut ACameraManager,
+    cams: &[CameraInfo],
+    mut stream: std::os::unix::net::UnixStream,
+) {
+    use std::io::Write;
+    let mut session: Option<CameraSession> = None;
+    let mut frame = Vec::new();
+    loop {
+        let line = match read_command(&mut stream) {
+            Ok(line) => line,
+            Err(e) => {
+                crate::log(&format!("camera|client|{e}"));
+                break;
+            }
+        };
+        let verb = line.split_whitespace().next().unwrap_or("");
+        match verb {
+            "OPEN" => {
+                if session.is_some() {
+                    let _ = stream.write_all(b"ERR busy\n");
+                    continue;
+                }
+                let want_w: i32 = field_value(&line, "w")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(1280);
+                let want_h: i32 = field_value(&line, "h")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(720);
+                let id = field_value(&line, "id").map(|v| v.to_string());
+                let picked = id
+                    .as_deref()
+                    .and_then(|id| cams.iter().find(|c| c.id == id))
+                    .or_else(|| cams.iter().find(|c| c.facing == LENS_FACING_BACK))
+                    .or_else(|| cams.first());
+                let Some(cam) = picked else {
+                    let _ = stream.write_all(b"ERR no_camera\n");
+                    continue;
+                };
+                // Snap the request to a size the device actually offers.
+                let (w, h) = cam
+                    .sizes
+                    .iter()
+                    .copied()
+                    .find(|(w, h)| *w == want_w && *h == want_h)
+                    .or_else(|| {
+                        cam.sizes
+                            .iter()
+                            .copied()
+                            .find(|(w, h)| *w <= want_w && *h <= want_h)
+                    })
+                    .unwrap_or((640, 480));
+                match CameraSession::open(api, manager, &cam.id, w, h) {
+                    Ok(open) => {
+                        let bytes = w * h * 3 / 2;
+                        let reply = format!("OK w={w} h={h} fourcc=NV12 bytes={bytes} id={}\n", cam.id);
+                        let _ = stream.write_all(reply.as_bytes());
+                        session = Some(open);
+                    }
+                    Err(e) => {
+                        crate::log(&format!("camera|client|open_fail|{e}"));
+                        let _ = stream.write_all(format!("ERR {e}\n").as_bytes());
+                    }
+                }
+            }
+            "FRAME" => {
+                let Some(open) = session.as_mut() else {
+                    let _ = stream.write_all(b"ERR not_open\n");
+                    continue;
+                };
+                match open.next_frame(api, &mut frame, Duration::from_millis(1000)) {
+                    Ok(Some((w, h, ts))) => {
+                        let header = format!(
+                            "FRAME seq={} ts={} w={w} h={h} bytes={}\n",
+                            open.seq,
+                            ts,
+                            frame.len()
+                        );
+                        if stream.write_all(header.as_bytes()).is_err()
+                            || stream.write_all(&frame).is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Ok(None) => {
+                        let _ = stream.write_all(b"NOFRAME\n");
+                    }
+                    Err(e) => {
+                        let _ = stream.write_all(format!("ERR convert {e}\n").as_bytes());
+                    }
+                }
+            }
+            "STOP" => {
+                let _ = stream.write_all(b"BYE\n");
+                break;
+            }
+            other => {
+                let _ = stream.write_all(format!("ERR unknown {other}\n").as_bytes());
+            }
+        }
+    }
+    if let Some(open) = session.take() {
+        open.close(api);
+    }
+    crate::log("camera|client|done");
 }
 
 // ---------------------------------------------------------------------------
@@ -820,11 +995,6 @@ fn run() {
         crate::log("camera|SKIP|no files dir");
         return;
     };
-    let selftest_marker = files.join("camera-selftest");
-    if !selftest_marker.exists() {
-        crate::log("camera|WAIT|no marker (files/camera-selftest)");
-        return;
-    }
     let api = unsafe {
         match CameraApi::load() {
             Ok(api) => api,
@@ -839,11 +1009,10 @@ fn run() {
         // The NDK camera2 stack wants a Looper on the calling thread.
         let looper = (api.looper_prepare)(ALOOPER_PREPARE_ALLOW_NON_CALLBACKS);
         crate::log(&format!("camera|looper|{looper:p}"));
-        // Two ABI shapes are seen in the wild for `ACameraManager_create`:
-        // `camera_status_t f(ACameraManager**)` and a pointer-returning variant.
-        // Call it once as the first, and if the out-parameter stayed empty treat
-        // the return value as the manager. Both outcomes are logged so the shape
-        // in use is never a guess.
+        // Two ABI shapes exist for `ACameraManager_create`: the documented
+        // `camera_status_t f(ACameraManager**)` and a pointer-returning variant
+        // that this ROM's libcamera2ndk.so uses. Try the documented one and fall
+        // back to the returned pointer, logging which shape was taken.
         let raw_create: unsafe extern "C" fn(*mut *mut ACameraManager) -> u64 =
             core::mem::transmute(api.manager_create);
         let raw = raw_create(&mut manager);
@@ -851,35 +1020,73 @@ fn run() {
             manager = raw as usize as *mut ACameraManager;
             crate::log("camera|manager|pointer-return-abi");
         }
-        crate::log(&format!(
-            "camera|manager|{manager:p}|raw=0x{raw:x}"
-        ));
+        crate::log(&format!("camera|manager|{manager:p}|raw=0x{raw:x}"));
         if manager.is_null() {
             crate::log("camera|FAIL|ACameraManager_create produced no manager");
             return;
         }
         let cams = enumerate(&api, manager);
         crate::log(&format!("camera|list|count={}", cams.len()));
-        let dir = files.join("camera-frames");
-        let _ = std::fs::create_dir_all(&dir);
-        let want = std::fs::read_to_string(&selftest_marker)
-            .ok()
-            .and_then(|t| {
-                t.split_whitespace()
-                    .find_map(|w| w.strip_prefix("frames=").and_then(|v| v.parse().ok()))
-            })
-            .unwrap_or(10usize);
-        let marker_text = std::fs::read_to_string(&selftest_marker).unwrap_or_default();
-        let camera = marker_text
-            .split_whitespace()
-            .find_map(|w| w.strip_prefix("camera=").map(|v| v.to_string()));
-        let mut selftest = Selftest {
-            dir,
-            want,
-            saved: 0,
-            camera,
-        };
-        run_selftest(&api, manager, &cams, &mut selftest);
-        (api.manager_delete)(manager);
+
+        // One-shot self test, only when its marker exists.
+        let selftest_marker = files.join("camera-selftest");
+        if selftest_marker.exists() {
+            let dir = files.join("camera-frames");
+            let _ = std::fs::create_dir_all(&dir);
+            let marker_text = std::fs::read_to_string(&selftest_marker).unwrap_or_default();
+            let want = marker_text
+                .split_whitespace()
+                .find_map(|w| w.strip_prefix("frames=").and_then(|v| v.parse().ok()))
+                .unwrap_or(10usize);
+            let camera = marker_text
+                .split_whitespace()
+                .find_map(|w| w.strip_prefix("camera=").map(|v| v.to_string()));
+            let mut selftest = Selftest {
+                dir,
+                want,
+                saved: 0,
+                camera,
+            };
+            run_selftest(&api, manager, &cams, &mut selftest);
+        }
+
+        // Guest-facing server: bind while either marker is present.
+        let marker = files.join(CAMERA_MARKER);
+        let guest_marker = files.join(CAMERA_GUEST_MARKER);
+        let enabled = || marker.exists() || guest_marker.exists();
+        loop {
+            if !enabled() {
+                std::thread::sleep(Duration::from_millis(500));
+                continue;
+            }
+            let path = files.join(CAMERA_SOCKET);
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::remove_file(&path);
+            let listener = match std::os::unix::net::UnixListener::bind(&path) {
+                Ok(listener) => listener,
+                Err(e) => {
+                    crate::log(&format!("camera|FAIL|bind {e}"));
+                    std::thread::sleep(Duration::from_secs(1));
+                    continue;
+                }
+            };
+            crate::log(&format!("camera|LISTEN|{}", path.display()));
+            for stream in listener.incoming() {
+                match stream {
+                    Ok(stream) => handle_client(&api, manager, &cams, stream),
+                    Err(e) => {
+                        crate::log(&format!("camera|FAIL|accept {e}"));
+                        break;
+                    }
+                }
+                if !enabled() {
+                    break;
+                }
+            }
+            let _ = std::fs::remove_file(&path);
+            crate::log("camera|STOP|marker removed");
+        }
     }
 }

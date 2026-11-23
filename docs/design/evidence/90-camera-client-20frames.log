@@ -1,0 +1,22 @@
+camera-client|OPEN|OK w=1280 h=720 fourcc=NV12 bytes=1382400 id=1
+camera-client|FRAME|seq=1|ts=62311590724000|1280x720|bytes=1382400|min=0|max=190|mean=53.49
+camera-client|FRAME|seq=2|ts=62311624045000|1280x720|bytes=1382400|min=0|max=190|mean=53.53
+camera-client|FRAME|seq=3|ts=62311657367000|1280x720|bytes=1382400|min=0|max=190|mean=53.57
+camera-client|FRAME|seq=4|ts=62311690689000|1280x720|bytes=1382400|min=0|max=190|mean=53.62
+camera-client|FRAME|seq=5|ts=62311724011000|1280x720|bytes=1382400|min=0|max=191|mean=53.69
+camera-client|FRAME|seq=6|ts=62311757333000|1280x720|bytes=1382400|min=0|max=191|mean=53.76
+camera-client|FRAME|seq=7|ts=62311791117000|1280x720|bytes=1382400|min=0|max=192|mean=53.83
+camera-client|FRAME|seq=8|ts=62311824900000|1280x720|bytes=1382400|min=0|max=192|mean=53.89
+camera-client|FRAME|seq=9|ts=62311858222000|1280x720|bytes=1382400|min=0|max=192|mean=53.95
+camera-client|FRAME|seq=10|ts=62311891544000|1280x720|bytes=1382400|min=0|max=193|mean=54.00
+camera-client|FRAME|seq=11|ts=62311924866000|1280x720|bytes=1382400|min=0|max=192|mean=54.06
+camera-client|FRAME|seq=12|ts=62311958188000|1280x720|bytes=1382400|min=0|max=193|mean=54.12
+camera-client|FRAME|seq=13|ts=62311991510000|1280x720|bytes=1382400|min=0|max=193|mean=54.19
+camera-client|FRAME|seq=14|ts=62312024831000|1280x720|bytes=1382400|min=0|max=193|mean=54.25
+camera-client|FRAME|seq=15|ts=62312058153000|1280x720|bytes=1382400|min=0|max=194|mean=54.30
+camera-client|FRAME|seq=16|ts=62312091475000|1280x720|bytes=1382400|min=0|max=194|mean=54.37
+camera-client|FRAME|seq=17|ts=62312125259000|1280x720|bytes=1382400|min=0|max=195|mean=54.45
+camera-client|FRAME|seq=18|ts=62312159042000|1280x720|bytes=1382400|min=1|max=195|mean=54.52
+camera-client|FRAME|seq=19|ts=62312192364000|1280x720|bytes=1382400|min=0|max=196|mean=54.58
+camera-client|FRAME|seq=20|ts=62312225686000|1280x720|bytes=1382400|min=0|max=197|mean=54.65
+camera-client|PASS|frames=20|elapsed_ms=933|bye=BYE|seqs=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20
