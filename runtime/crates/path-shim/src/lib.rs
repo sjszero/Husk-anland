@@ -268,6 +268,22 @@ unsafe fn set_errno(e: CInt) -> CInt {
     *__errno_location() = e;
     -1
 }
+/// The same rule `recvmsg` states inline: glibc's wrappers hand callers -1 and
+/// set errno, never a raw negative value. An interposed function that can fail
+/// has to translate before it returns, otherwise the caller reads a stale errno.
+/// Measured 2026-11-23: `ls -l` printed "ls: /tmp" with no reason at all, because
+/// libselinux called getxattr() and got -61 (ENODATA) back as the return value
+/// while errno stayed 0, so coreutils' `if (err) error (0, errno, "%s", name)`
+/// fired with errno == 0.
+unsafe fn ssize_or_errno(r: Ssize) -> Ssize {
+    if r < 0 && r > -4096 {
+        *__errno_location() = (-r) as CInt;
+        -1
+    } else {
+        r
+    }
+}
+
 
 unsafe fn set_errno_ptr(e: CInt, p: *mut CChar) -> *mut CChar {
     *__errno_location() = e;
@@ -4717,13 +4733,13 @@ pub unsafe extern "C" fn readlinkat(
     }
     let rfd = rootfd();
     if rfd < 0 && dirfd != AT_FDCWD && !absolute {
-        return syscall4(
+        return ssize_or_errno(syscall4(
             SYS_READLINKAT,
             dirfd as usize,
             path as usize,
             out as usize,
             len,
-        );
+        ));
     }
     let mut gp = [0u8; PATH_MAX];
     if rfd >= 0 && dirfd != AT_FDCWD && !absolute {
@@ -4763,13 +4779,13 @@ pub unsafe extern "C" fn readlinkat(
     let n = match abs_guest(path, &mut gp) {
         Some(n) if rfd >= 0 && !passthrough(&gp[..n]) => n,
         Some(_) => {
-            return syscall4(
+            return ssize_or_errno(syscall4(
                 SYS_READLINKAT,
                 AT_FDCWD as usize,
                 gp.as_ptr() as usize,
                 out as usize,
                 len,
-            )
+            ))
         }
         None => return set_errno(36) as Ssize,
     };
@@ -4786,7 +4802,7 @@ pub unsafe extern "C" fn readlinkat(
         len,
     );
     rc::close(parent);
-    r
+    ssize_or_errno(r)
 }
 
 #[no_mangle]
@@ -5269,7 +5285,7 @@ pub unsafe extern "C" fn lgetxattr(
     value: *mut u8,
     size: CSizet,
 ) -> Ssize {
-    pathonly(path, false, |p| {
+    ssize_or_errno(pathonly(path, false, |p| {
         syscall5(
             SYS_LGETXATTR,
             p as usize,
@@ -5278,7 +5294,7 @@ pub unsafe extern "C" fn lgetxattr(
             size,
             0,
         )
-    })
+    }))
 }
 
 #[no_mangle]
@@ -5288,7 +5304,7 @@ pub unsafe extern "C" fn getxattr(
     value: *mut u8,
     size: CSizet,
 ) -> Ssize {
-    xattr_pinned(path, |p| {
+    ssize_or_errno(xattr_pinned(path, |p| {
         syscall5(
             SYS_GETXATTR,
             p as usize,
@@ -5297,7 +5313,7 @@ pub unsafe extern "C" fn getxattr(
             size,
             0,
         )
-    })
+    }))
 }
 
 #[no_mangle]
@@ -5348,16 +5364,16 @@ pub unsafe extern "C" fn lsetxattr(
 
 #[no_mangle]
 pub unsafe extern "C" fn listxattr(path: *const CChar, list: *mut CChar, size: CSizet) -> Ssize {
-    xattr_pinned(path, |p| {
+    ssize_or_errno(xattr_pinned(path, |p| {
         syscall4(SYS_LISTXATTR, p as usize, list as usize, size, 0)
-    })
+    }))
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn llistxattr(path: *const CChar, list: *mut CChar, size: CSizet) -> Ssize {
-    pathonly(path, false, |p| {
+    ssize_or_errno(pathonly(path, false, |p| {
         syscall4(SYS_LLISTXATTR, p as usize, list as usize, size, 0)
-    })
+    }))
 }
 
 #[no_mangle]
