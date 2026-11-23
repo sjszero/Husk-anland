@@ -1487,6 +1487,13 @@ pub unsafe extern "C" fn nr_repatch() -> usize {
     if BOOTED == 0 || INTERP == 0 {
         return 0;
     }
+    // Bisect knob: NR_NO_REPATCH=1 keeps dlopen'ed objects unpatched, which is
+    // exactly the pre-evidence-100 behaviour. Needed because the first run with
+    // repatch on ended in "double free or corruption" after the shell got past
+    // JS init -- see evidence 102.
+    if debug_var(b"NR_NO_REPATCH=1") {
+        return 0;
+    }
     if REPATCH_LOCK != 0 {
         return 0;
     }

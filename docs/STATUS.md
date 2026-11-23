@@ -3,7 +3,19 @@
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
 
+## 最新（2026-11-23 19:40）
+
+要测「mutter 46 的 ScreenCast 流是 dmabuf 还是 system memory」，结果**没测成**（evidence 102）：
+只要同时跑 pipewire 并触发 ScreenCast，`org.gnome.Shell.Screencast` 模块就在
+`imports.gi.Gtk` 上抛异常，随后 gnome-shell `double free`。对照实验（repatch 开/关各 30 s）
+两次都稳，所以**不是** `nr_repatch` 引入的；`nr_repatch` 另加了 `NR_NO_REPATCH=1` 二分开关。
+
+顺带定位下一个缺口：`gjs -c 'imports.gi.Gtk'` 20 s 无输出（被 timeout 杀），
+`Gtk-4.0.typelib` 文件在 —— 是 typelib → `libgtk-4.so.1` 的 import 链在 guest 里 hang/死。
+它是 Shell 内部模块（Screencast、图标网格、锁屏）的硬依赖，**下一步先修这个**，再测帧。
+
 ## 最新（2026-11-23 19:05）
+
 
 **GNOME Shell 46.2 在 guest 里起成 Wayland 显示服务器，GTK4 客户端（gnome-text-editor）
 能连上并稳定运行**（evidence 101）。挡住它的不是运行时，而是 **rootfs 缺包** +
