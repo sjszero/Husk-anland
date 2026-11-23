@@ -132,9 +132,29 @@ stub 页后，19 位分支（±1 MiB）够不着。修法是让重定位器把�
 
 - `SEM_UNDO`：返回 `EOPNOTSUPP`（95），不假装支持——静默忽略会让程序在崩溃路径上留下被占的死锁。
 - 信号量的 `sem_otime`/`sem_ctime`：留 0（没有维护时间戳）。
-- `/proc/sysvipc/*`（`ipcs` 命令读取它）：未合成，`ipcs` 仍是空的。**UNKNOWN/未做**。
+- `/proc/sysvipc/*` 已合成（见 §10），`ipcs` 能列出段；`ls /proc/sysvipc` 这种**目录列目录**还不行（`/proc` 的 getdents 不经过合成表）。
 - 队列 `qbytes` 固定 16384，不做阻塞式满队列等待（`msgsnd` 不因满而阻塞）。
 
 ## 9. 下一步
 
-`/proc/sysvipc/{shm,sem,msg}` 合成（让 `ipcs` 有输出）；`/dev/full`；网络表面（AF_NETLINK）。
+`/dev/full`；网络表面（AF_NETLINK）；`/proc/sysvipc` 的目录项。
+
+## 10. `/proc/sysvipc/*`
+
+`ipcs` 不扫目录，它直接 `open("/proc/sysvipc/shm")`。所以在 `virt_synth` 里按 procps 的列宽合成这三张表，
+数字直接来自同一个存储（`ipc_each()` 遍历 `<id>.m`）。实测：
+
+```
+$ ipcmk -M 8192 ; ipcmk -S 4 ; ipcmk -Q
+$ ipcs
+------ Message Queues --------
+0x58c3de1c 13  root  644  0  0
+------ Shared Memory Segments --------
+0x1d9c92fe 11  root  644  8192  0
+------ Semaphore Arrays --------
+0x34e7db6a 12  root  644  4
+$ ipcrm -m 5     # 真的把段删掉了
+```
+
+顺手踩到的：`ipc_each` 最初写成 `len > 3` 才认 `.m` 后缀，而 `"5.m"` 的名字长度正好是 3，于是所有段都被跳过——
+表头有、行没有。改成 `len > 2`。

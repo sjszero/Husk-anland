@@ -2863,11 +2863,147 @@ nodev\tbpf\nnodev\tfusectl\nnodev\tramfs\n\text4\n\tf2fs\n",
         vt_put(&mut at, b"Num       RefCount Protocol Flags    Type St Inode Path\n");
         return Some(at);
     }
+    if p == b"/proc/sysvipc/shm" || p == b"/proc/sysvipc/sem" || p == b"/proc/sysvipc/msg" {
+        synth_sysvipc(p, &mut at);
+        return Some(at);
+    }
     if let Some(v) = synth_sysctl(p) {
         vt_put(&mut at, v);
         return Some(at);
     }
     None
+}
+
+
+/// Calls `f(id)` for every `<id>.m` under a SysV store directory.
+unsafe fn ipc_each<F: FnMut(i32)>(dir: &[u8], mut f: F) {
+    let dfd = openat(AT_FDCWD, dir.as_ptr() as *const CChar, O_DIRECTORY, 0);
+    if dfd < 0 {
+        return;
+    }
+    let mut buf = [0u8; 2048];
+    loop {
+        let r = syscall4(61, dfd as usize, buf.as_mut_ptr() as usize, buf.len(), 0) as isize;
+        if r <= 0 {
+            break;
+        }
+        let mut off = 0usize;
+        while off < r as usize {
+            let reclen = u16::from_le_bytes([buf[off + 16], buf[off + 17]]) as usize;
+            if reclen == 0 {
+                break;
+            }
+            let nm = &buf[off + 19..off + reclen];
+            let len = nm.iter().position(|c| *c == 0).unwrap_or(nm.len());
+            let nm = &nm[..len];
+            if len > 2 && &nm[len - 2..] == b".m" {
+                let mut id = 0i32;
+                let mut ok = true;
+                for k in 0..len - 2 {
+                    if !nm[k].is_ascii_digit() {
+                        ok = false;
+                        break;
+                    }
+                    id = id * 10 + (nm[k] - b'0') as i32;
+                }
+                if ok {
+                    f(id);
+                }
+            }
+            off += reclen;
+        }
+    }
+    rc::close(dfd);
+}
+
+/// `/proc/sysvipc/{shm,sem,msg}` in the column layout `ipcs` parses. There is no
+/// such file in this kernel; the numbers come from the same store the shim
+/// serves shmget/semget/msgget out of.
+unsafe fn synth_sysvipc(p: &[u8], at: &mut usize) {
+    if p == b"/proc/sysvipc/shm" {
+        vt_put(at, b"       key      shmid perms       size  cpid  lpid nattch   uid   gid  cuid  cgid      atime      dtime      ctime        rss       swap\n");
+        ipc_each(b"/run/husk/ipc/shm\0", |id| {
+            let mut m = ShmMeta::empty();
+            if !shm_read_meta(id, &mut m) {
+                return;
+            }
+            vt_num(at, m.key as u64);
+            vt_put(at, b" ");
+            vt_num(at, id as u64);
+            vt_put(at, b" ");
+            vt_oct(at, m.mode);
+            vt_put(at, b" ");
+            vt_num(at, m.size);
+            vt_put(at, b" ");
+            vt_num(at, m.cpid as u64);
+            vt_put(at, b" 0 ");
+            vt_num(at, shm_att_count(id).max(0) as u64);
+            vt_put(at, b" 0 0 0 0 ");
+            vt_num(at, m.ctime as u64);
+            vt_put(at, b" 0 ");
+            vt_num(at, m.ctime as u64);
+            vt_put(at, b" 0 0\n");
+        });
+        return;
+    }
+    if p == b"/proc/sysvipc/sem" {
+        vt_put(at, b"       key      semid perms      nsems   uid   gid  cuid  cgid      otime      ctime\n");
+        ipc_each(b"/run/husk/ipc/sem\0", |id| {
+            let mut m = [0i64; 4];
+            if !sem_read_meta(id, &mut m) {
+                return;
+            }
+            vt_num(at, m[0] as u64);
+            vt_put(at, b" ");
+            vt_num(at, id as u64);
+            vt_put(at, b" ");
+            vt_oct(at, m[2] as u32);
+            vt_put(at, b" ");
+            vt_num(at, m[1] as u64);
+            vt_put(at, b" 0 0 0 0 0 0\n");
+        });
+        return;
+    }
+    vt_put(at, b"       key      msqid perms      cbytes       qnum lspid lrpid   uid   gid  cuid  cgid      stime      rtime      ctime\n");
+    ipc_each(b"/run/husk/ipc/msg\0", |id| {
+        let mut m = [0i64; 9];
+        if !msg_read_meta(id, &mut m) {
+            return;
+        }
+        vt_num(at, m[0] as u64);
+        vt_put(at, b" ");
+        vt_num(at, id as u64);
+        vt_put(at, b" ");
+        vt_oct(at, m[1] as u32);
+        vt_put(at, b" 0 ");
+        vt_num(at, msg_count(id) as u64);
+        vt_put(at, b" ");
+        vt_num(at, m[4] as u64);
+        vt_put(at, b" ");
+        vt_num(at, m[5] as u64);
+        vt_put(at, b" 0 0 0 0 ");
+        vt_num(at, m[6] as u64);
+        vt_put(at, b" ");
+        vt_num(at, m[7] as u64);
+        vt_put(at, b" ");
+        vt_num(at, m[8] as u64);
+        vt_put(at, b"\n");
+    });
+}
+
+unsafe fn vt_oct(at: &mut usize, v: u32) {
+    let mut d = [0u8; 12];
+    let mut i = 12;
+    let mut v = v as u64;
+    loop {
+        i -= 1;
+        d[i] = b'0' + (v % 8) as u8;
+        v /= 8;
+        if v == 0 {
+            break;
+        }
+    }
+    vt_put(at, &d[i..]);
 }
 
 /// Serve a file the namespace owns but the kernel cannot give us.
