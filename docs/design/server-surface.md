@@ -2,7 +2,7 @@
 
 > 唯一目标机：RMX3357（Android 13 / kernel 4.19.191 / 4 KiB / `untrusted_app`，无 root、无 Shizuku）。
 > 全部数字来自 `tools/device-tests/rt-server-parity.sh`，在 guest 里跑，2026-11-23。
-> 状态：**57 PASS / 5 PARTIAL / 19 FAIL**（本轮开始时是 22 / 4 / 21）。
+> 状态：**58 PASS / 5 PARTIAL / 18 FAIL**（上一轮 57 / 5 / 19；最早基线 22 / 4 / 21）。
 
 ## 1. 对照的口径
 
@@ -28,6 +28,9 @@
 | 硬链接 `link(2)` | EACCES（内核拒） | 复制语义 + 一次性提示 | 内核 SELinux 不允许 app 建硬链接，只能等价替换 |
 | `mkfifo`/`mknod` | ENOENT（路径没翻译） | 正常 | 补 `mknodat`/`mkfifo`/`mkfifoat` 的路径改写 |
 | D-Bus system bus | 起不来（缺账号） | `system_bus_socket` 可用 | 补 `messagebus`/`pulse`/`whoopsie`/`geoclue`/`netdev` 账号（`tools/guest-config/`） |
+| 装包（apt/dpkg） | 一个包都装不上（六个独立缺陷，见 evidence 106） | `apt-get install tree` / `ca-certificates` 全通，含 postinst 与 update.d 钩子 | usrmerge 解包修复 + 状态库重建 + `execl/execlp/system` + `fchown/fchmod/futimens` + `link` 少传参 + `APT::Sandbox::User` |
+| usrmerge 链接 | `/bin`、`/sbin`、`/lib` 被解包器换成真目录，`/bin/sh` 不存在 | 三条链接都正确 | 自写 tar 读取器（跟随目录符号链接）+ `tools/guest-config/repair-usrmerge.sh` |
+| 假 root | 需要 `NR_FAKE_ROOT=1` 且语义不完整 | 默认开，`getuid`/`chown`/`setuid` 一族统一按容器语义回答 | shim `fake_root_on()`；`NR_FAKE_ROOT=0` 可关 |
 
 ## 3. 剩下的墙（FAIL 里没有一项是"懒得做"）
 
@@ -63,3 +66,14 @@ adb shell 'run-as com.linuxhub.husk sh -c "cd files && cp /data/local/tmp/rt-ser
 ```
 
 每行 `R|<area>|<name>|PASS|PARTIAL|FAIL|UNKNOWN|<detail>`，和别人用同样命令应当得到同样结论。
+
+## 6. 已知限制（诚实记账）
+
+* **合成状态库没有文件清单**：tarball 拼出来的包没有 `/var/lib/dpkg/info/<pkg>.list`，
+  dpkg 会警告 `files list file ... missing; assuming package has no files currently installed`。
+  装包不受影响；`apt-get remove <那些包>` 不会删文件。要根治得按包重建 `.list`，
+  数据源只有 tarball 的文件树，暂不做（做了也只是猜）。
+* **SysV IPC**（`shmget`/`semget`/`msgget`）被内核 seccomp 直接回 ENOSYS，无解，只能记录。
+* **`/proc/net`、`/sys/class/net`、netlink、`/proc/{loadavg,uptime,stat,filesystems,locks}`、
+  `/proc/sys/*`、cgroup** 被 SELinux 按域拒绝（`untrusted_app`）。这些不是"再试一次就好"，
+  只能由运行时**合成**后提供给 guest；当前尚未提供，`rt-server-parity.sh` 里如实记为 FAIL。

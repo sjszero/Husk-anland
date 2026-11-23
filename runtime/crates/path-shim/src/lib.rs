@@ -78,6 +78,15 @@ const SYS_UNLINKAT: usize = 35;
 const SYS_SYMLINKAT: usize = 36;
 const SYS_LINKAT: usize = 37;
 const SYS_MKNODAT: usize = 33;
+const SYS_GETUID: usize = 174;
+const SYS_SETUID: usize = 146;
+const SYS_SETGID: usize = 144;
+// aarch64/asm-generic has no __NR_seteuid or __NR_setegid; glibc implements
+// both on top of setresuid/setresgid with -1 for the parts it keeps.
+const SYS_SETGROUPS: usize = 159;
+const SYS_SETRESUID: usize = 147;
+const SYS_SETRESGID: usize = 149;
+const SYS_GETGID: usize = 176;
 const SYS_RENAMEAT: usize = 38;
 const SYS_RENAMEAT2: usize = 276;
 const SYS_FCHMODAT: usize = 53;
@@ -683,6 +692,61 @@ unsafe fn dbg(parts: &[&[u8]]) {
     for p in parts {
         syscall4(SYS_WRITE, 2, p.as_ptr() as usize, p.len(), 0);
     }
+}
+
+/// Same diagnostics, but into <root>/tmp/nr-exec.log: a forked child often has
+/// its stderr redirected into a pipe its parent throws away, which is exactly
+/// where the interesting exec failures happen.
+unsafe fn dbg_file(parts: &[&[u8]]) {
+    if !dbg_on() {
+        return;
+    }
+    let root = guest_root();
+    let suf = b"/tmp/nr-exec.log";
+    if root.len() + suf.len() + 1 >= PATH_MAX {
+        return;
+    }
+    let mut p = [0u8; PATH_MAX];
+    p[..root.len()].copy_from_slice(root);
+    p[root.len()..root.len() + suf.len()].copy_from_slice(suf);
+    let n = root.len() + suf.len();
+    p[n] = 0;
+    let fd = syscall4(
+        SYS_OPENAT,
+        AT_FDCWD as usize,
+        p.as_ptr() as usize,
+        (0o1 | 0o100 | 0o2000) as usize, // O_WRONLY|O_CREAT|O_APPEND
+        0o644,
+    );
+    if fd < 0 {
+        return;
+    }
+    for s in parts {
+        syscall4(SYS_WRITE, fd as usize, s.as_ptr() as usize, s.len(), 0);
+    }
+    rc::close(fd as CInt);
+}
+
+fn dec_buf(mut v: i64) -> ([u8; 24], usize) {
+    let mut b = [0u8; 24];
+    let neg = v < 0;
+    if neg {
+        v = -v;
+    }
+    let mut i = 24;
+    loop {
+        i -= 1;
+        b[i] = b'0' + (v % 10) as u8;
+        v /= 10;
+        if v == 0 || i == 0 {
+            break;
+        }
+    }
+    if neg && i > 0 {
+        i -= 1;
+        b[i] = b'-';
+    }
+    (b, i)
 }
 
 unsafe fn dbghex(v: u64) {
@@ -1408,7 +1472,7 @@ unsafe fn copy_file(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt) -> CInt {
+unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt) -> CInt {
     if path.is_null() {
         return ret_or_errno(syscall4(
             SYS_OPENAT,
@@ -1562,6 +1626,21 @@ pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mo
         flags as usize,
         mode as usize,
     ))
+}
+
+
+#[no_mangle]
+pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt) -> CInt {
+    let r = openat_inner(dirfd, path, flags, mode);
+    // EINVAL out of an open is always a real defect: either the guest asked for
+    // a flag combination this kernel cannot honour, or our own translation
+    // mangled it. Record which, rather than let a package manager report
+    // "error creating new backup file" with no way to see the request.
+    if r < 0 && !path.is_null() && *__errno_location() == EINVAL && dbg_on() {
+        let (b, k) = dec_buf(flags as i64);
+        dbg_file(&[b"openat EINVAL flags=", &b[k..], b" ", bytes(path), b"\n"]);
+    }
+    r
 }
 
 #[no_mangle]
@@ -2031,6 +2110,13 @@ unsafe fn chown_target(
     follow: bool,
     raw_flags: CInt,
 ) -> CInt {
+    // Under the fake-root convention the guest cannot change ownership (no
+    // CAP_CHOWN), and every package manager calls it on every file. Reporting
+    // success is what a user namespace would do; the real owner on disk stays
+    // u0_a302. See the fake-root note above getuid().
+    if fake_root_on() {
+        return 0;
+    }
     if path.is_null() {
         return set_errno(14);
     }
@@ -2071,6 +2157,13 @@ unsafe fn utimens_target(
     follow: bool,
     raw_flags: CInt,
 ) -> CInt {
+    // Under the fake-root convention the guest cannot change ownership (no
+    // CAP_CHOWN), and every package manager calls it on every file. Reporting
+    // success is what a user namespace would do; the real owner on disk stays
+    // u0_a302. See the fake-root note above getuid().
+    if fake_root_on() {
+        return 0;
+    }
     if path.is_null() {
         return set_errno(14);
     }
@@ -2239,6 +2332,111 @@ pub unsafe extern "C" fn unlinkat(dirfd: CInt, path: *const CChar, flags: CInt) 
     })
 }
 
+// ---------------------------------------------------------------- fake root
+//
+// A container normally runs as root *inside*, with the host mapping that to an
+// unprivileged user; every path-capable tool (apt, dpkg, systemctl, cron) checks
+// geteuid() == 0 before it will do anything. We cannot be uid 0, but we can make
+// that one check read 0 and make the ownership syscalls it follows a no-op -
+// exactly the fiction a user namespace would give us, minus the namespace.
+//
+// What it does NOT do: it grants nothing. mknod still fails (no CAP_MKNOD),
+// setuid() still fails, capabilities stay at 0. Files keep the real owner
+// (u0_a302) on disk; only what the process is *told* changes. Off unless
+// NR_FAKE_ROOT is set, so the default runtime stays truthful.
+static mut FAKE_ROOT: u8 = 2;
+
+unsafe fn fake_root_on() -> bool {
+    if FAKE_ROOT == 2 {
+        // On by default: inside a Linux runtime you are root, and the host user
+        // that really owns the files is an implementation detail - the same
+        // fiction a user namespace gives a container. NR_FAKE_ROOT=0 asks for
+        // the truthful answer instead.
+        let off = matches!(env_lookup(b"NR_FAKE_ROOT"), Some(v) if v == b"0" || v == b"off" || v == b"no");
+        FAKE_ROOT = if off { 0 } else { 1 };
+    }
+    FAKE_ROOT == 1
+}
+
+unsafe fn log_id(name: &[u8], v: i64) {
+    if dbg_on() {
+        let (b, k) = dec_buf(v);
+        dbg_file(&[b"id ", name, b"=", &b[k..], b"\n"]);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn getuid() -> u32 {
+    if fake_root_on() {
+        return 0;
+    }
+    syscall4(SYS_GETUID, 0, 0, 0, 0) as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn geteuid() -> u32 {
+    getuid()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn getgid() -> u32 {
+    if fake_root_on() {
+        return 0;
+    }
+    syscall4(SYS_GETGID, 0, 0, 0, 0) as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn getegid() -> u32 {
+    getgid()
+}
+
+// The other half of the same fiction: apt drops to `_apt` for downloads and back
+// to root for the install. Neither call can succeed for us (the process is
+// u0_a302 and stays u0_a302), so under NR_FAKE_ROOT they are accepted and
+// ignored - the process never actually changes identity either way.
+#[no_mangle]
+pub unsafe extern "C" fn setuid(_uid: u32) -> CInt {
+    log_id(b"setuid", _uid as i64);
+    if fake_root_on() { 0 } else { ret_or_errno(syscall4(SYS_SETUID, _uid as usize, 0, 0, 0)) }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn seteuid(_uid: u32) -> CInt {
+    log_id(b"seteuid", _uid as i64);
+    if fake_root_on() { 0 } else { ret_or_errno(syscall4(SYS_SETRESUID, usize::MAX, _uid as usize, usize::MAX, 0)) }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn setgid(_gid: u32) -> CInt {
+    log_id(b"setgid", _gid as i64);
+    if fake_root_on() { 0 } else { ret_or_errno(syscall4(SYS_SETGID, _gid as usize, 0, 0, 0)) }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn setegid(_gid: u32) -> CInt {
+    log_id(b"setegid", _gid as i64);
+    if fake_root_on() { 0 } else { ret_or_errno(syscall4(SYS_SETRESGID, usize::MAX, _gid as usize, usize::MAX, 0)) }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn setgroups(_n: usize, _list: *const u32) -> CInt {
+    log_id(b"setgroups", _n as i64);
+    if fake_root_on() { 0 } else { ret_or_errno(syscall4(SYS_SETGROUPS, _n, _list as usize, 0, 0)) }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn setresuid(_r: u32, _e: u32, _s: u32) -> CInt {
+    log_id(b"setresuid", _r as i64);
+    if fake_root_on() { 0 } else { ret_or_errno(syscall4(SYS_SETRESUID, _r as usize, _e as usize, _s as usize, 0)) }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn setresgid(_r: u32, _e: u32, _s: u32) -> CInt {
+    log_id(b"setresgid", _r as i64);
+    if fake_root_on() { 0 } else { ret_or_errno(syscall4(SYS_SETRESGID, _r as usize, _e as usize, _s as usize, 0)) }
+}
+
 // mknod(2) had no translation at all, so `mkfifo /tmp/x` asked the kernel for
 // the *host* "/tmp/x" and came back ENOENT. FIFOs are ordinary tooling (daemons
 // that use mkfifo + a reader, tar extraction of pipes); char/block nodes are not
@@ -2375,13 +2573,20 @@ pub unsafe extern "C" fn link(old: *const CChar, new: *const CChar) -> CInt {
         false,
         false,
         |fa, pa, fb, pb| {
-            syscall4(
-                SYS_LINKAT,
-                fa as usize,
-                pa as usize,
-                fb as usize,
-                pb as usize,
-            )
+            // linkat(2) carries a fifth argument (flags). Sending it with only
+            // four left x4 holding whatever the caller had loaded, and the
+            // kernel answered EINVAL - which is what dpkg reported as
+            // "error creating new backup file '/var/lib/dpkg/status-old'".
+            // The copy fallback is shared with linkat(3), because this SELinux
+            // policy refuses the real call inside app data.
+            let r = syscall5(SYS_LINKAT, fa as usize, pa as usize, fb as usize, pb as usize, 0);
+            if r >= 0 {
+                return r;
+            }
+            if r == -13 || r == -1 {
+                return copy_file(fa, pa, fb, pb);
+            }
+            r
         },
     )
 }
@@ -3239,8 +3444,10 @@ pub unsafe extern "C" fn execve(
         let nl = name.iter().position(|c| *c == 0).unwrap_or(0);
         if real_path(parent, &name[..nl], &mut real).is_none() {
             rc::close(parent);
+            dbg_file(&[b"  ! resolve failed for ", &gp[..n], b"\n"]);
             return set_errno(2);
         }
+        dbg_file(&[b"  real=", &real[..real.iter().position(|c| *c == 0).unwrap_or(0)], b"\n"]);
         rc::close(parent);
     }
 
@@ -3252,6 +3459,8 @@ pub unsafe extern "C" fn execve(
         0,
     ));
     if fd < 0 {
+        let (b, i) = dec_buf(*__errno_location() as i64);
+        dbg_file(&[b"  ! open failed: ", &b[i..], b"\n"]);
         return -1;
     }
 
@@ -3624,6 +3833,14 @@ pub unsafe extern "C" fn mkdtemp(tmpl: *mut CChar) -> *mut CChar {
 // to the kernel verbatim - that is why the driver could not start cc1.
 #[no_mangle]
 pub unsafe extern "C" fn execv(path: *const CChar, argv: *const *const CChar) -> CInt {
+    // dpkg's command_exec() calls execv(), and its child's stderr is a pipe the
+    // parent usually discards, so this goes to <root>/tmp/nr-exec.log under
+    // NR_DEBUG instead. It was the only way to see that the call never arrived.
+    if dbg_on() {
+        dbg_file(&[b"execv|", bytes(path), b"|rootfd="]);
+        let (b, i) = dec_buf(rootfd() as i64);
+        dbg_file(&[&b[i..], b"\n"]);
+    }
     execve(path, argv, environ as *const *const CChar)
 }
 
@@ -3701,6 +3918,159 @@ pub unsafe extern "C" fn execvpe(
 pub unsafe extern "C" fn execvp(file: *const CChar, argv: *const *const CChar) -> CInt {
     execvpe(file, argv, environ as *const *const CChar)
 }
+
+// ------------------------------------------------------- execl / execlp / system
+//
+// These are what dpkg actually calls (measured on the guest binary: `dpkg`
+// imports execvp@GLIBC_2.17, execlp@GLIBC_2.17 and system@GLIBC_2.17 - not
+// execv), and glibc implements all of them on top of its *internal* __execve,
+// a bare syscall with no symbol to interpose. That is why a rootfs in which
+// `/usr/bin/dpkg-split --version` ran fine from a shell still failed with
+// "dpkg: unable to execute split package reassembly (dpkg-split): No such file
+// or directory": the child asked the host kernel for /usr/bin/dpkg-split.
+//
+// execl/execlp take a variable argument list. Rather than hand-write the
+// register spill, declare a fixed list longer than any real caller: on AArch64
+// a variadic caller and a fixed-arity callee place the arguments in exactly the
+// same registers and stack slots, the list is NULL-terminated, and anything
+// past the terminator is never read. A caller that overruns the declared
+// window is refused (E2BIG) instead of exec'ing garbage.
+
+unsafe fn varargs_exec(path: *const CChar, args: &[*const CChar], search: bool) -> CInt {
+    if path.is_null() {
+        return set_errno(EFAULT);
+    }
+    let mut v: [*const CChar; 20] = [core::ptr::null(); 20];
+    let mut n = 0usize;
+    let mut terminated = false;
+    for &a in args {
+        if n + 1 >= v.len() {
+            break;
+        }
+        v[n] = a;
+        n += 1;
+        if a.is_null() {
+            terminated = true;
+            break;
+        }
+    }
+    if !terminated {
+        return set_errno(7); // E2BIG
+    }
+    if search {
+        execvp(path, v.as_ptr())
+    } else {
+        execv(path, v.as_ptr())
+    }
+}
+
+macro_rules! varargs_fn {
+    ($name:ident, $search:expr) => {
+        #[no_mangle]
+        #[allow(clippy::too_many_arguments)]
+        pub unsafe extern "C" fn $name(
+            path: *const CChar,
+            a0: *const CChar,
+            a1: *const CChar,
+            a2: *const CChar,
+            a3: *const CChar,
+            a4: *const CChar,
+            a5: *const CChar,
+            a6: *const CChar,
+            a7: *const CChar,
+            a8: *const CChar,
+            a9: *const CChar,
+            a10: *const CChar,
+            a11: *const CChar,
+            a12: *const CChar,
+            a13: *const CChar,
+        ) -> CInt {
+            varargs_exec(
+                path,
+                &[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13],
+                $search,
+            )
+        }
+    };
+}
+
+varargs_fn!(execl, false);
+varargs_fn!(execlp, true);
+
+/// Shared tail of execl/execlp: x0 = file, x1 = argv, x2 = search PATH.
+#[no_mangle]
+pub unsafe extern "C" fn nr_exec_argv(
+    path: *const CChar,
+    argv: *const *const CChar,
+    search: CInt,
+) -> CInt {
+    if search != 0 {
+        execvp(path, argv)
+    } else {
+        execv(path, argv)
+    }
+}
+
+const SYS_CLONE: usize = 220;
+const SYS_WAIT4: usize = 260;
+const SYS_EXIT: usize = 93;
+const SIGCHLD: usize = 17;
+
+/// glibc's system() runs `/bin/sh -c cmd` through its private execve, so every
+/// maintainer script in a package install would have run against the host root
+/// ("dpkg: unable to execute ... /bin/sh"). Same shape, translated path.
+#[no_mangle]
+pub unsafe extern "C" fn system(cmd: *const CChar) -> CInt {
+    if cmd.is_null() {
+        // POSIX: non-zero means a command processor is available.
+        return 1;
+    }
+    let pid = syscall5(SYS_CLONE, SIGCHLD, 0, 0, 0, 0);
+    if pid < 0 {
+        return -1;
+    }
+    if pid == 0 {
+        let sh = b"/bin/sh\0";
+        let a0 = b"sh\0";
+        let a1 = b"-c\0";
+        let args = [
+            a0.as_ptr() as *const CChar,
+            a1.as_ptr() as *const CChar,
+            cmd,
+            core::ptr::null(),
+        ];
+        execve(
+            sh.as_ptr() as *const CChar,
+            args.as_ptr(),
+            environ as *const *const CChar,
+        );
+        syscall4(SYS_EXIT, 127, 0, 0, 0);
+        loop {}
+    }
+    let mut st: CInt = 0;
+    loop {
+        let r = syscall4(
+            SYS_WAIT4,
+            pid as usize,
+            &mut st as *mut CInt as usize,
+            0,
+            0,
+        );
+        if r == pid as Ssize {
+            break;
+        }
+        if r < 0 {
+            let e = *__errno_location();
+            if e != 4 {
+                return -1;
+            }
+        }
+    }
+    // The shell can carry a command that died from a signal; keep the wait
+    // status shape system(3) documents rather than flattening it to 0..255.
+    st
+}
+
 
 // ------------------------------------------------------------- Unix sockets
 //
@@ -3960,6 +4330,65 @@ pub unsafe extern "C" fn fopen(path: *const CChar, mode: *const CChar) -> *mut u
 #[no_mangle]
 pub unsafe extern "C" fn fopen64(path: *const CChar, mode: *const CChar) -> *mut u8 {
     fopen_mode(path, mode)
+}
+
+// ------------------------------------------------------------ fd-level owners
+//
+// tar (which dpkg-deb and dpkg both run) does not call chown()/chmod(): it calls
+// fchown() and fchmod() on the descriptor it just extracted through. Neither
+// was interposed, so `dpkg -i` reported
+//   tar: ./control: Cannot change ownership to uid 0, gid 0: Operation not permitted
+// and aborted the unpack - the metadata operations that a container is expected
+// to pretend succeeded.
+
+/// "/proc/self/fd/<fd>", in a caller-provided buffer. The descriptor is ours,
+/// so the host /proc entry points at the real file *inside* the guest root and
+/// the path needs no guest translation.
+unsafe fn fd_host_path(fd: CInt, buf: &mut [u8; 32]) -> usize {
+    let pre = b"/proc/self/fd/";
+    buf[..pre.len()].copy_from_slice(pre);
+    let (d, k) = dec_buf(fd as i64);
+    let n = d.len() - k;
+    buf[pre.len()..pre.len() + n].copy_from_slice(&d[k..]);
+    let end = pre.len() + n;
+    buf[end] = 0;
+    end
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn fchown(fd: CInt, uid: u32, gid: u32) -> CInt {
+    if fake_root_on() {
+        return 0;
+    }
+    // AT_EMPTY_PATH + an empty name means "the file this descriptor is open on".
+    ret_or_errno(syscall5(
+        SYS_FCHOWNAT,
+        fd as usize,
+        b"\0".as_ptr() as usize,
+        uid as usize,
+        gid as usize,
+        AT_EMPTY_PATH as usize,
+    ))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn fchmod(fd: CInt, mode: u32) -> CInt {
+    let mut p = [0u8; 32];
+    fd_host_path(fd, &mut p);
+    ret_or_errno(syscall4(SYS_FCHMODAT, AT_FDCWD as usize, p.as_ptr() as usize, mode as usize, 0))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn futimens(fd: CInt, times: *const u64) -> CInt {
+    let mut p = [0u8; 32];
+    fd_host_path(fd, &mut p);
+    ret_or_errno(syscall4(
+        SYS_UTIMENSAT,
+        AT_FDCWD as usize,
+        p.as_ptr() as usize,
+        times as usize,
+        0,
+    ))
 }
 
 #[no_mangle]

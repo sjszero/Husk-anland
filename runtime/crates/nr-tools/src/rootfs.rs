@@ -10,7 +10,7 @@
 //! No root, no chroot, no debootstrap: unpacking .debs into a directory is all it
 //! takes when the kernel executes guest binaries directly.
 
-use crate::provision::{gunzip, http_get, parse_index, resolve, unpack_deb, Pkg};
+use crate::provision::{extract_tar, gunzip, http_get, parse_index, resolve, unpack_deb, Pkg};
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -94,16 +94,10 @@ pub fn main(argv: &[String]) {
 
     // ---------------------------------------------------------- base rootfs ---
     if let Some(t) = &base {
-        let st = Command::new("tar")
-            .arg("xf")
-            .arg(t)
-            .arg("-C")
-            .arg(&out)
-            .status()
-            .unwrap_or_else(|e| die(format!("spawn tar: {e}")));
-        if !st.success() {
-            die(format!("extracting {} failed", t.display()));
-        }
+        let raw = fs::read(t).unwrap_or_else(|e| die(format!("{}: {e}", t.display())));
+        // Ubuntu base tarballs are gzip; the .deb bodies are handled by unpack_deb.
+        let tar = if raw.starts_with(&[0x1f, 0x8b]) { gunzip(&raw) } else { raw };
+        extract_tar(&tar, &out);
         println!("base: {} extracted into {}", t.display(), out.display());
     }
 
@@ -269,6 +263,14 @@ pub fn main(argv: &[String]) {
                 b"nameserver 1.1.1.1\nnameserver 8.8.8.8\n",
             );
         }
+        // apt's own sandbox would try to become _apt before downloading; in a
+        // single-uid runtime that call cannot succeed and the method dies with
+        // "Could not switch group". See tools/guest-config/apt-husk.conf.
+        write(
+            &out.join("etc/apt/apt.conf.d/99husk"),
+            "apt sandbox config",
+            b"APT::Sandbox::User \"root\";\n",
+        );
         write(
             &out.join("etc/nsswitch.conf"),
             "etc/nsswitch.conf",

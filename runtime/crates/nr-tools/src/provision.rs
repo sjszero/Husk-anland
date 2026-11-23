@@ -227,25 +227,214 @@ fn ar_members(d: &[u8]) -> HashMap<String, Vec<u8>> {
     out
 }
 
-fn extract_tar_bytes(tar: &[u8], stage: &Path) {
-    let mut child = Command::new("tar")
-        .arg("-xf")
-        .arg("-")
-        .arg("-C")
-        .arg(stage)
-        .stdin(Stdio::piped())
-        .spawn()
-        .unwrap_or_else(|e| die(format!("spawn tar: {e}")));
-    let mut stdin = child.stdin.take().expect("stdin");
-    let data = tar.to_vec();
-    let w = std::thread::spawn(move || {
-        let _ = stdin.write_all(&data);
-    });
-    w.join().ok();
-    let st = child.wait().unwrap_or_else(|e| die(format!("tar: {e}")));
-    if !st.success() {
-        die("tar failed (absolute symlink or hardlink?)");
+// ---------------------------------------------------------------- tar reader
+//
+// Extracting into the guest root has to follow directory symlinks, because
+// Ubuntu 24.04 is usr-merged: `/bin` is a symlink to `usr/bin`, and a package
+// that ships `bin/fusermount` must land in `usr/bin/fusermount`. dpkg does this;
+// libarchive/bsdtar and toybox tar do not - they *replace* the symlink with a
+// real directory, which silently produces a rootfs with no /bin/sh that nothing
+// notices until a maintainer script runs. Measured on this project: a rootfs
+// extracted by bsdtar could install nothing, because apt runs its hooks through
+// /bin/sh.
+//
+// This is therefore a small ustar/GNU/pax reader that resolves members through
+// whatever the filesystem says, exactly like dpkg. It is also the only part of
+// provisioning that no longer depends on a host `tar`.
+
+pub(crate) fn tar_octal(field: &[u8]) -> u64 {
+    let end = field.iter().position(|&c| c == 0 || c == b' ').unwrap_or(field.len());
+    let mut v: u64 = 0;
+    for &c in &field[..end] {
+        if !(b'0'..=b'7').contains(&c) {
+            continue;
+        }
+        v = (v << 3) | (c - b'0') as u64;
     }
+    v
+}
+
+fn field_str(field: &[u8]) -> String {
+    let end = field.iter().position(|&c| c == 0).unwrap_or(field.len());
+    String::from_utf8_lossy(&field[..end]).to_string()
+}
+
+/// pax extended header: "%d key=value\n" records.
+fn pax_records(data: &[u8]) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut p = 0;
+    while p < data.len() {
+        let sp = match data[p..].iter().position(|&c| c == b' ') {
+            Some(i) => p + i,
+            None => break,
+        };
+        let len: usize = String::from_utf8_lossy(&data[p..sp]).trim().parse().unwrap_or(0);
+        if len == 0 || p + len > data.len() {
+            break;
+        }
+        let rec = &data[sp + 1..p + len];
+        let rec = if rec.last() == Some(&b'\n') { &rec[..rec.len() - 1] } else { rec };
+        if let Some(eq) = rec.iter().position(|&c| c == b'=') {
+            out.push((
+                String::from_utf8_lossy(&rec[..eq]).to_string(),
+                String::from_utf8_lossy(&rec[eq + 1..]).to_string(),
+            ));
+        }
+        p += len;
+    }
+    out
+}
+
+fn safe_rel(name: &str) -> Option<&str> {
+    let n = name.trim_start_matches("./").trim_end_matches('/');
+    if n.is_empty() || n == "." {
+        return Some(""); // "./" - the archive root itself, nothing to create
+    }
+    if n.starts_with('/') || n.split('/').any(|c| c == "..") {
+        return None;
+    }
+    Some(n)
+}
+
+/// Remove whatever is at `p` so a new object can take its place. A symlink is
+/// unlinked, never followed - that is the whole point of the fix.
+fn clear_path(p: &Path) {
+    match fs::symlink_metadata(p) {
+        Ok(m) if m.is_dir() => {
+            let _ = fs::remove_dir_all(p);
+        }
+        Ok(_) => {
+            let _ = fs::remove_file(p);
+        }
+        Err(_) => {}
+    }
+}
+
+pub(crate) fn extract_tar(tar: &[u8], stage: &Path) {
+    let mut p = 0usize;
+    let mut long_name: Option<String> = None;
+    let mut long_link: Option<String> = None;
+    let mut pax_path: Option<String> = None;
+    let mut pax_link: Option<String> = None;
+    while p + 512 <= tar.len() {
+        let h = &tar[p..p + 512];
+        if h.iter().all(|&c| c == 0) {
+            break;
+        }
+        let size = tar_octal(&h[124..136]) as usize;
+        let kind = h[156];
+        let body_end = p + 512 + size;
+        if body_end > tar.len() {
+            die("truncated tar");
+        }
+        let body = &tar[p + 512..body_end];
+        p = body_end + ((512 - size % 512) % 512);
+
+        match kind {
+            b'L' => {
+                long_name = Some(field_str(body));
+                continue;
+            }
+            b'K' => {
+                long_link = Some(field_str(body));
+                continue;
+            }
+            b'x' | b'X' => {
+                for (k, v) in pax_records(body) {
+                    match k.as_str() {
+                        "path" => pax_path = Some(v),
+                        "linkpath" => pax_link = Some(v),
+                        _ => {}
+                    }
+                }
+                continue;
+            }
+            b'g' => continue,
+            _ => {}
+        }
+
+        let name = pax_path
+            .take()
+            .or_else(|| long_name.take())
+            .unwrap_or_else(|| {
+                let mut n = field_str(&h[0..100]);
+                let prefix = field_str(&h[345..500]);
+                if !prefix.is_empty() {
+                    n = format!("{prefix}/{n}");
+                }
+                n
+            });
+        let link = pax_link
+            .take()
+            .or_else(|| long_link.take())
+            .unwrap_or_else(|| field_str(&h[157..257]));
+        let mode = tar_octal(&h[100..108]) as u32;
+        let rel = match safe_rel(&name) {
+            Some(r) => r.to_string(),
+            None => die(format!("tar member escapes the root: {name}")),
+        };
+        if rel.is_empty() {
+            continue;
+        }
+        let dest = stage.join(&rel);
+
+        if kind == b'5' {
+            // Directory. create_dir_all() *follows* an existing symlink, so a
+            // "bin/" entry does not clobber the usr-merge link.
+            fs::create_dir_all(&dest)
+                .unwrap_or_else(|e| die(format!("mkdir {}: {e}", dest.display())));
+            let _ = fs::set_permissions(&dest, std::os::unix::fs::PermissionsExt::from_mode(mode));
+            continue;
+        }
+
+        if let Some(dir) = dest.parent() {
+            fs::create_dir_all(dir).unwrap_or_else(|e| die(format!("mkdir {}: {e}", dir.display())));
+        }
+
+        match kind {
+            b'2' => {
+                clear_path(&dest);
+                std::os::unix::fs::symlink(&link, &dest)
+                    .unwrap_or_else(|e| die(format!("symlink {} -> {link}: {e}", dest.display())));
+            }
+            b'1' => {
+                clear_path(&dest);
+                let src = stage.join(link.trim_start_matches('/'));
+                // Hard links exist in the archive but are not worth a failure:
+                // Android's SELinux refuses link() inside the app home, and a
+                // copy is what the runtime does for link(2) as well.
+                if fs::hard_link(&src, &dest).is_err() {
+                    match fs::read(&src) {
+                        Ok(bytes) => {
+                            let _ = fs::write(&dest, bytes);
+                        }
+                        Err(e) => die(format!("hardlink {}: {e}", src.display())),
+                    }
+                }
+            }
+            b'3' | b'4' => {
+                // Device nodes: no CAP_MKNOD, so nothing to create. Record it
+                // instead of pretending.
+                println!("  note: skipping device node {rel}");
+            }
+            b'6' => {
+                clear_path(&dest);
+                std::os::unix::fs::symlink("", &dest).ok();
+                let _ = fs::remove_file(&dest);
+                println!("  note: skipping fifo {rel}");
+            }
+            _ => {
+                clear_path(&dest);
+                fs::write(&dest, body)
+                    .unwrap_or_else(|e| die(format!("write {}: {e}", dest.display())));
+                let _ = fs::set_permissions(&dest, std::os::unix::fs::PermissionsExt::from_mode(mode));
+            }
+        }
+    }
+}
+
+fn extract_tar_bytes(tar: &[u8], stage: &Path) {
+    extract_tar(tar, stage)
 }
 
 pub(crate) fn unpack_deb(deb: &[u8], stage: &Path) {

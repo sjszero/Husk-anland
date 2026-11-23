@@ -17,6 +17,7 @@
 mod libc_slots;
 mod provision;
 mod rootfs;
+mod status;
 
 use std::fs;
 use std::process::ExitCode;
@@ -503,8 +504,9 @@ const F_BASE: u64 = 0x32000; // where the shim lands inside the loader
 const V_BASE: u64 = 0x42000;
 
 /// Deliberately not interposed: our own entry points and compiler glue.
-const NOT_INTERPOSED: [&str; 6] = [
+const NOT_INTERPOSED: [&str; 7] = [
     "nr_boot",
+    "nr_exec_argv",
     "nr_resolve_name",
     "nr_get_main_map",
     "nr_set_main_map",
@@ -1117,7 +1119,7 @@ fn walk_elf_candidates(p: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(cmd) = args.first() else {
-        eprintln!("usage: nr-tools {{scan-syscalls|check-elf|embed|libc-interpose|provision|rootfs}} ...");
+        eprintln!("usage: nr-tools {{scan-syscalls|check-elf|embed|libc-interpose|provision|rootfs|rootfs-status}} ...");
         return ExitCode::from(2);
     };
     match cmd.as_str() {
@@ -1132,6 +1134,10 @@ fn main() -> ExitCode {
         }
         "rootfs" => {
             rootfs::main(&args[1..]);
+            ExitCode::SUCCESS
+        }
+        "rootfs-status" => {
+            status::main(&args[1..]);
             ExitCode::SUCCESS
         }
         "libc-interpose" => {
