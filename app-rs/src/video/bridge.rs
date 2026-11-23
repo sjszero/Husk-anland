@@ -565,7 +565,7 @@ fn serve() {
     };
     sequence_log(&files, "video|bridge|API|libmediandk.so");
     let marker = files.join("video-bridge");
-    let guest_marker = files.join("rootfs-full/tmp/husk-video/enabled");
+    let guest_marker = files.join("rootfs-full/run/husk/enabled");
     let enabled = || marker.exists() || guest_marker.exists();
     let mut announced_wait = false;
     loop {
@@ -589,7 +589,7 @@ fn serve() {
         // socket stayed under `files/`, a guest rooted at `rootfs-full` could
         // only reach it by disabling root isolation (`NR_ROOTFS=/`), which is
         // not a valid product path.
-        let path = files.join("rootfs-full/tmp/husk-video/bridge.sock");
+        let path = files.join("rootfs-full/run/husk/video.sock");
         if let Some(parent) = path.parent() {
             if let Err(e) = std::fs::create_dir_all(parent) {
                 sequence_log(&files, &format!("video|bridge|FAIL|mkdir {e}"));

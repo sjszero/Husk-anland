@@ -1,0 +1,109 @@
+===== 01-functional-matrix.sh =====
+PASS mkdirp
+PASS mkdirp-place
+PASS deepwrite
+PASS redirect
+PASS cp
+PASS mv
+PASS chmod
+PASS readlink
+PASS symlink-follow
+PASS symlink-abs
+PASS symlink-dotdot
+PASS find-files
+PASS find-links
+PASS readdir
+PASS ls-long
+PASS pwd
+PASS pwd-root
+PASS dotdot
+PASS dotdot-read
+PASS escape-link
+PASS escape-write
+PASS rm-rf
+PASS sort
+PASS sha256
+PASS glob
+PASS stdin
+PASS subshell
+PASS exec-abs
+PASS exec-rel
+PASS bigio
+PASS write-read
+#checks=31 fail=0
+HOST_RC=0
+===== 03-containment.sh =====
+blocked read-abs-symlink
+blocked read-dotdot-symlink
+blocked list-hostdir-symlink
+blocked abs-up
+blocked abs-up2
+blocked open-escape
+ok clamp-cd-root
+ok clamp-mkdir
+ok rootfs-file
+ok host-proc
+ok host-dev-null
+#escapes=0
+HOST_RC=0
+===== 04-path-reliability.sh =====
+PASS fd-stable
+PASS deep-path
+PASS long-path-rejected
+PASS symlink-follow
+PASS escape-abs
+PASS escape-dots
+PASS proc-root-contained
+PASS proc-safe-status
+PASS metadata-chmod
+PASS metadata-utime-nofollow
+PASS metadata-stat-nofollow
+PASS metadata-stat-follow
+PASS metadata-utime-follow
+PASS dangling-follow got=false want=false
+PASS dangling-nofollow got=true want=true
+PASS dangling-nofollow-r got=true want=true
+PASS regular-nofollow-r got=true want=true
+PASS escape-follow got=false want=false
+PASS escape-nofollow got=true want=true
+PASS rel-follow got=false want=false
+PASS rel-nofollow got=true want=true
+#checks=8 fail=0
+PASS faccessat-nofollow
+PASS mkdir-base got=0 want=0
+PASS open-dirfd got=1 want=1
+PASS openat-relative-file got=1 want=1
+PASS fstatat-relative-file got=0 want=0
+PASS openat-relative-escape-fails got=-1 want=-1
+PASS fstatat-relative-escape-fails got=-1 want=-1
+PASS faccessat-relative-escape-fails got=-1 want=-1
+PASS mkdirat-relative-escape-fails got=-1 want=-1
+PASS create-relative-absolute-symlink got=0 want=0
+PASS readlinkat-relative-link got=15 want=15
+PASS absolute-symlink-value got=1 want=1
+PASS openat-relative-absolute-symlink-contained got=1 want=1
+PASS create-link-follow-target got=1 want=1
+PASS create-link-follow-symlink got=0 want=0
+linkat-follow rc=-1 errno=13
+PASS linkat-follow-resolved-guest got=1 want=1
+renameat2-noreplace rc=-1 errno=17
+PASS renameat2-noreplace-preserved got=1 want=1
+PASS fchmodat-relative-file got=0 want=0
+PASS fstatat-relative-file-after-chmod got=0 want=0
+PASS relative-file-mode got=385 want=385
+PASS utimensat-relative-file got=0 want=0
+PASS open-proc-dirfd got=1 want=1
+PASS proc-dirfd-dotdot-escape-fails got=-1 want=-1
+PASS proc-dirfd-root-escape-fails got=-1 want=-1
+PASS proc-dirfd-safe-status got=1 want=1
+PASS proc-absolute-root-escape-fails got=-1 want=-1
+PASS proc-absolute-dotdot-escape-fails got=-1 want=-1
+PASS proc-dirfd-faccessat-escape-fails got=-1 want=-1
+PASS proc-dirfd-fstatat-root-escape-fails got=-1 want=-1
+PASS proc-dirfd-mkdirat-escape-fails got=-1 want=-1
+PASS proc-dirfd-fchmodat-escape-fails got=-1 want=-1
+PASS proc-dirfd-readlink-root-escape-fails got=-1 want=-1
+#checks=31 fail=0
+PASS relative-dirfd-contained
+#checks=15 fail=0
+HOST_RC=0

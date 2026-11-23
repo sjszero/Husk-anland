@@ -31,7 +31,8 @@
 > `paplay` 已成功播放（evidence 60 / 62），并完成 610 秒连续会话（evidence 63）；AV 同步仍未完成。
 > 视频侧已在 app 进程内用真实 MTK Codec2 硬解 1080p30 H.264 / HEVC，并通过 ImageReader
 > 从 `AHardwareBuffer` native handle 取得 dma-buf fd（evidence 67）；guest 压缩帧通道、
-> fd 回传与 `MEM_IMPORT` 尚未完成。
+> memfd ring 与真实 `c2.mtk.avc.decoder` 已打通，guest 在 rootfs 隔离下可直连
+> `/run/husk/video.sock`（evidence 69 / 70）；dma-buf 回传与 `MEM_IMPORT` 尚未完成。
 > 音频调试发现的 path root-fd 被 guest 关闭问题已修复，当前 loader 功能矩阵 31/31（evidence 61）。
 
 ---

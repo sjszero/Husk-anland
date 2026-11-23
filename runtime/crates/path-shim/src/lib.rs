@@ -81,6 +81,16 @@ const SYS_FCHMODAT: usize = 53;
 const SYS_FCHOWNAT: usize = 54;
 const SYS_UTIMENSAT: usize = 88;
 const SYS_TRUNCATE: usize = 45;
+const SYS_CONNECT: usize = 203;
+
+const AF_UNIX: u16 = 1;
+const UNIX_PATH_MAX: usize = 108;
+
+#[repr(C)]
+struct SockAddrUn {
+    family: u16,
+    path: [u8; UNIX_PATH_MAX],
+}
 
 #[panic_handler]
 fn panic(_: &PanicInfo) -> ! {
@@ -2305,6 +2315,100 @@ pub unsafe extern "C" fn execvpe(file: *const CChar, argv: *const *const CChar,
 #[no_mangle]
 pub unsafe extern "C" fn execvp(file: *const CChar, argv: *const *const CChar) -> CInt {
     execvpe(file, argv, environ as *const *const CChar)
+}
+
+// ------------------------------------------------------------- Unix sockets
+//
+// glibc's connect(2) wrapper passes AF_UNIX pathnames straight to the kernel;
+// unlike open/stat, there is no filesystem helper inside libc that we can rely
+// on to translate the guest root. A guest rooted at `rootfs-full` therefore
+// cannot connect to an app socket at `/tmp/...` unless we resolve the pathname
+// ourselves and hand the kernel a `/proc/self/fd/<parent>/<name>` address.
+//
+// Abstract sockets (sun_path[0] == 0), unnamed sockets, and non-AF_UNIX
+// addresses are passed through unchanged.
+#[no_mangle]
+pub unsafe extern "C" fn connect(sockfd: CInt, addr: *const u8, addrlen: u32) -> CInt {
+    let raw_connect = || {
+        ret_or_errno(syscall4(
+            SYS_CONNECT,
+            sockfd as usize,
+            addr as usize,
+            addrlen as usize,
+            0,
+        ))
+    };
+
+    if addr.is_null() || addrlen < 2 || addrlen as usize > 2 + UNIX_PATH_MAX + 1 {
+        return raw_connect();
+    }
+    if core::ptr::read_unaligned(addr as *const u16) != AF_UNIX {
+        return raw_connect();
+    }
+
+    let path_len = (addrlen as usize - 2).min(UNIX_PATH_MAX);
+    if path_len == 0 {
+        return raw_connect();
+    }
+    let path = core::slice::from_raw_parts(addr.add(2), path_len);
+    if path[0] == 0 {
+        return raw_connect();
+    }
+    let path_end = path.iter().position(|c| *c == 0).unwrap_or(path_len);
+    if path_end == 0 {
+        return raw_connect();
+    }
+
+    let mut guest = [0u8; UNIX_PATH_MAX + 1];
+    guest[..path_end].copy_from_slice(&path[..path_end]);
+    guest[path_end] = 0;
+
+    let mut gp = [0u8; PATH_MAX];
+    let Some(gn) = abs_guest(guest.as_ptr() as *const CChar, &mut gp) else {
+        return set_errno(36);
+    };
+    let rfd = rootfd();
+    if rfd < 0 || passthrough(&gp[..gn]) {
+        return raw_connect();
+    }
+
+    let mut name = [0u8; 256];
+    let parent = match rc::resolve_parent_follow(rfd, &gp[..gn], &mut name) {
+        Ok(fd) => fd,
+        Err(e) => return set_errno(e),
+    };
+    let name_len = name.iter().position(|c| *c == 0).unwrap_or(0);
+    if name_len == 0 {
+        rc::close(parent);
+        return set_errno(2);
+    }
+
+    let mut proc_buf = [0u8; 32];
+    let proc_path = fd_proc_path(parent, &mut proc_buf);
+    let prefix_len = proc_path.len().saturating_sub(1); // omit trailing NUL
+    if prefix_len + 1 + name_len > UNIX_PATH_MAX {
+        rc::close(parent);
+        return set_errno(36);
+    }
+
+    let mut translated = SockAddrUn {
+        family: AF_UNIX,
+        path: [0u8; UNIX_PATH_MAX],
+    };
+    translated.path[..prefix_len].copy_from_slice(&proc_path[..prefix_len]);
+    translated.path[prefix_len] = b'/';
+    translated.path[prefix_len + 1..prefix_len + 1 + name_len]
+        .copy_from_slice(&name[..name_len]);
+    let translated_len = 2 + prefix_len + 1 + name_len + 1;
+    let r = syscall4(
+        SYS_CONNECT,
+        sockfd as usize,
+        &translated as *const SockAddrUn as usize,
+        translated_len,
+        0,
+    );
+    rc::close(parent);
+    ret_or_errno(r)
 }
 
 // ------------------------------------------------------- not interposed: execl(3)

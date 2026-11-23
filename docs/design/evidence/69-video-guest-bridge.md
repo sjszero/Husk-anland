@@ -107,7 +107,6 @@ a7c869f0e695b0a9757f639dbaba191e4f48aefb969e63d9501da32e8e5bd08f  video-bridge
   and display it through the existing zero-copy SurfaceControl ring.
 - **NOT DONE**: GStreamer/VA-API, Chromium `<video>`, A/V sync, dropped-frame
   accounting, ten-minute playback, CPU comparison, and desktop-player integration.
-- **DEFERRED**: `connect(2)` path translation in the shim. The current harness
-  passes the physical private socket path; this does not disable rootfs isolation,
-  but it should become an ordinary guest path once socket-path interposition exists.
+- **CLOSED BY EVIDENCE 70**: `connect(2)` pathname translation in the shim is now
+  implemented and verified with the guest-visible `/run/husk/video.sock` path.
 - **UNKNOWN**: other devices and 16/64 KiB kernels were not run for this bridge.

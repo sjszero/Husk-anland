@@ -1,0 +1,5 @@
+video|bridge|API|libmediandk.so
+video|bridge|LISTEN|/data/user/0/com.linuxhub.husk/files/rootfs-full/run/husk/video.sock
+video|bridge|client|connected|fd=3
+video|bridge|client|read|peer closed
+video|bridge|client|disconnected

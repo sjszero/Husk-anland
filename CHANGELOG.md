@@ -1,5 +1,19 @@
 # 变更记录
 
+## 2026-11-23 — Guest 可见 Unix socket 路径隔离打通
+
+- **evidence 70**：path-shim 新增 pathname `AF_UNIX` 的 `connect(2)` 翻译，guest 在正常
+  `rootfs-full` 根内直接连接 `/run/husk/video.sock`；app 在
+  `files/rootfs-full/run/husk/video.sock` 接受连接。abstract / unnamed / 非 `AF_UNIX`
+  地址保持原样透传，不关闭 rootfs 隔离。
+- 新 loader 上机回归：功能矩阵 31/31、越界测试 0 escapes、路径可靠性 15/15、
+  `faccessat` 8/8、dirfd 31/31。
+- `libld.so` sha256 `0f3eca76af7cac8258258ea1e6d8932f070034dbd8e913cc19d29797bd13c229`；
+  `libhuskapp.so` sha256 `b09997c6e3d0cb67c7dbe3ae66ee43929a697b0267f2c8685edc35bf508eee7f`；
+  debug APK sha256 `8501304e58a9ba43834f056ae9a27863d7f9da2715b4a6c0f13d344b2fd9f7d8`。
+- **仍未完成**：完整 AVC 媒体面在 guest-visible socket 上的复跑、AHB `MEM_IMPORT` 回导与
+  解码后上屏、HEVC/VP9/AV1、VA-API/GStreamer/Chromium、AV 同步和 10 分钟播放。
+
 ## 2026-11-23 — Guest 压缩视频桥 v1 实机打通
 
 - **evidence 69**：正常 `rootfs-full` 根内的 glibc guest 用纯 Rust MP4 reader 解复用
