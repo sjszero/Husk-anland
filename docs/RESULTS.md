@@ -73,4 +73,5 @@
 - HEVC / VP9 / AV1 解码；硬件编码。
 - 相机帧的零拷贝路径（当前是拷贝）。
 - 传感器、GPS、USB、蓝牙、NFC、指纹。
-- ScreenCast 流的 buffer 类型（dmabuf / system memory）——正在测。
+- ScreenCast 流的 buffer 类型已按源码定论（消费者带 modifier 就是 dmabuf），实测被
+  「有 session bus 时 PipeWire 客户端卡住」挡住，见 evidence 103。

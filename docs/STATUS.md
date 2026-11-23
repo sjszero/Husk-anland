@@ -32,13 +32,14 @@
 - 已排除：厂商 GPU 用户态库直接进 guest（25 个 bionic `DT_NEEDED`）；
   自研合成器替代 gnome-shell（与产品形态冲突）。
 - 现在走协议层：ScreenCast → PipeWire 节点 → dma-buf → AHardwareBuffer → SurfaceControl。
-- 当前阻塞点：
-  1. **stream 的 buffer 类型未知**（dmabuf / system memory）——这是零拷贝能不能做的前提，正在测；
-  2. session manager 缺位：wireplumber 0.4 因 logind 依赖退出，需要最小策略层自动连线。
+- buffer 类型已有答案（evidence 103）：mutter 46 两条路都支持，**由消费者协商决定**——
+  回传的格式带 `SPA_FORMAT_VIDEO_modifier` 就给 dmabuf，不带就给 memfd。零拷贝取决于我们自己。
+- 当前阻塞点：guest 里**只要有 session bus 存在**，PipeWire 客户端就会卡住（`pw-cli` 连上 core
+  之后收不到 registry 事件；去掉 bus 就正常）。这不是 mutter 的问题，是我们要先修掉的一层。
 
 ## 下一步（按顺序）
 
-1. 测出 ScreenCast 流的 buffer 类型，把结果写成证据。
+1. 修掉「有 session bus 时 PipeWire 客户端卡住」这个问题（evidence 103）。
 2. 帧消费者：PipeWire → dmabuf → AHB → SurfaceControl（复用已验证的 3-buffer ring）。
 3. GNOME 桌面可用性验收：浏览器、文件管理器、终端。
 4. 传感器（IIO sysfs 合成树 + NDK `ASensorManager`，纯 Rust）、GPS（`/dev/gps0` NMEA）。
