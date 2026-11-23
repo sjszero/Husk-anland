@@ -1,0 +1,5 @@
+HUSK_VA vendor=husk profiles=2
+PROFILE id=7 entrypoints=1 first=1
+PROFILE id=17 entrypoints=1 first=1
+IMAGE_FORMAT count=1 fourcc=0x3231564e bpp=12 depth=12
+HOST_RC=0

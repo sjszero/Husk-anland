@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 11:40）
+# 当前状态（2026-11-23 12:15）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -41,8 +41,11 @@ evidence 80 已把 6-slot 固定 AHB ring 跑到 **1080p30 H.264 连续 600.097 
 `sent/completed/presented=18,000/18,000/18,000`、`present_fail=0`，截图在 9:59 仍正常出画。
 会话后 RSS 从峰值约 205.6 MiB 稳定到约 203 MiB，fd/线程在第二次 150 帧会话后不再增长；
 仍未回到启动前精确基线，原因标为 UNKNOWN。这条路径仍是 CPU I420→YV12 拷贝，不是
-decoder→GPU 零拷贝；guest WSI、VA-API/GStreamer/Chromium、HEVC/VP9/AV1、AV 同步及
-硬软解 CPU 对比仍未完成。
+decoder→GPU 零拷贝。VA-API 系统层已开始落地：evidence 81 的纯 Rust `husk_drv_video.so`
+被 guest libva 实际加载，`vainfo` 报出 H.264 High / HEVC Main 和 VLD，NV12 image-format
+查询通过；GStreamer 已注册 `vaapidecodebin`、`vaapih264dec`、`vaapih265dec`、`vaapisink`。
+但 surface/context/buffer/render/sync/export 数据面仍是显式未实现，guest WSI、Chromium、
+HEVC/VP9/AV1、AV 同步及硬软解 CPU 对比仍未完成。
 音频侧已跑通最小闭环：guest 枚举 7 个 Android 输出设备、读写 `STREAM_MUSIC`
 音量，并把 3 秒 PCM16 经独立 Unix socket 交给 app 内 AAudio（evidence 60）；但低延迟请求被
 vendor policy 拒绝、平台返回 `perf=NONE`；evidence 62 又打通 PulseAudio `module-pipe-sink` →

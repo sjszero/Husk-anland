@@ -1,0 +1,43 @@
+libgvfscommon.so: cannot open shared object file: No such file or directory
+Failed to load module: /usr/lib/aarch64-linux-gnu/gio/modules/libgvfsdbus.so
+libgvfscommon.so: cannot open shared object file: No such file or directory
+Failed to load module: /usr/lib/aarch64-linux-gnu/gio/modules/libgioremote-volume-monitor.so
+libpxbackend-1.0.so: cannot open shared object file: No such file or directory
+Failed to load module: /usr/lib/aarch64-linux-gnu/gio/modules/libgiolibproxy.so
+0:00:00.153954154  9291   0x557acad6d0 INFO                   vaapi gstvaapiutils.c:95:gst_vaapi_log: VA-API version 1.20.0
+0:00:00.154197923  9291   0x557acad6d0 WARN                   vaapi gstvaapiutils.c:78:gst_vaapi_warning: vaGetDriverNames() failed with unknown libva error
+0:00:00.154293616  9291   0x557acad6d0 INFO                   vaapi gstvaapiutils.c:95:gst_vaapi_log: User environment variable requested driver 'husk'
+0:00:00.154372385  9291   0x557acad6d0 INFO                   vaapi gstvaapiutils.c:95:gst_vaapi_log: Trying to open /data/data/com.linuxhub.husk/files/rootfs-full/usr/lib/aarch64-linux-gnu/dri/husk_drv_video.so
+0:00:00.154998770  9291   0x557acad6d0 INFO                   vaapi gstvaapiutils.c:95:gst_vaapi_log: Found init function __vaDriverInit_1_0
+0:00:00.155125539  9291   0x557acad6d0 INFO                   vaapi gstvaapiutils.c:95:gst_vaapi_log: va_openDriver() returns 0
+0:00:00.155268385  9291   0x557acad6d0 INFO                   vaapi gstvaapiutils.c:122:vaapi_initialize: VA-API version 1.20
+0:00:00.155325231  9291   0x557acad6d0 INFO            vaapidisplay gstvaapidisplay.c:983:gst_vaapi_display_create:<vaapidisplaydrm0> new display addr=0x557acad640
+0:00:00.155404385  9291   0x557acad6d0 INFO            vaapidisplay gstvaapidisplay.c:795:ensure_vendor_string:<vaapidisplaydrm0> vendor: husk
+0:00:00.155485539  9291   0x557acad6d0 INFO            vaapidisplay gstvaapidisplay.c:834:set_driver_quirks:<vaapidisplaydrm0> Matched driver string "husk", setting quirks (0)
+0:00:00.155573539  9291   0x557acad6d0 DEBUG           vaapidisplay gstvaapidisplay.c:711:ensure_image_formats: 1 image formats
+0:00:00.155620616  9291   0x557acad6d0 DEBUG           vaapidisplay gstvaapidisplay.c:713:ensure_image_formats:   NV12
+0:00:00.155686231  9291   0x557acad6d0 DEBUG           vaapidisplay gstvaapidisplay.c:504:ensure_profiles: 2 profiles
+0:00:00.155734847  9291   0x557acad6d0 DEBUG           vaapidisplay gstvaapidisplay.c:508:ensure_profiles:   VAProfileH264High
+0:00:00.155775770  9291   0x557acad6d0 DEBUG           vaapidisplay gstvaapidisplay.c:508:ensure_profiles:   VAProfileHEVCMain
+0:00:00.155823154  9291   0x557acad6d0 DEBUG                  vaapi gstvaapiutils.c:131:vaapi_check_status: vaQueryEntrypoints() [VAProfileNone]: the requested VAProfile is not supported
+Plugin Details:
+  Name                     vaapi
+  Description              VA-API based elements
+  Filename                 /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstvaapi.so
+  Version                  1.24.2
+  License                  LGPL
+  Source module            gstreamer-vaapi
+  Documentation            https://gstreamer.freedesktop.org/documentation/vaapi/
+  Source release date      2024-04-09
+  Binary package           gstreamer-vaapi
+  Origin URL               https://launchpad.net/ubuntu/+source/gstreamer-vaapi
+
+  vaapidecodebin: VA-API Decode Bin
+  vaapih264dec: VA-API H264 decoder
+  vaapih265dec: VA-API H265 decoder
+  vaapisink: VA-API sink
+
+  4 features:
+  +-- 4 elements
+
+HOST_RC=0

@@ -1,0 +1,12 @@
+libva info: VA-API version 1.20.0
+libva error: vaGetDriverNames() failed with unknown libva error
+libva info: User environment variable requested driver 'husk'
+libva info: Trying to open /data/data/com.linuxhub.husk/files/rootfs-full/usr/lib/aarch64-linux-gnu/dri/husk_drv_video.so
+libva info: Found init function __vaDriverInit_1_0
+libva info: va_openDriver() returns 0
+vainfo: VA-API version: 1.20 (libva 2.12.0)
+vainfo: Driver version: husk
+vainfo: Supported profile and entrypoints
+      VAProfileH264High               :	VAEntrypointVLD
+      VAProfileHEVCMain               :	VAEntrypointVLD
+HOST_RC=0

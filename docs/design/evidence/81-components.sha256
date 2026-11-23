@@ -1,0 +1,8 @@
+3a499c50762194d5ca7370f141f520ca0c4176db2a69a2cdd2d8a0a1e5dc0ea3  runtime/target/aarch64-unknown-linux-gnu/release/libhusk_va_driver.so
+5be483d4f9adbc139cfb24d3a23d89c0fe78256c6d4ab8845d56be24c6eca409  runtime/target/aarch64-unknown-linux-gnu/release/libva_node_shim.so
+87978a93c11d41c009acd5338ca996f6a69b4f4f6073fce8cfd30fa6eac22f2d  runtime/target/aarch64-unknown-linux-gnu/release/va-probe
+c044b3c847aa48096a236f40bb449970296924f814c9c7ddbabe7e49f5d839e4  docs/design/evidence/81-components.sha256
+dc74d3c9dc715676210965826948ab4a648fd79f92b7598f921dbfe5c5a91bd3  docs/design/evidence/81-gst-inspect.log
+322dabe67111a138f42a382fe969154511abd7274ba240df674b831831cb4a3f  docs/design/evidence/81-va-driver-profile-enumeration.md
+8c8daa7529bc839dd531914c58f28b3117ff10a20979a5358d5df641cd707896  docs/design/evidence/81-va-probe.log
+331fd2bbd8b1e855b6a73a9b4c631b101573ef39e34be194e592556f5e3caa11  docs/design/evidence/81-vainfo.log
