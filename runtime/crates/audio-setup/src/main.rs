@@ -76,6 +76,7 @@ fn main() {
     let physical = physical_root(&root);
     let mut state = physical.join("tmp/husk-pulse");
     let mut enable = false;
+    let mut enable_capture = false;
     let mut rate = 48_000u32;
     let mut channels = 2u32;
 
@@ -87,6 +88,10 @@ fn main() {
                 state = PathBuf::from(args.get(i).unwrap_or_else(|| usage()));
             }
             "--enable" => enable = true,
+            "--enable-capture" => {
+                enable = true;
+                enable_capture = true;
+            }
             "--rate" => {
                 i += 1;
                 rate = args
@@ -145,14 +150,39 @@ fn main() {
         // inside the path-shim this can return the guest view (`/tmp/...`), which
         // PulseAudio's mkfifo path bypasses and therefore cannot open.
         let state_abs = state.clone();
+        let capture_lines = if enable_capture {
+            // The guest side of the microphone: PulseAudio reads our FIFO, the
+            // Husk capture client writes it. `module-pipe-source` needs the
+            // FIFO to exist, so create it here instead of at record time.
+            // `module-pipe-source` calls mkfifo() and treats EEXIST as fatal
+            // (unlike `module-pipe-sink`, which tolerates it), so the module
+            // creates the FIFO itself. All we do is clear a stale one from a
+            // previous run; a leftover FIFO would make `load-module` fail.
+            let mic = state_abs.join("mic.pcm");
+            match fs::remove_file(&mic) {
+                Ok(()) => println!("audio-setup|UNCLEAN|{}", mic.display()),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => println!("audio-setup|WARN|{}: {e}", mic.display()),
+            }
+            format!(
+                "load-module module-pipe-source file={} source_name=husk_mic format=s16le rate={} channels={}\n\
+                 set-default-source husk_mic\n",
+                mic.display(),
+                rate,
+                channels
+            )
+        } else {
+            String::new()
+        };
         let config = format!(
             "load-module module-native-protocol-unix socket={}/native auth-anonymous=1\n\
              load-module module-pipe-sink file={}/audio.pcm sink_name=husk_pipe format=s16le rate={} channels={}\n\
-             set-default-sink husk_pipe\n",
+             set-default-sink husk_pipe\n{}",
             state_abs.display(),
             state_abs.display(),
             rate,
-            channels
+            channels,
+            capture_lines
         );
         let config_path = state.join("minimal.pa");
         fs::write(&config_path, config)?;
@@ -161,6 +191,11 @@ fn main() {
             let marker = state.join("enabled");
             fs::write(&marker, b"audio-v1\n")?;
             println!("audio-setup|ENABLE|{}", marker.display());
+        }
+        if enable_capture {
+            let marker = state.join("enabled-in");
+            fs::write(&marker, b"audio-in-v1\n")?;
+            println!("audio-setup|ENABLE_CAPTURE|{}", marker.display());
         }
 
         println!(

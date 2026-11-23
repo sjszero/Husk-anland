@@ -19,6 +19,9 @@ use std::time::{Duration, Instant};
 
 const RTLD_NOW: c_int = 2;
 const AAUDIO_DIRECTION_OUTPUT: c_int = 0;
+const AAUDIO_DIRECTION_INPUT: c_int = 1;
+const AAUDIO_INPUT_PRESET_GENERIC: c_int = 1;
+const AAUDIO_INPUT_PRESET_UNPROCESSED: c_int = 9;
 const AAUDIO_FORMAT_PCM_I16: c_int = 1;
 const AAUDIO_SHARING_MODE_SHARED: c_int = 1;
 const AAUDIO_PERFORMANCE_MODE_LOW_LATENCY: c_int = 12;
@@ -46,6 +49,7 @@ type FnDeleteBuilder = unsafe extern "C" fn(*mut Builder);
 type FnOpen = unsafe extern "C" fn(*mut Builder, *mut *mut Stream) -> c_int;
 type FnStreamNoArg = unsafe extern "C" fn(*mut Stream) -> c_int;
 type FnWrite = unsafe extern "C" fn(*mut Stream, *const c_void, i32, i64) -> i32;
+type FnRead = unsafe extern "C" fn(*mut Stream, *mut c_void, i32, i64) -> i32;
 type FnGetI32 = unsafe extern "C" fn(*mut Stream) -> i32;
 type FnGetI64 = unsafe extern "C" fn(*mut Stream) -> i64;
 type FnGetTimestamp = unsafe extern "C" fn(*mut Stream, c_int, *mut i64, *mut i64) -> c_int;
@@ -62,11 +66,13 @@ struct Api {
     set_sharing_mode: FnBuilderInt,
     set_performance_mode: FnBuilderInt,
     set_usage: FnBuilderInt,
+    set_input_preset: FnBuilderInt,
     open: FnOpen,
     request_start: FnStreamNoArg,
     request_stop: FnStreamNoArg,
     close: FnStreamNoArg,
     write: FnWrite,
+    read: FnRead,
     get_state: FnGetI32,
     get_sample_rate: FnGetI32,
     get_channel_count: FnGetI32,
@@ -111,11 +117,13 @@ impl Api {
             set_sharing_mode: symbol(handle, c"AAudioStreamBuilder_setSharingMode")?,
             set_performance_mode: symbol(handle, c"AAudioStreamBuilder_setPerformanceMode")?,
             set_usage: symbol(handle, c"AAudioStreamBuilder_setUsage")?,
+            set_input_preset: symbol(handle, c"AAudioStreamBuilder_setInputPreset")?,
             open: symbol(handle, c"AAudioStreamBuilder_openStream")?,
             request_start: symbol(handle, c"AAudioStream_requestStart")?,
             request_stop: symbol(handle, c"AAudioStream_requestStop")?,
             close: symbol(handle, c"AAudioStream_close")?,
             write: symbol(handle, c"AAudioStream_write")?,
+            read: symbol(handle, c"AAudioStream_read")?,
             get_state: symbol(handle, c"AAudioStream_getState")?,
             get_sample_rate: symbol(handle, c"AAudioStream_getSampleRate")?,
             get_channel_count: symbol(handle, c"AAudioStream_getChannelCount")?,
@@ -840,31 +848,56 @@ fn serve() {
             continue;
         }
         announced_wait = false;
-        let path = files.join("audio-bridge.sock");
-        let _ = std::fs::remove_file(&path);
-        let listener = match UnixListener::bind(&path) {
-            Ok(listener) => listener,
-            Err(e) => {
-                crate::log(&format!("audio|bridge|FAIL|bind {e}"));
-                std::thread::sleep(Duration::from_secs(1));
-                continue;
+        // Two listeners, same protocol. `files/audio-bridge.sock` keeps the old
+        // host-side scripts working; `rootfs-full/run/husk/audio-out.sock` is the
+        // one a guest binary can actually open, because the path shim resolves
+        // absolute paths inside the guest root (a socket outside the rootfs is
+        // invisible to `audio-relay`). Same rule the capture socket follows.
+        let paths = [
+            files.join("audio-bridge.sock"),
+            files.join("rootfs-full/run/husk/audio-out.sock"),
+        ];
+        let mut listeners = Vec::new();
+        for path in &paths {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
             }
-        };
-        let _ = listener.set_nonblocking(true);
-        crate::log(&format!("audio|bridge|LISTEN|{}", path.display()));
-        while enabled() {
-            match listener.accept() {
-                Ok((stream, _)) => handle_client(&api, stream),
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(25));
+            let _ = std::fs::remove_file(path);
+            match UnixListener::bind(path) {
+                Ok(listener) => {
+                    let _ = listener.set_nonblocking(true);
+                    crate::log(&format!("audio|bridge|LISTEN|{}", path.display()));
+                    listeners.push(listener);
                 }
-                Err(e) => {
-                    crate::log(&format!("audio|bridge|FAIL|accept {e}"));
-                    break;
-                }
+                Err(e) => crate::log(&format!(
+                    "audio|bridge|FAIL|bind {}: {e}",
+                    path.display()
+                )),
             }
         }
-        let _ = std::fs::remove_file(&path);
+        if listeners.is_empty() {
+            std::thread::sleep(Duration::from_secs(1));
+            continue;
+        }
+        while enabled() {
+            let mut any = false;
+            for listener in &listeners {
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        any = true;
+                        handle_client(&api, stream);
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(e) => crate::log(&format!("audio|bridge|FAIL|accept {e}")),
+                }
+            }
+            if !any {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+        }
+        for path in &paths {
+            let _ = std::fs::remove_file(path);
+        }
         crate::log("audio|bridge|STOP|marker removed");
     }
 }
@@ -877,4 +910,300 @@ pub fn start_once() {
     std::thread::spawn(|| {
         let _ = std::panic::catch_unwind(serve);
     });
+    std::thread::spawn(|| {
+        let _ = std::panic::catch_unwind(serve_capture);
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Microphone capture (`untrusted_app` cannot open /dev/snd, but AAudio input
+// reaches AudioFlinger and the vendor capture path).
+//
+// Direction is the only real difference from the output bridge: the guest asks
+// for frames (`READ frames=N`) and the app answers with exactly N frames of
+// interleaved PCM16, because the guest-side `module-pipe-source` has to be fed
+// by a process we control. A separate marker and a separate socket keep this
+// channel from ever being confused with playback.
+// ---------------------------------------------------------------------------
+
+const CAPTURE_SOCKET: &str = "rootfs-full/run/husk/audio-in.sock";
+const CAPTURE_MARKER: &str = "audio-in";
+const CAPTURE_GUEST_MARKER: &str = "rootfs-full/tmp/husk-pulse/enabled-in";
+const CAPTURE_READ_TIMEOUT_NS: i64 = 1_000_000_000;
+
+struct CaptureStream {
+    native: *mut Stream,
+    rate: i32,
+    channels: i32,
+    format: i32,
+    device: i32,
+    burst: i32,
+    capacity: i32,
+    frames_read: u64,
+    silent_chunks: u64,
+    peak: i32,
+}
+
+impl CaptureStream {
+    unsafe fn open_input(api: &Api, rate: i32, channels: i32) -> Result<Self, String> {
+        if rate <= 0 || rate > 384_000 || channels <= 0 || channels > 8 {
+            return Err(format!("bad capture format: rate={rate} channels={channels}"));
+        }
+        let mut builder: *mut Builder = core::ptr::null_mut();
+        let rc = (api.create_builder)(&mut builder);
+        if rc != AAUDIO_OK || builder.is_null() {
+            return Err(format!("AAudio_createStreamBuilder rc={rc}"));
+        }
+        (api.set_direction)(builder, AAUDIO_DIRECTION_INPUT);
+        (api.set_format)(builder, AAUDIO_FORMAT_PCM_I16);
+        (api.set_sample_rate)(builder, rate);
+        (api.set_channel_count)(builder, channels);
+        (api.set_sharing_mode)(builder, AAUDIO_SHARING_MODE_SHARED);
+        (api.set_performance_mode)(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
+        // GENERIC is the AAudio spelling of `MediaRecorder.AudioSource.MIC`, which
+        // is what the prior art uses (DroidNative's MicBridge). UNPROCESSED was
+        // tried first on this device and delivered all-zero samples while the
+        // open/report path looked healthy, so it is now the fallback only.
+        let mut preset = AAUDIO_INPUT_PRESET_GENERIC;
+        (api.set_input_preset)(builder, preset);
+
+        let mut native: *mut Stream = core::ptr::null_mut();
+        let mut open_rc = (api.open)(builder, &mut native);
+        if open_rc != AAUDIO_OK || native.is_null() {
+            (api.set_input_preset)(builder, AAUDIO_INPUT_PRESET_UNPROCESSED);
+            preset = AAUDIO_INPUT_PRESET_UNPROCESSED;
+            open_rc = (api.open)(builder, &mut native);
+        }
+        (api.delete_builder)(builder);
+        if open_rc != AAUDIO_OK || native.is_null() {
+            return Err(format!("AAudio input openStream rc={open_rc}"));
+        }
+        let actual_rate = (api.get_sample_rate)(native);
+        let actual_channels = (api.get_channel_count)(native);
+        let actual_format = (api.get_format)(native);
+        let device_id = (api.get_device_id)(native);
+        let burst = (api.get_frames_per_burst)(native);
+        let capacity = (api.get_buffer_capacity)(native);
+        let start_rc = (api.request_start)(native);
+        if start_rc != AAUDIO_OK || !api.wait_started(native) {
+            let state = (api.get_state)(native);
+            let _ = (api.request_stop)(native);
+            let _ = (api.close)(native);
+            return Err(format!("AAudio input start failed: rc={start_rc} state={state}"));
+        }
+        crate::log(&format!(
+            "audio|capture|open|preset={preset}|rate={actual_rate}|channels={actual_channels}|format={actual_format}|device={device_id}|burst={burst}|capacity={capacity}"
+        ));
+        Ok(Self {
+            native,
+            rate: actual_rate,
+            channels: actual_channels,
+            format: actual_format,
+            device: device_id,
+            burst,
+            capacity,
+            frames_read: 0,
+            silent_chunks: 0,
+            peak: 0,
+        })
+    }
+
+    fn ready_line(&self) -> String {
+        format!(
+            "CAPTURE_READY rate={} channels={} format={} device={} burst={} capacity={}",
+            self.rate, self.channels, self.format, self.device, self.burst, self.capacity
+        )
+    }
+
+    /// Blocking read of exactly `frames` interleaved PCM16 frames.
+    unsafe fn read_frames(&mut self, api: &Api, frames: usize) -> Result<Vec<u8>, String> {
+        let channels = self.channels.max(1) as usize;
+        let mut pcm = vec![0u8; frames * channels * 2];
+        let mut done = 0usize;
+        while done < frames {
+            let want = (frames - done) as i32;
+            let offset = done * channels * 2;
+            let got = (api.read)(
+                self.native,
+                pcm[offset..].as_mut_ptr().cast::<c_void>(),
+                want,
+                CAPTURE_READ_TIMEOUT_NS,
+            );
+            if got < 0 {
+                return Err(format!("AAudioStream_read rc={got}"));
+            }
+            if got == 0 {
+                return Err("AAudioStream_read timed out".into());
+            }
+            done += got as usize;
+        }
+        self.frames_read += frames as u64;
+        let mut peak = 0i32;
+        for sample in pcm.chunks_exact(2) {
+            let value = i16::from_le_bytes([sample[0], sample[1]]) as i32;
+            peak = peak.max(value.abs());
+        }
+        self.peak = self.peak.max(peak);
+        if peak == 0 {
+            self.silent_chunks += 1;
+        }
+        Ok(pcm)
+    }
+
+    fn summary(&self) -> String {
+        format!(
+            "frames_read={} silent_chunks={} peak={}",
+            self.frames_read, self.silent_chunks, self.peak
+        )
+    }
+
+    unsafe fn close(&self, api: &Api) {
+        let _ = (api.request_stop)(self.native);
+        let _ = (api.close)(self.native);
+    }
+}
+
+fn handle_capture(api: &Api, mut stream: UnixStream) {
+    let mut active: Option<CaptureStream> = None;
+    loop {
+        let line = match read_line(&mut stream) {
+            Ok(line) => line,
+            Err(e) => {
+                crate::log(&format!("audio|capture|read|{e}"));
+                break;
+            }
+        };
+        let fields = parse_kv(&line);
+        let cmd = line
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .to_ascii_uppercase();
+        let reply = match cmd.as_str() {
+            "OPEN" => {
+                let rate = parse_i32(&fields, "rate", 48_000).unwrap_or(48_000);
+                let channels = parse_i32(&fields, "channels", 2).unwrap_or(2);
+                if active.is_some() {
+                    send_line(&mut stream, "CAPTURE_ERROR already open")
+                } else {
+                    match unsafe { CaptureStream::open_input(api, rate, channels) } {
+                        Ok(opened) => {
+                            let ready = opened.ready_line();
+                            let sent = send_line(&mut stream, &ready);
+                            active = Some(opened);
+                            sent
+                        }
+                        Err(e) => {
+                            crate::log(&format!("audio|capture|OPEN_FAIL|{e}"));
+                            send_line(&mut stream, &format!("CAPTURE_ERROR {e}"))
+                        }
+                    }
+                }
+            }
+            "READ" => match active.as_mut() {
+                Some(current) => {
+                    let frames = parse_usize(&fields, "frames", 1024).unwrap_or(1024).clamp(1, 8192);
+                    match unsafe { current.read_frames(api, frames) } {
+                        Ok(pcm) => send_line(
+                            &mut stream,
+                            &format!("PCM_OK frames={frames} bytes={}", pcm.len()),
+                        )
+                        .and_then(|_| stream.write_all(&pcm))
+                        .and_then(|_| stream.flush()),
+                        Err(e) => send_line(&mut stream, &format!("PCM_ERROR {e}")),
+                    }
+                }
+                None => send_line(&mut stream, "PCM_ERROR no open capture"),
+            },
+            "CLOSE" | "QUIT" => {
+                let summary = match active.take() {
+                    Some(current) => {
+                        let summary = current.summary();
+                        unsafe { current.close(api) };
+                        summary
+                    }
+                    None => "frames_read=0 silent_chunks=0 peak=0".to_string(),
+                };
+                crate::log(&format!("audio|capture|close|{summary}"));
+                let _ = send_line(&mut stream, &format!("CAPTURE_OK {summary}"));
+                if cmd == "QUIT" {
+                    break;
+                }
+                Ok(())
+            }
+            _ => send_line(&mut stream, "ERROR unknown-command"),
+        };
+        if let Err(e) = reply {
+            crate::log(&format!("audio|capture|write|{e}"));
+            break;
+        }
+    }
+    if let Some(current) = active.take() {
+        let summary = current.summary();
+        crate::log(&format!("audio|capture|disconnect|{summary}"));
+        unsafe { current.close(api) };
+    }
+}
+
+fn serve_capture() {
+    let Some(files) = files_dir() else {
+        crate::log("audio|capture|SKIP|no files dir");
+        return;
+    };
+    let Some((_handle, api)) = (unsafe { Api::load().ok() }) else {
+        crate::log("audio|capture|FAIL|AAudio symbols unavailable");
+        return;
+    };
+    let marker = files.join(CAPTURE_MARKER);
+    let guest_marker = files.join(CAPTURE_GUEST_MARKER);
+    let enabled = || marker.exists() || guest_marker.exists();
+    let mut announced_wait = false;
+    loop {
+        if !enabled() {
+            if !announced_wait {
+                crate::log(&format!(
+                    "audio|capture|WAIT|{} or {}",
+                    marker.display(),
+                    guest_marker.display()
+                ));
+                announced_wait = true;
+            }
+            std::thread::sleep(Duration::from_millis(500));
+            continue;
+        }
+        announced_wait = false;
+        let path = files.join(CAPTURE_SOCKET);
+        if let Some(parent) = path.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                crate::log(&format!("audio|capture|FAIL|mkdir {e}"));
+                std::thread::sleep(Duration::from_secs(1));
+                continue;
+            }
+        }
+        let _ = std::fs::remove_file(&path);
+        let listener = match UnixListener::bind(&path) {
+            Ok(listener) => listener,
+            Err(e) => {
+                crate::log(&format!("audio|capture|FAIL|bind {e}"));
+                std::thread::sleep(Duration::from_secs(1));
+                continue;
+            }
+        };
+        let _ = listener.set_nonblocking(true);
+        crate::log(&format!("audio|capture|LISTEN|{}", path.display()));
+        while enabled() {
+            match listener.accept() {
+                Ok((stream, _)) => handle_capture(&api, stream),
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(25));
+                }
+                Err(e) => {
+                    crate::log(&format!("audio|capture|FAIL|accept {e}"));
+                    break;
+                }
+            }
+        }
+        let _ = std::fs::remove_file(&path);
+        crate::log("audio|capture|STOP|marker removed");
+    }
 }

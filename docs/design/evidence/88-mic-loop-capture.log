@@ -1,0 +1,11 @@
+capture|OPEN|CAPTURE_READY rate=48000 channels=2 format=1 device=16 burst=128 capacity=4096
+capture|PROGRESS|frames=50176|bytes=200704|silent=5|peak=264
+capture|PROGRESS|frames=98304|bytes=393216|silent=5|peak=264
+capture|PROGRESS|frames=146432|bytes=585728|silent=5|peak=267
+capture|PROGRESS|frames=194560|bytes=778240|silent=5|peak=3186
+capture|PROGRESS|frames=242688|bytes=970752|silent=5|peak=3186
+capture|PROGRESS|frames=290816|bytes=1163264|silent=5|peak=3186
+capture|PROGRESS|frames=338944|bytes=1355776|silent=5|peak=3186
+capture|PROGRESS|frames=387072|bytes=1548288|silent=5|peak=3186
+capture|PROGRESS|frames=435200|bytes=1740800|silent=5|peak=3737
+capture|PROGRESS|frames=483328|bytes=1933312|silent=5|peak=3737

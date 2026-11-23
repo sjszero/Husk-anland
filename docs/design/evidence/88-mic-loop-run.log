@@ -1,0 +1,13 @@
+PULSE_PID=20057 native=yes
+TONE_START
+TONE_DONE rc=0
+--- capture ---
+capture|PROGRESS|frames=387072|bytes=1548288|silent=5|peak=3186
+capture|PROGRESS|frames=435200|bytes=1740800|silent=5|peak=3737
+capture|PROGRESS|frames=483328|bytes=1933312|silent=5|peak=3737
+--- relay ---
+relay|OPEN|OPEN_READY rate=48000 channels=2 format=1 device=3 burst=1026 capacity=2052 buffer=1026 perf=10 sharing=1
+relay|BEGIN|fifo=/data/data/com.linuxhub.husk/files/rootfs-full/tmp/husk-pulse/audio.pcm|rate=48000|channels=2|seconds=60
+relay|PROGRESS|chunks=100|frames=204800|elapsed_ms=7240
+--- play ---
+RAW=1921024

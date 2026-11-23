@@ -730,3 +730,14 @@ O S C 现在也认 `ESC \` 结束符（否则会一直吞到下一个 BEL）。
 
 * `stream_create 0x40208018` → timeline fd=5，poll 正常（revents=0，无待完成）。
 * 完成通道第一段打通；缺 atom↔timeline 的关联与错误读取。
+
+## 2026-11-23 14:30 麦克风输入打通（evidence 88）
+
+* 声学回环：guest `audiotestsrc 440Hz` → 扬声器 → 手机麦克风 → `audio-capture` → `module-pipe-source`
+  → `parec` 1,921,024 字节；440 Hz 能量只在放音窗口出现（0.0 → 467.1 → 0.3）。
+* 三个坑：`module-pipe-source` `mkfifo` 遇 EEXIST 直接失败（与 pipe-sink 不同）；
+  `AAUDIO_INPUT_PRESET_UNPROCESSED` 全 0 静音 → 换 `GENERIC`；息屏/锁屏时麦克风静音（平台行为）。
+* 结构性修复：guest 无法打开 rootfs 外 socket，输出桥增开 `rootfs-full/run/husk/audio-out.sock`。
+* 权限：`pm grant` / `cmd appops` 在本 ROM 被拒；`adb install -r -g` 可用（仅开发机循环）。
+* 待办：产品级 `requestPermissions`（native 主线程）、按需求开关麦克风（prior art 的 mic.active 语义）、
+  10 分钟长稳、边放边录并发统计、源选择（VOICE_RECOGNITION 等）。

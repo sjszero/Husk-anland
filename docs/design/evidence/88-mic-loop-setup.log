@@ -1,0 +1,3 @@
+audio-setup|ENABLE|/data/data/com.linuxhub.husk/files/rootfs-full/tmp/husk-pulse/enabled
+audio-setup|ENABLE_CAPTURE|/data/data/com.linuxhub.husk/files/rootfs-full/tmp/husk-pulse/enabled-in
+audio-setup|PASS|root=/|helper_modules=11|module_dirs=1|state=/data/data/com.linuxhub.husk/files/rootfs-full/tmp/husk-pulse

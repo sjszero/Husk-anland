@@ -1,0 +1,4 @@
+11-23 14:29:18.422 16826 19996 I Husk    : audio|capture|LISTEN|/data/user/0/com.linuxhub.husk/files/rootfs-full/run/husk/audio-in.sock
+11-23 14:29:21.838 16826 19996 I Husk    : audio|capture|open|preset=1|rate=48000|channels=2|format=1|device=16|burst=128|capacity=4096
+11-23 14:29:32.221 16826 19996 I Husk    : audio|capture|write|Broken pipe (os error 32)
+11-23 14:29:32.221 16826 19996 I Husk    : audio|capture|disconnect|frames_read=499712 silent_chunks=5 peak=3737
