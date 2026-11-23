@@ -4011,13 +4011,10 @@ unsafe fn utimens_target(
     if ro_refuse_at(dirfd, path) {
         return -1;
     }
-    // Under the fake-root convention the guest cannot change ownership (no
-    // CAP_CHOWN), and every package manager calls it on every file. Reporting
-    // success is what a user namespace would do; the real owner on disk stays
-    // u0_a302. See the fake-root note above getuid().
-    if fake_root_on() {
-        return 0;
-    }
+    // No fake-root shortcut here: setting a timestamp needs no privilege on a
+    // file this process owns, and the caller reads the value back (make, git,
+    // tar, rsync, `touch -h`). Swallowing the call is why
+    // 04-path-reliability's utime-nofollow check used to report "now".
     if *path == 0 {
         if raw_flags & AT_EMPTY_PATH != 0 {
             // The caller handed us an fd, not a name: nothing to translate.
