@@ -1750,6 +1750,443 @@ pub unsafe extern "C" fn umount2(target: *const CChar, _flags: CInt) -> CInt {
     set_errno(22)
 }
 
+// --------------------------------------------------------- POSIX mqueues ---
+//
+// The kernel has no mqueue filesystem here (no mount, no /dev/mqueue), so
+// `mq_open` answers ENOSYS. A container gives programs a working named queue;
+// this is the same service built out of what a namespace of this shape *can*
+// do: a directory per queue under /dev/mqueue/.q, a file per message, and a
+// handle that is simply a directory fd.
+//
+// Message file name: "p<prio 03>_<mono nsec 019>_<pid>". Priority first so a
+// lexicographic scan picks the highest priority, then the oldest.
+const MQ_ROOT: &[u8] = b"/dev/mqueue\0";
+const MQ_BASE: &[u8] = b"/dev/mqueue/.q\0";
+const MQ_FLAGS_CREAT: CInt = 0o100;
+const MQ_FLAGS_EXCL: CInt = 0o200;
+const MQ_FLAGS_NONBLOCK: CInt = 0o4000;
+const F_GETFL: CInt = 3;
+
+unsafe fn mq_mkdirs() {
+    mkdirat(AT_FDCWD, MQ_ROOT.as_ptr() as *const CChar, 0o1777);
+    mkdirat(AT_FDCWD, MQ_BASE.as_ptr() as *const CChar, 0o1777);
+}
+
+/// "/name" -> "/dev/mqueue/.q/name"; POSIX allows exactly one leading slash and
+/// no further slashes inside the name.
+unsafe fn mq_path(name: *const CChar, out: &mut [u8; 320]) -> Option<usize> {
+    if name.is_null() {
+        return None;
+    }
+    let b = bytes(name);
+    if b.is_empty() || b[0] != b'/' {
+        return None;
+    }
+    let rest = &b[1..];
+    if rest.is_empty() || rest.len() > 240 {
+        return None;
+    }
+    if rest.iter().any(|c| *c == b'/') {
+        return None;
+    }
+    if rest == b"." || rest == b".." {
+        return None;
+    }
+    let base = b"/dev/mqueue/.q/";
+    let n = base.len() + rest.len();
+    if n >= out.len() {
+        return None;
+    }
+    out[..base.len()].copy_from_slice(base);
+    out[base.len()..n].copy_from_slice(rest);
+    Some(n)
+}
+
+unsafe fn mq_put_dec(out: &mut [u8], at: &mut usize, val: u64, mut width: usize) {
+    let mut tmp = [0u8; 20];
+    let mut n = 0usize;
+    let mut v = val;
+    if v == 0 {
+        tmp[0] = b'0';
+        n = 1;
+    }
+    while v > 0 {
+        tmp[n] = b'0' + (v % 10) as u8;
+        v /= 10;
+        n += 1;
+    }
+    while n < width {
+        out[*at] = b'0';
+        *at += 1;
+        width -= 1;
+    }
+    let mut i = n;
+    while i > 0 {
+        i -= 1;
+        out[*at] = tmp[i];
+        *at += 1;
+    }
+}
+
+unsafe fn mq_now_ns() -> u64 {
+    // CLOCK_MONOTONIC (1) into a struct timespec { i64 sec; i64 nsec }
+    let mut ts: [i64; 2] = [0, 0];
+    let r = syscall4(113, 1, ts.as_mut_ptr() as usize, 0, 0);
+    if r < 0 {
+        return 0;
+    }
+    (ts[0] as u64) * 1_000_000_000 + (ts[1] as u64)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mq_open(name: *const CChar, oflag: CInt, mode: CInt) -> CInt {
+    let mut qp = [0u8; 320];
+    let qn = match mq_path(name, &mut qp) {
+        Some(n) => n,
+        None => return set_errno(22),
+    };
+    qp[qn] = 0;
+    mq_mkdirs();
+    if oflag & MQ_FLAGS_CREAT != 0 {
+        let m = if mode == 0 { 0o666 } else { mode };
+        let r = mkdirat(AT_FDCWD, qp.as_ptr() as *const CChar, m);
+        if r < 0 {
+            let e = *__errno_location();
+            if e != 17 {
+                return -1;
+            }
+            if oflag & MQ_FLAGS_EXCL != 0 {
+                return set_errno(17);
+            }
+        }
+    }
+    let mut flags = O_DIRECTORY;
+    if oflag & MQ_FLAGS_NONBLOCK != 0 {
+        flags |= MQ_FLAGS_NONBLOCK;
+    }
+    let fd = openat(AT_FDCWD, qp.as_ptr() as *const CChar, flags, 0);
+    if fd < 0 {
+        return -1;
+    }
+    fd
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mq_close(mqdes: CInt) -> CInt {
+    if mqdes < 0 {
+        return set_errno(9);
+    }
+    rc::close(mqdes);
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mq_unlink(name: *const CChar) -> CInt {
+    let mut qp = [0u8; 320];
+    let qn = match mq_path(name, &mut qp) {
+        Some(n) => n,
+        None => return set_errno(22),
+    };
+    qp[qn] = 0;
+    // Drop whatever is queued, then the queue directory itself.
+    let dfd = openat(
+        AT_FDCWD,
+        qp.as_ptr() as *const CChar,
+        O_DIRECTORY,
+        0,
+    );
+    if dfd < 0 {
+        return -1;
+    }
+    let mut buf = [0u8; 1024];
+    loop {
+        let n = syscall4(61, dfd as usize, buf.as_mut_ptr() as usize, buf.len(), 0) as isize;
+        if n <= 0 {
+            break;
+        }
+        let mut off = 0usize;
+        while off < n as usize {
+            let reclen = u16::from_le_bytes([buf[off + 16], buf[off + 17]]) as usize;
+            if reclen == 0 {
+                break;
+            }
+            let nm = &buf[off + 19..off + reclen];
+            let len = nm.iter().position(|c| *c == 0).unwrap_or(nm.len());
+            let nm = &nm[..len];
+            if nm != b"." && nm != b".." {
+                unlinkat(dfd, nm.as_ptr() as *const CChar, 0);
+            }
+            off += reclen;
+        }
+    }
+    rc::close(dfd);
+    rmdirat_path(&qp[..qn])
+}
+
+unsafe fn rmdirat_path(p: &[u8]) -> CInt {
+    let mut z = [0u8; 321];
+    z[..p.len()].copy_from_slice(p);
+    z[p.len()] = 0;
+    pathop(AT_FDCWD, z.as_ptr() as *const CChar, false, |fd, q| {
+        syscall4(SYS_UNLINKAT, fd as usize, q as usize, 0x200, 0)
+    })
+}
+
+/// Scans the queue directory and remembers the best (priority, name) message.
+unsafe fn mq_pick(dfd: CInt, best: &mut [u8; 64], best_len: &mut usize, best_prio: &mut u32) -> bool {
+    let mut found = false;
+    let mut buf = [0u8; 1024];
+    loop {
+        let n = syscall4(61, dfd as usize, buf.as_mut_ptr() as usize, buf.len(), 0) as isize;
+        if n <= 0 {
+            break;
+        }
+        let mut off = 0usize;
+        while off < n as usize {
+            let reclen = u16::from_le_bytes([buf[off + 16], buf[off + 17]]) as usize;
+            if reclen == 0 {
+                break;
+            }
+            let nm = &buf[off + 19..off + reclen];
+            let len = nm.iter().position(|c| *c == 0).unwrap_or(nm.len());
+            let nm = &nm[..len];
+            if nm.len() > 4 && nm[0] == b'p' && len < 64 {
+                // p<prio 3>_...
+                let mut prio = 0u32;
+                let mut ok = true;
+                for k in 1..4 {
+                    let c = nm[k];
+                    if !c.is_ascii_digit() {
+                        ok = false;
+                        break;
+                    }
+                    prio = prio * 10 + (c - b'0') as u32;
+                }
+                if ok && prio >= *best_prio {
+                    if prio > *best_prio || !found || nm < &best[..*best_len] {
+                        best[..len].copy_from_slice(nm);
+                        *best_len = len;
+                        *best_prio = prio;
+                        found = true;
+                    }
+                }
+            }
+            off += reclen;
+        }
+    }
+    found
+}
+
+unsafe fn mq_is_nonblock(mqdes: CInt) -> bool {
+    let fl = syscall4(25, mqdes as usize, F_GETFL as usize, 0, 0);
+    fl >= 0 && (fl as CInt) & MQ_FLAGS_NONBLOCK != 0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mq_send(
+    mqdes: CInt,
+    msg: *const CChar,
+    len: usize,
+    prio: u32,
+) -> CInt {
+    mq_send_impl(mqdes, msg, len, prio)
+}
+
+unsafe fn mq_send_impl(mqdes: CInt, msg: *const CChar, len: usize, prio: u32) -> CInt {
+    if mqdes < 0 || msg.is_null() {
+        return set_errno(22);
+    }
+    let mut name = [0u8; 64];
+    let mut at = 0usize;
+    name[at] = b'p';
+    at += 1;
+    mq_put_dec(&mut name, &mut at, (prio.min(999)) as u64, 3);
+    name[at] = b'_';
+    at += 1;
+    mq_put_dec(&mut name, &mut at, mq_now_ns(), 19);
+    name[at] = b'_';
+    at += 1;
+    mq_put_dec(&mut name, &mut at, syscall4(178, 0, 0, 0, 0) as u64, 0); // getpid
+    let fd = syscall4(
+        SYS_OPENAT,
+        mqdes as usize,
+        name.as_ptr() as usize,
+        0o1 | 0o100 | 0o200, // WRONLY|CREAT|EXCL
+        0o666usize,
+    );
+    if fd < 0 {
+        return -1;
+    }
+    let mut left = len;
+    let mut p = msg as *const u8;
+    while left > 0 {
+        let w = syscall4(SYS_WRITE, fd as usize, p as usize, left, 0) as isize;
+        if w <= 0 {
+            syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+            unlinkat(mqdes, name.as_ptr() as *const CChar, 0);
+            return set_errno(28);
+        }
+        left -= w as usize;
+        p = p.add(w as usize);
+    }
+    syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mq_receive(
+    mqdes: CInt,
+    msg: *mut CChar,
+    len: usize,
+    prio_out: *mut u32,
+) -> isize {
+    mq_receive_impl(mqdes, msg, len, prio_out, None)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mq_timedsend(
+    mqdes: CInt,
+    msg: *const CChar,
+    len: usize,
+    prio: u32,
+    _abs: *const core::ffi::c_void,
+) -> CInt {
+    mq_send_impl(mqdes, msg, len, prio)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mq_timedreceive(
+    mqdes: CInt,
+    msg: *mut CChar,
+    len: usize,
+    prio_out: *mut u32,
+    abs: *const core::ffi::c_void,
+) -> isize {
+    mq_receive_impl(mqdes, msg, len, prio_out, Some(abs))
+}
+
+unsafe fn mq_receive_impl(
+    mqdes: CInt,
+    msg: *mut CChar,
+    len: usize,
+    prio_out: *mut u32,
+    abs: Option<*const core::ffi::c_void>,
+) -> isize {
+    if mqdes < 0 || msg.is_null() {
+        return set_errno(22) as isize;
+    }
+    let nonblock = mq_is_nonblock(mqdes);
+    // Deadline from an absolute CLOCK_REALTIME timespec, if one was given.
+    let mut deadline_ns: u64 = 0;
+    let mut timed = false;
+    if let Some(p) = abs {
+        if !p.is_null() {
+            let ts = core::slice::from_raw_parts(p as *const i64, 2);
+            deadline_ns = (ts[0] as u64) * 1_000_000_000 + (ts[1] as u64);
+            timed = true;
+        }
+    }
+    loop {
+        let mut best = [0u8; 64];
+        let mut best_len = 0usize;
+        let mut best_prio = 0u32;
+        if mq_pick(mqdes, &mut best, &mut best_len, &mut best_prio) {
+            let fd = syscall4(
+                SYS_OPENAT,
+                mqdes as usize,
+                best.as_ptr() as usize,
+                0,
+                0,
+            );
+            if fd < 0 {
+                continue;
+            }
+            let r = syscall4(SYS_READ, fd as usize, msg as usize, len, 0) as isize;
+            syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+            unlinkat(mqdes, best.as_ptr() as *const CChar, 0);
+            if r < 0 {
+                return -1;
+            }
+            if !prio_out.is_null() {
+                core::ptr::write_volatile(prio_out, best_prio);
+            }
+            return r;
+        }
+        if nonblock {
+            return set_errno(11) as isize;
+        }
+        if timed {
+            // CLOCK_REALTIME, seconds since the epoch.
+            let mut rt: [i64; 2] = [0, 0];
+            syscall4(113, 0, rt.as_mut_ptr() as usize, 0, 0);
+            let now = (rt[0] as u64) * 1_000_000_000 + (rt[1] as u64);
+            if now >= deadline_ns {
+                return set_errno(110) as isize;
+            }
+        }
+        let ts = [0i64, 2_000_000]; // 2 ms
+        syscall4(115, ts.as_ptr() as usize, 0, 0, 0); // nanosleep
+    }
+}
+
+/// struct mq_attr: four longs, plus reserved space. We answer what the queue
+/// actually is: unlimited messages, and the flag this handle was opened with.
+#[no_mangle]
+pub unsafe extern "C" fn mq_getattr(mqdes: CInt, attr: *mut i64) -> CInt {
+    if mqdes < 0 || attr.is_null() {
+        return set_errno(22);
+    }
+    let fl = syscall4(25, mqdes as usize, F_GETFL as usize, 0, 0);
+    let nonblock = fl >= 0 && (fl as CInt) & MQ_FLAGS_NONBLOCK != 0;
+    let a = attr;
+    core::ptr::write_volatile(a, if nonblock { MQ_FLAGS_NONBLOCK as i64 } else { 0 });
+    core::ptr::write_volatile(a.add(1), 0); // mq_maxmsg: unbounded
+    core::ptr::write_volatile(a.add(2), 8192); // mq_msgsize ceiling we honour
+    core::ptr::write_volatile(a.add(3), 0); // mq_curmsgs: not tracked
+    let mut i = 4;
+    while i < 8 {
+        core::ptr::write_volatile(a.add(i), 0);
+        i += 1;
+    }
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mq_setattr(
+    mqdes: CInt,
+    attr: *const i64,
+    old: *mut i64,
+) -> CInt {
+    if mqdes < 0 {
+        return set_errno(22);
+    }
+    if !old.is_null() {
+        mq_getattr(mqdes, old);
+    }
+    if attr.is_null() {
+        return 0;
+    }
+    let want = core::ptr::read_volatile(attr);
+    let cur = syscall4(25, mqdes as usize, F_GETFL as usize, 0, 0) as CInt;
+    if cur >= 0 {
+        let mut fl = cur;
+        if want & (MQ_FLAGS_NONBLOCK as i64) != 0 {
+            fl |= MQ_FLAGS_NONBLOCK;
+        } else {
+            fl &= !MQ_FLAGS_NONBLOCK;
+        }
+        syscall4(25, mqdes as usize, 4 /* F_SETFL */, fl as usize, 0);
+    }
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mq_notify(_mqdes: CInt, _sev: *const core::ffi::c_void) -> CInt {
+    // No kernel notification: a program that only registers it keeps working,
+    // one that waits on it never will. Documented in docs/design/ipc.md.
+    set_errno(95) // EOPNOTSUPP
+}
+
 unsafe fn virt_mount_text(info: bool) -> usize {
     let mut at = 0usize;
     let fs = root_fstype();
