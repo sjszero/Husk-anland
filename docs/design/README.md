@@ -18,6 +18,7 @@ Husk 运行时的设计与证据。产品介绍见 [../../README.md](../../READM
 | [acquire-fence.md](acquire-fence.md) | producer / acquire fence 的已通过链路、fallback 与剩余 WSI 待办 |
 | [audio-bridge.md](audio-bridge.md) | AAudio guest→app 音频桥、持续 PulseAudio 路径、610 秒长稳与实测延迟口径 |
 | [mali-kbase-prior-art.md](mali-kbase-prior-art.md) | Mali kbase / PanVK / Panfrost 前人实现的源码级规格 |
+| [husk-backend-interface.md](husk-backend-interface.md) | 统一 GPU / 视频 / 显示 / 音频的 Rust backend 接口与 SoC adapter 边界 |
 | [history/](history/) | 定案前的探索记录（候选枚举、原型、决策日志），仅存档 |
 
 ## 写作规范
