@@ -3,7 +3,7 @@
 > 本文件是目标的**权威规格**。会话里的 goal 对象不可编辑，重建 goal 时以本文件为准；
 > 改目标就改这里，再把下面的「粘贴块」整段贴进去。纯文本版：`docs/goal-objective.txt`。
 
-最后更新：2026-11-23（v47：evidence 82 让标准 GStreamer `vaapih264dec` 管线通过 Husk Rust VA-API 驱动采集 150 个真实 H.264 access unit，验证了系统层入口和 slice 拼接路径。`vaEndPicture` 仍返回 UNIMPLEMENTED，app 侧 MediaCodec transport、decoded surface / dma-buf export、HEVC 10 分钟、decoder→GPU 零拷贝、Chromium、AV 同步、硬软解对比和 2.0 替换仍未完成）
+最后更新：2026-11-23（v48：evidence 83 加了 app 侧统一硬件能力矩阵 `app-rs/src/caps.rs` -> `files/husk-capabilities.txt` + guest 镜像，实测 37 个硬件解码器 / 10 个硬件编码器 / 2 相机 / 31 传感器 / 音频进出设备 / 4 输入设备 / 全部外设特性；矩阵只陈述事实，任何一类硬件的接入仍未实现，VA system path 未上机验证）
 
 ---
 

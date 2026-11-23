@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 12:15）
+# 当前状态（2026-11-23 13:00）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -66,6 +66,25 @@ PT_LOAD 的映射边界。`chmod`/`chown`/`utimensat`/`statx` 现在固定最终
 路径可靠性 15/15、faccessat 探针 8/8、dirfd 探针 31/31、宿主逃逸目录不存在。
 恶意 ELF 注入、GOT 失败注入、rootfd 并发 close/reopen、
 SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不能写成已完成。
+
+## 硬件能力矩阵（evidence 83，2026-11-23）
+
+**FACT：app 进程内已经能量出这台机器对每一类硬件的真实暴露情况，并写成一份两边共读的文件。**
+
+- 代码：`app-rs/src/caps.rs`（启动时探测一次，窗口建立后再刷新一次），全部走 JNI 调平台类，无自写 Java/dex/C。
+- 产物：`files/husk-capabilities.txt`（权威）+ `rootfs-full/run/husk/capabilities.txt`（guest 侧镜像，同一份内容）。
+- 行格式：`caps|<class>|present=<yes|no|unknown>|husk=<ready|degraded|unknown|absent>|backend=|detail=`。
+  `present` 是本进程里框架 API 实测到的；`husk` 是我们自己代码的进度，单独一张表，不从 `present` 推。
+- 本次实测：硬件解码器 37 个、硬件编码器 10 个（`c2.mtk.avc.decoder` / `c2.mtk.avc.encoder`）、
+  相机 2 个（id 0/1）、传感器 31 个、音频输出 7 项 / 输入 6 项、
+  输入设备 4 个（`touchpanel` / `mtk-kpd` / `ACCDET` / `Virtual`）、
+  `usb.host` / `bluetooth(+le)` / `gps` / `nfc` / `fingerprint` / `vulkan` 系统特性全为 y。
+- 意义：以前"这台机器有没有硬编、有没有 NFC、有没有后置 ALS"是猜想，现在是表。
+  视频编码/音频输入/相机/传感器/外设全部是**设备有、我们没接**，不是设备不支持。
+- 两个踩到的坑（已修）：`MediaCodecList.getCodecCount()` 在 AOSP 是 **static**（实例查找报
+  `NoSuchMethodError`），改用 `getCodecInfos()`；SurfaceControl 句柄是首次上屏才懒加载的，
+  0 不等于"显示桥没装上"，矩阵里改成 `control-cache=not-fetched (lazy)`。
+- 未验证：guest 内 `cat /run/husk/capabilities.txt` 本轮没跑（路径映射规则由 evidence 70 证明，属 INFERENCE）。
 
 ## 视频与 AHB 回导最新（evidence 67 / 69 / 70 / 71 / 72 / 73 / 74 / 75 / 76 / 77 / 78，2026-11-23）
 

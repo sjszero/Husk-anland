@@ -40,7 +40,21 @@ fn clear_java_exception(env: &JNIEnv, stage: &str, err: impl core::fmt::Display)
     }
 }
 
-fn current_activity<'local>(env: &mut JNIEnv<'local>) -> Result<JObject<'local>, String> {
+/// True once `SurfaceView` is attached to the Activity. Says nothing about
+/// whether the child SurfaceControl handle has been read yet: that read is
+/// lazy (`wait_parent`), so 0 here is the normal pre-first-present state.
+pub(crate) fn view_installed() -> bool {
+    SURFACE_VIEW.lock().map(|slot| slot.is_some()).unwrap_or(false)
+}
+
+/// True once the SurfaceView's BLAST SurfaceControl handle has been cached.
+pub(crate) fn side_control_present() -> bool {
+    NATIVE_CONTROL.load(Ordering::SeqCst) != 0
+}
+
+pub(crate) fn current_activity<'local>(
+    env: &mut JNIEnv<'local>,
+) -> Result<JObject<'local>, String> {
     let thread_class = env
         .find_class("android/app/ActivityThread")
         .map_err(|e| format!("find ActivityThread: {e}"))?;

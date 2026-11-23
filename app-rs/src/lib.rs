@@ -15,6 +15,7 @@
 
 mod ahb;
 mod audio;
+mod caps;
 mod gl;
 mod surface;
 mod sys;
@@ -677,6 +678,7 @@ pub unsafe extern "C" fn ANativeActivity_onCreate(
     ahb::spawn_once();
     audio::start_once();
     video::start_once();
+    caps::start_once();
     // In snitch mode the tracee's ptrace stops are reaped by the spy thread.
     // A second waitpid(-1) in the same process would steal them and hang the run.
     if !trace_requested() {
