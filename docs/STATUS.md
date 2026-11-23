@@ -50,8 +50,11 @@ SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不�
   guest 解复用、独立压缩帧通道、`MEM_IMPORT` 和零拷贝出画均未完成。
 - **FACT（新可靠性缺陷）**：一次息屏状态下的重启动发生在 `eglCreateWindowSurface` 内，
   abort message 为 `FORTIFY: pthread_mutex_lock called on a destroyed mutex`。点亮后重跑通过；
-  该 Surface 生命周期竞争仍需单独修复和复验。
+  该 Surface 生命周期竞争已由 `WINDOW_ALIVE + focus` 状态门修复。最终产物连续完成息屏冷启动、
+  点亮恢复、HOME 恢复与横竖旋转，app PID 全程不变；日志中无 `FORTIFY` / `Fatal signal` /
+  `am_crash`（evidence 68）。
 - 证据：[`evidence/67-video-mediacodec-ahb.md`](design/evidence/67-video-mediacodec-ahb.md)。
+- 生命周期证据：[`evidence/68-screen-off-surface-lifecycle.md`](design/evidence/68-screen-off-surface-lifecycle.md)。
 
 ## acquire fence 当前实验（PanVK → SurfaceControl 已通过，WSI 未完成）
 

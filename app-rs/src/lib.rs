@@ -30,6 +30,10 @@ use term::Term;
 mod trace;
 
 static WINDOW: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
+/// True only between onNativeWindowCreated and onNativeWindowDestroyed. A
+/// non-null pointer alone is not enough: during screen-off relaunch the old
+/// surface can already be torn down while the UI thread is still starting.
+static WINDOW_ALIVE: AtomicBool = AtomicBool::new(false);
 static INPUTQ: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
 static ACTIVITY: AtomicPtr<ANativeActivity> = AtomicPtr::new(core::ptr::null_mut());
 static DESTROYED: AtomicBool = AtomicBool::new(false);
@@ -307,6 +311,19 @@ impl App {
     /// Rebuilds the GL side when the platform hands us a new surface, and lays
     /// the terminal out for the current pixel size.
     fn sync_surface(&mut self) {
+        // Never ask EGL to wrap a window while we are backgrounded, asleep or
+        // between surface callbacks. On RMX3357 a screen-off relaunch raced
+        // exactly here and aborted inside eglCreateWindowSurface with a
+        // destroyed Surface mutex. Keeping the session alive without a render
+        // target is valid; creating one from stale state is not.
+        if !WINDOW_ALIVE.load(Ordering::SeqCst) || !FOCUSED.load(Ordering::SeqCst) {
+            if self.gfx.is_some() {
+                self.gfx = None;
+                self.win_ptr = 0;
+                self.dirty = true;
+            }
+            return;
+        }
         let win = WINDOW.load(Ordering::SeqCst) as usize;
         if win == 0 {
             if !self.no_window_logged {
@@ -516,10 +533,12 @@ unsafe extern "C" fn on_window(_a: *mut ANativeActivity, w: *mut c_void) {
     }
     log(&format!("cb: onNativeWindow win={:p} {ww}x{wh}", w));
     WINDOW.store(w, Ordering::SeqCst);
+    WINDOW_ALIVE.store(!w.is_null(), Ordering::SeqCst);
 }
 
 unsafe extern "C" fn on_window_gone(_a: *mut ANativeActivity, w: *mut c_void) {
     log(&format!("cb: onNativeWindowDestroyed win={:p}", w));
+    WINDOW_ALIVE.store(false, Ordering::SeqCst);
     WINDOW.store(core::ptr::null_mut(), Ordering::SeqCst);
 }
 
@@ -565,6 +584,7 @@ pub unsafe extern "C" fn ANativeActivity_onCreate(activity: *mut ANativeActivity
     // exits on its first iteration and never spawns a session.
     DESTROYED.store(false, Ordering::SeqCst);
     WINDOW.store(core::ptr::null_mut(), Ordering::SeqCst);
+    WINDOW_ALIVE.store(false, Ordering::SeqCst);
     INPUTQ.store(core::ptr::null_mut(), Ordering::SeqCst);
     FOCUSED.store(false, Ordering::SeqCst);
     if activity.is_null() {

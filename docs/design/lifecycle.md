@@ -139,6 +139,8 @@ Husk 是**用户层运行时**（和容器同一层），不是桌面。所以�
 | T9 旋转/尺寸 | `cmd window user-rotation lock 1` / `lock 0`（不需要 WRITE_SECURE_SETTINGS） | 22:05 实测：`67x58 -> 142x26 -> 67x58`，同一 pid 31478，`onContentRectChanged` 跟随；guest 内 `stty size` 回 `58 67`，与 TIOCSWINSZ 一致 ✅ |
 | T10 fd 计数 | `session:` 日志里的 `fds=` | 启动 98；旋转 2 次后 159；再旋转 5 次后 167（每次重建约 +2，见缺口 G5） |
 | T11 重启泄漏 | 连续 exit → 点击重生 | 修复前每次重生残留 1 个 ptmx + 1 个 pty.log；加 `Drop for Term` 后只剩当前会话那一对 ✅ |
+| T12 息屏冷启动 | `am force-stop` → `KEYCODE_SLEEP` → `am start` → 点亮/解锁 | 最终产物 `P_OFF=P_ON=16123`；点亮后同 PID 创建窗口并 `80x24 -> 67x58`；无 `FORTIFY`/crash ✅（evidence 68） |
+| T13 运行中息屏 / HOME / 旋转 | 息屏唤醒、HOME 回前台、`wm user-rotation lock 1/0` | app 与 guest PID 全程不变；窗口重建、`67x58 -> 142x26 -> 67x58`、无崩溃 ✅（evidence 68） |
 
 ---
 
@@ -187,3 +189,4 @@ Husk 是**用户层运行时**（和容器同一层），不是桌面。所以�
 |---|---|
 | 2026-11-22 21:20 前 | 会话随进程存活；唯一 reaper + subreaper；点击才重启；Surface 解耦 |
 | 2026-11-22 21:44 | teardown/escalate/close_master 上线；BACK 结束 Activity；onCreate 重置状态；修 match 通配 bug |
+| 2026-11-23 | 增加 `WINDOW_ALIVE` 与焦点门，禁止息屏/失焦/窗口回调间隙创建或复用 EGL window surface；修复 `eglCreateWindowSurface` destroyed-mutex abort |

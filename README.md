@@ -8,7 +8,7 @@
 > 当前状态：**运行时核心已验证；SoC 直连（GPU / 显示 / 视频 / 音频）进行中；与 LinuxHub 2.0 的集成尚未开始。**
 > 2026-11-23 真机（RMX3357 / Android 13 / kernel 4.19.191 / 4 KiB 页 / 普通应用权限 `untrusted_app`）：
 > shell、常用工具、gcc 13.3 + make 全链路通过；2.0 的完整 Ubuntu 24.04 rootfs 能起 GNOME Shell 46；
-> 生命周期（旋转 / 切后台 / Surface 重建 / 会话不重启）全部实测通过；
+> 生命周期（旋转 / 切后台 / Surface 重建 / 息屏冷启动 / 会话不重启）全部实测通过；
 > SoC 侧 guest 进程可直接打开 `/dev/mali0`，分配 GPU 显存并在 CPU 侧读写（kbase 11.38）。
 > GPU 最新证据：FristOneRR PanVK 的 glibc 构建已在 guest 内枚举 Mali-G77 MC9；纯 Rust 探针
 > 已提交 compute job、完成离屏 graphics 三角形 draw + GPU 像素回读；发行版 Zink 也已在

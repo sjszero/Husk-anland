@@ -3,7 +3,7 @@
 > 本文件是目标的**权威规格**。会话里的 goal 对象不可编辑，重建 goal 时以本文件为准；
 > 改目标就改这里，再把下面的「粘贴块」整段贴进去。纯文本版：`docs/goal-objective.txt`。
 
-最后更新：2026-11-23（v32：evidence 67 在 app 进程内用 `c2.mtk.avc.decoder` / `c2.mtk.hevc.decoder` 完成 1080p30 硬解，并通过 ImageReader 取得带 3 个 fd 的 AHardwareBuffer；evidence 63 的音频 610 秒会话和 evidence 66 的路径可靠性回归继续有效。guest 压缩帧通道、fd `MEM_IMPORT`、GStreamer/Chromium、AV 同步、显示 WSI 和 2.0 替换仍未完成；息屏重启动暴露的 Surface 生命周期竞争必须修复）
+最后更新：2026-11-23（v33：evidence 67 在 app 进程内用 `c2.mtk.avc.decoder` / `c2.mtk.hevc.decoder` 完成 1080p30 硬解，并通过 ImageReader 取得带 3 个 fd 的 AHardwareBuffer；evidence 68 修复息屏冷启动的 EGL Surface 生命周期崩溃并完成息屏/唤醒/HOME/旋转同 PID 复验。guest 压缩帧通道、fd `MEM_IMPORT`、GStreamer/Chromium、AV 同步、显示 WSI 和 2.0 替换仍未完成）
 
 ---
 
@@ -15,7 +15,7 @@
 
 【已完成 · 不再是任务，只保留回归门禁】
 · SIGSYS 全链路：interpose + ENOSYS 仿真可用，10 分钟长稳通过（600s / 11360 次 fork-exec / 零僵尸，evidence 32）。
-· 壳应用生命周期：全部回调接上，旋转 / Surface 重建 / 切后台不重启会话，唯一 reaper + subreaper，零僵尸零重启风暴（docs/design/lifecycle.md + 实测）。
+· 壳应用生命周期：全部回调接上，旋转 / Surface 重建 / 切后台 / 息屏冷启动不重启会话，唯一 reaper + subreaper，零僵尸零重启风暴（docs/design/lifecycle.md + evidence 68）。
 · 页大小：`nr-tools check-elf` 能做 4K/16K/64K 静态同余体检；loader 追加段通过，但 `libhuskapp.so` 64K 同余失败，16K/64K 内核实机运行仍是 UNKNOWN（evidence 30/64）。
 · 终端渲染 ANSI（SGR 颜色 / UTF-8 宽字符）：**不做**。终端壳只是演示载体，不属于运行时范围，不作为验收项。
 · GPU 计算/离屏与 surfaceless renderer：compute job、离屏 graphics draw、Zink surfaceless EGL 均在上机通过（evidence 46 / 47）；窗口/WSI 仍归 GPU/显示待办，不属于此门禁。
