@@ -54,7 +54,40 @@
   `AHardwareBuffer` → `ANativeWindow`；有 `/dev/dma_heap` 的机型可以换成 dma-buf 直出。
 - 音频：本机 `/dev/snd` 打不开，只能在 app 进程里用 AAudio，再把 PCM 通过独立 socketpair 送进 guest。
 
-## 4. 适配器的形状（代码层）
+## 4. 已实现的决策点：`path-shim/src/plan.rs`
+
+规则（§3 那张表）现在有一个**唯一**的代码落点，探测一次、缓存、只返回"家族 + 原因"：
+
+| 判据（顺序） | family | 动作 |
+|---|---|---|
+| `NR_FORCE_SOFTWARE_GPU`（测试钩子） | `software` | 拒绝 DRM 节点 |
+| `/dev/mali0` rw 可开 | `mali-kbase` | 假 `/dev/dri` + kbase 语义层（现有实现） |
+| `/dev/kgsl-3d0` rw 可开 | `adreno-kgsl` | 未实现适配器 → 拒绝 + 日志 |
+| `/dev/dri/renderD128` rw 可开 | `drm-node` | 透传真节点（不遮蔽） |
+| 都不可开 | `software` | 拒绝 + 日志（原因里带各节点 errno） |
+
+降级日志（每进程一条，stderr，`gexec.sh`/壳 APK 会收集）：
+
+```
+nr-plan: drm node -> gpu=software reason=mali0=13 kgsl=2 dri=2 no gpu node openable
+```
+
+注意：这张表管的是 Mesa 的 `dri2`/DRM 语义路径。PanVK 是**直接** open `/dev/mali0` 的，
+不经过它；Adreno 适配器将来也要自己开 `/dev/kgsl-3d0`，同样不经过它。
+
+## 5. 显示 / 音频 / 相机 / 外设
+
+| 面 | 本机事实 | 我们的路径 | 其它设备的降级 |
+|---|---|---|---|
+| 显示 | 无 `/dev/dri`、无 `/dev/dma_heap`、`/dev/ion` EACCES | 渲染面 → `AHardwareBuffer` → `ANativeWindow.queueBuffer` + fence | 有 `/dev/dma_heap` 的机型可换 dma-buf 直出；都没有就 CPU 拷贝 |
+| 音频出 | `/dev/snd` 打不开 | app 进程 AAudio，PCM 经独立 socketpair 进 guest | 有 `/dev/snd` 的机型可直接 ALSA（未实现，UNKNOWN） |
+| 音频入 | 同上 | 同一 socketpair 反向 | 同上 |
+| 相机 | guest 内 `/dev/videoN`（v4l2 shim） | V4L2 → Camera2 转接 | 无 Camera2 或权限被拒 → `ENODEV` + 日志 |
+| 输入 | 触摸/键盘/鼠标注入 | mutter `RemoteDesktop` | 无合成器时内建直投（未实现） |
+| 传感器 / GPS | 本机无对应节点，**完全未开始** | 只保留探测位置 | 节点缺失 → guest 侧 `ENOENT`，不崩 |
+| USB / 蓝牙 / NFC / 指纹 | 同上 | 只保留探测位置 | 同上 |
+
+## 6. 适配器的形状（代码层）
 
 ```rust
 // 探测一次，缓存；只返回"可用/不可用 + 原因"，不返回布尔
@@ -72,9 +105,10 @@ struct DevicePlan {
 2. 适配器按**芯片家族**写（Mali kbase / Adreno kgsl / DRM），不按机型写一次性特判。
 3. 新增一个家族时，先补探测行 + 降级行，再写实现；没有实现的家族必须显式报"不支持"。
 
-## 5. 待补的设备侧验证（真机到手就做）
+## 7. 待补的设备侧验证（真机到手就做）
 
-- 16 KiB 页设备：`nr-tools check-elf` + 起 bash + 起 GNOME Shell，各一项。
-- Adreno 设备：读 kgsl UAPI 版本、最小 `KGSL_IOCTL` 探针、`turnip` 能否枚举。
+- 16 KiB / 64 KiB 页**真机**：`nr-tools check-elf` + 起 bash（16K/64K 已在真内核的 QEMU 上全绿，evidence 125/126）。
+- Adreno 设备：读 kgsl UAPI 版本、最小 `KGSL_IOCTL` 探针、`turnip` 能否枚举，然后才写适配器。
+- 有真实 `/dev/dri/renderD128` 的机型：确认 `drm-node` 分支确实是透传（本机 app 域打不开）。
 - `/dev/dma_heap` 可用机型：零拷贝显示路径。
 - 内核 ≥ 5.10 的设备：`openat2`、`SECCOMP_RET_USER_NOTIF` 是否可用（可用就能省掉一层路径解析）。
