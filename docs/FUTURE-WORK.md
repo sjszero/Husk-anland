@@ -80,11 +80,19 @@ bionic 侧进程 → EGL → Android Surface → 屏幕
 
 ---
 
-## 2. 音频桥（未开始，可行度高，工作量小）
+## 2. 音频桥（最小闭环、持续路径与 10 分钟长稳已通，同步未完成）
 
 - 设备节点 `/dev/snd/*` 标签 `audio_device`，`untrusted_app` 被拒，**不可能直驱 DAC**；
 - 通路：guest 的 PulseAudio/PipeWire → PCM 经 fd 传递 → bionic 侧 AAudio → Android 混音 → 厂商 HAL；
-- 延迟实测目标 20–50 ms（桌面/影音够用，专业音频与节奏游戏不够）；
+- 2026-11-23 已实测：设备枚举、`STREAM_MUSIC` 音量、一次性 AAudio 写入（evidence 60），以及
+  PulseAudio `module-pipe-sink` → 纯 Rust `audio-relay` → 持续 `OPEN/DATA/CLOSE` AAudio →
+  标准 guest `paplay`（evidence 62）。10 秒 session 写入 87,035 frames / 348,140 bytes；
+- 最终 loader 上的 610 秒连续会话也已通过（evidence 63）：28,818,432 frames /
+  115,273,728 bytes，`PAPLAY_RC=0`、`RELAY_RC=0`，app/relay fd/RSS 稳定；最终统计仍有 1 次
+  xrun，不能写成 xrun-free；
+- 当前 48 kHz stereo、一个 burst（1026 frames）的 queue-depth latency 为 avg 104.680 ms /
+  max 106.667 ms；厂商拒绝 low-latency 模式并返回 `perf=NONE`。目标 20–50 ms 仍未达到；
+- GStreamer/桌面播放器、AV 同步仍是待办；Rust `audio-setup` 已完成两次幂等回归；
 - **不需要 per-SoC 代码**，AAudio 已吸收差异；
 - 相对工作量约为图形桥的三分之一；可与图形桥共用 fd 传递基础。
 

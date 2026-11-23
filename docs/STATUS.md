@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 06:55）
+# 当前状态（2026-11-23 08:01）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -21,13 +21,23 @@ evidence 54 完成 12 帧，evidence 55 用 eventfd completion bridge 完成 120
 **10,000 帧 / 665.385 秒**：真实 `SYNC_FD` 10,000/10,000，completion 与 9 点回读均
 10,000/10,000，fallback=0，app transaction 10,000/10,000；app/guest fd 与 RSS 无累积增长。
 **eventfd 仅保留为 fallback；WSI / swapchain、窗口生命周期和 SurfaceFlinger 内部等待 trace
-仍未完成。** 可靠性审计（evidence 64/65）修复了 fd 泄漏、超长路径、最终 symlink
-TOCTOU、AArch64 `O_NOFOLLOW` 常量、`faccessat(AT_SYMLINK_NOFOLLOW)`、真实 dirfd
-相对路径逃逸，以及动态表 / GNU Hash / PT_LOAD 的映射边界。`chmod`/`chown`/`utimensat`/
-`statx` 现在固定最终 inode；ET_EXEC 已由 Python 3.12.3 实机跑通。最终 loader 回归为
-功能矩阵 31/31、越界测试 0 escapes、路径可靠性 12/12、相对 dirfd 18/18。恶意 ELF 注入、
-GOT 失败注入、rootfd 并发 close/reopen、SIGSYS 帧跨设备可移植性和 16K/64K 实机运行
-仍是 **UNKNOWN**，不能写成已完成。
+仍未完成。**音频侧已跑通最小闭环：guest 枚举 7 个 Android 输出设备、读写 `STREAM_MUSIC`
+音量，并把 3 秒 PCM16 经独立 Unix socket 交给 app 内 AAudio（evidence 60）；但低延迟请求被
+vendor policy 拒绝、平台返回 `perf=NONE`；evidence 62 又打通 PulseAudio `module-pipe-sink` →
+纯 Rust relay → 持续 `OPEN/DATA/CLOSE` AAudio 会话，标准 guest `paplay` 已成功播放；evidence
+63 已在最终 loader 上完成 610 秒 / 28,818,432 frames 的连续会话，播放器与 relay 均返回 0，
+fd/RSS 稳定。AV 同步、低延迟目标和 xrun-free 仍未完成。音频调试中暴露的 root fd 被 guest
+关闭问题已修复，当前
+loader 的 31 项功能矩阵 31/31 通过（evidence 61）。可靠性审计（evidence 64/65）又修复了
+fd 泄漏、超长路径、最终 symlink TOCTOU、AArch64 `O_NOFOLLOW` 常量、
+`faccessat(AT_SYMLINK_NOFOLLOW)`、真实 dirfd 相对路径逃逸，以及动态表 / GNU Hash /
+PT_LOAD 的映射边界。`chmod`/`chown`/`utimensat`/`statx` 现在固定最终 inode；ET_EXEC
+已由 Python 3.12.3 实机跑通。evidence 66 又封住 `/proc` dirfd 的 `..`、`self/root` 和
+`self/cwd` 逃逸，`linkat(AT_SYMLINK_FOLLOW)` 与 `renameat2` flags 语义已在真机复验。
+最终 loader（sha256 `6c079648…`）回归为功能矩阵 31/31、越界测试 0 escapes、
+路径可靠性 15/15、faccessat 探针 8/8、dirfd 探针 31/31、宿主逃逸目录不存在。
+恶意 ELF 注入、GOT 失败注入、rootfd 并发 close/reopen、
+SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不能写成已完成。
 
 ## acquire fence 当前实验（PanVK → SurfaceControl 已通过，WSI 未完成）
 
@@ -76,7 +86,55 @@ GOT 失败注入、rootfd 并发 close/reopen、SIGSYS 帧跨设备可移植性�
   [`docs/design/evidence/58-panvk-syncfd-ring.md`](design/evidence/58-panvk-syncfd-ring.md)、
   [`docs/design/evidence/59-panvk-pooled-syncfd-soak.md`](design/evidence/59-panvk-pooled-syncfd-soak.md)。
 
-## SoC 直连最新（evidence 58，2026-11-23）
+## 音频最新（evidence 60 / 62 / 63，2026-11-23）
+
+- **FACT**：`/dev/snd` 在 `untrusted_app` 下不可用；AAudio 必须在 app 进程内打开。Husk 使用
+  `files/audio-bridge` 或 `rootfs-full/tmp/husk-pulse/enabled` marker 控制独立 Unix socket，
+  不复用输入 / 剪贴板 / 视频通道。
+- **FACT（evidence 60）**：guest 纯 Rust probe 枚举 7 个输出设备；`STREAM_MUSIC` 音量从
+  index 3 设到 index 5（30%）再恢复，`dumpsys audio` 独立记录两条
+  `setStreamVolume(... from com.linuxhub.husk)`。
+- **FACT（evidence 60）**：AAudio 真开流并写入 144,000 frames / 288,000 bytes；平台返回
+  `48 kHz / mono / device=3 / burst=1026 / buffer=2052`，`DONE status=PASS`。
+- **FACT（evidence 60）**：请求 `AAUDIO_PERFORMANCE_MODE_LOW_LATENCY=12` 被拒，平台日志为
+  `aaudio denied with imcompatible policy such as peformance noise`，实际 `perf=10 (NONE)`。
+  一次性 probe 的 queue-depth latency 为 avg 125.784 ms / max 128.000 ms，且有 1 次 xrun；这不是低延迟
+  完成态，也不是端到端扬声器延迟。
+- **FACT（evidence 62）**：app 新增持续 `OPEN/DATA/CLOSE` 会话，并在开流前把 AAudio buffer
+  设为一个 burst（2052 → 1026 frames）。纯 Rust `audio-relay` 读取 PulseAudio
+  `module-pipe-sink` FIFO，标准 guest `paplay` 播放 `audio-test-signal.oga` 并 exit 0。
+- **FACT（evidence 62）**：10 秒 session 写入 87,035 frames / 348,140 bytes，43 个 DATA chunk；
+  `CLOSE_OK` 报 queue-depth latency avg 104.680 ms / max 106.667 ms、1 次 xrun。平台仍是
+  `perf=10 (NONE)`，不能写成低延迟。
+- **FACT（evidence 63）**：最终 loader 上的 610 秒连续 session 使用生成的 600 秒 48 kHz
+  stereo OGG 和标准 guest `paplay`；relay 写入 28,818,432 frames / 115,273,728 bytes，
+  `PAPLAY_RC=0`、`RELAY_RC=0`、`RESULT PASS`。app fd 从 120 降到 112 后保持，relay fd 恒 6；
+  app RSS 121,176–121,368 KiB，relay RSS 恒 1392 KiB。最终统计为 1 次 xrun，不能写成 xrun-free。
+- **FACT（evidence 63）**：`audio-setup` 在最终 loader 上连续运行两次，均为 `HOST_RC=0`、
+  `helper_modules=11`；并修复了 guest 根为 `/` 时 `/dev/shm` 被 passthrough 到宿主导致的
+  `EACCES`。现在物理 `dev/shm` 和默认 state 使用 `NR_ROOTFS`。
+- **UNKNOWN**：本轮没有独立人耳确认；证据只覆盖 AAudio 真开流、真写入、设备枚举、音量动作与
+  平台返回指标。
+- **未完成**：GStreamer / 桌面播放器、音视频同步、低延迟目标、xrun-free；
+  provisioning 已完成自动化和幂等验证。
+- 设计与边界见 [`docs/design/audio-bridge.md`](design/audio-bridge.md)；原始日志与哈希见
+  [`docs/design/evidence/60-audio-aaudio-bridge.md`](design/evidence/60-audio-aaudio-bridge.md)
+  [`docs/design/evidence/62-audio-pulse-aaudio-continuous.md`](design/evidence/62-audio-pulse-aaudio-continuous.md)
+  与 [`docs/design/evidence/63-audio-aaudio-10min-final.md`](design/evidence/63-audio-aaudio-10min-final.md)。
+
+## 路径 root fd 修复与回归（evidence 61，2026-11-23）
+
+- **根因（FACT）**：PulseAudio 在最终 `chdir("/")` 前会关闭继承 fd；旧 path-shim 的低位 root fd
+  被关后，所有绝对路径解析失效。`close()` 内部路径绕过 GOT interpose 时，这个问题尤其明显。
+- **修复（FACT）**：root `O_PATH` fd 用 `F_DUPFD_CLOEXEC` 提到 `>=1024`，`rootfd()` 用
+  `fcntl(F_GETFD)` 检查并按需重开；interpose `close()` 和 `close_range()` 保护该 fd。
+- **FACT**：guest 显式执行 `exec 1024>&-` 后，日志出现 `close preserved rootfd`，随后
+  `/etc/os-release` 与 `cd /etc && pwd -P` 仍正常。
+- **FACT**：修正测试中写死 Ubuntu 22.04 行序的 7 个假失败后，当前 loader 的 31 项矩阵
+  `#checks=31 fail=0`。
+- 证据：[`docs/design/evidence/61-path-rootfd-preservation.md`](design/evidence/61-path-rootfd-preservation.md)。
+
+## SoC 直连最新（evidence 61，2026-11-23）
 
 - **Vulkan 扩展面已实测（evidence 48，FACT）**：PanVK 实例扩展 18 项、设备扩展 171 项；
   `VK_KHR_external_memory_fd` / `VK_EXT_external_memory_dma_buf` 等 dma-buf 导入路径存在，
@@ -194,7 +252,7 @@ GOT 失败注入、rootfd 并发 close/reopen、SIGSYS 帧跨设备可移植性�
 | 键盘输入 / 旋转 / 切后台恢复 / 备用屏 / 全屏 TUI | 通过 | 21:20 附录 |
 | 僵尸与重启风暴 | 零复现（唯一 reaper + subreaper + 点了才重启） | 附录 21:00 |
 | 页大小体检（`nr-tools check-elf` 4K/16K/64K） | 工具可用；loader 静态同余通过；整机页大小无关**未完成**（`libhuskapp.so` 64K FAIL） | 30, 64 |
-| 路径边界可靠性（fd / 长路径 / 符号链接 / `faccessat`） | 当前 4K 设备通过；异常 ELF 与 GOT 失败注入仍 **UNKNOWN** | 64 |
+| 路径边界可靠性（fd / 长路径 / 符号链接 / dirfd / procfs magic link） | 当前 4K 设备通过；异常 ELF 与 GOT 失败注入仍 **UNKNOWN** | 64, 65, 66 |
 | guest 打开 `/dev/mali0` + kbase 建 kctx | **可用**（UAPI 11.38） | 31 |
 | 厂商 `libGLES_mali.so` 在 guest 内加载 | **不可行，已关闭**（25 个 bionic DT_NEEDED） | 31 |
 | 长稳 10 分钟（goal A1 验收） | **通过**：600 秒 / 568 tick / 11 360 次 fork-exec，同 pid、零僵尸 | 32 |
@@ -250,7 +308,7 @@ GOT 失败注入、rootfd 并发 close/reopen、SIGSYS 帧跨设备可移植性�
 
 依赖设备的：
 
-1. 重跑 10 分钟长稳并写证据；
+1. 10 分钟长稳已在最终 loader 上通过并写入 evidence 63；下一项是 GStreamer/桌面播放器与 AV 同步；
 2. 完整 rootfs（2.0 资产）解到 `files/rootfs-full` 并起桌面；
 3. `/dev/ion` 访问权复核（O_RDONLY / O_RDWR 各一次，guest 与 app 两侧对照）。
 

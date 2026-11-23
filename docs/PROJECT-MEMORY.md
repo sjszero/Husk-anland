@@ -37,6 +37,10 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
 6. 事实、推断、未知必须分开写；没上机验证就不能写“完成”。
 7. 每次正式改动都要提交本地并推 GitHub；不能只留在工作区或聊天里。
 8. 收尾时设备息屏，不留下僵尸进程、调试服务或临时中转进程。
+9. 每个新模块或子路线写代码前，必须先审计 `docs/design/references.md`、
+   `docs/design/reference-audit-matrix.md` 和原始参考清单；涉及 LinuxHub 2.0 已有能力时只读检查
+   2.0 源码，并在模块设计文档记录固定 commit、可复用点和不采用理由。已有成熟实现优先复用，
+   不自造轮子。
 
 ## 3. 当前已完成的回归门禁（FACT）
 
@@ -46,10 +50,13 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
   10 分钟长稳通过（600s / 11360 次 fork-exec / 零僵尸）。
 - 页大小：`nr-tools check-elf` 可做 4K/16K/64K 静态同余体检；当前 loader 的追加段通过，
   但 `libhuskapp.so` 的 64K 同余失败，16K/64K 内核实机运行仍是 **UNKNOWN**，不能写成整机页大小无关。
-- 路径边界（evidence 64/65）：fd 泄漏、超长路径、最终 symlink TOCTOU、AArch64
-  `O_NOFOLLOW`、`faccessat(AT_SYMLINK_NOFOLLOW)` 和真实 dirfd 相对路径逃逸已在当前
-  4K 设备验证；`chmod`/`chown`/`utimensat`/`statx` 固定最终 inode；动态表、GNU Hash、
-  relocation 和 GOT 都按对象 `PT_LOAD` 范围校验。ET_EXEC 已用 Python 3.12.3 验证。
+- 路径边界（evidence 64/65/66）：fd 泄漏、超长路径、最终 symlink TOCTOU、AArch64
+  `O_NOFOLLOW`、`faccessat(AT_SYMLINK_NOFOLLOW)`、真实 dirfd 相对路径逃逸和 `/proc`
+  `..` / `self/root` / `self/cwd` magic-link 逃逸已在当前 4K 设备验证；`linkat` follow
+  与 `renameat2` flags 语义已复验。`chmod`/`chown`/`utimensat`/`statx` 固定最终 inode；
+  动态表、GNU Hash、relocation 和 GOT 都按对象 `PT_LOAD` 范围校验。ET_EXEC 已用
+  Python 3.12.3 验证。最终 loader `6c079648…` 回归为 31/31 功能、0 escapes、15/15 路径、
+  31/31 dirfd。
   恶意 ELF 注入、GOT 失败注入、rootfd 并发 close/reopen 和 16K/64K 实机运行仍是 **UNKNOWN**。
 - 2.0 的 Ubuntu 24.04 rootfs 能起 GNOME Shell 46、mutter、gjs、dbus、Xwayland。
 - guest 进程能打开 `/dev/mali0`，kbase UAPI 11.38 可建上下文；
@@ -172,10 +179,34 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
 
 ### 音频
 
-- guest 内 `/dev/snd` 不可用；
-- app 进程内用 AAudio 开流；
-- guest ↔ app 使用独立 socketpair/共享 ring 传 PCM，不复用输入/剪贴板/视频通道；
-- 验收输出设备枚举、能出声、音量可控、延迟数字和测量方法。
+- guest 内 `/dev/snd` 不可用；app 进程内用 AAudio 是当前唯一可行方向。
+- evidence 60 已跑通一次性最小闭环：guest 枚举 7 个 Android 输出设备，读写
+  `STREAM_MUSIC` 音量，并通过独立 Unix socket 把 3 秒 PCM16 交给 app；app `dlopen`
+  `libaaudio.so`，真开流并写入 144,000 frames / 288,000 bytes。
+- evidence 62 已把一次性 probe 推进为持续 `OPEN/DATA/CLOSE` 会话：纯 Rust `audio-relay`
+  读取 PulseAudio `module-pipe-sink` FIFO，标准 guest `paplay` 播放 `.oga` 成功；10 秒 session
+  写入 87,035 frames / 348,140 bytes，43 个 DATA chunk，`buffer=1026`（一个 burst）。
+- evidence 63 已在最终 loader（`6c079648…`）上完成 610 秒连续标准 `paplay` 会话：
+  28,818,432 frames / 115,273,728 bytes，`PAPLAY_RC=0`、`RELAY_RC=0`、`RESULT PASS`。
+  app fd 120→112 后稳定，relay fd 恒 6；app RSS 121,176–121,368 KiB，relay RSS 恒 1392 KiB。
+  最终统计仍有 1 次 xrun，不能写成 xrun-free。
+- 本机 FACT：低延迟请求仍被 vendor policy 拒绝，`perf=10 (NONE)`。evidence 62 的 queue-depth
+  latency 为 avg 104.680 ms / max 106.667 ms、1 xrun；它不是端到端扬声器延迟，也不能写成低延迟。
+- guest ↔ app 使用独立音频通道，不复用输入/剪贴板/视频通道。当前实现是 marker 控制的
+  `files/audio-bridge.sock`，支持持续 `OPEN/DATA/CLOSE`；长期目标仍是 socketpair/共享 ring。
+  marker 可用 host 侧 `files/audio-bridge`，或纯 Rust `audio-setup --enable` 生成的
+  `rootfs-full/tmp/husk-pulse/enabled`。
+- 本机 FACT：请求 `AAUDIO_PERFORMANCE_MODE_LOW_LATENCY=12` 会被 vendor policy 拒绝，平台返回
+  `perf=10 (NONE)`；当前 queue-depth latency avg 125.784 ms、max 128.000 ms、1 xrun。不能写成
+  低延迟完成。
+- 当前未完成：GStreamer/桌面播放器、AV 同步、低延迟目标、xrun-free。Rust 化 provisioning
+  已完成：`audio-setup` 在最终 loader 上连续运行两次均 PASS，修复了 guest 根 `/` 时
+  `/dev/shm` passthrough 到宿主造成的 `EACCES`，现在物理 `dev/shm` 和 state 使用 `NR_ROOTFS`。
+- 调试中发现并修复：PulseAudio 关闭继承 fd 会杀掉低位 root fd，导致后续绝对路径 `ENOENT`。
+  现在 root fd 提到 `>=1024`，`close()` / `close_range()` 保护并在失效时重开；当前 loader 功能
+  矩阵 31/31（evidence 61）。
+- 验收不变：输出设备枚举、实际出声、音量可控、延迟数字和测量方法；与视频同时跑时 AV 同步
+  `<40 ms`。
 
 ## 6. 2.0 替换与 proot 清除
 
@@ -252,5 +283,8 @@ eglinfo 报 Mali-G77；音频出声并有延迟数字；H.264/HEVC 硬解、AV �
 5. 显示主线已完成 SurfaceControl 3-buffer ring、eventfd fallback、真实 pending kbase
    sync_file、PanVK `vkGetFenceFdKHR(SYNC_FD)` 到 SF ring 的 120 帧链路，以及 3-slot
    持久资源池的 10,000 帧 / 665.385 秒长稳；下一步推进 SurfaceFlinger 等待 trace、
-   GBM / Wayland / X11、WSI 和窗口生命周期；视频、音频按第 5 节并行设计但不能跳过硬解验收。
-6. 最后做 2.0 proot 替换与补丁清除。
+   GBM / Wayland / X11、WSI 和窗口生命周期。音频从 evidence 60 的 probe 继续做持续流、
+   PulseAudio relay、标准播放器和 610 秒长稳已通过（evidence 63）；下一步做 GStreamer/桌面播放器、AV 同步和视频硬解，视频仍不能跳过 MediaCodec 硬解验收。
+6. 先以显式 `NR_LD=$(cat files/libdir)/libld.so` 跑回归；`files/gexec2.sh` 默认的
+   `files/libld39.so` 是旧 loader，不能用来验证当前 App。
+7. 最后做 2.0 proot 替换与补丁清除。
