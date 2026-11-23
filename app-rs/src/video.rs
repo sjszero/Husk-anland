@@ -1,4 +1,9 @@
-//! Video decode probe running in the Android NativeActivity process.
+//! Video decode probe and guest-to-app bridge running in the Android
+//! NativeActivity process.
+//!
+//! The probe below established the MediaCodec/AHB capability. `mod bridge`
+//! owns the product data plane: a guest sends compressed access units through a
+//! memfd ring and this process decodes them with the MTK Codec2 hardware path.
 //!
 //! The glibc guest cannot load the bionic vendor codec stack.  This module is
 //! therefore the bionic-side endpoint: it dynamically resolves the public NDK
@@ -16,6 +21,8 @@
 //! zero-copy work.  All production calls still use the public NDK ABI.
 
 use core::ffi::{c_char, c_int, c_void};
+
+mod bridge;
 use std::ffi::{CStr, CString};
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -101,6 +108,11 @@ type FnFormatToString = unsafe extern "C" fn(*mut Format) -> *const c_char;
 type FnFormatGetString =
     unsafe extern "C" fn(*mut Format, *const c_char, *mut *const c_char) -> bool;
 type FnFormatGetInt32 = unsafe extern "C" fn(*mut Format, *const c_char, *mut i32) -> bool;
+type FnFormatGetBuffer =
+    unsafe extern "C" fn(*mut Format, *const c_char, *mut *mut c_void, *mut usize) -> bool;
+type FnFormatSetInt32 = unsafe extern "C" fn(*mut Format, *const c_char, i32);
+type FnFormatSetString = unsafe extern "C" fn(*mut Format, *const c_char, *const c_char);
+type FnFormatSetBuffer = unsafe extern "C" fn(*mut Format, *const c_char, *const c_void, usize);
 
 type FnImageReaderNewWithUsage =
     unsafe extern "C" fn(i32, i32, i32, u64, i32, *mut *mut ImageReader) -> c_int;
@@ -148,11 +160,15 @@ struct Api {
     sample_size: FnSampleSize,
     advance: FnAdvance,
 
-    _format_new: FnFormatNew,
+    format_new: FnFormatNew,
     format_delete: FnFormatDelete,
     format_to_string: FnFormatToString,
     format_get_string: FnFormatGetString,
     format_get_i32: FnFormatGetInt32,
+    format_get_buffer: FnFormatGetBuffer,
+    format_set_i32: FnFormatSetInt32,
+    format_set_string: FnFormatSetString,
+    format_set_buffer: FnFormatSetBuffer,
 }
 
 struct ImageApi {
@@ -210,11 +226,15 @@ impl Api {
             sample_size: symbol(handle, c"AMediaExtractor_getSampleSize")?,
             advance: symbol(handle, c"AMediaExtractor_advance")?,
 
-            _format_new: symbol(handle, c"AMediaFormat_new")?,
+            format_new: symbol(handle, c"AMediaFormat_new")?,
             format_delete: symbol(handle, c"AMediaFormat_delete")?,
             format_to_string: symbol(handle, c"AMediaFormat_toString")?,
             format_get_string: symbol(handle, c"AMediaFormat_getString")?,
             format_get_i32: symbol(handle, c"AMediaFormat_getInt32")?,
+            format_get_buffer: symbol(handle, c"AMediaFormat_getBuffer")?,
+            format_set_i32: symbol(handle, c"AMediaFormat_setInt32")?,
+            format_set_string: symbol(handle, c"AMediaFormat_setString")?,
+            format_set_buffer: symbol(handle, c"AMediaFormat_setBuffer")?,
         })
     }
 }
@@ -411,7 +431,7 @@ unsafe fn choose_video_track(
     Err(format!("no supported video track in {count} track(s)"))
 }
 
-unsafe fn consume_image(sink: &mut ImageSink, files: &Path) -> Result<(), String> {
+unsafe fn consume_image(sink: &mut ImageSink, files: &Path, tag: &str) -> Result<(), String> {
     let mut image = core::ptr::null_mut();
     let rc = (sink.api.reader_acquire_next)(sink.reader, &mut image);
     if rc != AMEDIA_OK || image.is_null() {
@@ -453,7 +473,7 @@ unsafe fn consume_image(sink: &mut ImageSink, files: &Path) -> Result<(), String
         result(
             files,
             &format!(
-                "video|probe|ahb|n={}|timestamp_ns={timestamp_ns}|ts_rc={ts_rc}|size={}x{}|layers={}|format={}|usage=0x{:x}|stride={}|native={native:p}|handle_version={handle_version}|num_fds={num_fds}|first_fd={first_fd}",
+                "video|{tag}|ahb|n={}|timestamp_ns={timestamp_ns}|ts_rc={ts_rc}|size={}x{}|layers={}|format={}|usage=0x{:x}|stride={}|native={native:p}|handle_version={handle_version}|num_fds={num_fds}|first_fd={first_fd}",
                 sink.seen,
                 desc.width,
                 desc.height,
@@ -481,6 +501,7 @@ unsafe fn drain_outputs(
     timeout_us: i64,
     stats: &mut (u64, u64),
     sink: &mut Option<ImageSink>,
+    tag: &str,
 ) -> Result<bool, String> {
     loop {
         let mut info = BufferInfo::default();
@@ -499,7 +520,7 @@ unsafe fn drain_outputs(
                 result(
                     files,
                     &format!(
-                        "video|probe|output-format|{text}|color={color:?}|width={width:?}|height={height:?}|stride={stride:?}|slice-height={slice_height:?}"
+                        "video|{tag}|output-format|{text}|color={color:?}|width={width:?}|height={height:?}|stride={stride:?}|slice-height={slice_height:?}"
                     ),
                 );
                 if !format.is_null() {
@@ -515,7 +536,7 @@ unsafe fn drain_outputs(
                     result(
                         files,
                         &format!(
-                            "video|probe|frame|n={}|pts={}|bytes={}|flags=0x{:x}",
+                            "video|{tag}|frame|n={}|pts={}|bytes={}|flags=0x{:x}",
                             stats.0, info.presentation_time_us, info.size, info.flags
                         ),
                     );
@@ -526,7 +547,7 @@ unsafe fn drain_outputs(
                 }
                 if let Some(active) = sink.as_mut() {
                     if !eos {
-                        consume_image(active, files)?;
+                        consume_image(active, files, tag)?;
                     }
                 }
                 if eos {
@@ -536,6 +557,26 @@ unsafe fn drain_outputs(
             other => return Err(format!("dequeueOutputBuffer unexpected={other}")),
         }
     }
+}
+
+unsafe fn format_buffer_hex(
+    api: &Api,
+    format: *mut Format,
+    name: &'static CStr,
+) -> Option<(usize, String)> {
+    let mut data = core::ptr::null_mut();
+    let mut len = 0usize;
+    if !(api.format_get_buffer)(format, name.as_ptr(), &mut data, &mut len) || data.is_null() {
+        return None;
+    }
+    let bytes = core::slice::from_raw_parts(data as *const u8, len);
+    let mut text = String::with_capacity(len * 2 + 2);
+    text.push('0');
+    text.push('x');
+    for byte in bytes {
+        text.push_str(&format!("{byte:02x}"));
+    }
+    Some((len, text))
 }
 
 unsafe fn format_i32(api: &Api, format: *mut Format, name: &'static CStr) -> Option<i32> {
@@ -597,6 +638,14 @@ unsafe fn probe_file(files: &Path, relative: &str, surface_mode: bool) -> Result
         result(
             files,
             &format!("video|probe|input-format|{}", format_text(&api, format)),
+        );
+        result(
+            files,
+            &format!(
+                "video|probe|csd|csd0={:?}|csd1={:?}",
+                format_buffer_hex(&api, format, c"csd-0"),
+                format_buffer_hex(&api, format, c"csd-1")
+            ),
         );
         let rc = (api.select_track)(extractor, track);
         if rc != AMEDIA_OK {
@@ -694,13 +743,21 @@ unsafe fn probe_file(files: &Path, relative: &str, surface_mode: bool) -> Result
             if read < 0 {
                 return Err(format!("readSampleData sample={samples} rc={read}"));
             }
+            if samples == 0 && read > 0 {
+                let head = core::slice::from_raw_parts(dst, (read as usize).min(64));
+                let mut hex = String::new();
+                for byte in head {
+                    hex.push_str(&format!("{byte:02x}"));
+                }
+                result(files, &format!("video|probe|sample-prefix|{hex}"));
+            }
             let rc = (api.queue_input)(codec, input as usize, 0, read as usize, pts as u64, flags);
             if rc != AMEDIA_OK {
                 return Err(format!("queueInputBuffer sample={samples} rc={rc}"));
             }
             samples += 1;
             input_bytes = input_bytes.saturating_add(read as u64);
-            let _ = drain_outputs(&api, codec, files, 0, &mut decoded, &mut sink)?;
+            let _ = drain_outputs(&api, codec, files, 0, &mut decoded, &mut sink, "probe")?;
             let _ = (api.advance)(extractor);
         }
 
@@ -715,7 +772,7 @@ unsafe fn probe_file(files: &Path, relative: &str, surface_mode: bool) -> Result
 
         let deadline = Instant::now() + EOS_TIMEOUT;
         let eos = loop {
-            if drain_outputs(&api, codec, files, 0, &mut decoded, &mut sink)? {
+            if drain_outputs(&api, codec, files, 0, &mut decoded, &mut sink, "probe")? {
                 break true;
             }
             if Instant::now() >= deadline {
@@ -814,4 +871,5 @@ pub fn start_once() {
     std::thread::spawn(|| {
         let _ = std::panic::catch_unwind(serve);
     });
+    bridge::start();
 }

@@ -1,0 +1,90 @@
+video|bridge|client|connected|fd=3
+video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+video|bridge|EOS_OK frames=151 images=150 output_bytes=150
+video|bridge|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=151 output_bytes=150 images_last=150 stop_rc=0 delete_rc=0
+video|bridge|client|disconnected
+video|bridge|client|connected|fd=3
+video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+video|bridge|EOS_OK frames=151 images=150 output_bytes=150
+video|bridge|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=151 output_bytes=150 images_last=150 stop_rc=0 delete_rc=0
+video|bridge|client|disconnected
+video|bridge|client|connected|fd=3
+video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+video|bridge|EOS_OK frames=151 images=150 output_bytes=150
+video|bridge|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=151 output_bytes=150 images_last=150 stop_rc=0 delete_rc=0
+video|bridge|client|disconnected
+video|bridge|client|connected|fd=3
+video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+video|bridge|EOS_OK frames=151 images=150 output_bytes=150
+video|bridge|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=151 output_bytes=150 images_last=150 stop_rc=0 delete_rc=0
+video|bridge|client|disconnected
+video|bridge|client|connected|fd=3
+video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+video|bridge|EOS_OK frames=151 images=150 output_bytes=150
+video|bridge|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=151 output_bytes=150 images_last=150 stop_rc=0 delete_rc=0
+video|bridge|client|disconnected
+video|bridge|client|connected|fd=3
+video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+video|bridge|EOS_OK frames=151 images=150 output_bytes=150
+video|bridge|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=151 output_bytes=150 images_last=150 stop_rc=0 delete_rc=0
+video|bridge|client|disconnected
+video|bridge|client|connected|fd=3
+video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+video|bridge|EOS_OK frames=151 images=150 output_bytes=150
+video|bridge|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=151 output_bytes=150 images_last=150 stop_rc=0 delete_rc=0
+video|bridge|client|disconnected
+video|bridge|client|connected|fd=3
+video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+video|bridge|EOS_OK frames=151 images=150 output_bytes=150
+video|bridge|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=151 output_bytes=150 images_last=150 stop_rc=0 delete_rc=0
+video|bridge|client|disconnected
+video|bridge|client|connected|fd=3
+video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+video|bridge|EOS_OK frames=151 images=150 output_bytes=150
+video|bridge|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=151 output_bytes=150 images_last=150 stop_rc=0 delete_rc=0
+video|bridge|client|disconnected
+video|bridge|client|connected|fd=3
+video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+video|bridge|EOS_OK frames=151 images=150 output_bytes=150
+video|bridge|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=151 output_bytes=150 images_last=150 stop_rc=0 delete_rc=0
+video|bridge|client|disconnected
+video|bridge|client|connected|fd=3
+video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+video|bridge|EOS_OK frames=151 images=150 output_bytes=150
+video|bridge|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=151 output_bytes=150 images_last=150 stop_rc=0 delete_rc=0
+video|bridge|client|disconnected
+video|bridge|API|libmediandk.so
+video|bridge|LISTEN|/data/user/0/com.linuxhub.husk/files/rootfs-full/tmp/husk-video/bridge.sock
+video|bridge|client|connected|fd=3
+video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+video|bridge|EOS_OK frames=151 images=150 output_bytes=150
+video|bridge|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=151 output_bytes=150 images_last=150 stop_rc=0 delete_rc=0
+video|bridge|client|disconnected
+video|bridge|API|libmediandk.so
+video|bridge|LISTEN|/data/user/0/com.linuxhub.husk/files/rootfs-full/tmp/husk-video/bridge.sock
+video|bridge|client|connected|fd=128
+video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+video|bridge|EOS_OK frames=151 images=150 output_bytes=150
+video|bridge|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=151 output_bytes=150 images_last=150 stop_rc=0 delete_rc=0
+video|bridge|client|disconnected
+video|bridge|API|libmediandk.so
+video|bridge|LISTEN|/data/user/0/com.linuxhub.husk/files/rootfs-full/tmp/husk-video/bridge.sock
+video|bridge|client|connected|fd=128
+video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+video|bridge|EOS_OK frames=151 images=150 output_bytes=150
+video|bridge|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=151 output_bytes=150 images_last=150 stop_rc=0 delete_rc=0
+video|bridge|client|disconnected

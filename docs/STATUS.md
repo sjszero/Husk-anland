@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 08:01）
+# 当前状态（2026-11-23 08:40）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -39,21 +39,29 @@ PT_LOAD 的映射边界。`chmod`/`chown`/`utimensat`/`statx` 现在固定最终
 恶意 ELF 注入、GOT 失败注入、rootfd 并发 close/reopen、
 SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不能写成已完成。
 
-## 视频最新（evidence 67，2026-11-23）
+## 视频最新（evidence 67 / 69，2026-11-23）
 
 - **FACT**：app 进程内纯 Rust 探针已真实选中 `c2.mtk.avc.decoder` 和
   `c2.mtk.hevc.decoder`；1920x1080@30、各 150/150 帧、EOS、codec 正常释放。
 - **FACT**：`MediaCodec -> AImageReader(AIMAGE_FORMAT_PRIVATE) -> AHardwareBuffer`
   已跑通；AVC/HEVC 各产生 150 个 AHB，每个 native handle 有 3 个 fd，描述为
   `1920x1080 / YUV420_888 / stride=1920`。
-- **FACT（边界）**：当前用 app 内 `AMediaExtractor` 读 MP4，只是硬解与 AHB 能力探针；
-  guest 解复用、独立压缩帧通道、`MEM_IMPORT` 和零拷贝出画均未完成。
+- **FACT（evidence 69）**：guest 已在正常 `rootfs-full` 根内用纯 Rust MP4 reader 解复用
+  1920x1080@30 AVC，150 个 access unit 经 4×2 MiB memfd ring 和控制 socket 送到 app；
+  app 用真实 `c2.mtk.avc.decoder` 产出 150 个 AHB，`EOS`、stop/delete、断连均成功。
+  本次 guest 为 150/150 样本、`RESULT PASS`、1599 ms；app 日志累计 14 个相同会话全成功。
+- **FACT（边界）**：v1 只覆盖单条 AVC 轨与精确 MTK decoder 名。控制 socket 已放进
+  `rootfs-full/tmp/husk-video/`，但 shim 尚未翻译 `connect(2)` 路径，测试 harness 传的是
+  私有物理 socket 路径；rootfs 隔离没有关闭。
+- **FACT（仍缺）**：AHB 回导 guest / `MEM_IMPORT` / 解码后上屏、HEVC/VP9/AV1 bridge、
+  GStreamer/VA-API、Chromium `<video>`、AV 同步、10 分钟播放、丢帧与硬软解对比未完成。
 - **FACT（新可靠性缺陷）**：一次息屏状态下的重启动发生在 `eglCreateWindowSurface` 内，
   abort message 为 `FORTIFY: pthread_mutex_lock called on a destroyed mutex`。点亮后重跑通过；
   该 Surface 生命周期竞争已由 `WINDOW_ALIVE + focus` 状态门修复。最终产物连续完成息屏冷启动、
   点亮恢复、HOME 恢复与横竖旋转，app PID 全程不变；日志中无 `FORTIFY` / `Fatal signal` /
   `am_crash`（evidence 68）。
 - 证据：[`evidence/67-video-mediacodec-ahb.md`](design/evidence/67-video-mediacodec-ahb.md)。
+- Guest bridge 证据：[`evidence/69-video-guest-bridge.md`](design/evidence/69-video-guest-bridge.md)。
 - 生命周期证据：[`evidence/68-screen-off-surface-lifecycle.md`](design/evidence/68-screen-off-surface-lifecycle.md)。
 
 ## acquire fence 当前实验（PanVK → SurfaceControl 已通过，WSI 未完成）

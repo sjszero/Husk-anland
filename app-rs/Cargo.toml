@@ -8,6 +8,7 @@ name = "huskapp"
 crate-type = ["cdylib"]
 
 [dependencies]
+video-protocol = { path = "../runtime/crates/video-protocol" }
 fontdue = { version = "0.9", default-features = false, features = ["std"] }
 jni = "0.21.1"
 

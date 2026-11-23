@@ -1,5 +1,20 @@
 # 变更记录
 
+## 2026-11-23 — Guest 压缩视频桥 v1 实机打通
+
+- **evidence 69**：正常 `rootfs-full` 根内的 glibc guest 用纯 Rust MP4 reader 解复用
+  1920x1080@30 AVC，150 个 access unit 经 4×2 MiB memfd ring + AF_UNIX 控制通道送到 app；
+  app 用真实 `c2.mtk.avc.decoder` 解出 150 个 AHardwareBuffer，`EOS`、stop/delete、断连均成功。
+  本次 guest 150/150 样本、`RESULT PASS`、1599 ms；app 日志累计 14 个相同会话全部
+  `frames=151 images=150`。
+- 控制 socket 已移到 guest 可见的 `rootfs-full/tmp/husk-video/bridge.sock`，不再需要关闭
+  rootfs 隔离；但 shim 尚未翻译 `connect(2)` 路径，当前 harness 传私有物理 socket 路径。
+- **仍未完成**：AHB `MEM_IMPORT` 回导与解码后上屏、HEVC/VP9/AV1 bridge、GStreamer/VA-API、
+  Chromium、AV 同步、丢帧统计、10 分钟播放和硬软解 CPU 对比。
+- APK sha256 `4bc472f33a88d7c0599b80ff91cfb2100bf8610de61f6db76a99baa2c2c3c386`；
+  `libhuskapp.so` sha256 `62226163c5e259d9a774296d7e2736e82a96069c8c4f0298defe938d9d5643f6`；
+  `video-bridge` sha256 `a7c869f0e695b0a9757f639dbaba191e4f48aefb969e63d9501da32e8e5bd08f`。
+
 ## 2026-11-23 — PanVK 真实 SYNC_FD 接入 SurfaceControl ring
 
 - **evidence 58**：FristOneRR kbase 后端补齐 JM out-fence stream，并让
