@@ -9,3 +9,9 @@ pulse:103:103:1
 whoopsie:104:104:1
 geoclue:105:105:1
 netdev::111:0
+# rtkit and pipewire are added here for the same reason: their postinsts create
+# the accounts with adduser/groupadd, and shadow's lock protocol needs a hard
+# link (nlink==2) which this SELinux domain refuses. Shipping the accounts in
+# the image, the way a distro image does, keeps dpkg --configure working.
+rtkit:106:106:1
+pipewire::107:1

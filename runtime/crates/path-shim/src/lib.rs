@@ -2461,6 +2461,9 @@ unsafe fn utimens_target(
     follow: bool,
     raw_flags: CInt,
 ) -> CInt {
+    if path.is_null() {
+        return set_errno(14);
+    }
     // Under the fake-root convention the guest cannot change ownership (no
     // CAP_CHOWN), and every package manager calls it on every file. Reporting
     // success is what a user namespace would do; the real owner on disk stays
@@ -2468,32 +2471,58 @@ unsafe fn utimens_target(
     if fake_root_on() {
         return 0;
     }
-    if path.is_null() {
-        return set_errno(14);
+    if *path == 0 {
+        if raw_flags & AT_EMPTY_PATH != 0 {
+            // The caller handed us an fd, not a name: nothing to translate.
+            return ret_or_errno(syscall4(
+                SYS_UTIMENSAT,
+                dirfd as usize,
+                path as usize,
+                times as usize,
+                raw_flags as usize,
+            ));
+        }
+        return set_errno(2);
     }
-    if *path == 0 && raw_flags & AT_EMPTY_PATH != 0 {
-        return ret_or_errno(syscall4(
+    if follow {
+        let fd = match target_fd(dirfd, path, true) {
+            Ok(fd) => fd,
+            Err(e) => return set_errno(e),
+        };
+        let mut pb = [0u8; 32];
+        let p = fd_proc_path(fd, &mut pb);
+        let r = syscall4(
             SYS_UTIMENSAT,
-            dirfd as usize,
-            path as usize,
+            AT_FDCWD as usize,
+            p.as_ptr() as usize,
             times as usize,
-            raw_flags as usize,
-        ));
+            0,
+        );
+        rc::close(fd);
+        return ret_or_errno(r);
     }
-    let fd = match target_fd(dirfd, path, follow) {
-        Ok(fd) => fd,
+    // No-follow: the *name* is the target, usually a symlink. Resolving the
+    // whole path to an fd and going through /proc/self/fd would follow the
+    // link (a dangling one answers ENOENT) and set the times of whatever it
+    // points at instead of the link itself. Resolve only the parent inside the
+    // guest and keep AT_SYMLINK_NOFOLLOW so the kernel acts on the name.
+    let rfd = rootfd();
+    let mut raw = [0u8; PATH_MAX];
+    let mut nb = [0u8; 260];
+    let (parent, name, own) = match one_side(rfd, dirfd, path, false, &mut raw, &mut nb) {
+        Ok(v) => v,
         Err(e) => return set_errno(e),
     };
-    let mut pb = [0u8; 32];
-    let p = fd_proc_path(fd, &mut pb);
     let r = syscall4(
         SYS_UTIMENSAT,
-        AT_FDCWD as usize,
-        p.as_ptr() as usize,
+        parent as usize,
+        name as usize,
         times as usize,
-        0,
+        AT_SYMLINK_NOFOLLOW as usize,
     );
-    rc::close(fd);
+    if own {
+        rc::close(parent);
+    }
     ret_or_errno(r)
 }
 
@@ -2998,7 +3027,36 @@ pub unsafe extern "C" fn utimensat(
     times: *const u8,
     flags: CInt,
 ) -> CInt {
-    utimens_target(dirfd, path, times, flags & AT_SYMLINK_NOFOLLOW == 0, flags)
+    let r = utimens_target(dirfd, path, times, flags & AT_SYMLINK_NOFOLLOW == 0, flags);
+    if dbg_on() {
+        let (b, k) = dec_buf(r as i64);
+        dbg_file(&[b"utimensat ", bytes(path), b" -> ", &b[k..], b"\n"]);
+    }
+    r
+}
+
+/// `lutimes(3)`: utimes without following the final symlink.
+///
+/// dpkg is built without HAVE_UTIMENSAT, so this is the call it makes for every
+/// symlink it installs (tarobject_set_mtime -> lutimes). It was missing here,
+/// which made every package that ships a symlink die at the first link with
+/// ENOENT on the `.dpkg-new` name - while `tree`, which has no symlinks, kept
+/// installing fine and hid the bug.
+#[no_mangle]
+pub unsafe extern "C" fn lutimes(path: *const CChar, tv: *const i64) -> CInt {
+    let mut ts = [0i64; 4];
+    if !tv.is_null() {
+        ts[0] = *tv; // sec
+        ts[1] = (*tv.add(1)) * 1000; // usec -> nsec
+        ts[2] = *tv.add(2);
+        ts[3] = (*tv.add(3)) * 1000;
+    }
+    let t = if tv.is_null() {
+        core::ptr::null()
+    } else {
+        ts.as_ptr()
+    };
+    utimens_target(AT_FDCWD, path, t as *const u8, false, AT_SYMLINK_NOFOLLOW)
 }
 
 #[no_mangle]
@@ -4686,13 +4744,34 @@ pub unsafe extern "C" fn fchmod(fd: CInt, mode: u32) -> CInt {
 pub unsafe extern "C" fn futimens(fd: CInt, times: *const u64) -> CInt {
     let mut p = [0u8; 32];
     fd_host_path(fd, &mut p);
-    ret_or_errno(syscall4(
+    let r = syscall4(
         SYS_UTIMENSAT,
         AT_FDCWD as usize,
         p.as_ptr() as usize,
         times as usize,
         0,
-    ))
+    );
+    let rr = ret_or_errno(r);
+    if dbg_on() {
+        let (b, k) = dec_buf(rr as i64);
+        dbg_file(&[b"futimens fd=", bytes(p.as_ptr() as *const CChar), b" -> ", &b[k..], b"\n"]);
+    }
+    rr
+}
+
+/// audit(7) is unreachable from `untrusted_app`: the ROM's seccomp policy refuses
+/// the NETLINK_AUDIT socket, so libaudit answers -1 and shadow treats that as
+/// fatal ("Cannot open audit interface - aborting."). Every package that creates
+/// a user or group then fails during `dpkg --configure`, which makes apt refuse
+/// to touch anything at all - `pipewire`, `rtkit` and anything else with an
+/// `adduser` postinst.
+///
+/// A container with CAP_AUDIT_WRITE gets a socket that accepts the message and
+/// drops it. This is the same end state, stated plainly: hand the caller a sink.
+/// Writes to it succeed, so `audit_log_user_message` never reports an error.
+#[no_mangle]
+pub unsafe extern "C" fn audit_open() -> CInt {
+    open(b"/dev/null\0".as_ptr() as *const CChar, 1, 0)
 }
 
 #[no_mangle]

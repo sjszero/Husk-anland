@@ -101,4 +101,16 @@ S pkg apt "$(apt --version >/dev/null 2>&1; ok $?)" "$(apt --version 2>/dev/null
 S pkg apt_lists "$([ "$(ls /var/lib/apt/lists 2>/dev/null | wc -l)" -gt 5 ]; ok $?)" "$(ls /var/lib/apt/lists 2>/dev/null | wc -l) index files"
 S pkg tz "$([ -f /usr/share/zoneinfo/Asia/Shanghai ]; ok $?)" "$(TZ=Asia/Shanghai date 2>&1)"
 S pkg locale "$([ "$(locale -a 2>/dev/null | wc -l)" -gt 2 ]; ok $?)" "$(locale -a 2>/dev/null | tr '\n' ' ')"
+# dpkg can be "installed" and still have half-configured packages, which makes
+# apt refuse every later operation. That state is invisible to `dpkg --version`.
+# The first column is "desired/status": "hi" is installed-and-held, which is
+# what our libc is, and "rc" is removed-with-conffiles. Only a status letter
+# other than i (ok) or c (conffiles) means the database is mid-transaction.
+bad=$(dpkg -l 2>/dev/null | awk 'NR>5 && NF>2 { s=substr($1,2,1); if (s!="i" && s!="c") print }' | wc -l)
+S pkg db_consistent "$([ "$bad" -eq 0 ]; ok $?)" "$bad package(s) not fully configured"
+# ld.so.cache is written by our own writer; an independent reader (the static
+# glibc ldconfig kept next to it) has to accept the file, or dlopen by bare
+# soname loses the multiarch directories.
+# The static reader cannot see the guest namespace, so it gets the real path.
+S pkg ld_cache "$(/usr/sbin/ldconfig.real.glbc -C "$NR_ROOTFS/etc/ld.so.cache" -p 2>/dev/null | head -1 | grep -q 'libs found'; ok $?)" "$(/usr/sbin/ldconfig.real.glbc -C "$NR_ROOTFS/etc/ld.so.cache" -p 2>/dev/null | head -1 | cut -c1-60)"
 echo DONE

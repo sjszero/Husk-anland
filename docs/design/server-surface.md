@@ -2,7 +2,7 @@
 
 > 唯一目标机：RMX3357（Android 13 / kernel 4.19.191 / 4 KiB / `untrusted_app`，无 root、无 Shizuku）。
 > 全部数字来自 `tools/device-tests/rt-server-parity.sh`，在 guest 里跑，2026-11-23。
-> 状态：**71 PASS / 5 PARTIAL / 6 FAIL**（58/5/18 → 70/6/6 → 71/5/6；最早基线 22 / 4 / 21）。
+> 状态：**73 PASS / 5 PARTIAL / 6 FAIL**（58/5/18 → 71/5/6 → 73/5/6；最早基线 22 / 4 / 21）。
 
 ## 1. 对照的口径
 
