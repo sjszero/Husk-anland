@@ -1,0 +1,17 @@
+PULSE_PID=18387
+RELAY_PID=18391
+PAPLAY_RC=0
+RELAY_RC=0
+---RELAY---
+relay|OPEN|OPEN_READY rate=48000 channels=2 format=1 device=3 burst=1026 capacity=2052 buffer=1026 perf=10 sharing=1
+relay|BEGIN|fifo=/data/user/0/com.linuxhub.husk/files/rootfs-full/tmp/husk-pulse/audio.pcm|rate=48000|channels=2|seconds=10
+relay|CLOSE|CLOSE_OK input_bytes=348140 frames=87035 frames_written=87035 rate=48000 channels=2 device=3 burst=1026 capacity=2052 buffer=1026 perf=10 sharing=1 latency_ms_avg=104.680 latency_ms_max=106.667 xruns=1 elapsed_ms=10003
+relay|PASS|chunks=43|frames=87035|elapsed_ms=10014|last_ack=DATA_OK frames=1019 input_bytes=348140 frames_written=87035 xruns=0
+RESULT PASS
+---PAPLAY---
+---PULSE---
+W: [libld.so] main.c: /proc/self/exe does not point to /usr/bin/pulseaudio, cannot self execute. Are you playing games?
+W: [libld.so] shm.c: Failed to read /dev/shm/: No such file or directory
+W: [libld.so] server-lookup.c: Unable to contact D-Bus: org.freedesktop.DBus.Error.NotSupported: Unable to autolaunch a dbus-daemon without a $DISPLAY for X11
+W: [libld.so] main.c: Unable to contact D-Bus: org.freedesktop.DBus.Error.NotSupported: Unable to autolaunch a dbus-daemon without a $DISPLAY for X11
+W: [libld.so] shm.c: Failed to read /dev/shm/: No such file or directory

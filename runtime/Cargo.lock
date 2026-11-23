@@ -3,6 +3,18 @@
 version = 4
 
 [[package]]
+name = "audio-probe"
+version = "0.1.0"
+
+[[package]]
+name = "audio-relay"
+version = "0.1.0"
+
+[[package]]
+name = "audio-setup"
+version = "0.1.0"
+
+[[package]]
 name = "capability-probe"
 version = "0.1.0"
 dependencies = [

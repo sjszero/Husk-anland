@@ -1,0 +1,11 @@
+[package]
+name = "audio-relay"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[[bin]]
+name = "audio-relay"
+path = "src/main.rs"
+
+[dependencies]

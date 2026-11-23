@@ -1,0 +1,60 @@
+--------- beginning of main
+11-23 07:49:50.043 22647  7947 I Husk    : audio|client|connected|fd=3
+11-23 07:49:50.083 22647  7947 I Husk    : audio|stream|open|rc=0|rate=48000|channels=2|format=1|device=3|burst=1026|capacity=2052|buffer=1026|perf=10|sharing=1|xruns=0|set_buffer=1026
+11-23 07:50:00.202 22647  7947 I Husk    : audio|session|close|input_bytes=339948 frames=84987 frames_written=84987 rate=48000 channels=2 device=3 burst=1026 capacity=2052 buffer=1026 perf=10 sharing=1 latency_ms_avg=104.632 latency_ms_max=106.667 xruns=1 elapsed_ms=10002
+11-23 07:50:00.212 22647  7947 I Husk    : audio|client|disconnected
+11-23 07:50:07.404  6915  6915 I Husk    : onCreate activity=0xb400007aca322980
+11-23 07:50:07.405  6915  6915 I Husk    : surface: activity|PASS|ActivityThread.mActivities
+11-23 07:50:07.413  6915  6915 I Husk    : surface: install|PASS|SurfaceView on Activity 0x195
+11-23 07:50:07.413  6915  6915 I Husk    : onCreate callbacks=0xb400007aca3229d0 -> in-place copy (128 bytes)
+11-23 07:50:07.425  8243  8243 I Husk    : probe: rt_sigaction ret=0
+11-23 07:50:07.434  6915  6915 I Husk    : probe: openat2 semantics = TRAP (handler ran: in-process emulation possible)
+11-23 07:50:07.438  6915  8244 I Husk    : ahb|probe|BEGIN
+11-23 07:50:07.440  6915  8244 I Husk    : ahb|loader|PASS|libandroid.so
+11-23 07:50:07.441  6915  8244 I Husk    : ahb|symbol|PASS|AHardwareBuffer_allocate
+11-23 07:50:07.441  6915  8247 I Husk    : run: thread up
+11-23 07:50:07.441  6915  8247 I Husk    : sync: waiting for onNativeWindowCreated
+11-23 07:50:07.441  6915  8245 I Husk    : audio|bridge|API|libaaudio.so
+11-23 07:50:07.441  6915  8244 I Husk    : ahb|symbol|PASS|AHardwareBuffer_describe
+11-23 07:50:07.441  6915  8244 I Husk    : ahb|symbol|PASS|AHardwareBuffer_release
+11-23 07:50:07.441  6915  8244 I Husk    : ahb|symbol|PASS|AHardwareBuffer_getNativeHandle
+11-23 07:50:07.441  6915  8244 I Husk    : ahb|symbol|PASS|AHardwareBuffer_sendHandleToUnixSocket
+11-23 07:50:07.441  6915  8244 I Husk    : ahb|symbol|PASS|AHardwareBuffer_recvHandleFromUnixSocket
+11-23 07:50:07.441  6915  8244 I Husk    : ahb|symbol|PASS|AHardwareBuffer_lock
+11-23 07:50:07.441  6915  8244 I Husk    : ahb|symbol|PASS|AHardwareBuffer_unlock
+11-23 07:50:07.442  6915  8244 I Husk    : ahb|ring|BEGIN|buffers=3|frames=10000
+11-23 07:50:07.442  6915  8245 I Husk    : audio|bridge|LISTEN|/data/user/0/com.linuxhub.husk/files/audio-bridge.sock
+11-23 07:50:07.443  6915  6915 I Husk    : cb: onStart
+11-23 07:50:07.468  6915  8247 I Husk    : spawned pid=8248 fd=91 tee=97
+11-23 07:50:07.470  6915  8247 I Husk    : session: running pid=8248 (pgid=sid=pid by setsid) 80x24 fds=98
+11-23 07:50:07.472  6915  6915 I Husk    : cb: onResume
+11-23 07:50:07.476  6915  8244 I Husk    : ahb|ring|allocate|slot=0|rc=0|ptr=0xb400007aa5449800
+11-23 07:50:07.477  6915  8244 I Husk    : ahb|linear|lock_write|rc=0 cpu=0x7b70c03000
+11-23 07:50:07.477  6915  8244 I Husk    : ahb|linear|unlock_write|rc=0
+11-23 07:50:07.477  6915  8244 I Husk    : ahb|linear|lock_read|rc=0 cpu=0x7b70c03000
+11-23 07:50:07.477  6915  8244 I Husk    : ahb|linear|cpu_view|match=9/9|got=[2589720576, 2589724736, 2589728894, 2589732896, 2589737056, 2589741150, 2589745215, 2589749375, 2589753409]|unlock=0
+11-23 07:50:07.477  6915  8244 I Husk    : ahb|ring|describe|slot=0|64x64|stride=64|linear=true
+11-23 07:50:07.478  6915  8244 I Husk    : ahb|ring|allocate|slot=1|rc=0|ptr=0xb400007aa5449d00
+11-23 07:50:07.478  6915  8244 I Husk    : ahb|linear|lock_write|rc=0 cpu=0x7b70b1e000
+11-23 07:50:07.478  6915  8244 I Husk    : ahb|linear|unlock_write|rc=0
+11-23 07:50:07.478  6915  8244 I Husk    : ahb|linear|lock_read|rc=0 cpu=0x7b70b1e000
+11-23 07:50:07.478  6915  8244 I Husk    : ahb|linear|cpu_view|match=9/9|got=[2589720576, 2589724736, 2589728894, 2589732896, 2589737056, 2589741150, 2589745215, 2589749375, 2589753409]|unlock=0
+11-23 07:50:07.478  6915  8244 I Husk    : ahb|ring|describe|slot=1|64x64|stride=64|linear=true
+11-23 07:50:07.478  6915  8244 I Husk    : ahb|ring|allocate|slot=2|rc=0|ptr=0xb400007aa5449e00
+11-23 07:50:07.478  6915  8244 I Husk    : ahb|linear|lock_write|rc=0 cpu=0x7b6df3e000
+11-23 07:50:07.479  6915  8244 I Husk    : ahb|linear|unlock_write|rc=0
+11-23 07:50:07.479  6915  8244 I Husk    : ahb|linear|lock_read|rc=0 cpu=0x7b6df3e000
+11-23 07:50:07.479  6915  8244 I Husk    : ahb|linear|cpu_view|match=9/9|got=[2589720576, 2589724736, 2589728894, 2589732896, 2589737056, 2589741150, 2589745215, 2589749375, 2589753409]|unlock=0
+11-23 07:50:07.479  6915  8244 I Husk    : ahb|ring|describe|slot=2|64x64|stride=64|linear=true
+11-23 07:50:07.479  6915  8244 I Husk    : ahb|ring|LISTEN|/data/user/0/com.linuxhub.husk/files/ahb-bridge.sock
+11-23 07:50:07.535  6915  6915 I Husk    : cb: onInputQueueCreated q=0xb400007a48cebc80
+11-23 07:50:07.543  6915  6915 I Husk    : cb: onPause
+11-23 07:50:07.602  6915  6915 I Husk    : cb: onStop (session running, fds=120)
+11-23 07:50:07.602  6915  6915 I Husk    : cb: onSaveInstanceState
+11-23 07:50:11.996  6915  8245 I Husk    : audio|client|connected|fd=121
+11-23 07:50:12.056  6915  8245 I Husk    : audio|stream|open|rc=0|rate=48000|channels=2|format=1|device=3|burst=1026|capacity=2052|buffer=1026|perf=10|sharing=1|xruns=0|set_buffer=1026
+11-23 07:51:37.500  6915  8244 I Husk    : ahb|ring|TIMEOUT|accept
+11-23 07:51:37.503  6915  8244 I Husk    : ahb|ring|DONE|ok=false|buffers_released=3
+11-23 07:51:37.503  6915  8244 I Husk    : ahb|probe|RING|ok=false
+11-23 08:00:22.190  6915  8245 I Husk    : audio|session|close|input_bytes=115273728 frames=28818432 frames_written=28818432 rate=48000 channels=2 device=3 burst=1026 capacity=2052 buffer=1026 perf=10 sharing=1 latency_ms_avg=106.661 latency_ms_max=106.667 xruns=1 elapsed_ms=610003
+11-23 08:00:22.200  6915  8245 I Husk    : audio|client|disconnected

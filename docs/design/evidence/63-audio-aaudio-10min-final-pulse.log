@@ -1,0 +1,5 @@
+W: [libld.so] main.c: /proc/self/exe does not point to /usr/bin/pulseaudio, cannot self execute. Are you playing games?
+W: [libld.so] shm.c: Failed to read /dev/shm/: No such file or directory
+W: [libld.so] server-lookup.c: Unable to contact D-Bus: org.freedesktop.DBus.Error.NotSupported: Unable to autolaunch a dbus-daemon without a $DISPLAY for X11
+W: [libld.so] main.c: Unable to contact D-Bus: org.freedesktop.DBus.Error.NotSupported: Unable to autolaunch a dbus-daemon without a $DISPLAY for X11
+W: [libld.so] shm.c: Failed to read /dev/shm/: No such file or directory

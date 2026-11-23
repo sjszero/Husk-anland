@@ -1,0 +1,21 @@
+PONG bridge=audio-v1
+DEVICES_BEGIN count=7
+DEVICE index=0 id=2 type=1 type_name=earpiece sink=true name="RMX3357" rates=48000,44100 channels=1
+DEVICE index=1 id=3 type=2 type_name=speaker sink=true name="RMX3357" rates=48000,44100 channels=2
+DEVICE index=2 id=13 type=18 type_name=builtin_speaker_safe sink=true name="RMX3357" rates=48000,44100 channels=1
+DEVICE index=3 id=27 type=20 type_name=telephony sink=true name="RMX3357" rates=48000 channels=2
+DEVICE index=4 id=30 type=20 type_name=telephony sink=true name="RMX3357" rates=48000 channels=2
+DEVICE index=5 id=33 type=20 type_name=telephony sink=true name="RMX3357" rates=48000 channels=2
+DEVICE index=6 id=36 type=20 type_name=telephony sink=true name="RMX3357" rates=44100 channels=2
+DEVICES_END
+VOLUME OK index=3 max=16
+VOLUME OK index=5 max=16 percent=30
+VOLUME OK index=5 max=16
+PCM bytes=288000 frames=144000 rate=48000 channels=1 hz=440 amplitude=0.18
+STREAM_READY rate=48000 channels=1 format=1 device=3 burst=1026 capacity=2052 buffer=2052 perf=10 sharing=1
+DONE status=PASS input_bytes=288000 frames=144000 requested_frames=144000 frames_written=144000 rate=48000 channels=1 device=3 burst=1026 capacity=2052 buffer=2052 perf=10 sharing=1 latency_ms_avg=125.784 latency_ms_max=128.000 xruns=1 elapsed_ms=5958
+guest wall time ms=5959
+VOLUME OK index=3 max=16
+BYE
+RESULT PASS
+HOST_RC=0

@@ -1,0 +1,197 @@
+11-23 06:02:40.313 16019 17357 I Husk    : audio|client|connected|fd=136
+11-23 06:02:40.390 16019 17357 I AAudio  : AAudioStreamBuilder_openStream() called ----------------------------------------
+11-23 06:02:40.393   995  1623 D AudioFlinger: updateWakeLockUids_l AudioOut_D uids:
+11-23 06:02:40.393   995  1632 D AudioFlinger: updateWakeLockUids_l AudioOut_15 uids:
+11-23 06:02:40.393   995  1662 D AudioFlinger: updateWakeLockUids_l AudioOut_3D uids:
+11-23 06:02:40.393   995  1638 D AudioFlinger: updateWakeLockUids_l AudioOut_1D uids:
+11-23 06:02:40.393   995  1640 D AudioFlinger: updateWakeLockUids_l AudioOut_25 uids:
+11-23 06:02:40.393   995  1644 D AudioFlinger: updateWakeLockUids_l AudioOut_35 uids:
+11-23 06:02:40.395   995  1663 D AudioFlinger: updateWakeLockUids_l AudioOut_45 uids:
+11-23 06:02:40.395   995  1664 D AudioFlinger: updateWakeLockUids_l AudioOut_4D uids:
+11-23 06:02:40.395   995  1666 D AudioFlinger: updateWakeLockUids_l AudioOut_55 uids:
+11-23 06:02:40.401   995  2033 E AAudioServiceExtImpl: isAAudioCompatible call  getListValueByUid(aaudio-compatible-apps) but return null
+11-23 06:02:40.401   995  2033 I AAudioService: openStream(callingPid:16019, callingUid: 10302): aaudio denied with imcompatible policy such as peformance noise
+11-23 06:02:40.402   995  2033 E AAudioServiceExtImpl: isAAudioCompatible call  getListValueByUid(aaudio-compatible-apps) but return null
+11-23 06:02:40.402   995  2033 I AAudioService: openStream(callingPid:16019, callingUid: 10302): aaudio denied with imcompatible policy such as peformance noise
+11-23 06:02:40.403 16019 17357 D AAudioStream: ~AudioStream(s#1) mPlayerBase strongCount = 1
+11-23 06:02:40.407   995  2033 D AudioFlingerExtImpl: addAudioSessionMap, add 321, uid 10302, map size 1
+11-23 06:02:40.413   995  2033 W AudioFlinger: createTrack_l(): mismatch between requested flags (00000100) and output flags (00000002)
+11-23 06:02:40.414   995  2033 D AudioFlinger: createTrack_l output 13  latencyMs 42 mNormalFrameCount 1024 mSampleRate 48000
+11-23 06:02:40.414   995  2033 D AudioFlinger: createTrack_l output 13 minFrameCount 2052 frameCount 0
+11-23 06:02:40.414   995  2033 D AudioFlinger: Client defaulted notificationFrames to 1026 for frameCount 2052
+11-23 06:02:40.414   995  2033 D AudioFlinger: createTrack_l output 13 final frameCount 2052 for track session 321 , mFrameCount 1024, mNormalFrameCount 1024, notificationFrameCount 1026
+11-23 06:02:40.429 16019 17357 D AAudioStream: setState(s#2) from 0 to 2
+11-23 06:02:40.432 16019 17357 I AAudio  : AAudioStreamBuilder_openStream() returns 0 = AAUDIO_OK for s#2 ----------------
+11-23 06:02:40.432 16019 17357 I Husk    : audio|stream|open|rc=0|rate=48000|channels=1|format=1|device=3|burst=1026|capacity=2052|buffer=2052|perf=10|sharing=1|xruns=0
+11-23 06:02:40.432 16019 17357 D AAudio  : AAudioStream_requestStart(s#2) called --------------
+11-23 06:02:40.432 16019 17357 D AAudioStream: setState(s#2) from 2 to 3
+11-23 06:02:40.457   995  2033 D AudioFlingerExtImpl: noteAudioAcive is 1
+11-23 06:02:40.457   995  2033 D AudioFlinger_PlaybackThreadExtImpl: notifyAudioTrackCreate event:atlas_event_audio_track_create info:pid:16019,sessionId:321,streamType:3,sampleRate:48000,format:1,channelcount:1,flags:2,deviceTypes:2,hasFastMixer:0,isSpatialized:0,id:13,effectChains:0
+11-23 06:02:40.458   995  1623 D AudioFlinger: updateWakeLockUids_l AudioOut_D uids:10302
+11-23 06:02:40.460 16019 17357 D AAudio  : AAudioStream_requestStart(s#2) returned 0 ---------
+11-23 06:02:40.469   995  2033 D AudioFlingerExtImpl: getActiveDeepBufferAudioPids pids = :16019
+11-23 06:02:40.558   995  1623 D AudioFlinger: write() process 98 ms, mBufferMs 20
+11-23 06:02:40.561 16019 17357 D AAudioStream: setState(s#2) from 3 to 4
+11-23 06:02:40.582   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:40.583   995  1623 D AudioFlinger: 0xb4000075cd530280: threadLoop_write write data to hw, mixerStatus 2, muted count 95
+11-23 06:02:40.585   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:40.603   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:40.625   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:40.646   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:40.667   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:40.688   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:40.709   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:40.731   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:40.752   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:40.773   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:40.795   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:40.817   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:40.837   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:40.859   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:40.881   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:40.902   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:40.922   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:40.945   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:40.966   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:40.987   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.008   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.030   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.051   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.072   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.094   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.115   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.137   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.158   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.179   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.200   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.221   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.243   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.265   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.286   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.307   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.329   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.350   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.372   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.392   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.414   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.435   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.457   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.478   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.500   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.520   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.521 16019 17357 I Husk    : audio|stream|progress|frames=49152/144000|input_bytes=98304/288000
+11-23 06:02:41.542   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.565   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.584   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.606   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.627   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.649   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.670   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.691   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.712   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.734   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.757   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.779   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.798   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.819   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.841   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.861   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.883   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.905   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.927   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.947   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.969   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:41.990   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.011   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.032   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.054   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.075   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.096   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.118   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.139   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.160   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.183   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.205   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.225   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.247   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.267   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.290   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.310   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.333   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.353   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.374   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.396   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.418   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.439   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.459   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.481   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.503   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.504 16019 17357 I Husk    : audio|stream|progress|frames=96256/144000|input_bytes=192512/288000
+11-23 06:02:42.526   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.547   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.566   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.589   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.609   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.632   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.653   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.673   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.697   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.717   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.737   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.760   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.781   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.801   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.822   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.843   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.865   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.887   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.907   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.930   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.950   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.973   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:42.994   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.015   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.037   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.058   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.079   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.102   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.123   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.143   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.164   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.184   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.207   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.228   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.249   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.272   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.293   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.313   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.335   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.357   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.377   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.399   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.421   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.442   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.462   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.485   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.505   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.527   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.528 16019 17357 I Husk    : audio|stream|progress|frames=144000/144000|input_bytes=288000/288000
+11-23 06:02:43.572   995  1623 E AudioFlingerExtImpl: Mismatch Effect thread id for bypass update
+11-23 06:02:43.572   995  1623 E AudioFlingerExtImpl: updateAudioDetectState pid : 16019, get null buffer
+11-23 06:02:43.585   995  1623 D AudioFlinger: 0xb4000075cd530280:threadLoop_write write muted data to hw, mixerStatus 1 start, mId 13, mBytesWritten 1163264
+11-23 06:02:44.087   995  1623 I AudioFlinger: BUFFER TIMEOUT: remove(84) from active list on thread 0xb4000075cd530280
+11-23 06:02:44.087   995  1623 D AudioFlingerExtImpl: noteAudioAcive is 0
+11-23 06:02:44.087   995  1623 D AudioFlinger_PlaybackThreadExtImpl: notifyAudioTrackRemove event:atlas_event_audio_track_distroy info:pid:16019,sessionId:321,streamType:3,sampleRate:48000,flags:2,deviceTypes:2,hasFastMixer:0,isSpatialized:0
+11-23 06:02:44.088   995  1623 D AudioFlingerExtImpl: removeAudioSessionUidMap, remove 321, map size 0
+11-23 06:02:44.090   995  1623 D AudioFlinger: updateWakeLockUids_l AudioOut_D uids:
+11-23 06:02:44.100   995  2033 D AudioFlingerExtImpl: getActiveDeepBufferAudioPids pids =
+11-23 06:02:46.529 16019 17357 D AAudio  : AAudioStream_requestStop(s#2) called
+11-23 06:02:46.529 16019 17357 D AAudioStream: setState(s#2) from 4 to 9
+11-23 06:02:46.531   995  1623 D AudioFlinger: updateWakeLockUids_l AudioOut_D uids:
+11-23 06:02:46.534 16019 17357 D AAudio  : AAudioStream_close(s#2) called ---------------
+11-23 06:02:46.534 16019 17357 D AAudioStream: setState(s#2) from 9 to 11
+11-23 06:02:46.539 16019 17357 D AAudioStream: setState(s#2) from 11 to 12
+11-23 06:02:46.539 16019 17357 D AAudioStream: ~AudioStream(s#2) mPlayerBase strongCount = 2
+11-23 06:02:46.540 16019 17357 D AAudio  : AAudioStream_close(s#2) returned 0 ---------
+11-23 06:02:46.540 16019 17357 I Husk    : audio|stream|done|pass=true|input_bytes=288000|frames=144000/144000|frames_written=144000|xruns=1|latency_avg_ms=125.784|latency_max_ms=128.000|elapsed_ms=5978|state=4
+11-23 06:02:46.598 16019 17357 I Husk    : audio|client|disconnected

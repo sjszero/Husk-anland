@@ -1,0 +1,8 @@
+--------- beginning of main
+11-23 08:00:58.257  6915  8245 I Husk    : audio|client|connected|fd=86
+11-23 08:00:58.368  6915  8245 I Husk    : audio|stream|open|rc=0|rate=48000|channels=1|format=1|device=3|burst=1026|capacity=2052|buffer=2052|perf=10|sharing=1|xruns=0
+11-23 08:00:59.431  6915  8245 I Husk    : audio|stream|progress|frames=49152/144000|input_bytes=98304/288000
+11-23 08:01:00.412  6915  8245 I Husk    : audio|stream|progress|frames=96256/144000|input_bytes=192512/288000
+11-23 08:01:01.436  6915  8245 I Husk    : audio|stream|progress|frames=144000/144000|input_bytes=288000/288000
+11-23 08:01:04.447  6915  8245 I Husk    : audio|stream|done|pass=true|input_bytes=288000|frames=144000/144000|frames_written=144000|xruns=1|latency_avg_ms=125.784|latency_max_ms=128.000|elapsed_ms=5958|state=4
+11-23 08:01:04.500  6915  8245 I Husk    : audio|client|disconnected

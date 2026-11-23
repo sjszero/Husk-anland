@@ -11,7 +11,7 @@
 //! resulting pointer is the public ABI consumed by `ASurfaceControl_create`.
 
 use core::ffi::c_void;
-use jni::objects::{GlobalRef, JObject, JValue};
+use jni::objects::{GlobalRef, JIntArray, JObject, JObjectArray, JString, JValue};
 use jni::{JNIEnv, JavaVM};
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
 use std::sync::Mutex;
@@ -254,4 +254,243 @@ pub fn drop_view() {
     if let Ok(mut slot) = SURFACE_VIEW.lock() {
         *slot = None;
     }
+}
+
+
+// --------------------------------------------------------------- audio JNI ---
+
+#[derive(Clone, Debug)]
+pub struct AudioDeviceInfo {
+    pub id: i32,
+    pub ty: i32,
+    pub is_sink: bool,
+    pub name: String,
+    pub sample_rates: String,
+    pub channel_counts: String,
+}
+
+fn jni_fail(env: &JNIEnv, stage: &str, err: impl core::fmt::Display) -> String {
+    clear_java_exception(env, stage, &err);
+    format!("{stage}: {err}")
+}
+
+fn audio_manager<'local>(
+    env: &mut JNIEnv<'local>,
+    activity: &JObject<'local>,
+) -> Result<JObject<'local>, String> {
+    let service = env
+        .new_string("audio")
+        .map_err(|e| jni_fail(env, "audio service string", e))?;
+    env.call_method(
+        activity,
+        "getSystemService",
+        "(Ljava/lang/String;)Ljava/lang/Object;",
+        &[JValue::Object(&service)],
+    )
+    .and_then(|v| v.l())
+    .map_err(|e| jni_fail(env, "getSystemService(audio)", e))
+}
+
+fn int_array_values(env: &mut JNIEnv, object: JObject, stage: &str) -> Result<String, String> {
+    let array = unsafe { JIntArray::from_raw(object.into_raw()) };
+    let len = env
+        .get_array_length(&array)
+        .map_err(|e| jni_fail(env, stage, e))? as usize;
+    if len == 0 {
+        return Ok("-".into());
+    }
+    let mut values = vec![0i32; len.min(16)];
+    env.get_int_array_region(&array, 0, &mut values)
+        .map_err(|e| jni_fail(env, stage, e))?;
+    Ok(values
+        .iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>()
+        .join(","))
+}
+
+pub fn audio_device_type_name(ty: i32) -> &'static str {
+    match ty {
+        1 => "earpiece",
+        2 => "speaker",
+        3 => "wired_headset",
+        4 => "wired_headphones",
+        5 => "line_analog",
+        6 => "line_digital",
+        7 => "bluetooth_sco",
+        8 => "bluetooth_a2dp",
+        9 => "hdmi",
+        10 => "hdmi_arc",
+        11 => "usb_device",
+        12 => "usb_accessory",
+        13 => "dock",
+        14 => "fm",
+        15 => "builtin_mic",
+        16 => "fm_tuner",
+        17 => "tv_tuner",
+        18 => "builtin_speaker_safe",
+        19 => "remote_submix",
+        20 => "telephony",
+        21 => "aux_line",
+        22 => "ip",
+        23 => "bus",
+        24 => "usb_headset",
+        25 => "hearing_aid",
+        _ => "unknown",
+    }
+}
+
+/// Enumerate Android output devices through the platform AudioManager. This
+/// is the bionic side of the bridge; the returned records are sent to the
+/// guest probe as text so no JSON or Java code is shipped in the APK.
+pub fn audio_devices() -> Result<Vec<AudioDeviceInfo>, String> {
+    let vm_ptr = VM.load(Ordering::SeqCst) as *mut jni::sys::JavaVM;
+    if vm_ptr.is_null() {
+        return Err("JavaVM not installed".into());
+    }
+    let vm = unsafe { JavaVM::from_raw(vm_ptr) }.map_err(|e| format!("JavaVM: {e}"))?;
+    let mut env = vm
+        .attach_current_thread_as_daemon()
+        .map_err(|e| format!("attach audio thread: {e}"))?;
+    let activity = current_activity(&mut env)?;
+    let manager = audio_manager(&mut env, &activity)?;
+    let devices_obj = env
+        .call_method(
+            &manager,
+            "getDevices",
+            "(I)[Landroid/media/AudioDeviceInfo;",
+            &[JValue::Int(2)],
+        )
+        .and_then(|v| v.l())
+        .map_err(|e| jni_fail(&env, "AudioManager.getDevices", e))?;
+    if devices_obj.is_null() {
+        return Err("AudioManager.getDevices returned null".into());
+    }
+    let devices = unsafe { JObjectArray::from_raw(devices_obj.into_raw()) };
+    let len = env
+        .get_array_length(&devices)
+        .map_err(|e| jni_fail(&env, "devices.length", e))?;
+    let mut out = Vec::new();
+    for i in 0..len {
+        let device = env
+            .get_object_array_element(&devices, i)
+            .map_err(|e| jni_fail(&env, "devices.element", e))?;
+        if device.is_null() {
+            continue;
+        }
+        let id = env
+            .call_method(&device, "getId", "()I", &[])
+            .and_then(|v| v.i())
+            .map_err(|e| jni_fail(&env, "AudioDeviceInfo.getId", e))?;
+        let ty = env
+            .call_method(&device, "getType", "()I", &[])
+            .and_then(|v| v.i())
+            .map_err(|e| jni_fail(&env, "AudioDeviceInfo.getType", e))?;
+        let is_sink = env
+            .call_method(&device, "isSink", "()Z", &[])
+            .and_then(|v| v.z())
+            .map_err(|e| jni_fail(&env, "AudioDeviceInfo.isSink", e))?;
+        let product = env
+            .call_method(&device, "getProductName", "()Ljava/lang/CharSequence;", &[])
+            .and_then(|v| v.l())
+            .map_err(|e| jni_fail(&env, "AudioDeviceInfo.getProductName", e))?;
+        let name = if product.is_null() {
+            audio_device_type_name(ty).to_string()
+        } else {
+            let string = env
+                .call_method(&product, "toString", "()Ljava/lang/String;", &[])
+                .and_then(|v| v.l())
+                .map_err(|e| jni_fail(&env, "productName.toString", e))?;
+            if string.is_null() {
+                audio_device_type_name(ty).to_string()
+            } else {
+                let string = unsafe { JString::from_raw(string.into_raw()) };
+                env.get_string(&string)
+                    .map(|v| v.to_string_lossy().into_owned())
+                    .map_err(|e| jni_fail(&env, "productName string", e))?
+            }
+        };
+        let rates_obj = env
+            .call_method(&device, "getSampleRates", "()[I", &[])
+            .and_then(|v| v.l())
+            .map_err(|e| jni_fail(&env, "AudioDeviceInfo.getSampleRates", e))?;
+        let sample_rates = if rates_obj.is_null() {
+            "-".into()
+        } else {
+            int_array_values(&mut env, rates_obj, "sampleRates")?
+        };
+        let channels_obj = env
+            .call_method(&device, "getChannelCounts", "()[I", &[])
+            .and_then(|v| v.l())
+            .map_err(|e| jni_fail(&env, "AudioDeviceInfo.getChannelCounts", e))?;
+        let channel_counts = if channels_obj.is_null() {
+            "-".into()
+        } else {
+            int_array_values(&mut env, channels_obj, "channelCounts")?
+        };
+        out.push(AudioDeviceInfo {
+            id,
+            ty,
+            is_sink,
+            name,
+            sample_rates,
+            channel_counts,
+        });
+    }
+    Ok(out)
+}
+
+fn audio_volume_parts(env: &mut JNIEnv, manager: &JObject) -> Result<(i32, i32), String> {
+    let index = env
+        .call_method(manager, "getStreamVolume", "(I)I", &[JValue::Int(3)])
+        .and_then(|v| v.i())
+        .map_err(|e| jni_fail(env, "AudioManager.getStreamVolume", e))?;
+    let max = env
+        .call_method(manager, "getStreamMaxVolume", "(I)I", &[JValue::Int(3)])
+        .and_then(|v| v.i())
+        .map_err(|e| jni_fail(env, "AudioManager.getStreamMaxVolume", e))?;
+    Ok((index, max))
+}
+
+pub fn audio_music_volume() -> Result<(i32, i32), String> {
+    let vm_ptr = VM.load(Ordering::SeqCst) as *mut jni::sys::JavaVM;
+    if vm_ptr.is_null() {
+        return Err("JavaVM not installed".into());
+    }
+    let vm = unsafe { JavaVM::from_raw(vm_ptr) }.map_err(|e| format!("JavaVM: {e}"))?;
+    let mut env = vm
+        .attach_current_thread_as_daemon()
+        .map_err(|e| format!("attach audio thread: {e}"))?;
+    let activity = current_activity(&mut env)?;
+    let manager = audio_manager(&mut env, &activity)?;
+    audio_volume_parts(&mut env, &manager)
+}
+
+pub fn audio_set_music_volume_percent(percent: u8) -> Result<(i32, i32), String> {
+    let (_, max) = audio_music_volume()?;
+    let index = ((percent as f32 / 100.0) * max as f32).round() as i32;
+    audio_set_music_volume_index(index.clamp(0, max))
+}
+
+pub fn audio_set_music_volume_index(index: i32) -> Result<(i32, i32), String> {
+    let vm_ptr = VM.load(Ordering::SeqCst) as *mut jni::sys::JavaVM;
+    if vm_ptr.is_null() {
+        return Err("JavaVM not installed".into());
+    }
+    let vm = unsafe { JavaVM::from_raw(vm_ptr) }.map_err(|e| format!("JavaVM: {e}"))?;
+    let mut env = vm
+        .attach_current_thread_as_daemon()
+        .map_err(|e| format!("attach audio thread: {e}"))?;
+    let activity = current_activity(&mut env)?;
+    let manager = audio_manager(&mut env, &activity)?;
+    let (_, max) = audio_volume_parts(&mut env, &manager)?;
+    let requested = index.clamp(0, max);
+    env.call_method(
+        &manager,
+        "setStreamVolume",
+        "(III)V",
+        &[JValue::Int(3), JValue::Int(requested), JValue::Int(0)],
+    )
+    .map_err(|e| jni_fail(&env, "AudioManager.setStreamVolume", e))?;
+    audio_volume_parts(&mut env, &manager)
 }
