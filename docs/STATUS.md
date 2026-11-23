@@ -3,6 +3,23 @@
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
 
+## 最新（2026-11-23 · 参考仓库源码级审计收口）
+
+按「先看前人在做」的要求，把剩余没做过源码级审计的硬件类补齐，写成两份可执行的设计输入：
+
+- `docs/design/sensor-gps-prior-art.md`：DroidNative 的 `SensorBridge.kt` / `LocationBridge.kt`
+  全文 + `docs/device-passthrough.md`。做法是**伪造 IIO sysfs 树**（`/sys/bus/iio/devices/iio:deviceN`），
+  值原地、右对齐定宽、20 Hz 上限；GPS 是 `/dev/gps0` 的 NMEA。本机实测：guest 读真 sysfs 是
+  `Permission denied`（SELinux），所以伪造是唯一形态；`libandroid.so` 导出全套 `ASensorManager_*`，
+  **传感器可以做到零 Java**。
+- `docs/design/platform-peripherals-prior-art.md`：USB 读了 `libusb` @ `a46f434` 的 usbfs 后端
+  （`NO_DEVICE_DISCOVERY` + `libusb_wrap_sys_device`，20 个 `USBDEVFS_*` 命令字），确定走
+  「guest `/dev/bus/usb` → ioctl 翻译 → app 侧 fd」这条与 GPU 同构的路；蓝牙没有 HCI/vhci，
+  只能做 org.bluez D-Bus 门面；NFC 只能做读卡器姿态；**指纹判定为平台限制、不做**。
+
+本机新增事实：`/dev/bus` 整个不存在；`/sys/class/bluetooth` 为空；无 `/dev/vhci`；无 `/dev/nfc*`；
+NDK `android/` 头文件里没有任何 USB/BT/NFC 平台 API。
+
 ## 最新（2026-11-23 19:40）
 
 要测「mutter 46 的 ScreenCast 流是 dmabuf 还是 system memory」，结果**没测成**（evidence 102）：

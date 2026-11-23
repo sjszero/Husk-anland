@@ -19,6 +19,8 @@ Husk 运行时的设计与证据。产品介绍见 [../../README.md](../../READM
 | [audio-bridge.md](audio-bridge.md) | AAudio guest→app 音频桥、持续 PulseAudio 路径、610 秒长稳与实测延迟口径 |
 | [mali-kbase-prior-art.md](mali-kbase-prior-art.md) | Mali kbase / PanVK / Panfrost 前人实现的源码级规格 |
 | [husk-backend-interface.md](husk-backend-interface.md) | 统一 GPU / 视频 / 显示 / 音频的 Rust backend 接口与 SoC adapter 边界 |
+| [sensor-gps-prior-art.md](sensor-gps-prior-art.md) | 传感器 / GPS：DroidNative 伪造 IIO sysfs 与 NMEA 的源码级审计与本机实测 |
+| [platform-peripherals-prior-art.md](platform-peripherals-prior-art.md) | USB / 蓝牙 / NFC / 指纹：非 root 可达性审计（含 libusb usbfs 命令字） |
 | [history/](history/) | 定案前的探索记录（候选枚举、原型、决策日志），仅存档 |
 
 ## 写作规范
