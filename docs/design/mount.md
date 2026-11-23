@@ -2,6 +2,7 @@
 
 > 目标段落：B（挂载与文件系统）。设备 RMX3357 / Android 13 / 4.19.191 / 4 KiB / `untrusted_app`。
 > 状态：bind / tmpfs / 只读 bind 可用，上机验收见 evidence 112。
+> 2026-11-23 外部审计 8 项全部成立并已修复，见 evidence 113 与 `tools/device-tests/05-mount-audit.sh`。
 
 ## 1. 先说清楚做不到什么
 
@@ -42,6 +43,13 @@
 - `MS_REMOUNT` 改已有条目的只读位；同目标的第二次 bind（util-linux 的惯用两步）按幂等处理；
 - `umount2()` 按目标精确匹配删除，目标用**未套用映射**的原始路径解析（否则会被改写成源）；
 - 解析顺序：guest 绝对路径 → 应用挂载表（最多 4 跳，防环）→ 翻译成宿主路径。
+- **表同步**：一把自旋锁只保护表（写者在"改 + 落盘"期间持有）；加载是 `0/1/2` 状态机，
+  记录加载线程 tid，自线程重入直接返回；`/proc/mounts` 的生成也持锁。
+- **只读判定**：先看调用方原始路径（绝对形式），再看解析后的 guest 路径；带目录描述符时
+  用 `mnt_unmap()` 把源侧路径反查回挂载点，所以 `openat(dfd,"f",O_WRONLY)` 同样 `EROFS`。
+- **tmpfs 存储**：目录名 `/run/husk/t<tid><seq>`，与表索引无关；`umount2` 在锁外递归删除。
+- **链式判定**：`mnt_apply()` 返回"有没有匹配"，不用"长度变没变"当判据（等长映射也会变）。
+- **表序列化**：2048→4096 字节；写入不完整时整条丢弃，不写半行（2080 字节的最坏表可完整往返）。
 
 ## 5. 已知限制（都写进证据，不假装）
 
@@ -50,12 +58,18 @@
 2. 最多 8 个挂载点，单条路径 ≤128 字节；超出返回 `ENOSPC`/`ENAMETOOLONG`。
 3. tmpfs 的 `size=` 不执行；`df` 报的是底层文件系统。
 4. 只读判定只覆盖 `openat` 写标志与改树系统调用；`chmod/chown/utimensat` 目前不做 ro 检查（待补）。
+6. `mount -o remount,ro,bind <target>`（util-linux 先查 mountinfo 的那条路径）目前 rc=32；
+   单次形式 `mount -o bind,ro <src> <tgt>` 正常。合成的 mountinfo 字段还不完整。
 5. 没有传播语义，挂载不会被"继承"到子命名空间（我们本来也没有子命名空间）。
 
-## 6. 验收（evidence 112）
+## 6. 验收（evidence 112 / 113）
 
 - `mount --bind /tmp/src /mnt/data` → 目标下读到源内容
 - `mount -t tmpfs tmpfs /mnt/ram` → 子进程写入并读回
 - `mount --bind -o ro /tmp/src /mnt/ro` → 读成功，写 `Read-only file system`
 - `/proc/mounts` 与 `findmnt` 列出三条
 - `umount` 两条都成功，表项消失，目标目录恢复为空
+
+2026-11-23 追加（evidence 113，`tools/device-tests/05-mount-audit.sh`，`PASS=11 FAIL=0`）：
+只读对目录描述符同样生效、卸载后存储目录被删除、2080 字节最坏表完整往返、
+等长两跳链可达、并发解析 + 挂载抖动零错误、xattr 走固定 inode、`ln -L` 可用。
