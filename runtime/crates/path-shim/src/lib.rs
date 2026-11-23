@@ -3653,15 +3653,27 @@ pub unsafe extern "C" fn canonicalize_file_name(path: *const CChar) -> *mut CCha
 // that would be found).
 const LM_ID_BASE: i64 = 0;
 
+/// Everything loaded after `_dl_init` resolves its own PLT against libc, so the
+/// bootstrap GOT rewrite never reached it (gdk-pixbuf loaders, GIO modules,
+/// libspa). glibc appends the new objects to the link_map chain; re-walking it
+/// here is the whole fix. Costs one chain scan per dlopen.
+#[inline]
+unsafe fn loaded(h: *mut u8) -> *mut u8 {
+    if !h.is_null() {
+        crate::boot::nr_repatch();
+    }
+    h
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn dlopen(file: *const CChar, mode: CInt) -> *mut u8 {
     if file.is_null() {
-        return dlmopen(LM_ID_BASE, file, mode);
+        return loaded(dlmopen(LM_ID_BASE, file, mode));
     }
     let f = bytes(file);
     // A bare soname is a search, not a path: leave that to the loader.
     if !f.contains(&b'/') {
-        return dlmopen(LM_ID_BASE, file, mode);
+        return loaded(dlmopen(LM_ID_BASE, file, mode));
     }
     let rfd = rootfd();
     let mut gp = [0u8; PATH_MAX];
@@ -3673,7 +3685,7 @@ pub unsafe extern "C" fn dlopen(file: *const CChar, mode: CInt) -> *mut u8 {
     if rfd < 0 || under_root(&gp[..n]) {
         real[..n].copy_from_slice(&gp[..n]);
         real[n] = 0;
-        return dlmopen(LM_ID_BASE, real.as_ptr() as *const CChar, mode);
+        return loaded(dlmopen(LM_ID_BASE, real.as_ptr() as *const CChar, mode));
     }
     let mut name = [0u8; 256];
     let parent = match rc::resolve_parent_follow(rfd, &gp[..n], &mut name) {
@@ -3690,7 +3702,7 @@ pub unsafe extern "C" fn dlopen(file: *const CChar, mode: CInt) -> *mut u8 {
         *__errno_location() = ENOENT;
         return core::ptr::null_mut();
     }
-    dlmopen(LM_ID_BASE, real.as_ptr() as *const CChar, mode)
+    loaded(dlmopen(LM_ID_BASE, real.as_ptr() as *const CChar, mode))
 }
 
 // --------------------------------------------------------- sigaction guard

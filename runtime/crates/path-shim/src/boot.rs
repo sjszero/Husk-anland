@@ -841,6 +841,8 @@ pub unsafe extern "C" fn nr_boot(
 
     // 2. interpose by rewriting the GOT of every loaded object
     let count = Tables::count(interp);
+    INTERP = interp;
+    INTERP_N = count;
     if count > 4096 {
         say(&[b"nr-boot: interpose table too large\n"]);
         return 73;
@@ -1439,4 +1441,114 @@ pub unsafe extern "C" fn nr_set_main_map(m: usize) {
 #[no_mangle]
 pub unsafe extern "C" fn nr_get_main_map() -> usize {
     MAIN_MAP
+}
+
+// --------------------------------------------------------------- repatch
+// Step 2 of `nr_boot` runs once, over the objects that exist at `_dl_init`.
+// Anything loaded later resolves its own PLT against libc, so its `open()` went
+// straight to the host filesystem: gdk-pixbuf's image loaders, GIO modules,
+// libspa, GStreamer plugins, PAM/NSS modules. glibc appends newly loaded
+// objects to the same link_map chain, so re-walking from MAIN_MAP after a
+// successful dlopen covers them with no preload, no extra interposition and no
+// syscall interception.
+//
+// proroot does the same thing in binary form: it interposes dlopen, dlsym,
+// dl_iterate_phdr and re-scans the objects it has not seen yet (`proroot_patch_
+// should_scan_object` in its export table).
+static mut INTERP: usize = 0;
+static mut INTERP_N: usize = 0;
+static mut REPATCH_SEEN: [u64; 1024] = [0; 1024];
+static mut REPATCH_SEEN_N: usize = 0;
+static mut REPATCH_LOCK: u8 = 0;
+static mut REPATCH_CALLS: u32 = 0;
+
+unsafe fn repatch_seen(l_addr: u64) -> bool {
+    let mut i = 0;
+    while i < REPATCH_SEEN_N {
+        if REPATCH_SEEN[i] == l_addr {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+unsafe fn repatch_remember(l_addr: u64) {
+    if REPATCH_SEEN_N < 1024 {
+        REPATCH_SEEN[REPATCH_SEEN_N] = l_addr;
+        REPATCH_SEEN_N += 1;
+    }
+}
+
+/// Re-apply the GOT interposition over every object reachable from the link
+/// map. Idempotent: objects already patched are remembered by load bias.
+#[no_mangle]
+pub unsafe extern "C" fn nr_repatch() -> usize {
+    if BOOTED == 0 || INTERP == 0 {
+        return 0;
+    }
+    if REPATCH_LOCK != 0 {
+        return 0;
+    }
+    REPATCH_LOCK = 1;
+    REPATCH_CALLS = REPATCH_CALLS.wrapping_add(1);
+    let mut l = MAIN_MAP;
+    let mut guard = 0;
+    let mut objects = 0;
+    let mut fresh = 0;
+    let mut slots = 0;
+    let mut failures = 0;
+    while l != 0 && guard < 4096 {
+        let l_addr = rd8(l + L_ADDR);
+        let l_ld = rd8(l + L_LD) as usize;
+        if !repatch_seen(l_addr) {
+            repatch_remember(l_addr);
+            let (n_here, failed_here) = patch_object(l_addr, l_ld, LOADER_BASE, INTERP, INTERP_N);
+            slots += n_here;
+            failures += failed_here;
+            fresh += 1;
+            if debug2_on() {
+                let nm = rd8(l + L_NAME) as usize;
+                say(&[b"nr-repatch: @"]);
+                say_hex(l_addr as usize);
+                say(&[b" "]);
+                if nm != 0 {
+                    say(&[core::slice::from_raw_parts(nm as *const u8, strlen(nm))]);
+                } else {
+                    say(&[b"?"]);
+                }
+                say(&[b"="]);
+                say_hex(n_here);
+                say(&[b" failed="]);
+                say_hex(failed_here);
+                say(&[b"\n"]);
+            }
+        }
+        objects += 1;
+        l = rd8(l + L_NEXT) as usize;
+        guard += 1;
+    }
+    let rc = if l != 0 {
+        // Longer than any walk we can trust: say so instead of stopping in the
+        // middle and pretending the pass was complete.
+        say(&[b"nr-repatch: link_map chain truncated\n"]);
+        70
+    } else {
+        0
+    };
+    REPATCH_LOCK = 0;
+    if debug_on() {
+        say(&[b"nr-repatch: call="]);
+        say_hex(REPATCH_CALLS as usize);
+        say(&[b" objects="]);
+        say_hex(objects);
+        say(&[b" new="]);
+        say_hex(fresh);
+        say(&[b" slots="]);
+        say_hex(slots);
+        say(&[b" failed="]);
+        say_hex(failures);
+        say(&[b"\n"]);
+    }
+    rc
 }

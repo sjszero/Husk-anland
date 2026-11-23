@@ -221,3 +221,15 @@
 3. 媒体/音频：AOSP `frameworks/av`、`GStreamer/gstreamer`、`google/oboe`、`libyuv` 的官方上游。
 4. Runtime 旁证：`mekhontsev/shroot`、`coderredlab/proroot`（只读 README/产物结构）、`DroidNative/DroidNativeApp`。
 5. 其余 B/C 项只在具体模块出现新问题时回查，避免“为了审计而审计”拖慢主线。
+
+## 增量：源码/二进制级深读（2026-11-23，随 dlopen 路径层）
+
+身份审计不等于读过源码。下面这些是**逐符号、逐文档**读过的，结论直接进了实现或设计：
+
+| 仓库 | 读法 | 得到的结论 | 落在哪 |
+|---|---|---|---|
+| `coderredlab/proroot` | `llvm-nm -D --defined-only libproroot-runtime.so`（259 个定义）+ README | 覆盖 dlopen 的答案是：拦 `dlopen`/`dlsym`/`dl_iterate_phdr`，并对**没见过的对象**重扫（`proroot_patch_should_scan_object`）；路径全家桶里含 `__open_nocancel`、`__open64_2`、`__xstat*` 这些 libc 内部别名 | `dlopen-path-coverage.md`，实现即 `boot.rs::nr_repatch` |
+| `mekhontsev/shroot` | `interception.md`、`architecture.md`、`kernel-compatibility.md`、`fuse.md` | 选择性 seccomp TRACE + USER_NOTIF + lazy SVC 改写；**要求内核 5.15+**，且是 syscall 拦截模型 —— 与本机 4.19 和「零拦截」硬约束冲突，只作语义对照 | 同上第 2 节 |
+| `SuperTurtleDev/anland` | 源码级（见 `anland-deep-read.md`） | 输入注入点必须在合成器 seat；帧缓冲所有权在 Android 侧；只支持 mutter 49–51（我们是 46） | evidence 95/97/98 |
+
+机器可读记录见 `reference-audit-20261123.json`；本节的符号级细节不重复进 JSON。

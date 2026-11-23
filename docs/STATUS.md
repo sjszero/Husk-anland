@@ -3,7 +3,24 @@
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
 
+## 最新（2026-11-23 18:20）
+
+**dlopen 进来的库现在也走 guest 路径**（evidence 100，实现见
+`docs/design/dlopen-path-coverage.md`）。做法照 proroot 的答案：拦 `dlopen` → 调用真的 →
+从 link map 链头重扫一遍，只 patch 没见过的新对象（`boot.rs::nr_repatch`，带 1024 项
+load-bias 缓存和重入锁）。不是 LD_PRELOAD：那样会有两份 shim 状态（fd→guest 路径表、
+cwd、`/proc/self/fd` 仿真各一份）。
+
+实测：dlopen 进来的 `.so` 里 `fopen("/etc/os-release")` 旧 loader 返回 -1、新的返回 0 并读到
+`PRETTY_NAME="Ubuntu 24.04.4 LTS"`；dlopen 进来的 `libglib` 用 `g_file_get_contents()` 读到
+guest 图标，717 字节与 `ls -l` 一致（旧 loader 上是 SIGSEGV）。
+
+**顺带纠正 evidence 99 的一条归因**：gdk-pixbuf 的 *Couldn't recognize the image file
+format* 与路径层无关 —— **传递宿主绝对路径也一样失败**；同时 rootfs 里根本没有
+`loaders.cache`，14 个 loader 模块一个都没注册（只有内置 png/jpeg）。这两条要单独查。
+
 ## 最新（2026-11-23 17:40）
+
 
 显示链路推进到 PipeWire（evidence 99）：`husk-rd sc` 能把 mutter 的虚拟显示器起成
 `Stream/Output/Video` 节点（BGRx，state=running），手动 `pw-link` 能建立活动连接。
