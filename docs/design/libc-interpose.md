@@ -26,9 +26,18 @@ app 域不允许把「已改过的文件映射」重新变成可执行（W^X / e
 
 对 libc.so.6 做一次离线 ELF 手术：
 
-1. 追加两个页（都借 EXEC LOAD 之后那段零填充，或复用 PT_NOTE）：
+1. 追加两个页：
 
-   * **slot 页**（`RW`，复用一个 PT_NOTE）：头 + 表，`target` 初值 0。
+   > 位置有硬约束（2026-11-23 修正，evidence 122）：**存根页必须在 `.text` 之后的零填充里**
+   > （被搬走的窗口里有 `b.cond`/`cbz`/`tbz`，射程只有 ±1 MiB / ±32 KiB），
+   > **槽位页必须追加到文件末尾**。原因是 glibc 的 `dl-load` 会拒绝 `p_align` 不是页大小整数倍的
+   > `PT_LOAD`（`ELF load command alignment not page-aligned`）；这个 libc 的零填充只有 0x323f 字节，
+   > 塞不进 64 KiB 对齐的段，而放进洞里的段只能声明 4 KiB，到了 16 KiB 内核就整个加载失败。
+   > 放到文件末尾后 `p_offset` 和 `p_vaddr` 都能取 `0x10000` 的整数倍，4K/16K/64K 都合法。
+   > 入口用 `adrp`（±4 GiB）取槽位页，所以槽位页离 `.text` 多远都行。
+
+   * **slot 页**（`RW`，复用一个 PT_NOTE，**追加在文件末尾**，`p_align = 0x10000`）：
+     头 + 表，`target` 初值 0。
 
      ```
      struct husk_slots {

@@ -502,6 +502,9 @@ const LD_DL_INIT: u64 = 0x4BB0; // its target == _dl_init
 const LD_TEXT_END: u64 = 0x41348; // end of the loader's last segment (vaddr)
 const F_BASE: u64 = 0x32000; // where the shim lands inside the loader
 const V_BASE: u64 = 0x42000;
+/// Alignment declared for the shim's segment. V_BASE - F_BASE == SEG_ALIGN, so
+/// the segment is congruent modulo every page size Android ships (4K/16K/64K).
+const SEG_ALIGN: u64 = 0x10000;
 
 /// Deliberately not interposed: our own entry points and compiler glue.
 const NOT_INTERPOSED: [&str; 7] = [
@@ -813,7 +816,13 @@ fn embed(shim_path: &str, loader_path: &str, hook_path: &str, out_path: &str) ->
     put_u64(&mut out, o + 24, V_BASE);
     put_u64(&mut out, o + 32, total);
     put_u64(&mut out, o + 40, total);
-    put_u64(&mut out, o + 48, PAGE);
+    // 64 KiB, not the page size: this segment is only ever exec'd by the kernel
+    // (nothing dlopens the loader), where congruence is what counts, but glibc
+    // would refuse a p_align that is not a multiple of the running page size -
+    // and a static check that says "16K: FAIL" is a reading every future
+    // auditor has to re-derive. F_BASE and V_BASE differ by exactly SEG_ALIGN,
+    // so the pair stays congruent at 4K, 16K and 64K.
+    put_u64(&mut out, o + 48, SEG_ALIGN);
 
     // `bl _dl_init` -> `bl nr_dl_init_hook`
     let target = V_BASE + hook_off;
@@ -996,7 +1005,15 @@ fn check_elf_main(args: &[String]) {
             let align = u64le(&data, o + 48);
             max_align = max_align.max(align);
             for (pi, page) in pages.iter().enumerate() {
-                if off % page != vaddr % page {
+                // Two separate rules, both enforced at load time:
+                //   * p_vaddr and p_offset congruent modulo the page size, or
+                //     the kernel cannot place the segment;
+                //   * p_align a multiple of the page size, or glibc's dl-load
+                //     refuses the object ("ELF load command alignment not
+                //     page-aligned"). A 4 KiB-aligned segment in a libc is
+                //     exactly the second case: congruent, still unloadable on a
+                //     16 KiB kernel.
+                if off % page != vaddr % page || (align != 0 && align % page != 0) {
                     verdict[pi] = false;
                 }
             }
@@ -1105,6 +1122,19 @@ fn walk_elf_candidates(p: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
     }
     if !md.is_file() {
         return;
+    }
+    // Backups are not part of the image and must not decide the verdict:
+    // libc.so.6.orig (pristine, for re-patching), .pre-<tag> (before a patch),
+    // .bak-* and friends all live next to the real file.
+    if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+        let backup = [".orig", ".pre-mq", ".bak", ".new", ".old"]
+            .iter()
+            .any(|sfx| name.ends_with(sfx))
+            || name.contains(".pre-")
+            || name.contains(".bak-");
+        if backup {
+            return;
+        }
     }
     // Cheap pre-filter: ELF magic in the first four bytes.
     if let Ok(mut f) = fs::File::open(p) {

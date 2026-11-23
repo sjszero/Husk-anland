@@ -22,7 +22,8 @@ loader, before any preload constructor could install anything. Two consequences:
 
 ```
 path-shim (Rust, no_std, zero DT_NEEDED)
-  └─ cargo build -C link-arg=-z -C link-arg=max-page-size=4096   → 4K segments
+  └─ cargo build -C link-arg=-z -C link-arg=max-page-size=4096   → compact spans
+     (the segment embed adds is 64K-aligned: SEG_ALIGN in nr-tools)
 init-hook.S                                                    → 288-byte hook blob
 nr-tools scan-syscalls patch ld.so --version 2.35 ..           → one `svc` -> `nop`
 nr-tools embed shim.so ld.so hook.bin ld-embedded.so           → the product

@@ -2,7 +2,7 @@
 # Build the loader-embedded path shim, end to end, from the pristine inputs.
 #
 #   path-shim (Rust, no_std, zero DT_NEEDED)
-#     -> 4K-aligned ELF segments
+#     -> one 64 KiB-aligned R|E segment (F_BASE/V_BASE differ by SEG_ALIGN)
 #     -> init-hook.S  (_dl_init hook, 176 bytes, no relocations)
 #     -> nr-tools embed  (one extra R|E PT_LOAD in ld.so, all relocations baked)
 #

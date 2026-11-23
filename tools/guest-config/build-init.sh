@@ -8,7 +8,7 @@
 set -e
 cd "$(dirname "$0")/../../runtime"
 RUSTFLAGS="-C link-arg=-nostdlib -C link-arg=-static \
-           -C link-arg=-z -C link-arg=max-page-size=16384" \
+           -C link-arg=-z -C link-arg=max-page-size=65536" \
   cargo build --release -p husk-init --target aarch64-unknown-linux-gnu
 OUT=${OUT:-target/aarch64-unknown-linux-gnu/release/husk-init}
 ls -l "$OUT"

@@ -11,7 +11,7 @@
 
 | 环节 | 约定 | 现状 |
 |---|---|---|
-| 构建 | 所有我们产出的 ELF（shim、reader、工具）用 `-z max-page-size=0x4000` 和 `separate-loadable-segments` | 已执行（`tools/loader/build-embedded-loader.sh`） |
+| 构建 | 所有我们产出的 ELF（shim、reader、工具）用 `-z max-page-size=0x10000`（4K/16K/64K 都合法）和 `separate-loadable-segments` | 已执行（`tools/loader/build-embedded-loader.sh`） |
 | 结构 | 每个 `PT_LOAD` 必须满足 `p_offset ≡ p_vaddr (mod 0x4000)`；`nr-tools embed`/`libc-interpose` 写入前断言 | 已断言 |
 | 体检 | `nr-tools check-elf` 静态检查一组 ELF 的对齐（4K/16K/64K 三档） | 4K 实机通过；16K/64K **UNKNOWN** |
 | 运行期 | 从 auxv 读 `AT_PAGESZ` 存进 `KERNEL_PAGE`，代码里禁止字面量 4096 | 已实现 |

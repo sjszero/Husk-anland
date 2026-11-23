@@ -32,7 +32,7 @@ PID 1 需要 PID namespace，而 PID namespace 需要 `CAP_SYS_ADMIN`/`unshare(C
 * 没有 libc 就没有 `__write_nocancel` 之类的隐藏调用面，行为就是那几个 syscall。
 * 代价：没有 `std`，`memcpy/memset/memcmp/bcmp` 自带，栈上没有分配器（全静态缓冲）。
 
-`-z max-page-size=16384`，所以同一个二进制在 16K 页设备上也是合法映射。
+`-z max-page-size=65536`，所以同一个二进制在 4K / 16K / 64K 页设备上都是合法映射（evidence 122）。
 
 ## 3. 配置
 

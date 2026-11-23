@@ -43,6 +43,11 @@ pub const SLOT_STRIDE: usize = 48;
 pub const SLOT_NAME_MAX: usize = 32;
 
 const ALIGN: u64 = 0x4000; // the module has to be loadable on a 16 KiB page
+/// Page the slot segment is aligned to. Android arm64 devices ship 4 KiB, 16 KiB
+/// and 64 KiB pages, and glibc rejects a PT_LOAD whose p_align is not a multiple
+/// of the running page size, so the segment we add is 64 KiB aligned: a multiple
+/// of every page size in use, and the same value Ubuntu's own libc uses.
+const SEG_ALIGN: u64 = 0x10000;
 const PATCH_LEN: usize = 6; // instructions overwritten at the entry
 // One slot per entry, plus one for the branch back, plus two per window
 // instruction: a `b.cond`/`cbz`/`tbz` whose target falls out of the ±1 MiB
@@ -476,7 +481,6 @@ pub fn main(args: &[String]) {
     //     table sits exactly there), and libc's uninitialised globals would come
     //     up holding garbage.
     let cap = names.len();
-    let slot_len = align((SLOT_HDR + cap * SLOT_STRIDE) as u64, 0x1000);
     let file_len = e.data.len() as u64;
 
     let gap_lo = align(rx.off + rx.filesz, 0x1000);
@@ -509,31 +513,49 @@ pub fn main(args: &[String]) {
         }
     }
     let stub_len = align((cursor * 4) as u64, 0x1000).max(0x1000);
-    if gap_lo + stub_len + slot_len > gap_hi {
+    if gap_lo + stub_len > gap_hi {
         die(format!(
-            "the padding after the executable LOAD is {:#x} bytes, the two pages need {:#x}",
+            "the padding after the executable LOAD is {:#x} bytes, the stub page needs {:#x}",
             gap_hi - gap_lo,
-            stub_len + slot_len
+            stub_len
         ));
     }
-    let slot_vaddr = stub_vaddr + stub_len;
-    let slot_off = stub_off + stub_len;
-    for (what, at, len) in [
-        ("stub", stub_off, stub_len),
-        ("slot", slot_off, slot_len),
-    ] {
-        if at + len > file_len {
-            die(format!("{what} page at {at:#x} would be past the end of the file"));
-        }
-        if !e.data[at as usize..(at + len) as usize]
-            .iter()
-            .all(|b| *b == 0)
-        {
-            die(format!("padding at {at:#x} is not empty; refusing to overwrite it"));
-        }
+    if !e.data[stub_off as usize..(stub_off + stub_len) as usize]
+        .iter()
+        .all(|b| *b == 0)
+    {
+        die(format!("padding at {stub_off:#x} is not empty; refusing to overwrite it"));
     }
 
+    // The slot page goes *past the end of the last LOAD*, not next to the stub.
+    //
+    // glibc's dl-load rejects any PT_LOAD whose p_align is not a multiple of the
+    // running page size ("ELF load command alignment not page-aligned"), and
+    // Android arm64 ships 4 KiB, 16 KiB and 64 KiB pages. A segment squeezed
+    // into the hole between two existing LOADs cannot be 64 KiB aligned there -
+    // this libc's hole is 0x3000 bytes - so a page-sized slot page placed in the
+    // gap loads on a 4 KiB device and fails to load at all on a 16 KiB one.
+    // At the end of the file both the file offset and the vaddr can be chosen a
+    // multiple of SEG_ALIGN, which makes the segment valid on every page size.
+    //
+    // The entry patched into .text reaches the slot with `adrp` (±4 GiB), so
+    // distance from .text is irrelevant; only the stub page has to stay close.
+    let slot_len = align((SLOT_HDR + cap * SLOT_STRIDE) as u64, 0x1000);
+    let slot_off = align(file_len, SEG_ALIGN);
+    let loaded_end = e
+        .phdrs
+        .iter()
+        .filter(|p| p.typ == PT_LOAD)
+        .map(|p| p.vaddr + p.memsz)
+        .max()
+        .unwrap_or(0);
+    let slot_vaddr = align(loaded_end.max(slot_off), SEG_ALIGN);
+    let slot_end = slot_off + slot_len;
+
     let mut d = e.data.clone();
+    if d.len() < slot_end as usize {
+        d.resize(slot_end as usize, 0);
+    }
     d[slot_off as usize..slot_off as usize + 12].copy_from_slice(&SLOT_MAGIC);
     put_u32(&mut d, slot_off as usize + 12, cap as u32);
     put_u32(&mut d, slot_off as usize + 16, SLOT_STRIDE as u32);
@@ -551,7 +573,9 @@ pub fn main(args: &[String]) {
         }
         d[e_off..e_off + nm.len()].copy_from_slice(nm);
         put_u64(&mut d, e_off + 32, 0); // target: filled by the runtime
-        put_u64(&mut d, e_off + 40, stub - slot_vaddr); // stub, page-relative
+        // The stub sits below the slot page now, so the delta is negative: the
+        // runtime adds it to the slot page base and the arithmetic wraps.
+        put_u64(&mut d, e_off + 40, stub.wrapping_sub(slot_vaddr));
 
         let s_off = (stub - stub_vaddr + stub_off) as usize;
         for (k, w) in moved.iter().enumerate() {
@@ -607,7 +631,12 @@ pub fn main(args: &[String]) {
     let mut order: Vec<([u64; 6], u64)> = Vec::with_capacity(e.phdrs.len());
     for (i, p) in e.phdrs.iter().enumerate() {
         if i == note_idx {
-            continue; // replaced by the slot page
+            // The note segment becomes the slot LOAD, in its own table slot: the
+            // note header already sits after the last real LOAD, so the LOAD
+            // list stays sorted by p_vaddr even though the slot page itself
+            // lives past the end of the file.
+            order.push((slot_phdr, SEG_ALIGN));
+            continue;
         }
         let row = [
             p.typ as u64 | ((p.flags as u64) << 32),
@@ -618,12 +647,42 @@ pub fn main(args: &[String]) {
             if i == rx_i { stub_off + stub_len - rx.off } else { p.memsz },
         ];
         order.push((row, p.align));
-        if i == rx_i {
-            order.push((slot_phdr, 0x1000));
-        }
     }
     if order.len() != e.phdrs.len() {
         die("program header bookkeeping mismatch");
+    }
+    // Every LOAD has to survive all three page sizes we claim to support:
+    //   * p_align must be a power of two and a multiple of the page size, or
+    //     glibc's dl-load refuses the object outright ("ELF load command
+    //     alignment not page-aligned");
+    //   * p_vaddr and p_offset must be congruent modulo p_align, and therefore
+    //     modulo every page size the object is ever loaded on;
+    //   * the LOADs must stay sorted by p_vaddr.
+    let mut prev_vaddr = 0u64;
+    let mut have_prev = false;
+    for (row, al) in &order {
+        if row[0] as u32 != PT_LOAD {
+            continue;
+        }
+        let (off, vaddr) = (row[1], row[2]);
+        if *al == 0 || al & (al - 1) != 0 {
+            die(format!("p_align {al:#x} is not a power of two"));
+        }
+        if al % 0x4000 != 0 {
+            die(format!(
+                "PT_LOAD at {vaddr:#x} has p_align {al:#x}, which a 16 KiB page refuses"
+            ));
+        }
+        if vaddr.wrapping_sub(off) & (al - 1) != 0 {
+            die(format!(
+                "PT_LOAD at {vaddr:#x} off {off:#x}: vaddr and offset differ modulo p_align {al:#x}"
+            ));
+        }
+        if have_prev && vaddr < prev_vaddr {
+            die(format!("PT_LOAD at {vaddr:#x} is out of order (previous {prev_vaddr:#x})"));
+        }
+        prev_vaddr = vaddr;
+        have_prev = true;
     }
     for (i, (row, align_v)) in order.iter().enumerate() {
         let o = po + i * 56;

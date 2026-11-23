@@ -1,5 +1,30 @@
 # 变更记录
 
+## 2026-11-23 — 页大小体检：4K / 16K / 64K 全绿（含两个我们自己造的坑）
+
+- **evidence 122**：guest rootfs 里 **2987 个 ELF** 在 4K/16K/64K 三档全部通过，
+  loader 与我们自己产出的 6 个 guest 二进制也是 `0x10000` 对齐。
+- 补上第二条判据：glibc `dl-load` 要求 `p_align % PAGE_SIZE == 0`，
+  不满足直接拒绝加载（`ELF load command alignment not page-aligned`）。
+  之前只检查同余，所以一个"同余正确、p_align 只有 4K"的段在 4K 机器上永远看不出问题。
+- `nr-tools libc-interpose`：槽位页不再塞进 `.text` 后的空洞（那里只有 0x323f 字节，
+  只能声明 4K 对齐，到 16K 内核上会把整个 `libc.so.6` 变成不可加载），改为
+  **追加在文件末尾、`p_align = 0x10000`**；存根页留在洞里（分支射程要求）。
+  新增断言：每个 LOAD 必须 `p_align` 为 2 的幂且 `p_align % 16K == 0`、
+  `vaddr ≡ offset (mod p_align)`、按 vaddr 升序。重打后的 libc 功能未退化
+  （DNS、`TZ`、`locale -a`、apt、1180+ 包）。
+- `nr-tools embed`：loader 里嵌入的 shim 段同样改成 `SEG_ALIGN = 0x10000`
+  （`V_BASE - F_BASE` 恰等于它），loader 三段全 `0x10000`。
+- `nr-tools check-elf`：纳入 `p_align % 页` 规则，遍历目录时跳过 `.orig`/`.pre-*`/`.bak*` 备份，
+  并可交叉编译进 guest 直接体检。
+- 新增 `tools/guest-config/build-guest-tools.sh`：`husk-usermgr` / `husk-ldconfig` / `husk-rd`
+  按 64K 重编。踩到的坑写进脚本注释：只用 `rust-lld` 链接会**静默产出 `e_entry = 0`**
+  （rustc 不传 `crt1.o`），程序在任何 loader 下都在 `main` 前 SIGSEGV；必须让 NDK 的
+  `clang` 当链接驱动。
+- 8 项外部审计（B-01…B-08）在最新 `main` 上复测：05-mount-audit **18/18**、09 **11/11**、
+  10 **9/9**、11 **8/8**、12 **8/8**、13 **6/6**、IPC 3× PASS；它们早在 `38d6d05` 就已闭合。
+- 仍未验证：16K/64K 内核真机（本机只有 4 KiB），那两档只是静态判定 + 4K 实跑。
+
 ## 2026-11-23 — VA-API 系统层 access-unit 采集通过，解码仍未完成
 
 - **evidence 82**：标准 GStreamer `vaapih264dec` 管线通过 Husk 的 Rust `husk_drv_video.so`

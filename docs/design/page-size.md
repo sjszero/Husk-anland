@@ -1,8 +1,10 @@
 # 页大小（4 KiB / 16 KiB / 64 KiB）：兼容性边界与设计
 
-> 结论先行：**原理上，满足同余约束的 over-align ELF 不需要按内核页大小拆成多套；但当前仓库还没有把这条
-> 结论变成全部产物的实测承诺。** 现在的 loader 追加段通过 4K/16K/64K 静态同余检查，
-> `libhuskapp.so` 仍在 64K 检查失败，16K/64K 内核也没有真机运行证据。
+> 结论先行：**满足两条对齐约束的 over-align ELF 不需要按内核页大小拆成多套。** 2026-11-23 起，
+> rootfs 里 2987 个 ELF、loader 和我们全部产物在 4K/16K/64K 静态体检全绿（§2.1）。
+> 唯一例外是 `libhuskapp.so`（Android App 自己的 `.so`，由 bionic 在设备上加载）：它是 16K 对齐，
+> 因为 Android 只会发 4K/16K 内核，Play 的要求也是 16K —— 这是刻意的，不是缺口。
+> 16K/64K 内核仍然没有真机，那两档只是静态通过。
 
 ## 1. 机制（不是"设备属性"，是 ELF 与内核的对齐约定）
 
@@ -17,7 +19,15 @@
 p_offset ≡ p_vaddr  (mod PAGE_SIZE)        # 每个 PT_LOAD 都要满足
 ```
 
-以及 `p_align >= PAGE_SIZE` 时最好（`p_align` 是下界声明，越大越安全）。
+第二条检查来自 glibc 的 `dl-load`，容易被忽略但更硬：
+
+```
+p_align % PAGE_SIZE == 0        # 否则 "ELF load command alignment not page-aligned"
+```
+
+它跟同余不是一回事。`off == vaddr` 的段同余永远成立，但如果 `p_align` 写 0x1000，
+16K 内核上 glibc 直接拒绝加载整个对象。2026-11-23 实测确认，见
+[evidence 122](evidence/122-page-size-audit-20261123.md)（我们自己打的 libc 槽位段就栽在这条上）。
 
 推论，两件事必须分开说：
 
@@ -37,11 +47,20 @@ p_offset ≡ p_vaddr  (mod PAGE_SIZE)        # 每个 PT_LOAD 都要满足
 | guest `usr/bin/bash`（Ubuntu noble arm64） | `0x10000` (64K) | ✅ | ✅ | GNU ld 的 aarch64 默认 max-page-size 就是 64K |
 | guest `libc.so.6` | `0x10000` | ✅ | ✅ | 同上 |
 | guest `ld-linux-aarch64.so.1` | `0x10000` | ✅ | ✅ | 同上 |
-| 我们的 `libhuskapp.so`（NDK 29） | `0x4000` (16K) | ✅ | ✅ | 64K 静态检查 `FAIL`；未在 64K 内核运行 |
-| 我们的 `libld.so`（改过的 loader） | `0x10000` | ✅ | ✅ | 4K/16K/64K 静态同余通过，64K 内核未实机运行 |
+| 我们的 `libhuskapp.so`（NDK 29，App 自己的 lib，bionic 加载） | `0x4000` (16K) | ✅ | ✅ | 刻意 16K：Android 只发 4K/16K 内核 |
+| 我们的 `libld.so`（改过的 loader） | `0x10000` | ✅ | ✅ | 三段全 `0x10000`（2026-11-23 修，evidence 122），64K 内核未实机运行 |
 
-校验方式（2026-11-22 起）：`nr-tools check-elf <elf|dir>…` 按同余关系逐段判定并给出
-每档页大小的结论，`embed` 内置 16 KiB 断言。见 [evidence 30](evidence/30-check-elf-20261122.md)。
+校验方式（2026-11-22 起）：`nr-tools check-elf <elf|dir>…` 逐段判定并给出每档页大小的结论，
+`embed` 内置 16 KiB 断言。见 [evidence 30](evidence/30-check-elf-20261122.md)。
+2026-11-23 起它同时校验 `p_align % PAGE_SIZE == 0`，并在遍历目录时跳过 `.orig` / `.pre-*` /
+`.bak*` 备份文件（evidence 122）。
+
+### 2.1 2026-11-23 复查（FACT）
+
+`guest$ nr-tools check-elf usr/lib lib usr/bin bin usr/sbin sbin usr/libexec --page 4096 --page 16384 --page 65536`
+→ **checked 2987 ELF file(s)，4K / 16K / 64K 全绿**。我们自己产出的 6 个 guest 二进制
+（`husk-init`、`husk-logd`、`husk-usermgr`、`husk-ldconfig`、`husk-rd`、`nr-tools`）全部改成
+`max-page-size=0x10000`。仍然没有 16K/64K 内核真机，所以那两档只是**静态通过**。
 
 关键事实：**Ubuntu/Debian 的 arm64 用户态本来就 64K 对齐**，因此 guest 侧的常见 ELF 在 16K
 静态同余检查上通常没有问题；但“静态同余通过”不等于“已在 16K 内核跑过”。这和“Android App 自己的
