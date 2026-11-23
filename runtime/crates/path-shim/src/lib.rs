@@ -84,6 +84,7 @@ const SYS_FCHOWNAT: usize = 54;
 const SYS_UTIMENSAT: usize = 88;
 const SYS_TRUNCATE: usize = 45;
 const SYS_CONNECT: usize = 203;
+const SYS_BIND: usize = 200;
 
 const AF_UNIX: u16 = 1;
 const UNIX_PATH_MAX: usize = 108;
@@ -1055,6 +1056,19 @@ unsafe fn pseudo_path(p: &[u8]) -> bool {
 unsafe fn passthrough(p: &[u8]) -> bool {
     if under_root(p) {
         return true;
+    }
+    // `/dev/shm` (POSIX shared memory) does not exist on Android. Servicing it
+    // from the host is not an option, so it is *not* passthrough: the regular
+    // guest-root resolution maps it to `<rootfs>/dev/shm`, which the runtime
+    // creates as a directory on first use.
+    if p == b"/dev/shm" || (p.len() > 8 && &p[..8] == b"/dev/shm" && p[8] == b'/') {
+        return false;
+    }
+    // Android denies these two files to apps (SELinux), but programs and
+    // configure scripts do read them. Serve them from the guest root instead:
+    // the deploy step writes the real values there, so nothing is invented.
+    if p == b"/proc/version" || p == b"/proc/sys/kernel/osrelease" {
+        return false;
     }
     if !pseudo_path(p) {
         return false;
@@ -3460,6 +3474,95 @@ pub unsafe extern "C" fn connect(sockfd: CInt, addr: *const u8, addrlen: u32) ->
     let translated_len = 2 + prefix_len + 1 + name_len + 1;
     let r = syscall4(
         SYS_CONNECT,
+        sockfd as usize,
+        &translated as *const SockAddrUn as usize,
+        translated_len,
+        0,
+    );
+    rc::close(parent);
+    ret_or_errno(r)
+}
+
+// bind(2) needs the same translation as connect(2). The kernel creates the
+// socket node in the *host* namespace, so a guest path such as
+// `/tmp/husk.sock` would land outside the rootfs (on Android usually ENOENT,
+// because there is no host /tmp). Resolve the parent inside the guest tree and
+// hand the kernel `/proc/self/fd/<parent>/<name>`.
+//
+// Same exclusions as connect: abstract, unnamed and non-AF_UNIX pass through.
+#[no_mangle]
+pub unsafe extern "C" fn bind(sockfd: CInt, addr: *const u8, addrlen: u32) -> CInt {
+    let raw_bind = || {
+        ret_or_errno(syscall4(
+            SYS_BIND,
+            sockfd as usize,
+            addr as usize,
+            addrlen as usize,
+            0,
+        ))
+    };
+
+    if addr.is_null() || addrlen < 2 || addrlen as usize > 2 + UNIX_PATH_MAX + 1 {
+        return raw_bind();
+    }
+    if core::ptr::read_unaligned(addr as *const u16) != AF_UNIX {
+        return raw_bind();
+    }
+    let path_len = (addrlen as usize - 2).min(UNIX_PATH_MAX);
+    if path_len == 0 {
+        return raw_bind();
+    }
+    let path = core::slice::from_raw_parts(addr.add(2), path_len);
+    if path[0] == 0 {
+        return raw_bind();
+    }
+    let path_end = path.iter().position(|c| *c == 0).unwrap_or(path_len);
+    if path_end == 0 {
+        return raw_bind();
+    }
+
+    let mut guest = [0u8; UNIX_PATH_MAX + 1];
+    guest[..path_end].copy_from_slice(&path[..path_end]);
+    guest[path_end] = 0;
+
+    let mut gp = [0u8; PATH_MAX];
+    let Some(gn) = abs_guest(guest.as_ptr() as *const CChar, &mut gp) else {
+        return set_errno(36);
+    };
+    let rfd = rootfd();
+    if rfd < 0 || passthrough(&gp[..gn]) {
+        return raw_bind();
+    }
+
+    let mut name = [0u8; 256];
+    let parent = match rc::resolve_parent_follow(rfd, &gp[..gn], &mut name) {
+        Ok(fd) => fd,
+        Err(e) => return set_errno(e),
+    };
+    let name_len = name.iter().position(|c| *c == 0).unwrap_or(0);
+    if name_len == 0 {
+        rc::close(parent);
+        return set_errno(2);
+    }
+
+    let mut proc_buf = [0u8; 32];
+    let proc_path = fd_proc_path(parent, &mut proc_buf);
+    let prefix_len = proc_path.len().saturating_sub(1); // omit trailing NUL
+    if prefix_len + 1 + name_len > UNIX_PATH_MAX {
+        rc::close(parent);
+        return set_errno(36);
+    }
+
+    let mut translated = SockAddrUn {
+        family: AF_UNIX,
+        path: [0u8; UNIX_PATH_MAX],
+    };
+    translated.path[..prefix_len].copy_from_slice(&proc_path[..prefix_len]);
+    translated.path[prefix_len] = b'/';
+    translated.path[prefix_len + 1..prefix_len + 1 + name_len].copy_from_slice(&name[..name_len]);
+    let translated_len = 2 + prefix_len + 1 + name_len + 1;
+    let r = syscall4(
+        SYS_BIND,
         sockfd as usize,
         &translated as *const SockAddrUn as usize,
         translated_len,
