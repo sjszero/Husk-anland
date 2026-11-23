@@ -1,0 +1,8 @@
+[package]
+name = "husk-rd"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "husk-rd"
+path = "src/main.rs"

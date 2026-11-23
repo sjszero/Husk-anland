@@ -3,6 +3,13 @@
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
 
+## 最新（2026-11-23 17:00）
+
+**输入注入打通到合成器**（evidence 98）：`adb input` → app 手势 → `input.sock` →
+`husk-rd` → `org.gnome.Mutter.RemoteDesktop` → Clutter 虚拟输入设备，mutter 自己的
+`INPUT: Emitting virtual button/key` 日志逐条对上。零补丁、无 `/dev/input`、无 udev。
+两个 ABI 坑记在 evidence 里（按钮要用 evdev 码 0x110；press/release 必须同一连接同一会话）。
+
 ## 最新（2026-11-23 16:40）
 
 **mutter 46 在 guest 里跑成了 Wayland 合成器，GPU 是 Mali-G77（PanVK）**（evidence 97）。

@@ -74,6 +74,10 @@ name = "husk-input"
 version = "0.1.0"
 
 [[package]]
+name = "husk-rd"
+version = "0.1.0"
+
+[[package]]
 name = "husk-record"
 version = "0.1.0"
 dependencies = [
