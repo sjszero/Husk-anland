@@ -25,11 +25,10 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径>   <loader>
 `tools/device-tests/*.sh`、`docs/design/`（设计 + `evidence/` 原始记录）。
 
 **当前开口（按优先级）**：
-1. 64K 内核同样跑一遍端到端（16K 已全绿，evidence 125）；
-2. P2：`ls -l` 在我们的 loader 下多一行 stderr `<argv0>: <path>`（原厂 loader 没有），用 `strace -f -e trace=%file` 定性；
-3. 非 Mali GPU 家族适配层（Adreno kgsl/Turnip、通用 DRM）——无设备，只能写适配器 + UNKNOWN；
-4. 传感器 / GPS / USB / 蓝牙 / NFC / 指纹——未开始（先读 `husk-notes/prior-art/sensor-gps-*.md`、`platform-peripherals-*.md`）；
-5. 2.0 集成：用 Husk 替掉 proot，逐项删 proot 专用补丁（对照 `artifacts/rollback/LinuxHub-Myth-Prometheus.apk`）。
+1. 非 Mali GPU 家族：探测表 + 降级路径（本机可验），适配器等有设备再写（evidence 46/47 是 Mali 的）；
+2. 传感器 / GPS / USB / 蓝牙 / NFC / 指纹——未开始（先读 `husk-notes/prior-art/sensor-gps-*.md`、`platform-peripherals-*.md`）；
+3. 2.0 集成：用 Husk 替掉 proot，逐项删 proot 专用补丁（对照 `artifacts/rollback/LinuxHub-Myth-Prometheus.apk`）；
+4. 交付形态：一条"放进终端（Termux 类）即可安装/启动"的路径（现在只有 adb 推文件 + gexec.sh）。
 
 **参考笔记不进仓库**：`/Users/l/Documents/Codex/2026-08-10/husk-notes/prior-art/`（必读 `references.md`）。
 **推 GitHub 走代理**：`HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 git -c http.proxy=http://127.0.0.1:7897 push origin main`
@@ -49,7 +48,7 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径>   <loader>
 |---|---|---|
 | loader + path-shim | 零 ptrace，路径一次改写完成；dlopen 进来的库也覆盖 | 27 / 100 |
 | exec / PTY / 信号 / 生命周期 | 600 秒长稳、零僵尸、无重启风暴；旋转与 Surface 重建不重启会话 | 32 / 72 |
-| 页大小 | rootfs 2987 个 ELF + loader + 我们全部产物在 4K/16K/64K 静态体检全绿（含 `p_align % 页` 规则）；**真 16K 内核（QEMU + RPi5 16K kernel）上我们的 loader 端到端全绿**：`cat /etc/os-release`、296 个 `/usr/bin`、嵌套 exec、`/tmp` 写读、`check-elf` 727 个 ELF 三档 congruent（修掉的两个真 Bug：段重叠、mprotect 对齐）；**16K/64K 真机仍 UNKNOWN**（本机只有 4K） | 30, 122, 124, 125 |
+| 页大小 | rootfs 2987 个 ELF + loader + 我们全部产物在 4K/16K/64K 静态体检全绿（含 `p_align % 页` 规则）；**真 16K 内核（RPi5 kernel）与真 64K 内核（Ubuntu `linux-image-6.8.0-31-generic-64k`）上我们的 loader 端到端全绿**：`cat /etc/os-release`、`/usr/bin` 计数、嵌套 exec、`/tmp` 写读、`check-elf` 727 个 ELF 三档 congruent；修掉三个真 Bug（段重叠、mprotect 对齐、xattr/readlink 返回裸 -errno）；**16K/64K 真机仍 UNKNOWN**（本机只有 4K） | 30, 122, 124, 125, 126 |
 | GPU | PanVK 列举 Mali-G77、compute、离屏 graphics、Zink surfaceless | 46 / 47 |
 | 显示 | AHB → dma-buf → SurfaceControl；3-buffer ring + 真实 SYNC_FD；10,000 帧 / 665 秒 | 53–59 / 73 |
 | 视频 | H.264 1080p30 连续 600 秒，dropped=0；VA-API 解码出真实帧 | 74–80 / 85–87 |
@@ -87,10 +86,9 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径>   <loader>
 
 ## 下一步（按环境完整性口径排序）
 
-1. **F：16K/64K 收尾**——16K 已在真 16K 内核（QEMU + RPi5）上端到端全绿（evidence 125），
-   剩下的：① 用 64K 内核同样跑一遍；② 16K/64K **真机**（本机只有 4 KiB）仍 UNKNOWN；
-   ③ 收一个 P2 观测项：`ls -l` 在我们的 loader 下多打一行 stderr `<argv0>: <path>`（原厂 loader 没有），
-   用 `strace -f -e trace=%file` 对比定性。
+1. **F：页大小已收口**——真 16K（RPi5 kernel）与真 64K（Ubuntu 64k 内核）内核上端到端全绿
+   （evidence 125 / 126）；`ls -l` 多一行 stderr 的根因已修（xattr/readlink 裸 -errno）。
+   剩 16K/64K **真机** UNKNOWN（本机只有 4 KiB），不是代码问题。
 2. **F：GPU 家族适配器**——本机只验了 Mali(kbase)。Adreno(kgsl + Turnip) 与通用 DRM
    按 `docs/design/device-adapters.md` 的表结构补适配器，没设备的一律 UNKNOWN。
 3. **2.0 集成**：替换 proot 运行时，逐项删除 proot 专用补丁（用 artifacts/rollback 里的
