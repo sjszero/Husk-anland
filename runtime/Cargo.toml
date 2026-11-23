@@ -18,6 +18,7 @@ members = [
     "crates/path-shim",
     "crates/logd",
     "crates/ldconfig",
+    "crates/usermgr",
     "crates/runtime-core",
     "crates/vulkan-probe",
     "crates/video-protocol",

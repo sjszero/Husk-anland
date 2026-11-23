@@ -21,6 +21,11 @@ S id capabilities "$([ -n "$cap" ] && echo PASS || echo FAIL)" "CapEff=${cap:-?}
 S id passwd "$(getent passwd root >/dev/null 2>&1; ok $?)" "$(getent passwd root 2>&1)"
 S id shadow "$([ -r /etc/shadow ]; ok $?)" "$(head -1 /etc/shadow 2>/dev/null | cut -c1-18)"
 S id nsswitch "$(grep -q '^hosts:.*dns' /etc/nsswitch.conf 2>/dev/null; ok $?)" "$(grep '^hosts:' /etc/nsswitch.conf 2>/dev/null)"
+# Account management is part of the container surface: images ship accounts and
+# postinst scripts create more. Measured, not assumed (evidence 111).
+S id useradd "$(useradd -m -s /bin/bash huskpp >/dev/null 2>&1 && [ -d /home/huskpp ] && getent passwd huskpp >/dev/null; r=$?; userdel -r huskpp >/dev/null 2>&1; ok $r)" "useradd -m: user + home"
+S id groupadd "$(groupadd -r huskgg >/dev/null 2>&1 && getent group huskgg >/dev/null; r=$?; groupdel huskgg >/dev/null 2>&1; ok $r)" "groupadd -r"
+S id usermod_member "$(groupadd -r huskgm >/dev/null 2>&1; useradd huskgmu >/dev/null 2>&1; usermod -aG huskgm huskgmu >/dev/null 2>&1; python3 -c 'import grp,sys; sys.exit(0 if "huskgmu" in grp.getgrnam("huskgm").gr_mem else 1)' 2>/dev/null; r=$?; userdel huskgmu >/dev/null 2>&1; groupdel huskgm >/dev/null 2>&1; ok $r)" "usermod -aG seen through getgrnam"
 S id setuid PARTIAL "no CAP_SETUID: su/passwd cannot switch users ($(su -c true 2>&1 | head -1))"
 
 # ------------------------------------------------------------- filesystem ---

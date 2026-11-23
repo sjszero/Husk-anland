@@ -28,7 +28,8 @@
 | 桌面 | 2.0 rootfs 起 GNOME Shell 46（Wayland 显示服务器），GTK4 客户端可连 | 101 |
 | 装包 / dpkg | `apt-get install` / `--reinstall` / `-f install` 全通；dpkg 库零半配置包 | 106 / 109 |
 | ld.so.cache | 自研 Rust writer（1.1 格式），glibc 自己的静态阅读器接受 | 109 |
-| 服务器表面 | `/proc` 合成、`/sys/class/net`、`/dev/log` 落地；73 PASS / 5 PARTIAL / 6 FAIL | 107 / 109 |
+| 服务器表面 | `/proc` 合成、`/sys/class/net`、`/dev/log` 落地；76 PASS / 5 PARTIAL / 6 FAIL | 107 / 109 / 111 |
+| 账号管理 | 自研 `husk-usermgr`（useradd/groupadd/usermod/userdel/groupdel/chpasswd/passwd/chfn/chsh）；`apt-get install tor` 的 postinst 建号成功 | 111 |
 
 ## 正在进行：桌面帧出屏
 

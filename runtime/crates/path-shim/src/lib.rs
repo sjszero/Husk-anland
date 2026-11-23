@@ -5764,6 +5764,38 @@ unsafe fn fill_passwd(f: &Fields, dst: *mut u8, cap: usize, out: *mut Passwd) ->
     0
 }
 
+/// Writes the comma separated member list into `dst` and returns a
+/// NULL-terminated array of pointers into it. `getgrnam()` answering an empty
+/// `gr_mem` is not cosmetic: `getent group <name>` and every tool that checks
+/// membership that way would see the group as empty while the file says
+/// otherwise (measured, evidence 111).
+unsafe fn fill_members(mem: &[u8], d: usize, cap: usize, used: &mut usize) -> *const *const CChar {
+    static mut PTRS: [*const CChar; 32] = [core::ptr::null(); 32];
+    let ptrs = core::ptr::addr_of_mut!(PTRS) as *mut *const CChar;
+    let mut k = 0usize;
+    let mut start = 0usize;
+    while start <= mem.len() {
+        let mut end = start;
+        while end < mem.len() && mem[end] != b',' {
+            end += 1;
+        }
+        if end > start && k < 31 {
+            let s = put_str(d, cap, used, &mem[start..end]);
+            if s.is_null() {
+                break;
+            }
+            *ptrs.add(k) = s;
+            k += 1;
+        }
+        if end >= mem.len() {
+            break;
+        }
+        start = end + 1;
+    }
+    *ptrs.add(k) = core::ptr::null();
+    ptrs
+}
+
 unsafe fn fill_group(f: &Fields, dst: *mut u8, cap: usize, out: *mut Group) -> CInt {
     let d = dst as usize;
     let mut used = 0usize;
@@ -5772,13 +5804,14 @@ unsafe fn fill_group(f: &Fields, dst: *mut u8, cap: usize, out: *mut Group) -> C
     if name.is_null() || pass.is_null() {
         return ERANGE;
     }
+    let mem = fill_members(field_bytes(f, 3), d, cap, &mut used);
     core::ptr::write_volatile(
         out,
         Group {
             gr_name: name,
             gr_passwd: pass,
             gr_gid: field_num(f, 2),
-            gr_mem: core::ptr::addr_of!(EMPTY_MEMBERS) as *const *const CChar,
+            gr_mem: mem,
         },
     );
     0
@@ -5842,6 +5875,33 @@ unsafe fn pw_lookup(
     r
 }
 
+/// The gids this *process* really has, straight from the kernel. Under fake
+/// root `getgid()` answers 0, so it cannot be used for this.
+///
+/// This exists because the synthetic group name must stay scoped to the ids the
+/// process actually carries. Answering "husk<N>" for *every* unknown gid makes
+/// every gid look taken: `adduser` scans 100..999 with `getgrgid()` looking for
+/// a free one and gets -1, then calls `groupadd -g -1` (measured, evidence 111).
+unsafe fn process_has_gid(g: u32) -> bool {
+    const SYS_GETGROUPS: usize = 158;
+    const SYS_GETEGID: usize = 177;
+    let real_gid = syscall4(SYS_GETGID, 0, 0, 0, 0) as u32;
+    let real_egid = syscall4(SYS_GETEGID, 0, 0, 0, 0) as u32;
+    if g == real_gid || g == real_egid {
+        return true;
+    }
+    static mut LIST: [u32; 128] = [0; 128];
+    static mut LEN: usize = usize::MAX;
+    if LEN == usize::MAX {
+        let n = syscall4(SYS_GETGROUPS, 0, 0, 0, 0) as isize;
+        let n = if n <= 0 { 0 } else { (n as usize).min(128) };
+        let r = syscall4(SYS_GETGROUPS, n, core::ptr::addr_of_mut!(LIST) as usize, 0, 0) as isize;
+        LEN = if r <= 0 { 0 } else { r as usize };
+    }
+    let list = core::slice::from_raw_parts(core::ptr::addr_of!(LIST) as *const u32, LEN);
+    list.contains(&g)
+}
+
 unsafe fn gr_lookup(
     idx: usize,
     num: Option<u32>,
@@ -5856,11 +5916,11 @@ unsafe fn gr_lookup(
         // Android hands every app a fistful of kernel group ids that no
         // /etc/group ever lists (input, log, adb, sdcard_rw, ...). Answering
         // NULL makes `groups` and `ls -l` print "cannot find name for group
-        // ID" for each of them; a stable synthetic name is the honest answer
-        // and it matches what the app writes into /etc/group at startup.
+        // ID" for each of them; a stable synthetic name is the honest answer,
+        // but only for ids the process actually carries - see process_has_gid.
         None => match num {
-            Some(g) => synth_group(g, dst, cap, out),
-            None => 2,
+            Some(g) if process_has_gid(g) => synth_group(g, dst, cap, out),
+            _ => 2,
         },
     };
     id_unlock();
