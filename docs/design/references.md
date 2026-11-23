@@ -92,6 +92,7 @@
 | Termux:X11 | `termux/termux-x11` ✅ | 5194 | Android 显示 ↔ X11 的成熟做法（LDS/共享内存/输入），我们显示层的对照基线 |
 | Piperella | `Piperella/Piperella-Wayland-Compositor` ✅ | 6 | Wayland 合成器做成 **Gradle 库**直接嵌 Android App |
 | Anland | `SuperTurtleDev/anland` ✅ / `lfdevs/anland-termux` ✅ | 361 / 165 | **Android 上的 Wayland 协议实现**，Termux/PRoot/Chroot/LXC 都有现成接法；`Droidspaces-Mali` 的桌面就是靠它显示 |
+| Anland（源码级） | `SuperTurtleDev/anland` @ `d60a2a5` | ★362 | **Mutter/KWin/Hyprland/Niri/mango/gamescope 七家后端 + 输入/相机/音频/剪贴板协议**；GPL-3.0；GNOME 后端仅 mutter 49–51 ⇒ 只做协议层对接，逐行阅读记录见 [`anland-deep-read.md`](anland-deep-read.md) |
 | DroidDesk | `orailnoor/DroidDesk` ✅ | 4872 | Termux + X11 + TUR 的成品桌面（产品化参考） |
 | MagicDesk | `mekhontsev/magicdesk` ✅ | 241 | 原生多窗口工作站（X11/Wayland + Termux + MCP），同作者 Shroot |
 | Linuxify | `Bilal140202/linuxify` ✅ | 2 | Kotlin/Compose 壳 + proot 的产品化界面 |
