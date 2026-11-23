@@ -16,6 +16,8 @@ members = [
     "crates/vulkan-probe",
     "crates/video-protocol",
     "crates/video-bridge",
+    "crates/va-driver",
+    "crates/va-node-shim",
 ]
 
 [workspace.package]
