@@ -60,9 +60,9 @@ S net loopback "$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1
 S net udp "$(python3 -c 'import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.bind(("127.0.0.1",0));s.sendto(b"x",s.getsockname());s.settimeout(2);s.recvfrom(4)' 2>/dev/null; ok $?)" "UDP loopback"
 S net ipv6 "$(python3 -c 'import socket;socket.socket(socket.AF_INET6,socket.SOCK_STREAM)' 2>/dev/null; ok $?)" "AF_INET6"
 S net hostname "$(hostname >/dev/null 2>&1; ok $?)" "$(hostname 2>&1)"
-S net proc_net FAIL "/proc/net/dev denied by SELinux (untrusted_app)"
-S net sys_class_net FAIL "/sys/class/net denied by SELinux (untrusted_app)"
-S net netlink FAIL "netlink bind denied (ip addr cannot enumerate interfaces)"
+S net proc_net "$(head -c 200 /proc/net/dev >/dev/null 2>&1; ok $?)" "$(sed -n 3p /proc/net/dev 2>/dev/null | tr -s ' ')"
+S net sys_class_net "$(ls /sys/class/net >/dev/null 2>&1; ok $?)" "$(ls /sys/class/net 2>/dev/null | tr '\n' ' ')"
+S net netlink "$(python3 -c 'import socket;s=socket.socket(socket.AF_NETLINK,socket.SOCK_RAW,0);s.bind((0,0))' 2>/dev/null; ok $?)" "netlink bind (ip addr enumerates interfaces)"
 S net icmp PARTIAL "ping needs CAP_NET_RAW ($(ping -c1 -W1 127.0.0.1 2>&1 | tail -1 | cut -c1-40))"
 
 # ------------------------------------------------------------- proc / sys ----
@@ -87,7 +87,11 @@ S svc dbus_session "$(python3 -c '
 import subprocess,os
 p=subprocess.run(["dbus-daemon","--session","--fork","--print-address"],capture_output=True,text=True)
 raise SystemExit(0 if p.stdout.strip().startswith("unix:") else 1)' 2>/dev/null; ok $?)" "session bus starts"
-S svc syslog "$( [ -S /dev/log ]; ok $?)" "no /dev/log => syslog() unusable"
+S svc syslog "$( [ -S /dev/log ] && logger -t husk "parity probe" 2>/dev/null; ok $?)" "logger -> $(tail -1 /var/log/syslog 2>/dev/null | cut -c1-70)"
+# syslog(3) reaches connect(2) through glibc's *internal* alias, which has no GOT
+# slot, so it is not translated yet. logger works because util-linux builds and
+# connects the socket itself. Fix = add connect/bind to the libc slot list.
+S svc syslog_libc PARTIAL "syslog(3) from libc still misses; the sink and logger are fine"
 S svc systemd PARTIAL "systemd binary present but needs PID 1 + libsystemd-core (not shipped)"
 S svc su PARTIAL "no CAP_SETUID"
 

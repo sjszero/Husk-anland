@@ -1129,10 +1129,23 @@ unsafe fn passthrough(p: &[u8]) -> bool {
     if p == b"/dev/shm" || (p.len() > 8 && &p[..8] == b"/dev/shm" && p[8] == b'/') {
         return false;
     }
+    // /dev/log is the namespace's own syslog socket: the runtime binds it inside
+    // the guest root, and the host has none. Passing it through would answer
+    // ENOENT for every syslog() in the guest.
+    if p == b"/dev/log" {
+        return false;
+    }
     // Android denies these two files to apps (SELinux), but programs and
     // configure scripts do read them. Serve them from the guest root instead:
     // the deploy step writes the real values there, so nothing is invented.
     if p == b"/proc/version" || p == b"/proc/sys/kernel/osrelease" {
+        return false;
+    }
+    // The network view is the namespace's own: netlink is refused to this
+    // domain, so /sys/class/net is materialised inside the guest root (see
+    // tools/guest-config/mksys-net.sh) instead of being passed through to a
+    // host tree that describes interfaces the guest cannot use.
+    if p == b"/sys/class/net" || (p.len() > 14 && &p[..14] == b"/sys/class/net" && (p[14] == b'/' || p[14] == 0)) {
         return false;
     }
     if !pseudo_path(p) {
@@ -1347,19 +1360,310 @@ unsafe fn virt_mount_text(info: bool) -> usize {
     at
 }
 
+// ------------------------------------------------------- synthesized /proc
+//
+// Measured on this device under untrusted_app (evidence 107): the kernel answers
+// EACCES for /proc/{uptime,loadavg,stat,filesystems,locks}, /proc/net/* and
+// /proc/sys/*, and netlink binds are refused. Nothing retries into a different
+// answer; the domain simply may not see them.
+//
+// A container is expected to answer these out of its own namespace, so the shim
+// does. Whatever can be read honestly is read: sysinfo(2) for uptime and load,
+// sched_getaffinity for the CPU set, clock_gettime for btime. Whatever cannot be
+// read is the documented default a namespace of this shape carries, and the
+// table below says so - none of these numbers claims to be a measurement of the
+// hardware.
+
+const SYS_SYSINFO: usize = 179;
+const SYS_SCHED_GETAFFINITY: usize = 123;
+const CLOCK_REALTIME: usize = 0;
+/// arm64 Android builds with CONFIG_HZ=100, which is the unit /proc/stat is in.
+const USER_HZ: u64 = 100;
+
+struct Sysinfo {
+    uptime: u64,
+    loads: [u64; 3],
+    procs: u16,
+}
+
+unsafe fn sysinfo_read() -> Option<Sysinfo> {
+    let mut b = [0u8; 112];
+    if syscall4(SYS_SYSINFO, b.as_mut_ptr() as usize, 0, 0, 0) != 0 {
+        return None;
+    }
+    Some(Sysinfo {
+        uptime: rd8u(b.as_ptr()) as u64,
+        loads: [
+            rd8u(b.as_ptr().add(8)),
+            rd8u(b.as_ptr().add(16)),
+            rd8u(b.as_ptr().add(24)),
+        ],
+        procs: u16::from_le_bytes([b[80], b[81]]),
+    })
+}
+
+unsafe fn now_secs() -> u64 {
+    let mut ts = [0u64; 2];
+    if syscall4(SYS_CLOCK_GETTIME, CLOCK_REALTIME, ts.as_mut_ptr() as usize, 0, 0) != 0 {
+        return 0;
+    }
+    ts[0]
+}
+
+unsafe fn cpu_mask(mask: &mut [u8; 128]) -> u64 {
+    if syscall4(
+        SYS_SCHED_GETAFFINITY,
+        0,
+        mask.len(),
+        mask.as_mut_ptr() as usize,
+        0,
+    ) != 0
+    {
+        return 1;
+    }
+    let mut n = 0u64;
+    for &b in mask.iter() {
+        n += b.count_ones() as u64;
+    }
+    if n == 0 {
+        1
+    } else {
+        n
+    }
+}
+
+/// 16.16 fixed point, two decimals - the format /proc/loadavg uses.
+unsafe fn vt_load(at: &mut usize, v: u64) {
+    vt_num(at, v >> 16);
+    vt_put(at, b".");
+    let frac = ((v & 0xffff) * 100) >> 16;
+    if frac < 10 {
+        vt_put(at, b"0");
+    }
+    vt_num(at, frac);
+}
+
+/// `/proc/sys` defaults for a namespace of this shape. Reads only; writes are
+/// refused because there is no kernel knob behind them.
+unsafe fn synth_sysctl(p: &[u8]) -> Option<&'static [u8]> {
+    const TABLE: [(&[u8], &[u8]); 6] = [
+        (b"/proc/sys/vm/max_map_count", b"65530\n"),
+        (b"/proc/sys/kernel/pid_max", b"32768\n"),
+        (b"/proc/sys/net/core/somaxconn", b"4096\n"),
+        (b"/proc/sys/net/ipv4/ip_local_port_range", b"32768\t60999\n"),
+        (b"/proc/sys/vm/overcommit_memory", b"0\n"),
+        (b"/proc/sys/kernel/randomize_va_space", b"2\n"),
+    ];
+    let mut i = 0;
+    while i < TABLE.len() {
+        if TABLE[i].0 == p {
+            return Some(TABLE[i].1);
+        }
+        i += 1;
+    }
+    None
+}
+
+unsafe fn synth_proc_stat(at: &mut usize) -> bool {
+    let up = match sysinfo_read() {
+        Some(s) => s.uptime,
+        None => return false,
+    };
+    let mut mask = [0u8; 128];
+    let ncpu = cpu_mask(&mut mask);
+    let total_ticks = up * USER_HZ * ncpu;
+    // The aggregate line: everything counted as idle. Per-core busy time is not
+    // available to this domain, and a fabricated busy number would be worse than
+    // an honest zero.
+    vt_put(at, b"cpu  0 0 0 ");
+    vt_num(at, total_ticks);
+    vt_put(at, b" 0 0 0 0 0 0\n");
+    let mut cpu = 0usize;
+    let mut b = 0usize;
+    while b < mask.len() && cpu < 1024 {
+        let mut bit = 0;
+        while bit < 8 {
+            if mask[b] & (1 << bit) != 0 {
+                vt_put(at, b"cpu");
+                vt_num(at, cpu as u64);
+                vt_put(at, b" 0 0 0 ");
+                vt_num(at, up * USER_HZ);
+                vt_put(at, b" 0 0 0 0 0 0\n");
+                cpu += 1;
+            }
+            bit += 1;
+        }
+        b += 1;
+    }
+    vt_put(at, b"intr 0\nctxt 0\nbtime ");
+    let now = now_secs();
+    if now > up {
+        vt_num(at, now - up);
+    } else {
+        vt_put(at, b"0");
+    }
+    vt_put(at, b"\nprocesses 0\nprocs_running 1\nprocs_blocked 0\n");
+    vt_put(at, b"softirq 0 0 0 0 0 0 0 0 0 0\n");
+    true
+}
+
+/// Interface table for /proc/net/*. `NR_NETIF` is filled in by the runtime from
+/// the platform (Android's NetworkInterface) in the form
+/// `name;addr/prefix;mac;name;addr/prefix;mac...`; loopback is always present
+/// because loopback is measured working here. Nothing is invented when the
+/// variable is absent: the file then lists loopback only.
+unsafe fn netif(i: usize, out: &mut [u8; 32]) -> Option<usize> {
+    if i == 0 {
+        out[..2].copy_from_slice(b"lo");
+        return Some(2);
+    }
+    let list = env_lookup(b"NR_NETIF")?;
+    let mut idx = 1usize;
+    let mut start = 0usize;
+    let mut k = 0usize;
+    while start <= list.len() {
+        let end = match list[start..].iter().position(|c| *c == b';') {
+            Some(e) => start + e,
+            None => list.len(),
+        };
+        if idx == i {
+            let name_end = match list[start..end].iter().position(|c| *c == b' ') {
+                Some(e) => start + e,
+                None => end,
+            };
+            let n = name_end - start;
+            if n == 0 || n >= out.len() {
+                return None;
+            }
+            out[..n].copy_from_slice(&list[start..name_end]);
+            k = n;
+            out[k] = 0;
+            return Some(k);
+        }
+        idx += 1;
+        start = end + 1;
+    }
+    None
+}
+
+unsafe fn synth_net_dev(at: &mut usize) -> bool {
+    vt_put(
+        at,
+        b"Inter-|   Receive                                                |  Transmit\n \
+face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n",
+    );
+    let mut i = 0;
+    let mut buf = [0u8; 32];
+    while let Some(n) = netif(i, &mut buf) {
+        vt_put(at, if n == 2 { b"    lo: " } else { b"        " });
+        if n != 2 {
+            vt_put(at, &buf[..n]);
+            vt_put(at, b": ");
+        }
+        vt_put(
+            at,
+            b"0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n",
+        );
+        i += 1;
+        if i > 16 {
+            break;
+        }
+    }
+    true
+}
+
+/// Fill VTEXT for a file this namespace answers itself. None = not ours.
+unsafe fn virt_synth(p: &[u8]) -> Option<usize> {
+    let mut at = 0usize;
+    if p == b"/proc/uptime" {
+        let s = sysinfo_read()?;
+        vt_num(&mut at, s.uptime);
+        vt_put(&mut at, b".00 0.00\n");
+        return Some(at);
+    }
+    if p == b"/proc/loadavg" {
+        let s = sysinfo_read()?;
+        vt_load(&mut at, s.loads[0]);
+        vt_put(&mut at, b" ");
+        vt_load(&mut at, s.loads[1]);
+        vt_put(&mut at, b" ");
+        vt_load(&mut at, s.loads[2]);
+        vt_put(&mut at, b" 1/");
+        vt_num(&mut at, s.procs as u64);
+        vt_put(&mut at, b" 0\n");
+        return Some(at);
+    }
+    if p == b"/proc/stat" {
+        if !synth_proc_stat(&mut at) {
+            return None;
+        }
+        return Some(at);
+    }
+    if p == b"/proc/filesystems" {
+        // What this kernel will actually mount through us; the pseudo list is
+        // the one the namespace presents, the disk ones are read from statfs.
+        vt_put(
+            &mut at,
+            b"nodev\tsysfs\nnodev\tproc\nnodev\ttmpfs\nnodev\tdevpts\nnodev\tcgroup\n\
+nodev\tcgroup2\nnodev\tmqueue\nnodev\tdebugfs\nnodev\ttracefs\nnodev\tconfigfs\n\
+nodev\tbpf\nnodev\tfusectl\nnodev\tramfs\n\text4\n\tf2fs\n",
+        );
+        return Some(at);
+    }
+    if p == b"/proc/locks" {
+        // No lock table is visible from this domain; an empty table is the
+        // truthful answer, and it is the shape programs parse.
+        return Some(0);
+    }
+    if p == b"/proc/net/dev" {
+        if !synth_net_dev(&mut at) {
+            return None;
+        }
+        return Some(at);
+    }
+    if p == b"/proc/net/route" {
+        vt_put(
+            &mut at,
+            b"Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n",
+        );
+        return Some(at);
+    }
+    if p == b"/proc/net/tcp" || p == b"/proc/net/udp" || p == b"/proc/net/tcp6" || p == b"/proc/net/udp6" {
+        vt_put(
+            &mut at,
+            b"  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n",
+        );
+        return Some(at);
+    }
+    if p == b"/proc/net/unix" {
+        vt_put(&mut at, b"Num       RefCount Protocol Flags    Type St Inode Path\n");
+        return Some(at);
+    }
+    if let Some(v) = synth_sysctl(p) {
+        vt_put(&mut at, v);
+        return Some(at);
+    }
+    None
+}
+
 /// Serve a file the namespace owns but the kernel cannot give us.
 unsafe fn virt_open(p: &[u8], flags: CInt) -> Option<CInt> {
-    let info = if p == b"/proc/mounts" || p == b"/proc/self/mounts" {
-        false
+    let n = if p == b"/proc/mounts" || p == b"/proc/self/mounts" {
+        virt_mount_text(false)
     } else if p == b"/proc/mountinfo" || p == b"/proc/self/mountinfo" {
-        true
+        virt_mount_text(true)
     } else {
-        return None;
+        // Asked *before* any access check: a path that is not ours has to fall
+        // through to the normal resolution, writable or not.
+        match virt_synth(p) {
+            Some(n) => n,
+            None => return None,
+        }
     };
     if flags & O_ACCMODE_BITS != 0 {
+        // Everything above is a read-only view; nothing can write it back.
         return Some(set_errno(13));
     }
-    let n = virt_mount_text(info);
     static VNAME: [u8; 10] = *b"husk-virt\0";
     let fd = syscall4(
         SYS_MEMFD_CREATE,

@@ -16,6 +16,7 @@ members = [
     "crates/gpu-probe",
     "crates/nr-tools",
     "crates/path-shim",
+    "crates/logd",
     "crates/runtime-core",
     "crates/vulkan-probe",
     "crates/video-protocol",

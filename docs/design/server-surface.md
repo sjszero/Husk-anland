@@ -2,7 +2,7 @@
 
 > 唯一目标机：RMX3357（Android 13 / kernel 4.19.191 / 4 KiB / `untrusted_app`，无 root、无 Shizuku）。
 > 全部数字来自 `tools/device-tests/rt-server-parity.sh`，在 guest 里跑，2026-11-23。
-> 状态：**58 PASS / 5 PARTIAL / 18 FAIL**（上一轮 57 / 5 / 19；最早基线 22 / 4 / 21）。
+> 状态：**70 PASS / 6 PARTIAL / 6 FAIL**（58/5/18 → 70/6/6；最早基线 22 / 4 / 21）。
 
 ## 1. 对照的口径
 
@@ -31,6 +31,9 @@
 | 装包（apt/dpkg） | 一个包都装不上（六个独立缺陷，见 evidence 106） | `apt-get install tree` / `ca-certificates` 全通，含 postinst 与 update.d 钩子 | usrmerge 解包修复 + 状态库重建 + `execl/execlp/system` + `fchown/fchmod/futimens` + `link` 少传参 + `APT::Sandbox::User` |
 | usrmerge 链接 | `/bin`、`/sbin`、`/lib` 被解包器换成真目录，`/bin/sh` 不存在 | 三条链接都正确 | 自写 tar 读取器（跟随目录符号链接）+ `tools/guest-config/repair-usrmerge.sh` |
 | 假 root | 需要 `NR_FAKE_ROOT=1` 且语义不完整 | 默认开，`getuid`/`chown`/`setuid` 一族统一按容器语义回答 | shim `fake_root_on()`；`NR_FAKE_ROOT=0` 可关 |
+| `/proc/{uptime,loadavg,stat,filesystems,locks}`、`/proc/sys/*`、`/proc/net/*` | 全部被 SELinux 拒绝（EACCES） | 由命名空间自己回答（`uptime`/`top`/`free`/`nproc` 正常） | `path-shim` 的 `virt_open` + `sysinfo(2)`/`sched_getaffinity`；常量表标注来源（evidence 107） |
+| `/sys/class/net` | 被 passthrough 到宿主，列出 guest 用不了的接口 | guest 根里物化 `lo` + `statistics/*` | `mksys-net.sh` + `passthrough()` 排除 |
+| `/dev/log`、`syslog` | 没有接收端，guest 里所有 syslog 失败 | `logger` 能落盘到 `/var/log/syslog`（带 1 MiB 轮转） | 新 crate `runtime/crates/logd`（no_std、静态、无 libc），由启动器拉起 |
 
 ## 3. 剩下的墙（FAIL 里没有一项是"懒得做"）
 
@@ -73,7 +76,8 @@ adb shell 'run-as com.linuxhub.husk sh -c "cd files && cp /data/local/tmp/rt-ser
   dpkg 会警告 `files list file ... missing; assuming package has no files currently installed`。
   装包不受影响；`apt-get remove <那些包>` 不会删文件。要根治得按包重建 `.list`，
   数据源只有 tarball 的文件树，暂不做（做了也只是猜）。
-* **SysV IPC**（`shmget`/`semget`/`msgget`）被内核 seccomp 直接回 ENOSYS，无解，只能记录。
-* **`/proc/net`、`/sys/class/net`、netlink、`/proc/{loadavg,uptime,stat,filesystems,locks}`、
-  `/proc/sys/*`、cgroup** 被 SELinux 按域拒绝（`untrusted_app`）。这些不是"再试一次就好"，
-  只能由运行时**合成**后提供给 guest；当前尚未提供，`rt-server-parity.sh` 里如实记为 FAIL。
+* **SysV IPC**（`shmget`/`semget`/`msgget`）与 `mq_open` 被内核 seccomp 直接回 ENOSYS，无解，只能记录。
+* **`syslog(3)` 本身**仍发不出去：glibc 的 `syslog()` 内部走 `__connect`（无 GOT 槽）。
+  解法是把 `connect`/`bind` 加进 libc 槽位表重编 guest libc；未做。
+* **netlink / cgroup / `/dev/full` / `/dev/mqueue`** 仍是 FAIL：内核拒绝 netlink 与 cgroup 委派；
+  `/dev/full` 要拦 `write(2)` 才能造出 ENOSPC，超出本项目"不扩大拦截面"的规则；mqueue 随 `mq_open`。

@@ -6,8 +6,9 @@
 
 ## 一句话
 
-运行时核心（loader + path-shim + exec/PTY/信号/生命周期）和 GPU、显示、视频、音频、相机、
-输入六类硬件都已在该机跑通；**现在卡在最后一段：GNOME 桌面把帧交给 Android Surface**。
+运行时核心（loader + path-shim + exec/PTY/信号/生命周期）、服务器表面（`/proc`、`/dev/log`、
+装包）和 GPU、显示、视频、音频、相机、输入六类硬件都已在该机跑通；
+**现在卡在最后一段：GNOME 桌面把帧交给 Android Surface**。
 传感器、GPS、USB / 蓝牙 / NFC / 指纹尚未开始；2.0 的 proot 运行时尚未替换。
 
 ## 已完成（回归门禁，改动后必须重跑）
@@ -25,6 +26,8 @@
 | 相机 | guest `/dev/videoN` V4L2，GStreamer 取流、拍照、录像 | 91 / 92 / 93 |
 | 输入 | 触摸/键盘/鼠标经 mutter `RemoteDesktop` 注入 guest 合成器 | 95 / 98 |
 | 桌面 | 2.0 rootfs 起 GNOME Shell 46（Wayland 显示服务器），GTK4 客户端可连 | 101 |
+| 装包 / dpkg | `apt-get install` 全通（含 postinst 与 update.d 钩子），六个独立缺陷已修 | 106 |
+| 服务器表面 | `/proc` 合成、`/sys/class/net`、`/dev/log` 落地；70 PASS / 6 PARTIAL / 6 FAIL | 107 |
 
 ## 正在进行：桌面帧出屏
 
