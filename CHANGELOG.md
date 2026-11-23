@@ -1,5 +1,18 @@
 # 变更记录
 
+## 2026-11-23 — VA-API 系统层 access-unit 采集通过，解码仍未完成
+
+- **evidence 82**：标准 GStreamer `vaapih264dec` 管线通过 Husk 的 Rust `husk_drv_video.so`
+  连续采集 **150 个真实 H.264 access unit**。首帧由 12 个 slice 拼成 94,924-byte AU，
+  surface 在 5 个 VASurface 间轮转，证明标准媒体栈已进入 Husk VA-API 的
+  surface/context/buffer/render 数据面。
+- 驱动当前在 `vaEndPicture` 明确返回 `VA_STATUS_ERROR_UNIMPLEMENTED`；app 侧
+  `AMediaCodec` transport、decoded surface / dma-buf export 尚未接上。因此本变更只证明
+  “应用不改、系统层统一入口 + access-unit 采集”，不证明 H.264 实时解码、Chromium、
+  HEVC、AV 同步或硬解完成。
+- 原始设备输出：`docs/design/evidence/82-va-system-layer-smoke.log`；组件哈希：
+  `docs/design/evidence/82-components.sha256`。
+
 ## 2026-11-23 — 1080p30 H.264 连续 10 分钟门禁通过
 
 - **evidence 80**：6 个固定 YV12 AHB slot 经持久 PanVK converter 每帧写回 RGBA8 AHB，

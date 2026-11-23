@@ -44,8 +44,11 @@ evidence 80 已把 6-slot 固定 AHB ring 跑到 **1080p30 H.264 连续 600.097 
 decoder→GPU 零拷贝。VA-API 系统层已开始落地：evidence 81 的纯 Rust `husk_drv_video.so`
 被 guest libva 实际加载，`vainfo` 报出 H.264 High / HEVC Main 和 VLD，NV12 image-format
 查询通过；GStreamer 已注册 `vaapidecodebin`、`vaapih264dec`、`vaapih265dec`、`vaapisink`。
-但 surface/context/buffer/render/sync/export 数据面仍是显式未实现，guest WSI、Chromium、
-HEVC/VP9/AV1、AV 同步及硬软解 CPU 对比仍未完成。
+evidence 82 又把标准 GStreamer `vaapih264dec` 管线推进到真实 access-unit 采集：设备日志中
+连续出现 150 条 `HUSK_VA_ACCESS_UNIT`，首帧为 12 个 slice / 94,924 bytes，说明
+surface/context/buffer/render 的生命周期已经进入实际路径。但这仍不是解码完成：
+`vaEndPicture` 返回 UNIMPLEMENTED，app 侧 MediaCodec transport、decoded surface /
+dma-buf export、guest WSI、Chromium、HEVC/VP9/AV1、AV 同步及硬软解 CPU 对比仍未完成。
 音频侧已跑通最小闭环：guest 枚举 7 个 Android 输出设备、读写 `STREAM_MUSIC`
 音量，并把 3 秒 PCM16 经独立 Unix socket 交给 app 内 AAudio（evidence 60）；但低延迟请求被
 vendor policy 拒绝、平台返回 `perf=NONE`；evidence 62 又打通 PulseAudio `module-pipe-sink` →
@@ -377,6 +380,7 @@ SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不�
 | guest 直连视频硬解 | **不可行，已关闭**（`/dev/video*` = `0660 media:system` 相机节点；厂商解码 .so 带 bionic DT_NEEDED） | 39 |
 | 本机硬解器与容量 | `c2.mtk.{avc,hevc,vp9,av1}.decoder`；1080p 自报 avc 113–248 / hevc 125–276 fps（未实测） | 39 |
 | 视频路径（设计定稿） | guest 内 Rust VA-API 后端驱动 `husk` → 通道 → app 侧 AMediaCodec；Chromium 与 GStreamer 共用一份后端，不改不重编 | 39 / goals v11 |
+| VA-API 数据面 | **入口与 access-unit 采集通过**：GStreamer `vaapih264dec` 连续采集 150 个 H.264 AU；**解码/导出未完成**，`vaEndPicture` 仍返回 UNIMPLEMENTED | 81 / 82 |
 | 视频固定 AHB ring | **通过**：3 个应用预分配 YV12 AHB，AVC 150/150 帧、`imports=3`、`reuses=147`；仍是 CPU I420→YV12 拷贝 | 77 |
 | GPU YUV→RGBA8 | **第一帧通过**：真实 YV12 dma-buf → PanVK external storage buffer → compute → 9/9 CPU/GPU 逐位一致；同轮 ring 150/150，但未写回 AHB/WSI | 78 |
 | 内核 kbase 版本（自报） | `K:r32p1-00bet5(GPL)`，与厂商 `libGLES_mali.so` 同代 | 40 |

@@ -190,7 +190,7 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 | [状态](docs/STATUS.md) | 逐日进度、修掉的 bug、待办 |
 | [生命周期规格](docs/design/lifecycle.md) | 会话 / PTY / fd / 信号 / 关停的完整契约与不变量 |
 | [libc 内部调用](docs/design/libc-interpose.md) | 槽位方案设计（未实现） |
-| [证据](docs/design/evidence/) | 01–56：设备原始输出，与方案引用一一对应 |
+| [证据](docs/design/evidence/) | 01–82：设备原始输出，与方案引用一一对应 |
 | [参考仓库原始清单](docs/design/reference-request-20261122.md) | 用户提供的 12 类、120 个条目，逐字保存 |
 | [参考仓库审计](docs/design/references.md) | 真实路径、可用性、已拉取 commit 与借鉴结论 |
 | [参考仓库逐条矩阵](docs/design/reference-audit-matrix.md) | 原始 120 条逐项对应：69 GitHub + 45 官方上游/组件 + 6 UNKNOWN |

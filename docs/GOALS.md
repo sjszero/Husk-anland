@@ -3,7 +3,7 @@
 > 本文件是目标的**权威规格**。会话里的 goal 对象不可编辑，重建 goal 时以本文件为准；
 > 改目标就改这里，再把下面的「粘贴块」整段贴进去。纯文本版：`docs/goal-objective.txt`。
 
-最后更新：2026-11-23（v46：evidence 81 完成 Rust VA-API 驱动入口、H.264/HEVC profile 和 NV12 查询，GStreamer 已注册 `vaapidecodebin` / `vaapih264dec` / `vaapih265dec` / `vaapisink`。这仅是系统接口发现通过，surface/context/render/sync/export 数据面仍未实现；HEVC 10 分钟、decoder→GPU 零拷贝、Chromium、AV 同步、硬软解对比和 2.0 替换仍未完成）
+最后更新：2026-11-23（v47：evidence 82 让标准 GStreamer `vaapih264dec` 管线通过 Husk Rust VA-API 驱动采集 150 个真实 H.264 access unit，验证了系统层入口和 slice 拼接路径。`vaEndPicture` 仍返回 UNIMPLEMENTED，app 侧 MediaCodec transport、decoded surface / dma-buf export、HEVC 10 分钟、decoder→GPU 零拷贝、Chromium、AV 同步、硬软解对比和 2.0 替换仍未完成）
 
 ---
 
