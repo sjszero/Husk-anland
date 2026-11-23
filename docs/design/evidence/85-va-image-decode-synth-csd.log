@@ -1,0 +1,40 @@
+0:00:00.021269000 [35m20440[00m   0x555a6bf2a0 [33;01mWARN   [00m [00m               vaapi gstvaapiutils.c:78:gst_vaapi_warning:[00m vaGetDriverNames() failed with unknown libva error
+HUSK_VA_INIT enter ctx=0x555a6bef40
+HUSK_VA_INIT done profiles=5 entrypoints=1 attrs=8 images=1 subpics=1 vendor=0x6ff1ae5142 vtable=0x555a6bfb40
+error: XDG_RUNTIME_DIR is invalid or not set in the environment.
+0:00:00.026723154 [35m20440[00m   0x555a6bf2a0 [33;01mWARN   [00m [00m            gleglgbm gstgl_gbm_utils.c:473:gst_gl_gbm_find_and_open_drm_node:[00m Found no matching DRM devices
+0:00:00.026785615 [35m20440[00m   0x555a6bf2a0 [31;01mERROR  [00m [00m           gldisplay gstgldisplay_gbm.c:439:gst_gl_display_gbm_new:[00m could not find or open DRM device
+error: XDG_RUNTIME_DIR is invalid or not set in the environment.
+0:00:00.027769538 [35m20440[00m   0x555a6bf2a0 [33;01mWARN   [00m [00m               vaapi gstvaapiutils.c:78:gst_vaapi_warning:[00m vaGetDriverNames() failed with unknown libva error
+HUSK_VA_INIT enter ctx=0x555a6d1640
+HUSK_VA_INIT done profiles=5 entrypoints=1 attrs=8 images=1 subpics=1 vendor=0x6ff1ae5142 vtable=0x555a6d19a0
+HUSK_VA_END_ENTER ctx=0x555a6d1640 context=1
+HUSK_VA_END_ACTIVE context=1 surface=1 buffers=26 size=1920x1088 profile=13
+HUSK_VA_END_GATHER slices=12 access_bytes=94924 picture_params=672 slice_params=3128 types=4:3128,5:5133,4:3128,5:3706,4:3128,5:4852,4:3128,5:3668,4:3128,5:2570,4:3128,5:3961,4:3128,5:923,4:3128,5:11889,4:3128,5:25920,4:3128,5:25714,4:3128,5:5875,4:3128,5:665
+HUSK_VA_ACCESS_UNIT context=1 surface=1 profile=13 size=1920x1088 slices=12 bytes=94924 buffers=4:3128,5:5133,4:3128,5:3706,4:3128,5:4852,4:3128,5:3668,4:3128,5:2570,4:3128,5:3961,4:3128,5:923,4:3128,5:11889,4:3128,5:25920,4:3128,5:25714,4:3128,5:5875,4:3128,5:665 prefix=000000016588843a0c6001e202215c215554e857b00c4e00569b06631b6a1010
+HUSK_VA_BRIDGE_OPEN context=1 size=1920x1088 codec=c2.mtk.avc.decoder
+HUSK_VA_BRIDGE_SUBMIT context=1 surface=1 profile=13 bytes=94924 pts=1
+HUSK_VA_END_ENTER ctx=0x555a6d1640 context=1
+HUSK_VA_END_ACTIVE context=1 surface=2 buffers=26 size=1920x1088 profile=13
+HUSK_VA_END_GATHER slices=12 access_bytes=58221 picture_params=672 slice_params=3128 types=4:3128,5:1710,4:3128,5:853,4:3128,5:518,4:3128,5:189,4:3128,5:119,4:3128,5:99,4:3128,5:828,4:3128,5:9162,4:3128,5:20185,4:3128,5:20224,4:3128,5:4274,4:3128,5:12
+HUSK_VA_ACCESS_UNIT context=1 surface=2 profile=13 size=1920x1088 slices=12 bytes=58221 buffers=4:3128,5:1710,4:3128,5:853,4:3128,5:518,4:3128,5:189,4:3128,5:119,4:3128,5:99,4:3128,5:828,4:3128,5:9162,4:3128,5:20185,4:3128,5:20224,4:3128,5:4274,4:3128,5:12 prefix=00000001419a21af0cc3879ee69e42000100300e164c20002418a30003012203
+HUSK_VA_BRIDGE_SUBMIT context=1 surface=2 profile=13 bytes=58221 pts=2
+HUSK_VA_END_ENTER ctx=0x555a6d1640 context=1
+HUSK_VA_END_ACTIVE context=1 surface=3 buffers=26 size=1920x1088 profile=13
+HUSK_VA_END_GATHER slices=12 access_bytes=63319 picture_params=672 slice_params=3128 types=4:3128,5:1710,4:3128,5:2273,4:3128,5:1135,4:3128,5:853,4:3128,5:565,4:3128,5:584,4:3128,5:219,4:3128,5:9484,4:3128,5:20975,4:3128,5:20960,4:3128,5:4503,4:3128,5:10
+HUSK_VA_ACCESS_UNIT context=1 surface=3 profile=13 size=1920x1088 slices=12 bytes=63319 buffers=4:3128,5:1710,4:3128,5:2273,4:3128,5:1135,4:3128,5:853,4:3128,5:565,4:3128,5:584,4:3128,5:219,4:3128,5:9484,4:3128,5:20975,4:3128,5:20960,4:3128,5:4503,4:3128,5:10 prefix=00000001419a40a973c015c12da1ae7e1c4e1eb978872b8df00042096b3e9296
+HUSK_VA_BRIDGE_SUBMIT context=1 surface=3 profile=13 bytes=63319 pts=3
+HUSK_VA_END_ENTER ctx=0x555a6d1640 context=1
+HUSK_VA_END_ACTIVE context=1 surface=4 buffers=26 size=1920x1088 profile=13
+HUSK_VA_END_GATHER slices=12 access_bytes=59798 picture_params=672 slice_params=3128 types=4:3128,5:1185,4:3128,5:1011,4:3128,5:805,4:3128,5:251,4:3128,5:263,4:3128,5:166,4:3128,5:111,4:3128,5:9462,4:3128,5:21056,4:3128,5:20993,4:3128,5:4437,4:3128,5:10
+HUSK_VA_ACCESS_UNIT context=1 surface=4 profile=13 size=1920x1088 slices=12 bytes=59798 buffers=4:3128,5:1185,4:3128,5:1011,4:3128,5:805,4:3128,5:251,4:3128,5:263,4:3128,5:166,4:3128,5:111,4:3128,5:9462,4:3128,5:21056,4:3128,5:20993,4:3128,5:4437,4:3128,5:10 prefix=00000001419a60a8bc2fe00160c4e72493ece77527ea070371eab504b8203ffb
+HUSK_VA_BRIDGE_SUBMIT context=1 surface=4 profile=13 bytes=59798 pts=4
+HUSK_VA_END_ENTER ctx=0x555a6d1640 context=1
+HUSK_VA_END_ACTIVE context=1 surface=5 buffers=26 size=1920x1088 profile=13
+HUSK_VA_END_GATHER slices=12 access_bytes=64613 picture_params=672 slice_params=3128 types=4:3128,5:1227,4:3128,5:1214,4:3128,5:797,4:3128,5:266,4:3128,5:701,4:3128,5:634,4:3128,5:369,4:3128,5:10041,4:3128,5:22309,4:3128,5:22262,4:3128,5:4735,4:3128,5:10
+HUSK_VA_ACCESS_UNIT context=1 surface=5 profile=13 size=1920x1088 slices=12 bytes=64613 buffers=4:3128,5:1227,4:3128,5:1214,4:3128,5:797,4:3128,5:266,4:3128,5:701,4:3128,5:634,4:3128,5:369,4:3128,5:10041,4:3128,5:22309,4:3128,5:22262,4:3128,5:4735,4:3128,5:10 prefix=00000001419a80e973647ebacbeae3111bc003e20d120e8716f29cf3fbf000b0
+HUSK_VA_BRIDGE_SUBMIT context=1 surface=5 profile=13 bytes=64613 pts=5
+HUSK_VA_END_ENTER ctx=0x555a6d1640 context=1
+HUSK_VA_END_ACTIVE context=1 surface=1 buffers=26 size=1920x1088 profile=13
+HUSK_VA_END_GATHER slices=12 access_bytes=64125 picture_params=672 slice_params=3128 types=4:3128,5:1003,4:3128,5:941,4:3128,5:844,4:3128,5:268,4:3128,5:734,4:3128,5:309,4:3128,5:518,4:3128,5:10134,4:3128,5:22284,4:3128,5:22320,4:3128,5:4712,4:3128,5:10
+HUSK_VA_ACCESS_UNIT context=1 surface=1 profile=13 size=1920x1088 slices=12 bytes=64125 buffers=4:3128,5:1003,4:3128,5:941,4:3128,5:844,4:3128,5:268,4:3128,5:734,4:3128,5:309,4:3128,5:518,4:3128,5:10134,4:3128,5:22284,4:3128,5:22320,4:3128,5:4712,4:3128,5:10 prefix=00000001419aa0e8dc6f80020836b4fa4adcef3bb0dff4045565c07508865aaa

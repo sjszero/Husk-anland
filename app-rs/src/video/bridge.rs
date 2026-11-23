@@ -17,6 +17,10 @@ use video_protocol::{MappedRing, RingLayout, DEFAULT_SLOTS, DEFAULT_SLOT_SIZE};
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(30);
 const EOS_WAIT: Duration = Duration::from_secs(20);
 const INPUT_WAIT: Duration = Duration::from_secs(3);
+/// How long a CPU-copy session waits for the decoder to hand back one frame
+/// after an input sample. The decoder is asynchronous; the guest asked for the
+/// pixels of this picture, so the wait is bounded and reported in the log.
+const FRAME_WAIT: Duration = Duration::from_secs(5);
 
 static STARTED: AtomicBool = AtomicBool::new(false);
 
@@ -94,12 +98,44 @@ fn parse_i64(fields: &[(&str, &str)], key: &str) -> Result<i64, String> {
         .map_err(|_| format!("bad {key}"))
 }
 
+struct OutFormat {
+    color: i32,
+    stride: i32,
+    slice: i32,
+    width: i32,
+    height: i32,
+}
+
+struct Frame {
+    y: Vec<u8>,
+    u: Vec<u8>,
+    v: Vec<u8>,
+    width: u32,
+    height: u32,
+    color: i32,
+}
+
+struct PendingFrame {
+    pts_us: i64,
+    nv12: Vec<u8>,
+    width: u32,
+    height: u32,
+}
+
 struct Session<'a> {
     api: &'a Api,
     codec: *mut Codec,
     codec_started: bool,
     sink: Option<ImageSink>,
     fixed: Option<fixed_ring::FixedRing>,
+    /// Decode to ByteBuffer and hand the pixels back over the control socket.
+    /// This is the path the VA-API system layer needs: it must own the pixels.
+    cpu: bool,
+    out: Option<OutFormat>,
+    /// Decoded frames waiting for the guest to claim them, keyed by the PTS the
+    /// guest sent in. Bounded: an unclaimed frame is dropped and counted, never
+    /// silently reused.
+    pending: std::collections::VecDeque<PendingFrame>,
     ring: MappedRing,
     next_seq: u64,
     stats: (u64, u64),
@@ -160,7 +196,10 @@ impl<'a> Session<'a> {
         let mut cleanup_started = false;
         let mut sink: Option<ImageSink> = None;
         let mut fixed: Option<fixed_ring::FixedRing> = None;
-        let fixed_mode = files.join("video-fixed").exists();
+        // `video-cpu` wins over `video-fixed`: the VA-API system layer has to
+        // own the pixels, so it needs them on the control socket, not in an AHB.
+        let cpu_mode = files.join("video-cpu").exists();
+        let fixed_mode = !cpu_mode && files.join("video-fixed").exists();
         let outcome = (|| -> Result<(), String> {
             let actual = codec_name(api, codec);
             sequence_log(
@@ -175,7 +214,10 @@ impl<'a> Session<'a> {
 
             let image_api = ImageApi::load()?;
             let mut active: Option<ImageSink> = None;
-            let output_surface = if fixed_mode {
+            let output_surface = if cpu_mode {
+                sequence_log(files, "video|bridge|output|cpu-i420-over-socket");
+                core::ptr::null_mut()
+            } else if fixed_mode {
                 sequence_log(files, "video|bridge|output|fixed-bytebuffer-yv12-ring");
                 fixed = Some(fixed_ring::FixedRing::new(width, height, files)?);
                 core::ptr::null_mut()
@@ -255,6 +297,9 @@ impl<'a> Session<'a> {
                 codec_started: true,
                 sink,
                 fixed,
+                cpu: cpu_mode,
+                out: None,
+                pending: std::collections::VecDeque::new(),
                 ring,
                 next_seq: 1,
                 stats: (0, 0),
@@ -291,7 +336,11 @@ impl<'a> Session<'a> {
         }
     }
 
-    unsafe fn feed(&mut self, files: &Path, line: &str) -> Result<String, String> {
+    unsafe fn feed(
+        &mut self,
+        files: &Path,
+        line: &str,
+    ) -> Result<(String, Option<Vec<u8>>), String> {
         let fields = parse_kv(line);
         let seq = parse_u64(&fields, "seq")?;
         let expected_len = parse_u32(&fields, "len")? as usize;
@@ -356,6 +405,23 @@ impl<'a> Session<'a> {
             .map_err(|e| format!("ring commit seq={seq}: {e}"))?;
         self.next_seq += 1;
 
+        if self.cpu {
+            // Decoding is asynchronous: a codec may need several input samples
+            // before it emits the first picture, and B-frame reordering means
+            // output order is not input order. So the sample is acknowledged as
+            // soon as it is queued, and the guest claims pixels later by PTS.
+            self.drain_frames(files, 0)?;
+            return Ok((
+                format!(
+                    "SAMPLE_OK seq={seq} pts={} frames={} pending={}",
+                    meta.pts_us,
+                    self.stats.0,
+                    self.pending.len()
+                ),
+                None,
+            ));
+        }
+
         let _ = self.drain(files, 0)?;
         let images = self
             .sink
@@ -366,10 +432,134 @@ impl<'a> Session<'a> {
             } else {
                 0
             });
-        Ok(format!(
-            "SAMPLE_OK seq={seq} frames={} images={images}",
-            self.stats.0
+        Ok((
+            format!(
+                "SAMPLE_OK seq={seq} frames={} images={images}",
+                self.stats.0
+            ),
+            None,
         ))
+    }
+
+    /// Drain whatever the decoder has ready right now into the pending queue.
+    unsafe fn drain_frames(&mut self, files: &Path, wait_us: i64) -> Result<(), String> {
+        loop {
+            let mut info = BufferInfo::default();
+            let index = (self.api.dequeue_output)(self.codec, &mut info, wait_us);
+            match index {
+                INFO_TRY_AGAIN_LATER => return Ok(()),
+                INFO_OUTPUT_BUFFERS_CHANGED => {}
+                INFO_OUTPUT_FORMAT_CHANGED => {
+                    let format = (self.api.get_output_format)(self.codec);
+                    let color = format_i32(self.api, format, c"color-format");
+                    let stride = format_i32(self.api, format, c"stride");
+                    let slice = format_i32(self.api, format, c"slice-height");
+                    let fmt_width = format_i32(self.api, format, c"width");
+                    let fmt_height = format_i32(self.api, format, c"height");
+                    if !format.is_null() {
+                        let _ = (self.api.format_delete)(format);
+                    }
+                    // Trust the decoder's own geometry. On this MTK codec the
+                    // ByteBuffer output is the visible size (e.g. 1920x1080 with
+                    // stride 1920), not the padded surface size, so forcing the
+                    // VA surface height here overruns the buffer.
+                    if let Some(color) = color {
+                        let width = fmt_width.unwrap_or(self.width as i32).max(1);
+                        let height = fmt_height.unwrap_or(self.height as i32).max(1);
+                        let out = OutFormat {
+                            color,
+                            stride: stride.unwrap_or(width).max(width),
+                            slice: slice.unwrap_or(height).max(height),
+                            width,
+                            height,
+                        };
+                        sequence_log(
+                            files,
+                            &format!(
+                                "video|bridge|cpu-format|color={} stride={} slice-height={} size={}x{}",
+                                out.color, out.stride, out.slice, out.width, out.height
+                            ),
+                        );
+                        self.out = Some(out);
+                    }
+                }
+                i if i >= 0 => {
+                    let mut capacity = 0usize;
+                    let ptr = (self.api.get_output_buffer)(self.codec, i as usize, &mut capacity);
+                    let pts = info.presentation_time_us;
+                    let size = info.size;
+                    let flags = info.flags;
+                    let rc = (self.api.release_output)(self.codec, i as usize, false);
+                    if rc != AMEDIA_OK {
+                        return Err(format!("releaseOutputBuffer({i}) rc={rc}"));
+                    }
+                    if ptr.is_null() {
+                        return Err(format!("getOutputBuffer({i}) returned null"));
+                    }
+                    let Some(out) = self.out.as_ref() else {
+                        return Err(format!("frame {i} arrived before output format"));
+                    };
+                    self.stats.0 += 1;
+                    // A codec-config buffer carries parameter sets, not pixels.
+                    if flags & BUFFER_FLAG_CODEC_CONFIG != 0 || size == 0 {
+                        sequence_log(
+                            files,
+                            &format!("video|bridge|cpu-config|flags=0x{flags:x} size={size}"),
+                        );
+                        continue;
+                    }
+                    let frame = repack_i420(out, ptr as *const u8, capacity)?;
+                    let mut nv12 = frame.y;
+                    let chroma = frame.u.len();
+                    let mut uv = Vec::with_capacity(2 * chroma);
+                    for index in 0..chroma {
+                        uv.push(frame.u[index]);
+                        uv.push(frame.v[index]);
+                    }
+                    nv12.extend_from_slice(&uv);
+                    if self.pending.len() >= 8 {
+                        let dropped = self.pending.pop_front();
+                        sequence_log(
+                            files,
+                            &format!(
+                                "video|bridge|cpu-drop|pts={}",
+                                dropped.map(|f| f.pts_us).unwrap_or(-1)
+                            ),
+                        );
+                    }
+                    self.pending.push_back(PendingFrame {
+                        pts_us: pts,
+                        nv12,
+                        width: frame.width,
+                        height: frame.height,
+                    });
+                }
+                other => return Err(format!("dequeueOutputBuffer unexpected={other}")),
+            }
+        }
+    }
+
+    /// Wait for the frame carrying `pts_us` (or, when the client does not know
+    /// the PTS, the oldest pending frame).
+    unsafe fn take_frame(
+        &mut self,
+        files: &Path,
+        pts_us: i64,
+        deadline: Instant,
+    ) -> Result<Option<PendingFrame>, String> {
+        loop {
+            if let Some(position) = self
+                .pending
+                .iter()
+                .position(|frame| pts_us < 0 || frame.pts_us == pts_us)
+            {
+                return Ok(self.pending.remove(position));
+            }
+            if Instant::now() >= deadline {
+                return Ok(None);
+            }
+            self.drain_frames(files, 50_000)?;
+        }
     }
 
     unsafe fn eos(&mut self, files: &Path) -> Result<String, String> {
@@ -485,6 +675,103 @@ impl Drop for Session<'_> {
     }
 }
 
+/// Repack the decoder's padded I420/NV12 ByteBuffer into tight I420.
+///
+/// MTK pads to macroblock multiples (1920x1088 for a 1920x1080 stream), so the
+/// guest would otherwise inherit the padding. Only the two planar families the
+/// NDK actually returns are handled; anything else is an error, not a guess.
+fn repack_i420(out: &OutFormat, base: *const u8, capacity: usize) -> Result<Frame, String> {
+    let width = out.width.max(1) as usize;
+    let height = out.height.max(1) as usize;
+    let stride = out.stride.max(1) as usize;
+    let slice = out.slice.max(1) as usize;
+    let chroma_w = width.div_ceil(2);
+    let chroma_h = height.div_ceil(2);
+    let luma_bytes = stride * slice;
+
+    let mut y = vec![0u8; width * height];
+    let (u, v) = match out.color {
+        19 => {
+            // COLOR_FormatYUV420Planar: three separate planes.
+            let chroma_stride = (stride / 2).max(chroma_w);
+            let chroma_slice = (slice / 2).max(chroma_h);
+            let chroma_bytes = chroma_stride * chroma_slice;
+            if capacity < luma_bytes + 2 * chroma_bytes {
+                return Err(format!(
+                    "I420 output too small: cap={capacity} need={}",
+                    luma_bytes + 2 * chroma_bytes
+                ));
+            }
+            let u_src = unsafe { base.add(luma_bytes) };
+            let v_src = unsafe { u_src.add(chroma_bytes) };
+            let mut u = vec![0u8; chroma_w * chroma_h];
+            let mut v = vec![0u8; chroma_w * chroma_h];
+            for row in 0..chroma_h {
+                unsafe {
+                    core::ptr::copy_nonoverlapping(
+                        u_src.add(row * chroma_stride),
+                        u.as_mut_ptr().add(row * chroma_w),
+                        chroma_w,
+                    );
+                    core::ptr::copy_nonoverlapping(
+                        v_src.add(row * chroma_stride),
+                        v.as_mut_ptr().add(row * chroma_w),
+                        chroma_w,
+                    );
+                }
+            }
+            (u, v)
+        }
+        21 => {
+            // COLOR_FormatYUV420SemiPlanar: interleaved UV.
+            let chroma_stride = stride.max(2 * chroma_w);
+            let chroma_slice = (slice / 2).max(chroma_h);
+            let chroma_bytes = chroma_stride * chroma_slice;
+            if capacity < luma_bytes + chroma_bytes {
+                return Err(format!(
+                    "NV12 output too small: cap={capacity} need={}",
+                    luma_bytes + chroma_bytes
+                ));
+            }
+            let uv_src = unsafe { base.add(luma_bytes) };
+            let mut u = vec![0u8; chroma_w * chroma_h];
+            let mut v = vec![0u8; chroma_w * chroma_h];
+            for row in 0..chroma_h {
+                for col in 0..chroma_w {
+                    let pair = unsafe { uv_src.add(row * chroma_stride + col * 2) };
+                    u[row * chroma_w + col] = unsafe { *pair };
+                    v[row * chroma_w + col] = unsafe { *pair.add(1) };
+                }
+            }
+            (u, v)
+        }
+        other => {
+            return Err(format!(
+                "unsupported decoder output color-format {other}; refusing to fabricate pixels"
+            ))
+        }
+    };
+
+    for row in 0..height {
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                base.add(row * stride),
+                y.as_mut_ptr().add(row * width),
+                width,
+            );
+        }
+    }
+
+    Ok(Frame {
+        y,
+        u,
+        v,
+        width: width as u32,
+        height: height as u32,
+        color: out.color,
+    })
+}
+
 unsafe fn handle_client(files: &Path, api: &Api, mut stream: UnixStream) {
     let _ = stream.set_read_timeout(Some(CLIENT_TIMEOUT));
     let _ = stream.set_write_timeout(Some(CLIENT_TIMEOUT));
@@ -548,13 +835,49 @@ unsafe fn handle_client(files: &Path, api: &Api, mut stream: UnixStream) {
             }
             "SAMPLE" => match session.as_mut() {
                 Some(active) => match active.feed(files, &line) {
-                    Ok(ok) => send_line(&mut stream, &ok),
+                    Ok((ok, payload)) => {
+                        let mut outcome = send_line(&mut stream, &ok);
+                        if let (Ok(()), Some(bytes)) = (&outcome, payload) {
+                            outcome = stream
+                                .write_all(&bytes)
+                                .and_then(|_| stream.flush());
+                        }
+                        outcome
+                    }
                     Err(e) => {
                         sequence_log(files, &format!("video|bridge|SAMPLE_FAIL|{e}"));
                         send_line(&mut stream, &format!("SAMPLE_ERROR {e}"))
                     }
                 },
                 None => send_line(&mut stream, "SAMPLE_ERROR no open session"),
+            },
+            "FRAME" => match session.as_mut() {
+                Some(active) => {
+                    let fields = parse_kv(&line);
+                    let pts = parse_i64(&fields, "pts").unwrap_or(-1);
+                    let deadline = Instant::now() + FRAME_WAIT;
+                    match active.take_frame(files, pts, deadline) {
+                        Ok(Some(frame)) => {
+                            let line = format!(
+                                "FRAME_OK pts={} w={} h={} bytes={}",
+                                frame.pts_us,
+                                frame.width,
+                                frame.height,
+                                frame.nv12.len()
+                            );
+                            let sent = send_line(&mut stream, &line).and_then(|_| {
+                                stream.write_all(&frame.nv12).and_then(|_| stream.flush())
+                            });
+                            sent
+                        }
+                        Ok(None) => send_line(&mut stream, "FRAME_NONE"),
+                        Err(e) => {
+                            sequence_log(files, &format!("video|bridge|FRAME_FAIL|{e}"));
+                            send_line(&mut stream, &format!("FRAME_ERROR {e}"))
+                        }
+                    }
+                }
+                None => send_line(&mut stream, "FRAME_ERROR no open session"),
             },
             "EOS" => match session.as_mut() {
                 Some(active) => match active.eos(files) {

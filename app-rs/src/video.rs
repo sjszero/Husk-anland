@@ -41,6 +41,7 @@ const INFO_OUTPUT_BUFFERS_CHANGED: isize = -3;
 const INFO_OUTPUT_FORMAT_CHANGED: isize = -2;
 const INFO_TRY_AGAIN_LATER: isize = -1;
 const BUFFER_FLAG_END_OF_STREAM: u32 = 4;
+const BUFFER_FLAG_CODEC_CONFIG: u32 = 2;
 const DEFAULT_PROBE_FILE: &str = "video-probe.mp4";
 const INPUT_TIMEOUT_US: i64 = 2_000_000;
 const EOS_TIMEOUT: Duration = Duration::from_secs(15);

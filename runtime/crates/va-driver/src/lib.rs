@@ -73,12 +73,33 @@ struct ContextState {
     next_surface: VASurfaceID,
     next_context: VAContextID,
     next_buffer: VABufferID,
+    next_image: VAImageID,
+    next_pts: i64,
     configs: HashMap<VAConfigID, (VAProfile, VAEntrypoint)>,
     surfaces: HashMap<VASurfaceID, SurfaceInfo>,
     contexts: HashMap<VAContextID, ContextInfo>,
     buffers: HashMap<VABufferID, BufferInfo>,
     picture_params: HashMap<VAContextID, Vec<u8>>,
     active_picture: Option<ActivePicture>,
+    /// Tight NV12 for the last decoded picture of each surface.
+    surface_frames: HashMap<VASurfaceID, SurfaceFrame>,
+    /// PTS of the picture most recently submitted to each surface.
+    surface_pts: HashMap<VASurfaceID, i64>,
+    /// Images are backed by an ordinary buffer so `vaMapBuffer` needs no
+    /// second code path; this map exists to validate destroy/map by image id.
+    images: HashMap<VAImageID, ImageInfo>,
+}
+
+struct ImageInfo {
+    buffer: VABufferID,
+    width: u32,
+    height: u32,
+}
+
+struct SurfaceFrame {
+    nv12: Vec<u8>,
+    width: u32,
+    height: u32,
 }
 
 struct DriverContext {
@@ -576,6 +597,13 @@ unsafe extern "C" fn create_buffer(
     if !data.is_null() && bytes > 0 {
         core::ptr::copy_nonoverlapping(data.cast::<u8>(), payload.as_mut_ptr(), bytes);
     }
+    if std::env::var_os("HUSK_VA_DUMP").is_some()
+        && type_ == VABufferType_VAPictureParameterBufferType
+    {
+        if let Err(error) = std::fs::write("/tmp/husk-pp.bin", &payload) {
+            eprintln!("HUSK_VA_DUMP_FAILED {error}");
+        }
+    }
     if std::env::var_os("HUSK_VA_TRACE").is_some() {
         let prefix = payload
             .iter()
@@ -731,7 +759,12 @@ unsafe extern "C" fn query_surface_status(
     if !found {
         return VA_STATUS_ERROR_INVALID_SURFACE as VAStatus;
     }
-    *status = VASurfaceStatus_VASurfaceReady;
+    let decoded = with_state(ctx, |state| state.surface_frames.contains_key(&surface)).unwrap_or(false);
+    *status = if decoded {
+        VASurfaceStatus_VASurfaceReady
+    } else {
+        VASurfaceStatus_VASurfaceRendering
+    };
     VA_STATUS_SUCCESS as VAStatus
 }
 
@@ -986,32 +1019,322 @@ unsafe extern "C" fn end_picture(ctx: VADriverContextP, context: VAContextID) ->
 
     // VA-API does not carry a presentation timestamp in vaEndPicture. Keep the
     // bridge's PTS neutral until the display path supplies a real clock.
+    let pts = with_state(ctx, |state| {
+        let pts = state.next_pts.max(1);
+        state.next_pts = pts + 1;
+        state.surface_pts.insert(picture.surface, pts);
+        state.surface_frames.remove(&picture.surface);
+        pts
+    })
+    .unwrap_or(1);
+
     let result = video
         .as_mut()
         .expect("video client inserted above")
-        .submit(&access_unit, 0, 0);
-    match result {
-        Ok(()) => {
-            if trace {
+        .submit(&access_unit, pts, 0);
+    if let Err(error) = result {
+        eprintln!(
+            "HUSK_VA_BRIDGE_SUBMIT_FAILED context={} surface={} {error}",
+            picture.context, picture.surface
+        );
+        *video = None;
+        return VA_STATUS_ERROR_DECODING_ERROR as VAStatus;
+    }
+    drop(video);
+    if trace {
+        eprintln!(
+            "HUSK_VA_BRIDGE_SUBMIT context={} surface={} profile={} bytes={} pts={pts}",
+            picture.context,
+            picture.surface,
+            profile,
+            access_unit.len()
+        );
+    }
+    VA_STATUS_SUCCESS as VAStatus
+}
+
+// ------------------------------------------------------------- images ---
+//
+// gst-vaapi builds its output pool from VA images, not surfaces, so a driver
+// without `vaCreateImage` cannot produce a src pad no matter how well decoding
+// works. An image here is an ordinary buffer holding tight NV12, which keeps a
+// single mapping path in `vaMapBuffer`.
+
+fn nv12_len(width: u32, height: u32) -> usize {
+    let luma = width as usize * height as usize;
+    let chroma = luma.div_ceil(4) * 2;
+    luma + chroma
+}
+
+unsafe fn push_image(
+    state: &mut ContextState,
+    width: u32,
+    height: u32,
+    nv12: Vec<u8>,
+    image: *mut VAImage,
+) -> VAStatus {
+    let data_size = nv12.len();
+    let buffer = alloc_id(&mut state.next_buffer);
+    state.buffers.insert(
+        buffer,
+        BufferInfo {
+            type_: VABufferType_VAImageBufferType,
+            unit_size: data_size as u32,
+            num_elements: 1,
+            data: nv12,
+        },
+    );
+    let image_id = alloc_id(&mut state.next_image);
+    state.images.insert(
+        image_id,
+        ImageInfo {
+            buffer,
+            width,
+            height,
+        },
+    );
+    let luma = width as u32 * height as u32;
+    *image = VAImage {
+        image_id,
+        format: NV12_FORMAT,
+        buf: buffer,
+        width: width as u16,
+        height: height as u16,
+        data_size: data_size as u32,
+        num_planes: 2,
+        pitches: [width, width, 0],
+        offsets: [0, luma, 0],
+        num_palette_entries: 0,
+        entry_bytes: 0,
+        component_order: [0; 4],
+        va_reserved: [0; 4],
+    };
+    VA_STATUS_SUCCESS as VAStatus
+}
+
+/// Fetch and cache the decoded picture for `surface`. Returns
+/// `VA_STATUS_ERROR_INVALID_SURFACE` when nothing has been decoded for it yet,
+/// so callers can report "no pixels" instead of inventing them.
+unsafe fn ensure_frame(ctx: VADriverContextP, surface: VASurfaceID) -> Result<(), VAStatus> {
+    let Some((cached, pts)) = with_state(ctx, |state| {
+        (
+            state.surface_frames.contains_key(&surface),
+            state.surface_pts.get(&surface).copied(),
+        )
+    }) else {
+        return Err(VA_STATUS_ERROR_INVALID_CONTEXT as VAStatus);
+    };
+    if cached {
+        return Ok(());
+    }
+    let Some(pts) = pts else {
+        return Err(VA_STATUS_ERROR_INVALID_SURFACE as VAStatus);
+    };
+    let Some(driver) = driver_context(ctx) else {
+        return Err(VA_STATUS_ERROR_INVALID_CONTEXT as VAStatus);
+    };
+    let frame = {
+        let mut video = match driver.video.lock() {
+            Ok(video) => video,
+            Err(_) => return Err(VA_STATUS_ERROR_OPERATION_FAILED as VAStatus),
+        };
+        let Some(client) = video.as_mut() else {
+            return Err(VA_STATUS_ERROR_INVALID_SURFACE as VAStatus);
+        };
+        match client.fetch_frame(pts) {
+            Ok(Some(frame)) => frame,
+            Ok(None) => return Err(VA_STATUS_ERROR_INVALID_SURFACE as VAStatus),
+            Err(error) => {
+                eprintln!("HUSK_VA_FRAME_FAILED surface={surface} pts={pts} {error}");
+                return Err(VA_STATUS_ERROR_DECODING_ERROR as VAStatus);
+            }
+        }
+    };
+    if std::env::var_os("HUSK_VA_TRACE").is_some() {
+        // A coarse luma statistic, so "we got a frame" cannot be confused with
+        // "we got a black frame". Sampling every 997th byte keeps it cheap.
+        let luma_len = (frame.width as usize * frame.height as usize).min(frame.nv12.len());
+        let mut sum = 0u64;
+        let mut min = 255u8;
+        let mut max = 0u8;
+        let mut count = 0u64;
+        let mut index = 0usize;
+        while index < luma_len {
+            let value = frame.nv12[index];
+            sum += value as u64;
+            min = min.min(value);
+            max = max.max(value);
+            count += 1;
+            index += 997;
+        }
+        let mean = if count == 0 { 0 } else { sum / count };
+        eprintln!(
+            "HUSK_VA_FRAME surface={surface} pts={pts} size={}x{} bytes={} luma_mean={mean} min={min} max={max}",
+            frame.width,
+            frame.height,
+            frame.nv12.len()
+        );
+    }
+    let _ = with_state(ctx, |state| {
+        state.surface_frames.insert(
+            surface,
+            SurfaceFrame {
+                nv12: frame.nv12,
+                width: frame.width,
+                height: frame.height,
+            },
+        );
+    });
+    Ok(())
+}
+
+unsafe extern "C" fn create_image(
+    ctx: VADriverContextP,
+    format: *mut VAImageFormat,
+    width: core::ffi::c_int,
+    height: core::ffi::c_int,
+    image: *mut VAImage,
+) -> VAStatus {
+    if image.is_null() || width <= 0 || height <= 0 {
+        return VA_STATUS_ERROR_INVALID_PARAMETER as VAStatus;
+    }
+    let (w, h) = (width as u32, height as u32);
+    if w > MAX_SURFACE_DIMENSION || h > MAX_SURFACE_DIMENSION {
+        return VA_STATUS_ERROR_INVALID_PARAMETER as VAStatus;
+    }
+    // The client may ask for another fourcc; the driver decides what it can
+    // actually produce and writes the real format back, which is what a real
+    // VA driver does for an unsupported request.
+    if !format.is_null() {
+        (*format) = NV12_FORMAT;
+    }
+    let mut nv12 = vec![0u8; nv12_len(w, h)];
+    let rc = match with_state(ctx, |state| push_image(state, w, h, core::mem::take(&mut nv12), image)) {
+        Some(rc) => rc,
+        None => return VA_STATUS_ERROR_INVALID_CONTEXT as VAStatus,
+    };
+    rc
+}
+
+unsafe extern "C" fn derive_image(
+    ctx: VADriverContextP,
+    surface: VASurfaceID,
+    image: *mut VAImage,
+) -> VAStatus {
+    if image.is_null() {
+        return VA_STATUS_ERROR_INVALID_PARAMETER as VAStatus;
+    }
+    if let Err(status) = ensure_frame(ctx, surface) {
+        return status;
+    }
+    let Some(payload) = with_state(ctx, |state| {
+        let Some(frame) = state.surface_frames.get(&surface) else {
+            return None;
+        };
+        Some((frame.width, frame.height, frame.nv12.clone()))
+    }) else {
+        return VA_STATUS_ERROR_INVALID_CONTEXT as VAStatus;
+    };
+    let Some((width, height, nv12)) = payload else {
+        // No decoded pixels for this surface yet. Returning an empty image here
+        // would hand the caller a blank frame dressed up as decoded output.
+        return VA_STATUS_ERROR_INVALID_SURFACE as VAStatus;
+    };
+    match with_state(ctx, |state| push_image(state, width, height, nv12, image)) {
+        Some(rc) => rc,
+        None => VA_STATUS_ERROR_INVALID_CONTEXT as VAStatus,
+    }
+}
+
+unsafe extern "C" fn destroy_image(ctx: VADriverContextP, image: VAImageID) -> VAStatus {
+    let Some(found) = with_state(ctx, |state| {
+        let Some(info) = state.images.remove(&image) else {
+            return false;
+        };
+        state.buffers.remove(&info.buffer);
+        true
+    }) else {
+        return VA_STATUS_ERROR_INVALID_CONTEXT as VAStatus;
+    };
+    if found {
+        VA_STATUS_SUCCESS as VAStatus
+    } else {
+        VA_STATUS_ERROR_INVALID_IMAGE as VAStatus
+    }
+}
+
+unsafe extern "C" fn get_image(
+    ctx: VADriverContextP,
+    surface: VASurfaceID,
+    x: core::ffi::c_int,
+    y: core::ffi::c_int,
+    width: core::ffi::c_uint,
+    height: core::ffi::c_uint,
+    image: VAImageID,
+) -> VAStatus {
+    if let Err(status) = ensure_frame(ctx, surface) {
+        if std::env::var_os("HUSK_VA_TRACE").is_some() {
+            eprintln!("HUSK_VA_GET_IMAGE surface={surface} ensure_frame status={status}");
+        }
+        return status;
+    }
+    let Some(result) = with_state(ctx, |state| {
+        let Some(frame) = state.surface_frames.get(&surface) else {
+            return VA_STATUS_ERROR_INVALID_SURFACE as VAStatus;
+        };
+        if x != 0 || y != 0 || width < frame.width || height < frame.height {
+            // Cropping would need a real resampler, and a smaller image cannot
+            // hold the frame. Say so instead of copying the wrong region.
+            if std::env::var_os("HUSK_VA_TRACE").is_some() {
                 eprintln!(
-                    "HUSK_VA_BRIDGE_SUBMIT context={} surface={} profile={} bytes={}",
-                    picture.context,
-                    picture.surface,
-                    profile,
-                    access_unit.len()
+                    "HUSK_VA_GET_IMAGE_REJECT surface={surface} rect={}x{}+{x}+{y} frame={}x{}",
+                    width, height, frame.width, frame.height
                 );
             }
-            VA_STATUS_SUCCESS as VAStatus
+            return VA_STATUS_ERROR_INVALID_PARAMETER as VAStatus;
         }
-        Err(error) => {
-            eprintln!(
-                "HUSK_VA_BRIDGE_SUBMIT_FAILED context={} surface={} {error}",
-                picture.context, picture.surface
-            );
-            *video = None;
-            VA_STATUS_ERROR_DECODING_ERROR as VAStatus
+        let Some(info) = state.images.get(&image) else {
+            return VA_STATUS_ERROR_INVALID_IMAGE as VAStatus;
+        };
+        let (buffer, image_width, image_height) = (info.buffer, info.width, info.height);
+        let Some(dest) = state.buffers.get_mut(&buffer) else {
+            return VA_STATUS_ERROR_INVALID_IMAGE as VAStatus;
+        };
+        // NV12 with pitch = image width. Rows the frame does not cover (a
+        // 1080-line frame in a 1088-line coded image) are zeroed, not left with
+        // whatever the pool held.
+        let image_width = image_width as usize;
+        let image_height = image_height as usize;
+        let frame_width = frame.width as usize;
+        let frame_height = frame.height as usize;
+        let luma_bytes = image_width * image_height;
+        if dest.data.len() < luma_bytes * 3 / 2 {
+            return VA_STATUS_ERROR_INVALID_PARAMETER as VAStatus;
         }
-    }
+        dest.data.fill(0);
+        let source = &frame.nv12;
+        let copy_width = frame_width.min(image_width);
+        let copy_height = frame_height.min(image_height);
+        for row in 0..copy_height {
+            dest.data[row * image_width..row * image_width + copy_width]
+                .copy_from_slice(&source[row * frame_width..row * frame_width + copy_width]);
+        }
+        let chroma_width = copy_width.min(image_width);
+        let chroma_height = (frame_height / 2).min(image_height / 2);
+        let source_uv = frame_width * frame_height;
+        let dest_uv = luma_bytes;
+        for row in 0..chroma_height {
+            dest.data[dest_uv + row * image_width..dest_uv + row * image_width + chroma_width]
+                .copy_from_slice(
+                    &source[source_uv + row * frame_width..source_uv + row * frame_width + chroma_width],
+                );
+        }
+        VA_STATUS_SUCCESS as VAStatus
+    }) else {
+        return VA_STATUS_ERROR_INVALID_CONTEXT as VAStatus;
+    };
+    result
+
 }
 
 macro_rules! install_stub {
@@ -1080,6 +1403,10 @@ pub unsafe extern "C" fn __vaDriverInit_1_0(ctx: VADriverContextP) -> VAStatus {
     (*v).vaUnmapBuffer = Some(unmap_buffer);
     (*v).vaDestroyBuffer = Some(destroy_buffer);
     (*v).vaBufferInfo = Some(buffer_info);
+    (*v).vaCreateImage = Some(create_image);
+    (*v).vaDeriveImage = Some(derive_image);
+    (*v).vaDestroyImage = Some(destroy_image);
+    (*v).vaGetImage = Some(get_image);
     (*v).vaSyncSurface = Some(sync_surface);
     (*v).vaQuerySurfaceStatus = Some(query_surface_status);
     (*v).vaBeginPicture = Some(begin_picture);
@@ -1088,11 +1415,7 @@ pub unsafe extern "C" fn __vaDriverInit_1_0(ctx: VADriverContextP) -> VAStatus {
 
     install_stub!(
         v,
-        vaCreateImage,
-        vaDeriveImage,
-        vaDestroyImage,
         vaSetImagePalette,
-        vaGetImage,
         vaPutImage,
         vaQuerySubpictureFormats,
         vaCreateSubpicture,

@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 13:00）
+# 当前状态（2026-11-23 13:15）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -66,6 +66,16 @@ PT_LOAD 的映射边界。`chmod`/`chown`/`utimensat`/`statx` 现在固定最终
 路径可靠性 15/15、faccessat 探针 8/8、dirfd 探针 31/31、宿主逃逸目录不存在。
 恶意 ELF 注入、GOT 失败注入、rootfd 并发 close/reopen、
 SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不能写成已完成。
+
+## VA 驱动拿到真实解码帧（evidence 85，2026-11-23）
+
+**FACT：`vaapih264dec ! videoconvert ! video/x-raw,format=I420 ! fakesink` 跑通，取到 11 帧真实像素，`HOST_RC=0`，gst-vaapi 不再报 `failed to make image current`。**
+
+- `HUSK_VA_FRAME surface=1 pts=1 size=1920x1080 bytes=3110400 luma_mean=125 min=32 max=211`（黑帧会是 16/16，这里不是）。
+- 补上四件事：VA image 全套（create/derive/destroy/get）、异步解码 + `FRAME pts=N` 领取、几何按解码器自报（1920x1080，不是 surface 的 1088）、`vaGetImage` 接受编码尺寸 1088 时按行拷贝补 0。
+- **陷阱记录**：只跑 `vaapih264dec ! fakesink` 也会 `HOST_RC=0`，但一帧都没 map，不能当解码证据；必须接 `videoconvert` 强制下载。
+- **仍然坏（FACT）**：合成 CSD。不带 override 时 150 个 AU 全部提交成功但零输出；逐字段解析证明我们合成的 SPS 是 `width/height=0、frame_mbs_only=0、level=51`，真实流是 `119x67 MB、frame_mbs_only=1、level=40`、`poc_type=2`。说明 `h264.rs` 对 `VAPictureParameterBufferH264` 的偏移/位域假设与实际布局不符。当前成功运行用测试钩子 `HUSK_VA_SPS/HUSK_VA_PPS` 喂真实 SPS/PPS。
+- 未做：CSD 偏移修正（下一步，用 `HUSK_VA_DUMP=1` 落 `/tmp/husk-pp.bin` 对齐）、10 分钟长稳、HEVC/VP9/AV1、Chromium、AV 同步、硬软解对比、上屏。
 
 ## VA 系统层接进 app 解码器（evidence 84，2026-11-23）
 

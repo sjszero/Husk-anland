@@ -3,7 +3,7 @@
 > 本文件是目标的**权威规格**。会话里的 goal 对象不可编辑，重建 goal 时以本文件为准；
 > 改目标就改这里，再把下面的「粘贴块」整段贴进去。纯文本版：`docs/goal-objective.txt`。
 
-最后更新：2026-11-23（v48：evidence 83 加了 app 侧统一硬件能力矩阵 `app-rs/src/caps.rs` -> `files/husk-capabilities.txt` + guest 镜像，实测 37 个硬件解码器 / 10 个硬件编码器 / 2 相机 / 31 传感器 / 音频进出设备 / 4 输入设备 / 全部外设特性；矩阵只陈述事实，任何一类硬件的接入仍未实现，VA system path 未上机验证）
+最后更新：2026-11-23（v49：evidence 85 —— 标准 GStreamer `vaapih264dec ! videoconvert ! I420 ! fakesink` 经 Husk VA 驱动取到 11 帧真实硬解像素（MTK `c2.mtk.avc.decoder`，1920x1080，luma_mean=125），VA image 全套 + FRAME/PTS 异步领取 + 几何对齐已实现；**合成 CSD 仍错**（width/height=0、frame_mbs_only=0、level 51），当前靠 `HUSK_VA_SPS/HUSK_VA_PPS` 测试钩子喂真实参数集，CSD 修正、10 分钟长稳、HEVC/VP9/AV1、Chromium、AV 同步、上屏均未做）
 
 ---
 

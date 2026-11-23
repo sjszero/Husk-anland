@@ -1,0 +1,365 @@
+0:00:00.019735154 [33m21368[00m   0x55594a5c40 [33;01mWARN   [00m [00m               vaapi gstvaapiutils.c:78:gst_vaapi_warning:[00m vaGetDriverNames() failed with unknown libva error
+HUSK_VA_INIT enter ctx=0x55594a5a00
+HUSK_VA_INIT done profiles=5 entrypoints=1 attrs=8 images=1 subpics=1 vendor=0x78961e51e9 vtable=0x55594a6400
+error: XDG_RUNTIME_DIR is invalid or not set in the environment.
+0:00:00.049973616 [33m21368[00m   0x55594a5c40 [33;01mWARN   [00m [00m            gleglgbm gstgl_gbm_utils.c:473:gst_gl_gbm_find_and_open_drm_node:[00m Found no matching DRM devices
+0:00:00.050142539 [33m21368[00m   0x55594a5c40 [31;01mERROR  [00m [00m           gldisplay gstgldisplay_gbm.c:439:gst_gl_display_gbm_new:[00m could not find or open DRM device
+error: XDG_RUNTIME_DIR is invalid or not set in the environment.
+0:00:00.050789616 [33m21368[00m   0x55594a5c40 [33;01mWARN   [00m [00m               vaapi gstvaapiutils.c:78:gst_vaapi_warning:[00m vaGetDriverNames() failed with unknown libva error
+HUSK_VA_INIT enter ctx=0x55594d12e0
+HUSK_VA_INIT done profiles=5 entrypoints=1 attrs=8 images=1 subpics=1 vendor=0x78961e51e9 vtable=0x55594d2500
+HUSK_VA_BUFFER context=1 type=0 size=672 elements=1 bytes=672 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=1 size=240 elements=1 bytes=240 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=5133 elements=1 bytes=5133 prefix=6588843a0c6001e202215c215554e857
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=3706 elements=1 bytes=3706 prefix=65005a22210e84628000863c7000103d
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=4852 elements=1 bytes=4852 prefix=650029488843a118a000218f1c00040f
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=3668 elements=1 bytes=3668 prefix=65003fc88843a118a000218f1c00040f
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=2570 elements=1 bytes=2570 prefix=650015922210e84628000863c7000103
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=3961 elements=1 bytes=3961 prefix=65001a422210e84628000863c7000103
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=923 elements=1 bytes=923 prefix=65001fe22210e84628000863c7000103
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=11889 elements=1 bytes=11889 prefix=6500096088843a118a000218f1c00040
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=25920 elements=1 bytes=25920 prefix=65000a8c88843a118a000218f1c00040
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=25714 elements=1 bytes=25714 prefix=65000bf488843a118a000218f1c00040
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=5875 elements=1 bytes=5875 prefix=65000d5c88843a118a000218f1c00040
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=665 elements=1 bytes=665 prefix=65000e8888843a118a000218f1c00040
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_END_ENTER ctx=0x55594d12e0 context=1
+HUSK_VA_END_ACTIVE context=1 surface=1 buffers=26 size=1920x1088 profile=13
+HUSK_VA_END_GATHER slices=12 access_bytes=94924 picture_params=672 slice_params=3128 types=4:3128,5:5133,4:3128,5:3706,4:3128,5:4852,4:3128,5:3668,4:3128,5:2570,4:3128,5:3961,4:3128,5:923,4:3128,5:11889,4:3128,5:25920,4:3128,5:25714,4:3128,5:5875,4:3128,5:665
+HUSK_VA_ACCESS_UNIT context=1 surface=1 profile=13 size=1920x1088 slices=12 bytes=94924 buffers=4:3128,5:5133,4:3128,5:3706,4:3128,5:4852,4:3128,5:3668,4:3128,5:2570,4:3128,5:3961,4:3128,5:923,4:3128,5:11889,4:3128,5:25920,4:3128,5:25714,4:3128,5:5875,4:3128,5:665 prefix=000000016588843a0c6001e202215c215554e857b00c4e00569b06631b6a1010
+HUSK_VA_CSD sps=000000016742c028da01e0089f970110000003001000000303c8f1832a pps=0000000168ce0fc8
+HUSK_VA_BRIDGE_OPEN context=1 size=1920x1088 codec=c2.mtk.avc.decoder
+HUSK_VA_BRIDGE_SUBMIT context=1 surface=1 profile=13 bytes=94924 pts=1
+HUSK_VA_BUFFER context=1 type=0 size=672 elements=1 bytes=672 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=1 size=240 elements=1 bytes=240 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=1710 elements=1 bytes=1710 prefix=419a21af0cc3879ee69e42000100300e
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=853 elements=1 bytes=853 prefix=41005a2688687e0244955fc12d555555
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=518 elements=1 bytes=518 prefix=41002949a21a0418091fffe08b7bbfd5
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=189 elements=1 bytes=189 prefix=41003fc9a21a06d809157fa913ea3efa
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=119 elements=1 bytes=119 prefix=41001592688681ef5a8ec048fc45deee
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=99 elements=1 bytes=99 prefix=41001a42688681ef5a820c048fd5bea9
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=828 elements=1 bytes=828 prefix=41001fe2688681ef5a835e1a81c0200a
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=9162 elements=1 bytes=9162 prefix=410009609a21a07bd6a0100888d800aa
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=20185 elements=1 bytes=20185 prefix=41000a8c9a21a07bd6a3f8d800b62b71
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=20224 elements=1 bytes=20224 prefix=41000bf49a21a0ef0d407b4f9805d978
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=4274 elements=1 bytes=4274 prefix=41000d5c9a21a07bd6a3f8d80016b35b
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=12 elements=1 bytes=12 prefix=41000e889a21a07bd6a00a52
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_END_ENTER ctx=0x55594d12e0 context=1
+HUSK_VA_END_ACTIVE context=1 surface=2 buffers=26 size=1920x1088 profile=13
+HUSK_VA_END_GATHER slices=12 access_bytes=58221 picture_params=672 slice_params=3128 types=4:3128,5:1710,4:3128,5:853,4:3128,5:518,4:3128,5:189,4:3128,5:119,4:3128,5:99,4:3128,5:828,4:3128,5:9162,4:3128,5:20185,4:3128,5:20224,4:3128,5:4274,4:3128,5:12
+HUSK_VA_ACCESS_UNIT context=1 surface=2 profile=13 size=1920x1088 slices=12 bytes=58221 buffers=4:3128,5:1710,4:3128,5:853,4:3128,5:518,4:3128,5:189,4:3128,5:119,4:3128,5:99,4:3128,5:828,4:3128,5:9162,4:3128,5:20185,4:3128,5:20224,4:3128,5:4274,4:3128,5:12 prefix=00000001419a21af0cc3879ee69e42000100300e164c20002418a30003012203
+HUSK_VA_BRIDGE_SUBMIT context=1 surface=2 profile=13 bytes=58221 pts=2
+HUSK_VA_FRAME surface=1 pts=1 size=1920x1080 bytes=3110400 luma_mean=125 min=32 max=211
+HUSK_VA_BUFFER context=1 type=0 size=672 elements=1 bytes=672 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=1 size=240 elements=1 bytes=240 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=1710 elements=1 bytes=1710 prefix=419a40a973c015c12da1ae7e1c4e1eb9
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=2273 elements=1 bytes=2273 prefix=41005a26902a170880910d400e099900
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=1135 elements=1 bytes=1135 prefix=41002949a40a83b0800810ce02689dc9
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=853 elements=1 bytes=853 prefix=41003fc9a40a8194100081ffc39e00a5
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=565 elements=1 bytes=565 prefix=410015926902a023c100081f8567cfbc
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=584 elements=1 bytes=584 prefix=41001a426902a02cc0a0071f867c0413
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=219 elements=1 bytes=219 prefix=41001fe26902a0374100081fae5f0e60
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=9484 elements=1 bytes=9484 prefix=410009609a40a8027b131b0005725f36
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=20975 elements=1 bytes=20975 prefix=41000a8c9a40a8099c6c001f1314f20d
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=20960 elements=1 bytes=20960 prefix=41000bf49a40a839c35060095914012b
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=4503 elements=1 bytes=4503 prefix=41000d5c9a40a8099891b002740de101
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=10 elements=1 bytes=10 prefix=41000e889a40a80168c0
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_END_ENTER ctx=0x55594d12e0 context=1
+HUSK_VA_END_ACTIVE context=1 surface=3 buffers=26 size=1920x1088 profile=13
+HUSK_VA_END_GATHER slices=12 access_bytes=63319 picture_params=672 slice_params=3128 types=4:3128,5:1710,4:3128,5:2273,4:3128,5:1135,4:3128,5:853,4:3128,5:565,4:3128,5:584,4:3128,5:219,4:3128,5:9484,4:3128,5:20975,4:3128,5:20960,4:3128,5:4503,4:3128,5:10
+HUSK_VA_ACCESS_UNIT context=1 surface=3 profile=13 size=1920x1088 slices=12 bytes=63319 buffers=4:3128,5:1710,4:3128,5:2273,4:3128,5:1135,4:3128,5:853,4:3128,5:565,4:3128,5:584,4:3128,5:219,4:3128,5:9484,4:3128,5:20975,4:3128,5:20960,4:3128,5:4503,4:3128,5:10 prefix=00000001419a40a973c015c12da1ae7e1c4e1eb978872b8df00042096b3e9296
+HUSK_VA_BRIDGE_SUBMIT context=1 surface=3 profile=13 bytes=63319 pts=3
+HUSK_VA_FRAME surface=2 pts=2 size=1920x1080 bytes=3110400 luma_mean=125 min=32 max=211
+HUSK_VA_BUFFER context=1 type=0 size=672 elements=1 bytes=672 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=1 size=240 elements=1 bytes=240 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=1185 elements=1 bytes=1185 prefix=419a60a8bc2fe00160c4e72493ece775
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=1011 elements=1 bytes=1011 prefix=41005a26982a3e02449517fc12d57555
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=805 elements=1 bytes=805 prefix=41002949a60a833809104577d3af04b7
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=251 elements=1 bytes=251 prefix=41003fc9a60a81760247ea45fd6beb5f
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=263 elements=1 bytes=263 prefix=410015926982a021e0247e096e2bddee
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=166 elements=1 bytes=166 prefix=41001a426982a02ae0247ea917827aaa
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=111 elements=1 bytes=111 prefix=41001fe26982a03560247ea74f825eef
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=9462 elements=1 bytes=9462 prefix=410009609a60a8027b891b00184835d5
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=21056 elements=1 bytes=21056 prefix=41000a8c9a60a8099c6c00098a6f572a
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=20993 elements=1 bytes=20993 prefix=41000bf49a60a837c2b80ada755d8012
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=4437 elements=1 bytes=4437 prefix=41000d5c9a60a80998446c0011e08789
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=10 elements=1 bytes=10 prefix=41000e889a60a80168c0
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_END_ENTER ctx=0x55594d12e0 context=1
+HUSK_VA_END_ACTIVE context=1 surface=4 buffers=26 size=1920x1088 profile=13
+HUSK_VA_END_GATHER slices=12 access_bytes=59798 picture_params=672 slice_params=3128 types=4:3128,5:1185,4:3128,5:1011,4:3128,5:805,4:3128,5:251,4:3128,5:263,4:3128,5:166,4:3128,5:111,4:3128,5:9462,4:3128,5:21056,4:3128,5:20993,4:3128,5:4437,4:3128,5:10
+HUSK_VA_ACCESS_UNIT context=1 surface=4 profile=13 size=1920x1088 slices=12 bytes=59798 buffers=4:3128,5:1185,4:3128,5:1011,4:3128,5:805,4:3128,5:251,4:3128,5:263,4:3128,5:166,4:3128,5:111,4:3128,5:9462,4:3128,5:21056,4:3128,5:20993,4:3128,5:4437,4:3128,5:10 prefix=00000001419a60a8bc2fe00160c4e72493ece77527ea070371eab504b8203ffb
+HUSK_VA_BRIDGE_SUBMIT context=1 surface=4 profile=13 bytes=59798 pts=4
+HUSK_VA_FRAME surface=3 pts=3 size=1920x1080 bytes=3110400 luma_mean=125 min=32 max=210
+HUSK_VA_BUFFER context=1 type=0 size=672 elements=1 bytes=672 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=1 size=240 elements=1 bytes=240 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=1227 elements=1 bytes=1227 prefix=419a80e973647ebacbeae3111bc003e2
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=1214 elements=1 bytes=1214 prefix=41005a26a03a7809104b087929e99e45
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=797 elements=1 bytes=797 prefix=41002949a80e82b8091045158af73e08
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=266 elements=1 bytes=266 prefix=41003fc9a80e81560247e08b5a83e4f8
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=701 elements=1 bytes=701 prefix=410015926a03a07f06002078421af003
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=634 elements=1 bytes=634 prefix=41001a426a03a028c1800810ce00704c
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=369 elements=1 bytes=369 prefix=41001fe26a03a03370d6070080387b2e
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=10041 elements=1 bytes=10041 prefix=410009609a80e8027b131b001adb59a3
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=22309 elements=1 bytes=22309 prefix=41000a8c9a80e8099c6c0020db0346bd
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=22262 elements=1 bytes=22262 prefix=41000bf49a80e835c2b81e19d970f0ce
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=4735 elements=1 bytes=4735 prefix=41000d5c9a80e8099111b003c4082eca
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=10 elements=1 bytes=10 prefix=41000e889a80e80168c0
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_END_ENTER ctx=0x55594d12e0 context=1
+HUSK_VA_END_ACTIVE context=1 surface=5 buffers=26 size=1920x1088 profile=13
+HUSK_VA_END_GATHER slices=12 access_bytes=64613 picture_params=672 slice_params=3128 types=4:3128,5:1227,4:3128,5:1214,4:3128,5:797,4:3128,5:266,4:3128,5:701,4:3128,5:634,4:3128,5:369,4:3128,5:10041,4:3128,5:22309,4:3128,5:22262,4:3128,5:4735,4:3128,5:10
+HUSK_VA_ACCESS_UNIT context=1 surface=5 profile=13 size=1920x1088 slices=12 bytes=64613 buffers=4:3128,5:1227,4:3128,5:1214,4:3128,5:797,4:3128,5:266,4:3128,5:701,4:3128,5:634,4:3128,5:369,4:3128,5:10041,4:3128,5:22309,4:3128,5:22262,4:3128,5:4735,4:3128,5:10 prefix=00000001419a80e973647ebacbeae3111bc003e20d120e8716f29cf3fbf000b0
+HUSK_VA_BRIDGE_SUBMIT context=1 surface=5 profile=13 bytes=64613 pts=5
+HUSK_VA_FRAME surface=4 pts=4 size=1920x1080 bytes=3110400 luma_mean=125 min=32 max=210
+HUSK_VA_BUFFER context=1 type=0 size=672 elements=1 bytes=672 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=1 size=240 elements=1 bytes=240 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=1003 elements=1 bytes=1003 prefix=419aa0e8dc6f80020836b4fa4adcef3b
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=941 elements=1 bytes=941 prefix=41005a26a83af1b1400c5000c5003140
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=844 elements=1 bytes=844 prefix=41002949aa0e823060020433801c0129
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=268 elements=1 bytes=268 prefix=41003fc9aa0e81460613c735ba62dff0
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=734 elements=1 bytes=734 prefix=410015926a83a077c350042d304731eb
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=309 elements=1 bytes=309 prefix=41001a426a83a026e024788825bdeef7
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=518 elements=1 bytes=518 prefix=41001fe26a83a032750c61d877001632
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=10134 elements=1 bytes=10134 prefix=410009609aa0e80f1c2b038004002812
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=22284 elements=1 bytes=22284 prefix=41000a8c9aa0e8099c6c001e1b49bd79
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=22320 elements=1 bytes=22320 prefix=41000bf49aa0e833c2b01328c8eb5110
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=4712 elements=1 bytes=4712 prefix=41000d5c9aa0e8099c6c00233143b21a
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=10 elements=1 bytes=10 prefix=41000e889aa0e80168c0
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_END_ENTER ctx=0x55594d12e0 context=1
+HUSK_VA_END_ACTIVE context=1 surface=1 buffers=26 size=1920x1088 profile=13
+HUSK_VA_END_GATHER slices=12 access_bytes=64125 picture_params=672 slice_params=3128 types=4:3128,5:1003,4:3128,5:941,4:3128,5:844,4:3128,5:268,4:3128,5:734,4:3128,5:309,4:3128,5:518,4:3128,5:10134,4:3128,5:22284,4:3128,5:22320,4:3128,5:4712,4:3128,5:10
+HUSK_VA_ACCESS_UNIT context=1 surface=1 profile=13 size=1920x1088 slices=12 bytes=64125 buffers=4:3128,5:1003,4:3128,5:941,4:3128,5:844,4:3128,5:268,4:3128,5:734,4:3128,5:309,4:3128,5:518,4:3128,5:10134,4:3128,5:22284,4:3128,5:22320,4:3128,5:4712,4:3128,5:10 prefix=00000001419aa0e8dc6f80020836b4fa4adcef3bb0dff4045565c07508865aaa
+HUSK_VA_BRIDGE_SUBMIT context=1 surface=1 profile=13 bytes=64125 pts=6
+HUSK_VA_FRAME surface=5 pts=5 size=1920x1080 bytes=3110400 luma_mean=125 min=32 max=210
+HUSK_VA_BUFFER context=1 type=0 size=672 elements=1 bytes=672 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=1 size=240 elements=1 bytes=240 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=820 elements=1 bytes=820 prefix=419ac0e8bc2fe0008800ca2106983b1b
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=1061 elements=1 bytes=1061 prefix=41005a26b03ac1080910c40c5a89d9f8
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=1234 elements=1 bytes=1234 prefix=41002949ac0e86c02000410ac34f16f9
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=687 elements=1 bytes=687 prefix=41003fc9ac0e81170d41a1664542ccbd
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=579 elements=1 bytes=579 prefix=410015926b03a06f0420247e79124215
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=593 elements=1 bytes=593 prefix=41001a426b03a024c100081f86b74c05
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=1072 elements=1 bytes=1072 prefix=41001fe26b03a02ff0ac1826c93003de
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=10236 elements=1 bytes=10236 prefix=410009609ac0e80e90400207eb97c185
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=22213 elements=1 bytes=22213 prefix=41000a8c9ac0e8099c6c00116614dbf5
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=22331 elements=1 bytes=22331 prefix=41000bf49ac0e831c2b01328c8eb5110
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=4711 elements=1 bytes=4711 prefix=41000d5c9ac0e8099881b000f3663807
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=10 elements=1 bytes=10 prefix=41000e889ac0e80168c0
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_END_ENTER ctx=0x55594d12e0 context=1
+HUSK_VA_END_ACTIVE context=1 surface=2 buffers=26 size=1920x1088 profile=13
+HUSK_VA_END_GATHER slices=12 access_bytes=65595 picture_params=672 slice_params=3128 types=4:3128,5:820,4:3128,5:1061,4:3128,5:1234,4:3128,5:687,4:3128,5:579,4:3128,5:593,4:3128,5:1072,4:3128,5:10236,4:3128,5:22213,4:3128,5:22331,4:3128,5:4711,4:3128,5:10
+HUSK_VA_ACCESS_UNIT context=1 surface=2 profile=13 size=1920x1088 slices=12 bytes=65595 buffers=4:3128,5:820,4:3128,5:1061,4:3128,5:1234,4:3128,5:687,4:3128,5:579,4:3128,5:593,4:3128,5:1072,4:3128,5:10236,4:3128,5:22213,4:3128,5:22331,4:3128,5:4711,4:3128,5:10 prefix=00000001419ac0e8bc2fe0008800ca2106983b1bf99fe5ef7c30c8be94db8cf1
+HUSK_VA_BRIDGE_SUBMIT context=1 surface=2 profile=13 bytes=65595 pts=7
+HUSK_VA_FRAME surface=1 pts=6 size=1920x1080 bytes=3110400 luma_mean=125 min=32 max=210
+HUSK_VA_BUFFER context=1 type=0 size=672 elements=1 bytes=672 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=1 size=240 elements=1 bytes=240 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=649 elements=1 bytes=649 prefix=419ae0e8bd60e22378005818c921068a
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=878 elements=1 bytes=878 prefix=41005a26b83ae0247fffff13fc114506
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=851 elements=1 bytes=851 prefix=41002949ae0e84e0244464cd60842ffe
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=204 elements=1 bytes=204 prefix=41003fc9ae0e83d8091f8258adf77bc4
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=491 elements=1 bytes=491 prefix=410015926b83a0678091f9ea42cb99ff
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=304 elements=1 bytes=304 prefix=41001a426b83a022e0247e15b8af715b
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=207 elements=1 bytes=207 prefix=41001fe26b83a02de024435364ebe90f
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=10862 elements=1 bytes=10862 prefix=410009609ae0e80e1c2b81c002003812
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=22261 elements=1 bytes=22261 prefix=41000a8c9ae0e8099c6c00107042efe5
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=22262 elements=1 bytes=22262 prefix=41000bf49ae0e82fc2b03c33b20f0cec
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=4724 elements=1 bytes=4724 prefix=41000d5c9ae0e8099131b0016643f843
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=10 elements=1 bytes=10 prefix=41000e889ae0e80168c0
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_END_ENTER ctx=0x55594d12e0 context=1
+HUSK_VA_END_ACTIVE context=1 surface=3 buffers=26 size=1920x1088 profile=13
+HUSK_VA_END_GATHER slices=12 access_bytes=63751 picture_params=672 slice_params=3128 types=4:3128,5:649,4:3128,5:878,4:3128,5:851,4:3128,5:204,4:3128,5:491,4:3128,5:304,4:3128,5:207,4:3128,5:10862,4:3128,5:22261,4:3128,5:22262,4:3128,5:4724,4:3128,5:10
+HUSK_VA_ACCESS_UNIT context=1 surface=3 profile=13 size=1920x1088 slices=12 bytes=63751 buffers=4:3128,5:649,4:3128,5:878,4:3128,5:851,4:3128,5:204,4:3128,5:491,4:3128,5:304,4:3128,5:207,4:3128,5:10862,4:3128,5:22261,4:3128,5:22262,4:3128,5:4724,4:3128,5:10 prefix=00000001419ae0e8bd60e22378005818c921068aab3ebd738afc002c0c649083
+HUSK_VA_BRIDGE_SUBMIT context=1 surface=3 profile=13 bytes=63751 pts=8
+HUSK_VA_FRAME surface=2 pts=7 size=1920x1080 bytes=3110400 luma_mean=125 min=32 max=210
+HUSK_VA_BUFFER context=1 type=0 size=672 elements=1 bytes=672 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=1 size=240 elements=1 bytes=240 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=462 elements=1 bytes=462 prefix=419b00e8dc6f800208135a261bca1cba
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=746 elements=1 bytes=746 prefix=41005a26c03a389fe1ce283141840002
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=822 elements=1 bytes=822 prefix=41002949b00e8b80917933f04b5560cc
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=215 elements=1 bytes=215 prefix=41003fc9b00e8358091fa911d7825bbb
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=267 elements=1 bytes=267 prefix=410015926c03a05f8091fa913e08baa9
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=330 elements=1 bytes=330 prefix=41001a426c03a020e0247e096efbbb53
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=273 elements=1 bytes=273 prefix=41001fe26c03a02be02442b9be5eb0ef
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=11346 elements=1 bytes=11346 prefix=410009609b00e80d9c2b81c00801c1ac
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=22307 elements=1 bytes=22307 prefix=41000a8c9b00e8099c6c003e3149eaee
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=22227 elements=1 bytes=22227 prefix=41000bf49b00e82bc35809946475abe0
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=4734 elements=1 bytes=4734 prefix=41000d5c9b00e8099131b001ee0859a5
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=10 elements=1 bytes=10 prefix=41000e889b00e80168c0
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_END_ENTER ctx=0x55594d12e0 context=1
+HUSK_VA_END_ACTIVE context=1 surface=4 buffers=26 size=1920x1088 profile=13
+HUSK_VA_END_GATHER slices=12 access_bytes=63787 picture_params=672 slice_params=3128 types=4:3128,5:462,4:3128,5:746,4:3128,5:822,4:3128,5:215,4:3128,5:267,4:3128,5:330,4:3128,5:273,4:3128,5:11346,4:3128,5:22307,4:3128,5:22227,4:3128,5:4734,4:3128,5:10
+HUSK_VA_ACCESS_UNIT context=1 surface=4 profile=13 size=1920x1088 slices=12 bytes=63787 buffers=4:3128,5:462,4:3128,5:746,4:3128,5:822,4:3128,5:215,4:3128,5:267,4:3128,5:330,4:3128,5:273,4:3128,5:11346,4:3128,5:22307,4:3128,5:22227,4:3128,5:4734,4:3128,5:10 prefix=00000001419b00e8dc6f800208135a261bca1cbad892b7f4045765c0551d5e2a
+HUSK_VA_BRIDGE_SUBMIT context=1 surface=4 profile=13 bytes=63787 pts=9
+HUSK_VA_FRAME surface=3 pts=8 size=1920x1080 bytes=3110400 luma_mean=125 min=32 max=211
+HUSK_VA_BUFFER context=1 type=0 size=672 elements=1 bytes=672 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=1 size=240 elements=1 bytes=240 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=462 elements=1 bytes=462 prefix=419b20e8bc39800381147e24c2b31248
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=525 elements=1 bytes=525 prefix=41005a26c83a102781278570fbdfc31e
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=1020 elements=1 bytes=1020 prefix=41002949b20ebc2b010cc8cab5108233
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=270 elements=1 bytes=270 prefix=41003fc9b20e82d8091f821bbdc8b3ea
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=281 elements=1 bytes=281 prefix=410015926c83a0578091f9e71430c10c
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=353 elements=1 bytes=353 prefix=41001a426c83a07b8091f825bbeef911
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=272 elements=1 bytes=272 prefix=41001fe26c83a029e02444525d4d9267
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=10241 elements=1 bytes=10241 prefix=410009609b20e80d18091f821ded08ea
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=22310 elements=1 bytes=22310 prefix=41000a8c9b20e8099c6c005bc23e5e4c
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=22237 elements=1 bytes=22237 prefix=41000bf49b20e829c3581c1020a65c05
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=4708 elements=1 bytes=4708 prefix=41000d5c9b20e8099111b0004f10b133
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=10 elements=1 bytes=10 prefix=41000e889b20e80168c0
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_END_ENTER ctx=0x55594d12e0 context=1
+HUSK_VA_END_ACTIVE context=1 surface=5 buffers=26 size=1920x1088 profile=13
+HUSK_VA_END_GATHER slices=12 access_bytes=62737 picture_params=672 slice_params=3128 types=4:3128,5:462,4:3128,5:525,4:3128,5:1020,4:3128,5:270,4:3128,5:281,4:3128,5:353,4:3128,5:272,4:3128,5:10241,4:3128,5:22310,4:3128,5:22237,4:3128,5:4708,4:3128,5:10
+HUSK_VA_ACCESS_UNIT context=1 surface=5 profile=13 size=1920x1088 slices=12 bytes=62737 buffers=4:3128,5:462,4:3128,5:525,4:3128,5:1020,4:3128,5:270,4:3128,5:281,4:3128,5:353,4:3128,5:272,4:3128,5:10241,4:3128,5:22310,4:3128,5:22237,4:3128,5:4708,4:3128,5:10 prefix=00000001419b20e8bc39800381147e24c2b312489f6b3de604522019d8116855
+HUSK_VA_BRIDGE_SUBMIT context=1 surface=5 profile=13 bytes=62737 pts=10
+HUSK_VA_FRAME surface=4 pts=9 size=1920x1080 bytes=3110400 luma_mean=125 min=32 max=210
+HUSK_VA_BUFFER context=1 type=0 size=672 elements=1 bytes=672 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=1 size=240 elements=1 bytes=240 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=689 elements=1 bytes=689 prefix=419b40e8bd6fc446f000b031bc851a2a
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=524 elements=1 bytes=524 prefix=41005a26d03a028f0ae0519d2f7de4fd
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=1401 elements=1 bytes=1401 prefix=41002949b40eb04202446cd8e8c97f14
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=549 elements=1 bytes=549 prefix=41003fc9b40e8250400207e19bbebed9
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=989 elements=1 bytes=989 prefix=410015926d03a051c2b9332f17c0e724
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=1073 elements=1 bytes=1073 prefix=41001a426d03a0730420247e09715e28
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=836 elements=1 bytes=836 prefix=41001fe26d03a027f0ae4cd09e3c3e81
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=10805 elements=1 bytes=10805 prefix=410009609b40e80c9c353e3f300960d4
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=22775 elements=1 bytes=22775 prefix=41000a8c9b40e8099c6c0012cc2925eb
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=22191 elements=1 bytes=22191 prefix=41000bf49b40e827c350045340cc712b
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=4736 elements=1 bytes=4736 prefix=41000d5c9b40e8099891b0007c88377a
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=10 elements=1 bytes=10 prefix=41000e889b40e80168c0
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_END_ENTER ctx=0x55594d12e0 context=1
+HUSK_VA_END_ACTIVE context=1 surface=1 buffers=26 size=1920x1088 profile=13
+HUSK_VA_END_GATHER slices=12 access_bytes=66626 picture_params=672 slice_params=3128 types=4:3128,5:689,4:3128,5:524,4:3128,5:1401,4:3128,5:549,4:3128,5:989,4:3128,5:1073,4:3128,5:836,4:3128,5:10805,4:3128,5:22775,4:3128,5:22191,4:3128,5:4736,4:3128,5:10
+HUSK_VA_ACCESS_UNIT context=1 surface=1 profile=13 size=1920x1088 slices=12 bytes=66626 buffers=4:3128,5:689,4:3128,5:524,4:3128,5:1401,4:3128,5:549,4:3128,5:989,4:3128,5:1073,4:3128,5:836,4:3128,5:10805,4:3128,5:22775,4:3128,5:22191,4:3128,5:4736,4:3128,5:10 prefix=00000001419b40e8bd6fc446f000b031bc851a2aacfaf5cdaba2c002c0c6490a
+HUSK_VA_BRIDGE_SUBMIT context=1 surface=1 profile=13 bytes=66626 pts=11
+HUSK_VA_FRAME surface=5 pts=10 size=1920x1080 bytes=3110400 luma_mean=125 min=32 max=210
+HUSK_VA_FRAME surface=1 pts=11 size=1920x1080 bytes=3110400 luma_mean=125 min=32 max=211
+HOST_RC=0
