@@ -59,7 +59,7 @@ HBI 不按“GPU 接口 / 视频接口 / 音频接口”分成三套互不相关
 **结论（JUDGMENT）：** 统一接口的架构可行度约 80–90%；“任何芯片拿过来完全不动代码”可行度接近 0。
 应把目标改成：**应用不改，Husk 的上层不改；新增芯片只写 adapter 和探测表。**
 
-## 4. 视频为什么仍需要一个薄层
+## 5. 视频为什么仍需要一个薄层
 
 **FACT：** 本机 guest 内没有可直连的 `/dev/video*` 硬解节点；硬解入口在 bionic 侧
 `AMediaCodec`，而 Chromium/GStreamer 在 glibc guest 内。
@@ -80,7 +80,7 @@ AHB / dma-buf
 
 这不是重写播放器，也不是重写解码器；它是把 Android 的硬解能力包装成 Linux 媒体栈认识的接口。
 
-## 5. 不应采用的方案
+## 6. 不应采用的方案
 
 - 不定义一套只给 Husk 应用使用的新播放器 API；这样 GStreamer、Chromium、Totem 都要改。
 - 不假设所有 SoC 都支持同一组 kbase/DRM ioctl。
@@ -88,7 +88,7 @@ AHB / dma-buf
 - 不为每个机型写一套完整路径；只允许机型/probe 表决定选哪个 adapter。
 - 不把“统一接口”误解为“统一驱动”；底层仍然是 Mali kbase、Adreno KGSL、DRM 等不同实现。
 
-## 6. 落地顺序
+## 7. 落地顺序
 
 1. 先定义 HBI 的 `Buffer`、`Fence`、`DisplayTarget`、`VideoSession` 四个对象。
 2. 把现有 SurfaceControl/PanVK buffer 路径迁移到 `Buffer`/`Fence`。
@@ -97,7 +97,7 @@ AHB / dma-buf
 5. 让 Chromium 使用同一 VA-API 后端；用真实 H.264/HEVC 文件验证。
 6. 最后再接 GNOME/Totem、显示 WSI 和 AAudio 时钟，补 AV 同步。
 
-## 7. 当前能力事实（2026-11-23）
+## 8. 当前能力事实（2026-11-23）
 
 - 2.0 资产里有 `google-chrome-stable_..._arm64.deb`、`totem_..._arm64.deb`，不需要重造浏览器或播放器。
 - 当前已解开的 `rootfs-full` 有 GStreamer 运行库，但缺少 `gst-launch-1.0`/`gst-inspect-1.0`、VA-API 插件和 Chrome 可执行文件。
