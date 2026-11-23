@@ -19,7 +19,7 @@
 |---|---|---|
 | loader + path-shim | 零 ptrace，路径一次改写完成；dlopen 进来的库也覆盖 | 27 / 100 |
 | exec / PTY / 信号 / 生命周期 | 600 秒长稳、零僵尸、无重启风暴；旋转与 Surface 重建不重启会话 | 32 / 72 |
-| 页大小 | rootfs 2987 个 ELF + loader + 我们全部产物在 4K/16K/64K 静态体检全绿（含 `p_align % 页` 规则）；**真 16K 内核（QEMU + RPi5 16K kernel）上原厂 glibc 全通，我们的 loader 修掉两个真 Bug（段重叠、mprotect 对齐）后仍有一处 shim 窗口写保护未解**；16K/64K 真机仍 UNKNOWN | 30, 122, 124 |
+| 页大小 | rootfs 2987 个 ELF + loader + 我们全部产物在 4K/16K/64K 静态体检全绿（含 `p_align % 页` 规则）；**真 16K 内核（QEMU + RPi5 16K kernel）上我们的 loader 端到端全绿**：`cat /etc/os-release`、296 个 `/usr/bin`、嵌套 exec、`/tmp` 写读、`check-elf` 727 个 ELF 三档 congruent（修掉的两个真 Bug：段重叠、mprotect 对齐）；**16K/64K 真机仍 UNKNOWN**（本机只有 4K） | 30, 122, 124, 125 |
 | GPU | PanVK 列举 Mali-G77、compute、离屏 graphics、Zink surfaceless | 46 / 47 |
 | 显示 | AHB → dma-buf → SurfaceControl；3-buffer ring + 真实 SYNC_FD；10,000 帧 / 665 秒 | 53–59 / 73 |
 | 视频 | H.264 1080p30 连续 600 秒，dropped=0；VA-API 解码出真实帧 | 74–80 / 85–87 |
@@ -57,9 +57,10 @@
 
 ## 下一步（按环境完整性口径排序）
 
-1. **F：16K/64K 实机**——本机只有 4 KiB；`nr-tools check-elf` 已能静态体检。
-   已用 QEMU + Raspberry Pi 5 的 16K 内核搭出真 16K 环境（evidence 124）：原厂 glibc 全通，
-   我们自己的 loader 还有一处 shim 可写窗口的 `SEGV_ACCERR` 待定位；修完再谈 16K 真机。
+1. **F：16K/64K 收尾**——16K 已在真 16K 内核（QEMU + RPi5）上端到端全绿（evidence 125），
+   剩下的：① 用 64K 内核同样跑一遍；② 16K/64K **真机**（本机只有 4 KiB）仍 UNKNOWN；
+   ③ 收一个 P2 观测项：`ls -l` 在我们的 loader 下多打一行 stderr `<argv0>: <path>`（原厂 loader 没有），
+   用 `strace -f -e trace=%file` 对比定性。
 2. **F：GPU 家族适配器**——本机只验了 Mali(kbase)。Adreno(kgsl + Turnip) 与通用 DRM
    按 `docs/design/device-adapters.md` 的表结构补适配器，没设备的一律 UNKNOWN。
 3. **2.0 集成**：替换 proot 运行时，逐项删除 proot 专用补丁（用 artifacts/rollback 里的
@@ -70,6 +71,10 @@
 ## 已知环境细节（踩过的坑，别再踩）
 
 - loader 只接受**相对**程序路径（`usr/bin/bash` ✓，`/usr/bin/bash` ✗）。
+- **启动契约**：`NR_ROOTFS=<rootfs 绝对路径>` 与 `NR_LD=<我们的 loader 绝对路径>` 两个变量必须同时设。
+  少 `NR_ROOTFS` → 父进程完全不改写（症状 `command not found`）；少 `NR_LD` → exec 出来的
+  子进程回落到 rootfs 里的原厂 glibc loader，shim 不在里面（症状：父进程路径对、子进程读宿主路径）。
+  排查"shim 好像没生效"先看这两个变量，别先怀疑内核或页大小（2026-11-23 踩过）。
 - `run-as` 下不能写 `/tmp`，临时文件放 `$R/tmp/`。
 - 不要用 `dbus-daemon --fork`：同一 address 会出现多个 daemon，之后所有客户端收不到回应。
   用 `--nofork` 自己后台化，`XDG_RUNTIME_DIR` 必须 `chmod 700`。
