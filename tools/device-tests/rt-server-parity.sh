@@ -89,9 +89,9 @@ p=subprocess.run(["dbus-daemon","--session","--fork","--print-address"],capture_
 raise SystemExit(0 if p.stdout.strip().startswith("unix:") else 1)' 2>/dev/null; ok $?)" "session bus starts"
 S svc syslog "$( [ -S /dev/log ] && logger -t husk "parity probe" 2>/dev/null; ok $?)" "logger -> $(tail -1 /var/log/syslog 2>/dev/null | cut -c1-70)"
 # syslog(3) reaches connect(2) through glibc's *internal* alias, which has no GOT
-# slot, so it is not translated yet. logger works because util-linux builds and
-# connects the socket itself. Fix = add connect/bind to the libc slot list.
-S svc syslog_libc PARTIAL "syslog(3) from libc still misses; the sink and logger are fine"
+# slot. connect/bind are in the libc slot list now, so this exercises the
+# interposed internal path (python's syslog module calls syslog(3) directly).
+S svc syslog_libc "$(python3 -c 'import syslog;syslog.openlog("parity");syslog.syslog(syslog.LOG_INFO,"syslog3 probe")' 2>/dev/null && tail -n 3 /var/log/syslog | grep -q 'parity: syslog3 probe'; ok $?)" "$(tail -1 /var/log/syslog 2>/dev/null | cut -c1-60)"
 S svc systemd PARTIAL "systemd binary present but needs PID 1 + libsystemd-core (not shipped)"
 S svc su PARTIAL "no CAP_SETUID"
 

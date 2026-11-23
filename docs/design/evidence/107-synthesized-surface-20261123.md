@@ -107,5 +107,5 @@ glibc 的 `syslog()` 内部调 `__connect`，那是 libc 自己的别名、没�
 ```sh
 sh tools/guest-config/build-logd.sh             # 编 husk-logd
 sh tools/guest-config/mksys-net.sh <rootfs>     # 物化 /sys/class/net/lo
-sh files/gexec3.sh <rootfs> usr/bin/bash tmp/rtp.sh   # 70 / 6 / 6
+sh files/gexec3.sh <rootfs> usr/bin/bash tmp/rtp.sh   # 71 / 5 / 6（syslog(3) 修复后，见 108）
 ```

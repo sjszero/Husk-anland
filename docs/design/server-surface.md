@@ -2,7 +2,7 @@
 
 > 唯一目标机：RMX3357（Android 13 / kernel 4.19.191 / 4 KiB / `untrusted_app`，无 root、无 Shizuku）。
 > 全部数字来自 `tools/device-tests/rt-server-parity.sh`，在 guest 里跑，2026-11-23。
-> 状态：**70 PASS / 6 PARTIAL / 6 FAIL**（58/5/18 → 70/6/6；最早基线 22 / 4 / 21）。
+> 状态：**71 PASS / 5 PARTIAL / 6 FAIL**（58/5/18 → 70/6/6 → 71/5/6；最早基线 22 / 4 / 21）。
 
 ## 1. 对照的口径
 
@@ -17,7 +17,7 @@
 | IPC | unix/abstract/SCM_RIGHTS、eventfd/timerfd/epoll | 通过；SysV IPC 被 seccomp 墙 |
 | 网络 | socket、DNS、监听、接口枚举 | socket/DNS/监听通过；接口枚举被墙 |
 | 设备 | `/dev` 常规节点、pty、shm、日志 socket | null/zero/urandom/tty/ptmx/pts/shm 通过 |
-| 服务 | system bus、syslog、init/监督、多用户 | system bus 已能起；syslog 缺 socket |
+| 服务 | system bus、syslog、init/监督、多用户 | system bus 已能起；`logger` 与 `syslog(3)` 都落到 `/var/log/syslog` |
 
 ## 2. 本轮修掉的（都是真问题，不是"补丁糊过去"）
 
@@ -46,7 +46,7 @@
 | SysV IPC（`shmget`/`semget`/`msgget`） | Android seccomp 固定回 `ENOSYS`（38） | 老式共享内存程序不可用（POSIX shm 用 `/dev/shm` 已可用） | 不可解除；只能让程序走 POSIX shm |
 | `/dev/mqueue` | 内核没有挂 mqueue 文件系统 | `<mqueue.h>` 不可用 | 需要在 shim 里模拟命名队列 |
 | `/dev/full` | 内核不给 app 建节点（无 CAP_MKNOD） | 极少数程序检查它 | shim 可模拟写 `ENOSPC` |
-| `/dev/log` | 缺 syslog 数据报 socket | `syslog()` 静默丢日志 | 起一个 guest 侧 syslog 接收器（Rust） |
+| `/dev/log` | 缺 syslog 数据报 socket | `husk-logd` + `connect`/`bind` 槽位，`logger`/`syslog(3)` 都通 | `runtime/crates/logd` + `libc-interpose.txt`（evidence 107/108） |
 | `ping`（raw socket） | 无 `CAP_NET_RAW` | ICMP 探测不可用 | 不可解除（TCP/UDP 正常） |
 | `su`/`passwd`（切用户） | 无 `CAP_SETUID` | 单用户运行；多用户服务要改造成同 uid | 不可解除 |
 
@@ -77,7 +77,6 @@ adb shell 'run-as com.linuxhub.husk sh -c "cd files && cp /data/local/tmp/rt-ser
   装包不受影响；`apt-get remove <那些包>` 不会删文件。要根治得按包重建 `.list`，
   数据源只有 tarball 的文件树，暂不做（做了也只是猜）。
 * **SysV IPC**（`shmget`/`semget`/`msgget`）与 `mq_open` 被内核 seccomp 直接回 ENOSYS，无解，只能记录。
-* **`syslog(3)` 本身**仍发不出去：glibc 的 `syslog()` 内部走 `__connect`（无 GOT 槽）。
-  解法是把 `connect`/`bind` 加进 libc 槽位表重编 guest libc；未做。
+* ~~`syslog(3)` 本身仍发不出去~~ 已修：`connect`/`bind` 进 libc 槽位表，重编 guest libc（evidence 108）。
 * **netlink / cgroup / `/dev/full` / `/dev/mqueue`** 仍是 FAIL：内核拒绝 netlink 与 cgroup 委派；
   `/dev/full` 要拦 `write(2)` 才能造出 ENOSPC，超出本项目"不扩大拦截面"的规则；mqueue 随 `mq_open`。
