@@ -1,0 +1,8 @@
+capture|GATE|idle|no recorder on husk_mic
+capture|OPEN|CAPTURE_READY rate=48000 channels=2 format=1 device=16 burst=128 capacity=4096
+capture|PROGRESS|frames=28672|bytes=114688|silent=4|peak=47
+capture|PROGRESS|frames=54272|bytes=217088|silent=4|peak=47
+capture|PROGRESS|frames=79872|bytes=319488|silent=4|peak=47
+capture|PROGRESS|frames=106496|bytes=425984|silent=4|peak=47
+capture|GATE|close|CAPTURE_OK frames_read=121856 silent_chunks=4 peak=48
+capture|GATE|idle|no recorder on husk_mic

@@ -90,6 +90,28 @@ adb shell dumpsys appops --package com.linuxhub.husk | grep RECORD_AUDIO
 `rootfs-full/run/husk/audio-out.sock`（guest 可达），采集侧本来就在
 `rootfs-full/run/husk/audio-in.sock`。relay 用后者后一次通过。
 
+
+## 按需开关麦克风（借用 prior art 的 `mic.active` 语义）
+
+DroidNative 用 `pactl subscribe | while read` 写 `mic.active`，app 只在有录音流时开
+Android 麦克风。Husk 复刻同一语义但不用 shell：`audio-capture ... gate=1 pactl=/usr/bin/pactl`
+每 300 ms 调一次 `pactl list short source-outputs`，只统计挂在我们 `husk_mic`（不是
+`husk_pipe.monitor`）上的流；没有就发 `CLOSE` 并停手，有就重新 `OPEN`。
+
+实测（`88-mic-gate.log`，一次运行内先空闲、再录 5 秒、再空闲）：
+
+```text
+capture|GATE|idle|no recorder on husk_mic          # 前 4 秒：app 侧没有开流
+capture|OPEN|CAPTURE_READY rate=48000 ...          # parec 开始后
+capture|PROGRESS|frames=106496|...|peak=47
+capture|GATE|close|CAPTURE_OK frames_read=121856 ... # parec 结束后
+capture|GATE|idle|no recorder on husk_mic
+```
+
+app 侧同一时间线（`88-mic-gate-app.log`）：`audio|capture|open|preset=1...` 只在
+parec 运行期间出现，`audio|capture|close|frames_read=121856` 在 parec 结束后立刻关闭流。
+**麦克风不再常开。**
+
 ## 复现
 
 ```sh
