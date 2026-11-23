@@ -47,6 +47,9 @@
 
 ## 下一步（按顺序）
 
+0. **先解决会话栈身份与稳定性**（evidence 110）：会话进程必须 `NR_FAKE_ROOT=0`；
+   GDBus 的 `SCM_CREDENTIALS` 在 fake root 下 EPERM；gnome-shell 46 目前会
+   `free(): invalid pointer` 崩，要么复现定位、要么退回 mutter headless + ScreenCast。
 1. 写 Rust 消费者：在 `EnumFormat` 里带 `SPA_FORMAT_VIDEO_modifier`，确认 mutter 按 dmabuf 分配。
 2. 帧消费者：PipeWire → dmabuf → AHB → SurfaceControl（复用已验证的 3-buffer ring）。
 3. GNOME 桌面可用性验收：浏览器、文件管理器、终端。
