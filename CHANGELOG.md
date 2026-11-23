@@ -1,5 +1,18 @@
 # 变更记录
 
+## 2026-11-23 — 视频跨旋转与 SurfaceControl 重建
+
+- **evidence 72**：播放中的 1080p30 AVC 从 1080x2400 旋转到 2280x1080 后继续上屏，
+  guest 仍 `150/150`、`RESULT PASS`；presenter 目标区域从
+  `(0,896)-(1080,1504)` 更新为 `(180,0)-(2100,1080)`。
+- SurfaceView 的父 SurfaceControl 不再永久缓存。JNI 最多每秒刷新一次；Home 后回前台检测到
+  新 parent，presenter 创建新子层，旧层按回调代际延迟释放，日志 `video|present|rebuild|PASS`。
+- 后台没有活动窗口期间，解码帧明确跳过而不是崩溃；该会话最终 `submitted=119`，恢复后继续
+  出画并正常 stop/delete。
+- `libhuskapp.so` sha256 `bfc6c56ef06655386494a8c46ccb89708e25994946e062a657e666b4710e8217`；
+  debug APK sha256 `e1e6a98ba863fd63baa0aa400a78f4b0c189de13328faad0c8a59f293681bfe1`。
+- **边界**：guest 侧 WSI、`MEM_IMPORT`、AV 同步、10 分钟播放和多窗口/分屏仍未完成。
+
 ## 2026-11-23 — MediaCodec AHB 实时硬解上屏
 
 - **evidence 71**：guest 通过正常 `rootfs-full` 内的 `/run/husk/video.sock` 实时发送

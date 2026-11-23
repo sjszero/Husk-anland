@@ -143,9 +143,9 @@ e8dadebd659daa399c416ea5b1677dfdb993f5dc8cc32894739043f7bcfbc18e  video-bridge
 - **NOT DONE**: export/import the decoded AHB into guest PanVK through
   `MEM_IMPORT`; current presentation happens in the app process, not in guest
   GL/X11/Wayland.
-- **NOT DONE**: presenter rebuild after parent SurfaceControl changes. Current
-  code logs `parent_changed` and rejects submission instead of creating a new
-  child layer.
+- **CLOSED BY EVIDENCE 72**: presenter now refreshes the JNI SurfaceControl,
+  retires the old child layer by callback generation, rebuilds under the new
+  parent, and resumes video after Home/foreground recovery.
 - **NOT DONE**: rotation/DPI/multi-window gate and a ten-minute playback soak.
 - **NOT DONE**: HEVC/VP9/AV1 over the bridge. Only the independent app-side
   HEVC decode probe from evidence 67 passed.

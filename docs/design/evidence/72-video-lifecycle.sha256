@@ -1,0 +1,8 @@
+e1e6a98ba863fd63baa0aa400a78f4b0c189de13328faad0c8a59f293681bfe1  app/app/build/outputs/apk/debug/app-debug.apk
+bfc6c56ef06655386494a8c46ccb89708e25994946e062a657e666b4710e8217  app/app/src/main/jniLibs/arm64-v8a/libhuskapp.so
+e8dadebd659daa399c416ea5b1677dfdb993f5dc8cc32894739043f7bcfbc18e  runtime/target/aarch64-unknown-linux-gnu/release/video-bridge
+bda5daab0c1bae965b69bfd6bfb624d057ea2245dca3351cec92c44af97dac45  docs/design/evidence/72-video-rotation-landscape.png
+a22aad8a369e1384296c05075a1d1ca2756e55f472c0ae27776c2aa89a64758e  docs/design/evidence/72-video-rotation-finished.png
+84ac8d34a3ecf3f0436dfc331e4e2ba7068b57020e36594a4d9cdfc427dc4ae7  docs/design/evidence/72-video-surface-rebuild-resumed.png
+4652ccb3016585179f8b71927577307b237ca8de08fd8df9c2f8881d079ac3e4  docs/design/evidence/72-video-repeated-rebuild-guest.log
+832679eeddc98c1a54ea8bd3cb4a1947ff6a826f8210cde87196739103425b7a  docs/design/evidence/72-video-repeated-rebuild-app.log

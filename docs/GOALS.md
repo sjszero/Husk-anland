@@ -3,7 +3,7 @@
 > 本文件是目标的**权威规格**。会话里的 goal 对象不可编辑，重建 goal 时以本文件为准；
 > 改目标就改这里，再把下面的「粘贴块」整段贴进去。纯文本版：`docs/goal-objective.txt`。
 
-最后更新：2026-11-23（v36：evidence 71 已让 app 内真实 `c2.mtk.avc.decoder` 的 150 个 AHardwareBuffer 连续直接提交到 `husk-video` SurfaceControl 子层，两次实时会话均 `150/150` submitted/completed/released、约 5.1 秒并截图证明动态播放。仍未完成解码 AHB 经 kbase `MEM_IMPORT` 回导 guest、guest GL/X11/Wayland WSI、HEVC/VP9/AV1 bridge、GStreamer/Chromium、AV 同步、10 分钟门禁和 2.0 替换）
+最后更新：2026-11-23（v37：evidence 72 已让实时硬解视频跨旋转与 NativeWindow/SurfaceControl 代际替换继续播放；回到前台后发现新 parent、安全退役旧层并 `rebuild|PASS`。仍未完成解码 AHB 经 kbase `MEM_IMPORT` 回导 guest、guest GL/X11/Wayland WSI、HEVC/VP9/AV1 bridge、GStreamer/Chromium、AV 同步、10 分钟门禁和 2.0 替换）
 
 ---
 
@@ -41,6 +41,9 @@
   `husk-video` SurfaceControl 子层：150 帧实时播放，SurfaceFlinger `completed/released`
   均 150/150，连续两次会话约 5.1 秒且截图时间码/运动位置不同。当前 v1 仍只支持单条 AVC
   轨；`MEM_IMPORT` 回导 guest 与 guest 侧 WSI 仍未完成，不能把 app 侧上屏写成整条视频验收完成。
+  evidence 72 又完成播放中的横竖旋转布局与 Home/前台恢复：旧 NativeWindow 销毁后，JNI 刷新
+  发现新的 parent SurfaceControl，presenter 按回调代际退役旧层并重建，恢复后继续上屏；无窗口
+  期间解出的帧明确计入跳过，不把后台丢帧写成全部显示。
    事实（evidence 39）：guest 直连硬解不可行——`/dev/video*` 是 `0660 media:system` 的相机采集节点，不是编解码器；厂商解码 .so 带 bionic DT_NEEDED，glibc guest 内加载不了。本机硬解器在 bionic 侧：`c2.mtk.avc.decoder` / `c2.mtk.hevc.decoder` / `c2.mtk.vp9.decoder` / `c2.mtk.av1.decoder`（取自 /vendor/etc/media_codecs_c2.xml），厂商自报 1080p 帧率 113–276 fps。
    形状：解复用 + 音视频同步留在 guest（ffmpeg/GStreamer 不动），压缩帧走独立通道（AF_UNIX socketpair + 共享内存 ring，不复用输入/剪贴板/音频通道）递到 app 进程里我们的 Rust 解码线程 → NDK `AMediaCodec`（dlopen libmediandk.so，纯 Rust 调用）→ 输出 AHardwareBuffer；优先经 MEM_IMPORT（0xc0188016）把 dma-buf 交回 guest，走第 3 条同一条零拷贝 Surface 路径；不能导出才退化 CPU 拷贝并写开销。不留独立解码进程、不留 gst 中转服务。
    接口（v11 补）：Chromium 与 GStreamer 都不直接调 AMediaCodec，它们说的是 VA-API。所以第 4 条的重心是**在 guest 内实现一个 Rust VA-API 后端（libva 驱动名 `husk`）**：`vaInitialize` / `vaQueryConfigProfiles` / `vaCreateConfig` / `vaCreateContext` / `vaCreateSurfaces` / `vaBeginPicture` / `vaRenderPicture` / `vaEndPicture` / `vaSyncSurface` / `vaExportSurfaceHandle`，把 bitstream 和参数经同一条通道送到 app 侧 AMediaCodec，解出的帧用 dma-buf 导出（走第 3 条零拷贝路径，导不出才 CPU 拷贝）。两条路共用这一个后端，只写一份：Chromium 侧不改不重编，只加 `--use-gl=egl --enable-features=VaapiVideoDecoder,VaapiIgnoreDriverChecks --ignore-gpu-blocklist`；GStreamer 侧用 `vah264dec` / `vah265dec` / `vavp9dec`（rootfs 缺这些元素就退回 `avdec_*` 软解并在日志写明原因）。VA 驱动同时提供 `vaQuerySurfaceAttributes`，让上层能拿到本机真实上限（分辨率 / 帧率 / profile）。

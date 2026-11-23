@@ -34,7 +34,9 @@
 > memfd ring 与真实 `c2.mtk.avc.decoder` 已打通，guest 在 rootfs 隔离下可直连
 > `/run/husk/video.sock`（evidence 69 / 70）；evidence 71 又把解码后的 150 个 AHB 连续直接
 > 提交到 `husk-video` SurfaceControl 子层，两次实时会话均 `150/150` 完成并截图证明动态播放。
-> 仍缺解码 AHB 经 kbase `MEM_IMPORT` 回导 guest、guest 侧 WSI、AV 同步和 10 分钟门禁。
+> evidence 72 进一步验证播放中旋转，以及 Home/前台恢复时 NativeWindow 与 SurfaceControl 代际
+> 替换：旧层按回调代际退役、新层重建后继续上屏。仍缺解码 AHB 经 kbase `MEM_IMPORT` 回导
+> guest、guest 侧 WSI、AV 同步和 10 分钟门禁。
 > 音频调试发现的 path root-fd 被 guest 关闭问题已修复，当前 loader 功能矩阵 31/31（evidence 61）。
 
 ---

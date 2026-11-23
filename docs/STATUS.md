@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 09:10）
+# 当前状态（2026-11-23 09:25）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -39,7 +39,7 @@ PT_LOAD 的映射边界。`chmod`/`chown`/`utimensat`/`statx` 现在固定最终
 恶意 ELF 注入、GOT 失败注入、rootfd 并发 close/reopen、
 SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不能写成已完成。
 
-## 视频最新（evidence 67 / 69 / 70 / 71，2026-11-23）
+## 视频最新（evidence 67 / 69 / 70 / 71 / 72，2026-11-23）
 
 - **FACT**：app 进程内纯 Rust 探针已真实选中 `c2.mtk.avc.decoder` 和
   `c2.mtk.hevc.decoder`；1920x1080@30、各 150/150 帧、EOS、codec 正常释放。
@@ -61,6 +61,11 @@ SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不�
   release fence 全部成功。连续两次会话均 `RESULT PASS`、约 5.1 秒；两张独立截图显示不同
   时间码和运动位置。另跑两轮 5 秒会话，app fd 在 133-135 间波动、RSS 约 155 MiB；这只说明
   短时资源有界，不是 10 分钟无泄漏证明。
+- **FACT（evidence 72）**：播放中从 1080x2400 旋转到 2280x1080，guest 仍 `150/150`、
+  `RESULT PASS`；presenter 从 `(0,896)-(1080,1504)` 重新布局到 `(180,0)-(2100,1080)` 并继续提交。
+  切 Home 再回前台时旧 NativeWindow 被销毁；JNI 每秒刷新发现新 parent SurfaceControl，
+  presenter 按回调代际安全退役旧层并重建，日志 `rebuild|PASS`，恢复后继续上屏。后台无窗口期间
+  解出的帧被明确跳过（本会话 submitted=119），不是崩溃，也不冒充“后台全部显示”。
 - **FACT（边界）**：v1 只覆盖单条 AVC 轨与精确 MTK decoder 名。
 - **FACT（仍缺）**：解码 AHB 回导 guest / kbase `MEM_IMPORT`、guest 侧 GL/X11/Wayland WSI、
   HEVC/VP9/AV1 bridge、GStreamer/VA-API、Chromium `<video>`、AV 同步、10 分钟播放、丢帧与
@@ -74,6 +79,7 @@ SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不�
 - Guest bridge 证据：[`evidence/69-video-guest-bridge.md`](design/evidence/69-video-guest-bridge.md)。
 - Guest socket 路径证据：[`evidence/70-guest-unix-socket-path.md`](design/evidence/70-guest-unix-socket-path.md)。
 - 实时硬解上屏证据：[`evidence/71-video-realtime-surface-playback.md`](design/evidence/71-video-realtime-surface-playback.md)。
+- 旋转与 SurfaceControl 重建证据：[`evidence/72-video-window-lifecycle.md`](design/evidence/72-video-window-lifecycle.md)。
 - 生命周期证据：[`evidence/68-screen-off-surface-lifecycle.md`](design/evidence/68-screen-off-surface-lifecycle.md)。
 
 ## acquire fence 当前实验（PanVK → SurfaceControl 已通过，WSI 未完成）

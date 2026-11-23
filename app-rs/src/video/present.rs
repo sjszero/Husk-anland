@@ -90,10 +90,26 @@ struct Presenter {
     control: SurfaceControl,
     pending: Arc<Mutex<Option<*mut Ahb>>>,
     stats: Arc<Stats>,
-    last_size: (u32, u32),
+    callbacks: Arc<AtomicU64>,
+    retired: Vec<RetiredControl>,
+    last_geometry: (i32, i32, u32, u32),
 }
 
 unsafe impl Send for Presenter {}
+
+struct RetiredControl {
+    control: SurfaceControl,
+    release_control: FnReleaseControl,
+    callbacks: Arc<AtomicU64>,
+}
+
+struct CallbackDone(Arc<AtomicU64>);
+
+impl Drop for CallbackDone {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
 
 static PRESENTER: Mutex<Option<Presenter>> = Mutex::new(None);
 static INIT_FAIL_LOGGED: AtomicBool = AtomicBool::new(false);
@@ -182,6 +198,7 @@ struct CallbackCtx {
     control: SurfaceControl,
     stats: *mut c_void,
     shared: Arc<Stats>,
+    callbacks: Arc<AtomicU64>,
 }
 
 unsafe extern "C" fn on_complete(context: *mut c_void, stats: *mut c_void) {
@@ -191,6 +208,7 @@ unsafe extern "C" fn on_complete(context: *mut c_void, stats: *mut c_void) {
             return;
         }
         let mut ctx = Box::from_raw(context as *mut CallbackCtx);
+        let _callback_done = CallbackDone(Arc::clone(&ctx.callbacks));
         ctx.stats = stats;
         let released = wait_release_fence(&ctx);
         if let Some(buffer) = ctx.previous.take() {
@@ -230,20 +248,64 @@ impl Presenter {
             control,
             pending: Arc::new(Mutex::new(None)),
             stats: Arc::new(Stats::default()),
-            last_size: (0, 0),
+            callbacks: Arc::new(AtomicU64::new(0)),
+            retired: Vec::new(),
+            last_geometry: (0, 0, 0, 0),
         })
+    }
+
+    unsafe fn drain_retired(&mut self) {
+        let mut index = 0;
+        while index < self.retired.len() {
+            if self.retired[index].callbacks.load(Ordering::Acquire) != 0 {
+                index += 1;
+                continue;
+            }
+            let retired = self.retired.swap_remove(index);
+            (retired.release_control)(retired.control);
+        }
+    }
+
+    unsafe fn rebuild(&mut self, parent: usize) -> bool {
+        let control = (self.s.create_child)(parent as SurfaceControl, c"husk-video".as_ptr());
+        if control.is_null() {
+            crate::log(&format!(
+                "video|present|rebuild|FAIL|parent={parent:#x}|create_child"
+            ));
+            return false;
+        }
+
+        self.clear();
+        let old_parent = self.parent;
+        let old_control = self.control;
+        let old_callbacks = core::mem::replace(&mut self.callbacks, Arc::new(AtomicU64::new(0)));
+        self.retired.push(RetiredControl {
+            control: old_control,
+            release_control: self.s.release_control,
+            callbacks: old_callbacks,
+        });
+        self.parent = parent;
+        self.control = control;
+        self.last_geometry = (0, 0, 0, 0);
+        self.drain_retired();
+        crate::log(&format!(
+            "video|present|rebuild|PASS|old_parent={old_parent:#x}|new_parent={parent:#x}|control={control:p}|retired={}",
+            self.retired.len()
+        ));
+        true
     }
 
     unsafe fn submit(&mut self, buffer: *mut Ahb, width: u32, height: u32) -> bool {
         let current_parent = crate::surface::wait_parent(Duration::from_millis(200))
             .unwrap_or(self.parent);
-        if current_parent != self.parent {
+        if current_parent != self.parent && !self.rebuild(current_parent) {
             crate::log(&format!(
                 "video|present|parent_changed|old={:#x}|new={current_parent:#x}",
                 self.parent
             ));
             return false;
         }
+        self.drain_retired();
         let Some(window) = crate::WINDOW.load(Ordering::SeqCst).as_mut() else {
             return false;
         };
@@ -273,6 +335,7 @@ impl Presenter {
         };
 
         (self.s.acquire)(buffer);
+        self.callbacks.fetch_add(1, Ordering::AcqRel);
         let previous = self.pending.lock().ok().and_then(|mut slot| slot.replace(buffer));
         let submitted = self.stats.submitted.fetch_add(1, Ordering::Relaxed) + 1;
         let transaction = (self.s.create_transaction)();
@@ -281,6 +344,7 @@ impl Presenter {
                 (self.s.release)(buffer);
             }
             (self.s.release)(buffer);
+            self.callbacks.fetch_sub(1, Ordering::AcqRel);
             return false;
         }
         (self.s.set_geometry)(transaction, self.control, &source, &destination, 0);
@@ -294,6 +358,7 @@ impl Presenter {
             control: self.control,
             stats: core::ptr::null_mut(),
             shared: Arc::clone(&self.stats),
+            callbacks: Arc::clone(&self.callbacks),
         });
         (self.s.set_on_complete)(
             transaction,
@@ -302,8 +367,8 @@ impl Presenter {
         );
         (self.s.apply)(transaction);
         (self.s.delete_transaction)(transaction);
-        if self.last_size != (width, height) {
-            self.last_size = (width, height);
+        if self.last_geometry != (win_w, win_h, width, height) {
+            self.last_geometry = (win_w, win_h, width, height);
             crate::log(&format!(
                 "video|present|geometry|screen={win_w}x{win_h}|video={width}x{height}|dest=({left},{top})-({},{})",
                 left + draw_w,
@@ -332,6 +397,7 @@ impl Presenter {
             (self.s.release)(buffer);
             self.stats.released.fetch_add(1, Ordering::Relaxed);
         }
+        self.drain_retired();
         crate::log(&format!(
             "video|present|clear|submitted={}|completed={}|released={}",
             self.stats.submitted.load(Ordering::Relaxed),
@@ -344,6 +410,11 @@ impl Presenter {
 impl Drop for Presenter {
     fn drop(&mut self) {
         unsafe {
+            for retired in self.retired.drain(..) {
+                if retired.callbacks.load(Ordering::Acquire) == 0 {
+                    (retired.release_control)(retired.control);
+                }
+            }
             (self.s.release_control)(self.control);
             dlclose(self.lib);
         }
@@ -389,6 +460,13 @@ pub(super) unsafe fn finish_session() {
     if let Ok(mut slot) = PRESENTER.lock() {
         if let Some(presenter) = slot.as_mut() {
             presenter.clear();
+            for _ in 0..20 {
+                presenter.drain_retired();
+                if presenter.retired.is_empty() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
         }
     }
 }
@@ -408,6 +486,8 @@ pub(super) unsafe fn begin_session() {
                 .stats
                 .release_fence_timeout
                 .store(0, Ordering::Relaxed);
+            presenter.last_geometry = (0, 0, 0, 0);
+            presenter.drain_retired();
             crate::log("video|present|session|BEGIN");
         }
     }

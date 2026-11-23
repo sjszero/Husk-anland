@@ -13,16 +13,24 @@
 use core::ffi::c_void;
 use jni::objects::{GlobalRef, JIntArray, JObject, JObjectArray, JString, JValue};
 use jni::{JNIEnv, JavaVM};
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::sys::ANativeActivity;
 
 static VM: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
 static SURFACE_VIEW: Mutex<Option<GlobalRef>> = Mutex::new(None);
 static NATIVE_CONTROL: AtomicUsize = AtomicUsize::new(0);
+static LAST_CONTROL_REFRESH_MS: AtomicU64 = AtomicU64::new(0);
 static READ_ERROR_LOGGED: AtomicBool = AtomicBool::new(false);
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis().min(u64::MAX as u128) as u64)
+        .unwrap_or(0)
+}
 
 fn clear_java_exception(env: &JNIEnv, stage: &str, err: impl core::fmt::Display) {
     crate::log(&format!("surface: {stage}|FAIL|{err}"));
@@ -157,6 +165,7 @@ pub unsafe fn install(activity: *mut ANativeActivity) -> bool {
 
     VM.store(thread as *mut c_void, Ordering::SeqCst);
     NATIVE_CONTROL.store(0, Ordering::SeqCst);
+    LAST_CONTROL_REFRESH_MS.store(0, Ordering::SeqCst);
     READ_ERROR_LOGGED.store(false, Ordering::SeqCst);
     match SURFACE_VIEW.lock() {
         Ok(mut slot) => *slot = Some(global),
@@ -232,12 +241,27 @@ fn read_control_once() -> Option<usize> {
 pub fn wait_parent(timeout: Duration) -> Option<usize> {
     let cached = NATIVE_CONTROL.load(Ordering::SeqCst);
     if cached != 0 {
+        let now = now_ms();
+        let last = LAST_CONTROL_REFRESH_MS.load(Ordering::Relaxed);
+        if now.saturating_sub(last) >= 1_000 {
+            LAST_CONTROL_REFRESH_MS.store(now, Ordering::Relaxed);
+            if let Some(ptr) = read_control_once() {
+                if ptr != cached {
+                    NATIVE_CONTROL.store(ptr, Ordering::SeqCst);
+                    crate::log(&format!(
+                        "surface: parent|CHANGED|old={cached:#x}|new={ptr:#x}"
+                    ));
+                    return Some(ptr);
+                }
+            }
+        }
         return Some(cached);
     }
     let deadline = Instant::now() + timeout;
     loop {
         if let Some(ptr) = read_control_once() {
             NATIVE_CONTROL.store(ptr, Ordering::SeqCst);
+            LAST_CONTROL_REFRESH_MS.store(now_ms(), Ordering::Relaxed);
             crate::log(&format!("surface: parent|PASS|native={ptr:#x}"));
             return Some(ptr);
         }
@@ -251,6 +275,7 @@ pub fn wait_parent(timeout: Duration) -> Option<usize> {
 
 pub fn drop_view() {
     NATIVE_CONTROL.store(0, Ordering::SeqCst);
+    LAST_CONTROL_REFRESH_MS.store(0, Ordering::SeqCst);
     if let Ok(mut slot) = SURFACE_VIEW.lock() {
         *slot = None;
     }
