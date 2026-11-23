@@ -73,6 +73,7 @@ pub const FMT_NV12: u32 = 0x3231_564e;
 pub const FMT_YUYV: u32 = 0x5659_5559;
 const PRIORITY_DEFAULT: u32 = 2;
 const EINVAL: i64 = 22;
+const EACCES: i64 = 13;
 const ENODEV: i64 = 19;
 const EAGAIN: i64 = 11;
 const EBUSY: i64 = 16;
@@ -268,6 +269,10 @@ pub struct Ctx {
     path: [u8; 256],
     path_len: usize,
     ready: bool,
+    /// Why the last open failed: 0 none, 1 permission denied, 2 other.
+    last_err: u8,
+    /// The errno of the last failed `open`, for layers that must forward it.
+    last_errno: i32,
     devs: [Dev; MAX_DEVS],
     scratch: *mut u8,
     scratch_len: usize,
@@ -281,6 +286,8 @@ impl Ctx {
             path: [0; 256],
             path_len: 0,
             ready: false,
+            last_err: 0,
+            last_errno: 0,
             devs: [Dev::new(), Dev::new(), Dev::new(), Dev::new()],
             scratch: core::ptr::null_mut(),
             scratch_len: 0,
@@ -494,6 +501,12 @@ impl Ctx {
             if starts(l, b"OK") {
                 return true;
             }
+            if starts(l, b"ERR ") {
+                // The app refused to serve: permission denied has to reach the
+                // guest as EACCES, not as a generic "no such device".
+                self.last_err = if contains(l, b"no_permission") { 1 } else { 2 };
+                return false;
+            }
             if !starts(l, b"CAM ") {
                 continue;
             }
@@ -531,7 +544,14 @@ impl Ctx {
 
     // ---- open ----
 
+    /// errno of the last failed `open` (0 if none).
+    pub fn last_errno(&self) -> i32 {
+        self.last_errno
+    }
+
     pub unsafe fn open(&mut self, n: u32) -> i32 {
+        self.last_err = 0;
+        self.last_errno = ENODEV as i32;
         if !self.ready {
             return err(ENODEV);
         }
@@ -540,6 +560,11 @@ impl Ctx {
             None => return err(ENODEV),
         };
         if !self.query_info(i) {
+            if self.last_err == 1 {
+                note(b"[husk v4l2] open: camera permission denied (app side)\n");
+                self.last_errno = EACCES as i32;
+                return err(EACCES);
+            }
             return err(ENODEV);
         }
         if self.devs[i].nsizes == 0 {
@@ -1147,8 +1172,26 @@ impl Ctx {
 
 // ---- small helpers ----
 
+/// Failure value for `open`: negative, like the ioctl paths return. It used to
+/// be positive, so every caller's `fd < 0` check passed and the guest received
+/// the errno *number* as a file descriptor (measured: /dev/video0 -> fd 13,
+/// /dev/video9 -> fd 19, both then failing every ioctl with EBADF).
 fn err(e: i64) -> i32 {
-    e as i32
+    -(e as i32)
+}
+
+fn contains(h: &[u8], p: &[u8]) -> bool {
+    if p.is_empty() || h.len() < p.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i + p.len() <= h.len() {
+        if &h[i..i + p.len()] == p {
+            return true;
+        }
+        i += 1;
+    }
+    false
 }
 
 fn starts(h: &[u8], p: &[u8]) -> bool {

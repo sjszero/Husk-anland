@@ -797,3 +797,17 @@ O S C 现在也认 `ESC \` 结束符（否则会一直吞到下一个 BEL）。
   MediaCodec 把 SPS/PPS 分成两个 CSD buffer（"只收第一个 CSD"会丢掉 PPS，
   出来的是能解析但无法解码的流）。
 * 未做：权限拒绝降级。
+
+## 2026-11-23 15:35 相机：权限拒绝降级 + err() 符号 bug（evidence 94）
+
+* 现在 guest `open("/dev/video0")` 在应用侧拒绝时得到 **EACCES(13)** 并有一行说明；
+  越界索引仍是 ENODEV(19)。
+* 顺手抓到一个比功能本身更重要的 bug：`v4l2_shim::err()` 返回的是**正的** errno，
+  而所有调用方用 `fd < 0` 判失败 —— 于是失败时客人拿到的是 errno 数字当 fd
+  （`/dev/video0 -> fd 13`、`/dev/video9 -> fd 19`，随后所有 ioctl EBADF）。
+  之所以一直没暴露，是因为失败分支从没被执行过。现在 `err()` 取负，loader 层也改成
+  三态（我们的且成功 / 我们的但失败带 errno / 不是我们的）。
+* 本 ROM 从 adb 无法制造真实拒绝：`pm revoke` 与 `appops set` 都 SecurityException；
+  卸载重装会带走 files/ 里的 1.5 GB rootfs。所以用 `files/camera-deny` 注入来验证
+  **我们**的降级路径；平台自身在"真正未授权"时的行为标 UNKNOWN。
+* caps 报告同步更新：video-encode 由 absent 改为 ready（MediaCodec 桥）。

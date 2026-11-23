@@ -92,12 +92,18 @@ fn husk_state(class: &str) -> (&'static str, &'static str) {
             "degraded",
             "app bridge 1080p30 600 s dropped=0 (evidence 80); VA system path compiled, not device-verified",
         ),
-        "video-encode" => ("absent", "no encoder path exists yet"),
+        "video-encode" => (
+            "ready",
+            "run/husk/encoder.sock -> MediaCodec (c2.mtk.avc.encoder); 30 s / 890 frames, host decode clean (evidence 93)",
+        ),
         "audio-out" => (
             "degraded",
             "AAudio pipe 610 s (evidence 63); ~105 ms latency, low-latency mode denied by vendor",
         ),
-        "audio-in" => ("absent", "no capture path exists yet"),
+        "audio-in" => (
+            "degraded",
+            "AAudio capture -> module-pipe-source, 1.9 MB loopback (evidence 88); needs install -g for the mic permission",
+        ),
         "camera" => ("absent", "no camera path exists yet"),
         "input" => ("unknown", "input devices not yet routed into the guest compositor"),
         "sensors" => ("absent", "no sensor path exists yet"),

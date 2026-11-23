@@ -1191,8 +1191,10 @@ pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mo
                 ));
             }
             if let Some(vn) = video_index(&gp[..n]) {
-                if let Some(fd) = v4l2_open(vn) {
-                    return fd;
+                match v4l2_open(vn) {
+                    Some(Ok(fd)) => return fd,
+                    Some(Err(e)) => return set_errno(e),
+                    None => {}
                 }
             }
             if is_drm_node(&gp[..n]) {
@@ -1259,8 +1261,10 @@ pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mo
         ));
     }
     if let Some(vn) = video_index(&buf[..bl]) {
-        if let Some(fd) = v4l2_open(vn) {
-            return fd;
+        match v4l2_open(vn) {
+            Some(Ok(fd)) => return fd,
+            Some(Err(e)) => return set_errno(e),
+            None => {}
         }
     }
     if is_drm_node(&buf[..bl]) {
@@ -5302,8 +5306,23 @@ unsafe fn v4l2_nonblock(fd: CInt, on: bool) {
 }
 
 /// open("/dev/videoN")：给一个 memfd，登记在 v4l2 表里。
-unsafe fn v4l2_open(n: u32) -> Option<CInt> {
-    v4l2_fake_open(n)
+/// `None` = not our device (fall through to the normal path); `Some(Err(e))` =
+/// ours but the open failed, and the guest must see that errno.
+unsafe fn v4l2_open(n: u32) -> Option<Result<CInt, CInt>> {
+    if let Some(t) = v4l2_api() {
+        let f: V4l2Open = core::mem::transmute(*t);
+        let fd = f(n);
+        return Some(if fd >= 0 { Ok(fd) } else { Err(-fd) });
+    }
+    if !v4l2_ready() {
+        return None;
+    }
+    let fd = V4L2_CTX.open(n);
+    if fd < 0 {
+        Some(Err(-fd))
+    } else {
+        Some(Ok(fd))
+    }
 }
 
 /// fcntl: 只跟踪 O_NONBLOCK，其余原样走。glibc 的 fcntl 是可变参，第三个参数

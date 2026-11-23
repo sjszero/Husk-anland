@@ -308,17 +308,19 @@ unsafe fn sys_host(path: &[u8], out: &mut [u8; 256]) -> Option<usize> {
     Some(n)
 }
 
-unsafe fn open_video(n: u32) -> Option<i32> {
+/// `Some(Ok(fd))` or `Some(Err(errno))`; `None` when this layer is not set up
+/// (the caller then falls through to the real syscall, unchanged).
+unsafe fn open_video(n: u32) -> Option<Result<i32, i32>> {
     if !ensure_init() {
         return None;
     }
     let fd = CTX.open(n);
     if fd < 0 {
+        let e = CTX.last_errno();
         note_int(b"[husk v4l2] open failed for dev=", n as i64);
-        None
-    } else {
-        Some(fd)
+        return Some(Err(if e > 0 { e } else { 19 }));
     }
+    Some(Ok(fd))
 }
 
 unsafe fn synth_stat(n: u32, st: *mut u8) -> i32 {
@@ -377,10 +379,10 @@ unsafe fn do_openat(dirfd: i32, path: *const i8, flags: i32, mode: i32) -> i32 {
         }
         if let Some(vn) = video_index(p) {
 
-            if let Some(fd) = open_video(vn) {
-                note_int(b"[preload OPEN video fd=", fd as i64);
-                note_int(b"   dev=", vn as i64);
-                return fd;
+            match open_video(vn) {
+                Some(Ok(fd)) => return fd,
+                Some(Err(e)) => return set_errno(e),
+                None => {}
             }
 
         }
@@ -735,9 +737,12 @@ pub unsafe extern "C" fn v4l2_dup(fd: i32) -> i32 {
 
 #[no_mangle]
 pub unsafe extern "C" fn husk_v4l2_open(n: u32) -> i32 {
+    // The loader shim forwards this: hand back -errno so it can rebuild the
+    // guest's errno instead of inventing EPERM.
     match open_video(n) {
-        Some(fd) => fd,
-        None => -1,
+        Some(Ok(fd)) => fd,
+        Some(Err(e)) => -e,
+        None => -19,
     }
 }
 

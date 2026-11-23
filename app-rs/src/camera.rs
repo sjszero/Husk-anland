@@ -856,6 +856,7 @@ unsafe fn handle_client(
     api: &CameraApi,
     manager: *mut ACameraManager,
     cams: &[CameraInfo],
+    deny: bool,
     mut stream: std::os::unix::net::UnixStream,
 ) {
     use std::io::Write;
@@ -871,6 +872,12 @@ unsafe fn handle_client(
         };
         let verb = line.split_whitespace().next().unwrap_or("");
         match verb {
+            "INFO" if deny || cams.is_empty() => {
+                // Explicit degradation, not a silent empty list: the guest must
+                // be able to tell "no permission" from "no camera".
+                crate::log("camera|DENY|no permission (guest asked INFO)");
+                let _ = stream.write_all(b"ERR no_permission\n");
+            }
             "INFO" => {
                 let mut reply = String::new();
                 for (k, cam) in ordered(cams).iter().enumerate() {
@@ -1093,6 +1100,17 @@ fn run() {
         }
         let cams = enumerate(&api, manager);
         crate::log(&format!("camera|list|count={}", cams.len()));
+        // An empty list on a phone with cameras means the CAMERA permission is
+        // not held (this ROM refuses `pm revoke`/`appops set` from adb, so the
+        // marker is the only way to exercise the path without wiping app data).
+        // `camera-deny` is a test hook; it never invents frames.
+        let deny = cams.is_empty() || files.join("camera-deny").exists();
+        if deny {
+            crate::log(&format!(
+                "camera|DENY|reason={}",
+                if cams.is_empty() { "no_permission" } else { "marker" }
+            ));
+        }
         prepare_v4l2_tree(&files, &cams);
 
         // One-shot self test, only when its marker exists.
@@ -1142,7 +1160,7 @@ fn run() {
             crate::log(&format!("camera|LISTEN|{}", path.display()));
             for stream in listener.incoming() {
                 match stream {
-                    Ok(stream) => handle_client(&api, manager, &cams, stream),
+                    Ok(stream) => handle_client(&api, manager, &cams, deny, stream),
                     Err(e) => {
                         crate::log(&format!("camera|FAIL|accept {e}"));
                         break;
