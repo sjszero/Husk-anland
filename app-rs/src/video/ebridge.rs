@@ -10,10 +10,8 @@ use super::*;
 use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixListener;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-static EXPORTED: AtomicBool = AtomicBool::new(false);
 const ACCEPT_TIMEOUT: Duration = Duration::from_secs(90);
 const ACK_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -61,8 +59,10 @@ fn metadata(
     text
 }
 
-/// Send the first decoded frame to a waiting guest when `files/video-ahb` is
-/// present. The marker keeps this diagnostic out of normal playback.
+/// Send one decoded frame to a waiting guest when `files/video-ahb` is present.
+/// Each frame gets a fresh listener/connection so the guest can close every
+/// received native handle before the next frame is produced. The marker keeps
+/// this diagnostic out of normal playback.
 pub(super) unsafe fn export_if_enabled(
     files: &Path,
     api: &ImageApi,
@@ -74,7 +74,7 @@ pub(super) unsafe fn export_if_enabled(
     plane_hashes: &[u64; 4],
     plane_bytes: &[usize; 4],
 ) {
-    if !enabled(files) || EXPORTED.swap(true, Ordering::SeqCst) {
+    if !enabled(files) {
         return;
     }
     crate::log("video|ahb-export|BEGIN");

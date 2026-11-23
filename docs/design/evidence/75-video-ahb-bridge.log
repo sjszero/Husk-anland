@@ -1,0 +1,19 @@
+guest|OPEN|media=/tmp/husk-video/avc-1080p30.mp4|track=1|size=1920x1080|timescale=15360|samples=150|send=150|length_size=4
+guest|CSD|csd0=000000016742c028da01e0089f970110000003001000000303c8f1832a|csd1=0000000168ce0fc8
+PONG bridge=video-v1
+OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+guest|RING|READY|slots=4|slot_size=2097152|bytes=8392960
+guest|SAMPLE_PREFIX|000000010605ffff5cdc45e9bde6d948b7962cd820d923eeef78323634202d20636f7265203136342072333137322063316339393331202d20482e3236342f4d
+guest|SAMPLE|seq=1|sent=1/150|len=95536|pts_us=0|key=true|ack=SAMPLE_OK seq=1 frames=0 images=0
+guest|SAMPLE|seq=2|sent=2/150|len=58221|pts_us=33333|key=false|ack=SAMPLE_OK seq=2 frames=0 images=0
+guest|SAMPLE|seq=3|sent=3/150|len=63319|pts_us=66666|key=false|ack=SAMPLE_OK seq=3 frames=0 images=0
+guest|SAMPLE|seq=30|sent=30/150|len=65853|pts_us=966666|key=false|ack=SAMPLE_OK seq=30 frames=30 images=30
+guest|SAMPLE|seq=60|sent=60/150|len=66767|pts_us=1966666|key=false|ack=SAMPLE_OK seq=60 frames=59 images=59
+guest|SAMPLE|seq=90|sent=90/150|len=65550|pts_us=2966666|key=false|ack=SAMPLE_OK seq=90 frames=87 images=87
+guest|SAMPLE|seq=120|sent=120/150|len=67385|pts_us=3966666|key=false|ack=SAMPLE_OK seq=120 frames=117 images=117
+guest|SAMPLE|seq=150|sent=150/150|len=67253|pts_us=4966666|key=false|ack=SAMPLE_OK seq=150 frames=144 images=144
+EOS_OK frames=151 images=150 output_bytes=150
+CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=151 output_bytes=150 images_last=150 stop_rc=0 delete_rc=0
+BYE
+guest|DONE|samples=150|bytes=9821765|elapsed_ms=25944
+RESULT PASS

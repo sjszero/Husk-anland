@@ -645,7 +645,7 @@ unsafe fn consume_image(sink: &mut ImageSink, files: &Path, tag: &str) -> Result
     (sink.api.ahb_describe)(buffer, &mut desc);
     let native = (sink.api.ahb_native_handle)(buffer);
     let should_log_layout = sink.seen == 1 || sink.seen % 30 == 0;
-    let want_layout = should_log_layout || (sink.seen == 1 && ebridge::enabled(files));
+    let want_layout = should_log_layout || ebridge::enabled(files);
     let layout = want_layout.then(|| ahb_layout_summary(&sink.api, image, buffer, &desc));
     let native_summary = should_log_layout.then(|| native_handle_summary(native));
     let (handle_version, num_fds, first_fd) = if native.is_null() {

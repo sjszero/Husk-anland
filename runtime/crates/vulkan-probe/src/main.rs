@@ -1613,6 +1613,7 @@ unsafe fn run() -> i32 {
 
     let ahb_socket = dmabuf::socket_arg();
     let video_ahb_socket = dmabuf::video_socket_arg();
+    let video_ahb_frames = dmabuf::video_frames_arg().unwrap_or(1);
     let image_external_mode = ahb_socket.is_some() || video_ahb_socket.is_some();
     let instance_ext_names = if image_external_mode {
         vec![
@@ -1912,7 +1913,15 @@ unsafe fn run() -> i32 {
         || (compute_ok && graphics::run_graphics(lib, dev, device, queue, family_index));
     let dmabuf_ok = fence_probe
         || match (video_ahb_socket.as_deref(), ahb_socket.as_deref()) {
-            (Some(path), _) => dmabuf::run_video(lib, dev, device, queue, family_index, path),
+            (Some(path), _) => dmabuf::run_video_many(
+                lib,
+                dev,
+                device,
+                queue,
+                family_index,
+                path,
+                video_ahb_frames,
+            ),
             (None, Some(path)) => dmabuf::run(lib, dev, device, queue, family_index, path),
             (None, None) => true,
         };

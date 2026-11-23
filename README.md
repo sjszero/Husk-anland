@@ -38,8 +38,9 @@
 > 替换：旧层按回调代际退役、新层重建后继续上屏。evidence 73 又完成 app AHB dma-buf 到
 > guest 的 `MEM_IMPORT` + `STICKY_RESOURCE_MAP`，同一 block 可由 guest CPU 写、由 guest
 > PanVK 当作 LINEAR 2D image 执行 GPU clear，再由 app 回读并上屏。evidence 74 已补齐真实
-> 解码 AHB 的三平面 YUV layout 回导：Y/plane1/plane2 的 GPU 回读哈希均与 app 侧一致；
-> 仍缺逐帧 ring、YUV→RGB 渲染、guest 侧 WSI、AV 同步和 10 分钟门禁。
+> 解码 AHB 的三平面 YUV layout 回导；evidence 75 又完成 **150/150 帧一帧一连接交接**，
+> 每帧三平面 GPU 回读哈希均与 app 侧一致，资源在下一帧前释放。它仍不是持久 ring；
+> YUV→RGB 渲染、guest 侧 WSI、VA-API/GStreamer/Chromium、AV 同步和 10 分钟门禁仍未完成。
 > 音频调试发现的 path root-fd 被 guest 关闭问题已修复，当前 loader 功能矩阵 31/31（evidence 61）。
 
 ---
@@ -147,8 +148,9 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
   MediaCodec 解码 AHB 已能在 app 内实时上屏（evidence 71）；AHB dma-buf 的
   `MEM_IMPORT` / `STICKY_RESOURCE_MAP` 与 guest PanVK GPU 写回已在 RGBA 测试面通过
   （evidence 73）；真实 `c2.mtk.avc.decoder` 的三平面 YUV AHB 也已导入 guest，Y、plane1、
-  plane2 三个 GPU 回读哈希均与 app 侧一致（evidence 74）。但 evidence 74 是首帧一次性
-  诊断，逐帧 ring、YUV→RGB 渲染、guest 侧 WSI、AV 同步与 AAudio 产品化通路都还没完成；
+  plane2 三个 GPU 回读哈希均与 app 侧一致（evidence 74）；evidence 75 进一步完成 150/150
+  帧一帧一连接交接和逐帧三平面 GPU 校验。但持久多 slot ring、YUV→RGB 渲染、guest 侧 WSI、
+  VA-API/GStreamer/Chromium、AV 同步与 AAudio 产品化通路都还没完成；
 - `execl` 系列函数不生效；`freopen`、`glob`、`nftw`、`dlmopen` 未覆盖；
 - **libc 内部调用**（NSS / locale / `/etc/hosts` / `ld.so.cache`）仍读宿主，槽位方案未实现，
   因此 `apt`/`dpkg`/locale 在完整 rootfs 里尚不可靠；
@@ -205,7 +207,7 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 | 上游 Mesa | 25.2 与 main 均**没有** kbase 后端；Ubuntu 25.2.8 panfrost 模型表也无 G77/G78 |
 | 当前 GPU 路线 | FristOneRR PanVK（Mesa 26.3.0-devel，glibc 构建）+ 发行版 Zink；DRM 语义层保留为后备 |
 | PanVK / Zink 验证 | `vulkaninfo` + 纯 Rust probe：Mali-G77 / logical device / compute job / 离屏 graphics draw + GPU 像素回读 PASS；Zink surfaceless renderer 也报 Mali-G77；Android 窗口 3-buffer ring 连续 12 帧零拷贝上屏，eventfd acquire bridge 连续 120 帧并完成 5,600 帧短 soak；PanVK `vkGetFenceFdKHR(SYNC_FD)` 已接到同一 SurfaceControl ring，120 帧全部使用真实 sync_file（evidence 58）；3-slot 持久资源池完成 10,000 帧 / 665.385 秒长稳，fd/RSS 无累积增长（evidence 59）；WSI / SurfaceFlinger 等待 trace 尚未验收 |
-| 显示 / 视频 / 音频 | 显示已完成 AHB→dmabuf→guest PanVK 导入、GPU 访问、3-buffer ring 零拷贝上屏、release-fence 复用、eventfd fallback 120 帧，以及 PanVK 真实 `SYNC_FD` 接入 SurfaceControl ring 120 帧（[evidence 49](docs/design/evidence/49-ahb-dmabuf-handle.md)、[evidence 50](docs/design/evidence/50-guest-dmabuf-panvk-import.md)、[evidence 53](docs/design/evidence/53-surfacecontrol-zero-copy.md)、[evidence 54](docs/design/evidence/54-surfacecontrol-ring.md)、[evidence 55](docs/design/evidence/55-eventfd-acquire-fence.md)、[evidence 56](docs/design/evidence/56-eventfd-ring-soak.md)、[evidence 57](docs/design/evidence/57-pending-kbase-syncfile.md)、[evidence 58](docs/design/evidence/58-panvk-syncfd-ring.md)、[evidence 59](docs/design/evidence/59-panvk-pooled-syncfd-soak.md)、[evidence 73](docs/design/evidence/73-ahb-kbase-sticky-panvk.md)）；真实 MediaCodec 三平面 YUV AHB 的 PanVK 导入与三平面 GPU 哈希校验已通过（[evidence 74](docs/design/evidence/74-media-codec-yuv-ahb-panvk.md)）；音频已通设备枚举、音量、持续 AAudio 与 PulseAudio → Rust relay → `paplay`，并完成 610 秒连续会话（[evidence 60](docs/design/evidence/60-audio-aaudio-bridge.md)、[evidence 62](docs/design/evidence/62-audio-pulse-aaudio-continuous.md)、[evidence 63](docs/design/evidence/63-audio-aaudio-10min-final.md)）；SurfaceFlinger 内部等待 trace、逐帧视频 ring、YUV→RGB、VA-API/GStreamer/Chromium、AV 同步仍未完成 |
+| 显示 / 视频 / 音频 | 显示已完成 AHB→dmabuf→guest PanVK 导入、GPU 访问、3-buffer ring 零拷贝上屏、release-fence 复用、eventfd fallback 120 帧，以及 PanVK 真实 `SYNC_FD` 接入 SurfaceControl ring 120 帧（[evidence 49](docs/design/evidence/49-ahb-dmabuf-handle.md)、[evidence 50](docs/design/evidence/50-guest-dmabuf-panvk-import.md)、[evidence 53](docs/design/evidence/53-surfacecontrol-zero-copy.md)、[evidence 54](docs/design/evidence/54-surfacecontrol-ring.md)、[evidence 55](docs/design/evidence/55-eventfd-acquire-fence.md)、[evidence 56](docs/design/evidence/56-eventfd-ring-soak.md)、[evidence 57](docs/design/evidence/57-pending-kbase-syncfile.md)、[evidence 58](docs/design/evidence/58-panvk-syncfd-ring.md)、[evidence 59](docs/design/evidence/59-panvk-pooled-syncfd-soak.md)、[evidence 73](docs/design/evidence/73-ahb-kbase-sticky-panvk.md)）；真实 MediaCodec 三平面 YUV AHB 的 PanVK 导入与三平面 GPU 哈希校验已通过（[evidence 74](docs/design/evidence/74-media-codec-yuv-ahb-panvk.md)），并完成 150 帧逐帧交接（[evidence 75](docs/design/evidence/75-media-codec-yuv-ahb-per-frame.md)）；音频已通设备枚举、音量、持续 AAudio 与 PulseAudio → Rust relay → `paplay`，并完成 610 秒连续会话（[evidence 60](docs/design/evidence/60-audio-aaudio-bridge.md)、[evidence 62](docs/design/evidence/62-audio-pulse-aaudio-continuous.md)、[evidence 63](docs/design/evidence/63-audio-aaudio-10min-final.md)）；SurfaceFlinger 内部等待 trace、持久逐帧视频 ring、YUV→RGB、VA-API/GStreamer/Chromium、AV 同步仍未完成 |
 
 细节与原始输出：[evidence 35](docs/design/evidence/35-gpu-ioctl-surface-from-vendor-driver.md)、
 [evidence 36](docs/design/evidence/36-gpu-route-reality-check.md)、

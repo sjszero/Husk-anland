@@ -1,5 +1,23 @@
 # 变更记录
 
+## 2026-11-23 — 真实 MediaCodec 三平面 YUV AHB 逐帧交接 150/150
+
+- **evidence 75**：app 与 guest 把 evidence 74 的单帧诊断推进到 **150/150 帧一帧一连接
+  交接**。marker `files/video-ahb` 存在时，app 每帧重新建立 listener、发送完整 AHB native
+  handle，等待 guest 完成三平面 GPU 回读后 ACK，再进入下一帧。
+- app 计数：`BEGIN=150`、`HANDLE rc=0=150`、`ACK byte=0x44=150`、`DONE=150`、`FAIL=0`；
+  guest 计数：`gpu_luma / gpu_plane1 / gpu_plane2` 各 150/150 PASS，
+  `vk|video-ahb|SUMMARY|PASS|completed=150/150`。最后一帧三平面哈希一致：
+  Y `2de7f38d259a6e33`、plane1 `5d1b68abc3eda0d0`、plane2 `c3b0fee494cf5024`。
+- 解码端仍为真实 `c2.mtk.avc.decoder`，150 samples / 9,821,765 bytes / 25,944 ms，
+  `EOS_OK`、`CLOSE_OK`、`RESULT PASS`；测试用 `HUSK_VIDEO_REALTIME=0`，因此
+  `present|ok=false` 是探针模式预期，不是播放失败。
+- `libhuskapp.so` sha256 `f13fc4d632ad7e10b644942606451f0d32cabe6bad79dbb4de41d4477d8944e7`；
+  `vulkan-probe` sha256 `834dc347a4a07a37a461428195a5d4cd9d02691629d0e7bc2aae030c46058587`；
+  debug APK sha256 `a18df07fcbdac20508472e0768030b79cbab64802cdc014293a8ed6b60049d75`。
+- **边界**：这是每帧重新连接的一次性交接，不是持久多 slot AHB ring；YUV→RGB、guest WSI、
+  VA-API/GStreamer/Chromium、HEVC/VP9/AV1、AV 同步和 10 分钟视频门禁仍未完成。
+
 ## 2026-11-23 — 真实 MediaCodec 三平面 YUV AHB 回导 PanVK，三平面 GPU 哈希通过
 
 - **evidence 74**：`c2.mtk.avc.decoder` 输出的 1920x1080 AHB（`format=842094169`,

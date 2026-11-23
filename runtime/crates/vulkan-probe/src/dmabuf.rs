@@ -3803,6 +3803,53 @@ pub unsafe fn run_video(
     ok && handoff
 }
 
+/// Receive and verify a bounded sequence of one-shot AHB handoffs. This is the
+/// per-frame stepping stone toward the final persistent ring: every frame gets
+/// a fresh connection so all native-handle fds are closed before the next frame.
+pub unsafe fn run_video_many(
+    lib: *mut c_void,
+    physical: VkPhysicalDevice,
+    device: VkDevice,
+    queue: VkQueue,
+    family_index: u32,
+    path: &str,
+    frames: usize,
+) -> bool {
+    if frames == 0 {
+        line("video-ahb", "SUMMARY", "FAIL|frames=0");
+        return false;
+    }
+    let mut completed = 0usize;
+    for index in 0..frames {
+        let started = std::time::Instant::now();
+        let ok = run_video(lib, physical, device, queue, family_index, path);
+        line(
+            "video-ahb",
+            "frame_summary",
+            format!(
+                "{}|index={}|elapsed_ms={}",
+                if ok { "PASS" } else { "FAIL" },
+                index,
+                started.elapsed().as_millis()
+            ),
+        );
+        if !ok {
+            break;
+        }
+        completed += 1;
+    }
+    let ok = completed == frames;
+    line(
+        "video-ahb",
+        "SUMMARY",
+        format!(
+            "{}|completed={completed}/{frames}",
+            if ok { "PASS" } else { "FAIL" }
+        ),
+    );
+    ok
+}
+
 unsafe fn probe_plane_with_gpu(
     lib: *mut c_void,
     physical: VkPhysicalDevice,
@@ -4224,6 +4271,19 @@ pub fn video_socket_arg() -> Option<String> {
         }
         if let Some(path) = arg.strip_prefix("--video-ahb-socket=") {
             return Some(path.to_string());
+        }
+    }
+    None
+}
+
+pub fn video_frames_arg() -> Option<usize> {
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--video-ahb-frames" {
+            return args.next().and_then(|value| value.parse().ok());
+        }
+        if let Some(value) = arg.strip_prefix("--video-ahb-frames=") {
+            return value.parse().ok();
         }
     }
     None
