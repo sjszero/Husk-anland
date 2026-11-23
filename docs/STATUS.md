@@ -34,12 +34,16 @@
 - 现在走协议层：ScreenCast → PipeWire 节点 → dma-buf → AHardwareBuffer → SurfaceControl。
 - buffer 类型已有答案（evidence 103）：mutter 46 两条路都支持，**由消费者协商决定**——
   回传的格式带 `SPA_FORMAT_VIDEO_modifier` 就给 dmabuf，不带就给 memfd。零拷贝取决于我们自己。
-- 当前阻塞点：guest 里**只要有 session bus 存在**，PipeWire 客户端就会卡住（`pw-cli` 连上 core
-  之后收不到 registry 事件；去掉 bus 就正常）。这不是 mutter 的问题，是我们要先修掉的一层。
+- 已修掉「有 session bus 时 PipeWire 客户端卡死」（evidence 104）：pipewire 默认走 legacy
+  access 模式，会用 `openat("/proc/<pid>/root")` 判断是不是 flatpak；我们的 shim 有意挡住
+  `/proc/*/root`，内核回 `ENOENT` 而不是它预期的 `EACCES`，于是它把客户端当 flatpak 永久挂起。
+  改用 `access.socket = unrestricted`（配置文件 `tools/guest-config/pipewire.conf`）后，
+  `PipeWireStreamAdded` 正常到达、Produce 节点（`node=Some(32)`，`Stream/Output/Video`）可见，
+  `EnumFormat` = BGRx/BGRA 1280x720。
 
 ## 下一步（按顺序）
 
-1. 修掉「有 session bus 时 PipeWire 客户端卡住」这个问题（evidence 103）。
+1. 写 Rust 消费者：在 `EnumFormat` 里带 `SPA_FORMAT_VIDEO_modifier`，确认 mutter 按 dmabuf 分配。
 2. 帧消费者：PipeWire → dmabuf → AHB → SurfaceControl（复用已验证的 3-buffer ring）。
 3. GNOME 桌面可用性验收：浏览器、文件管理器、终端。
 4. 传感器（IIO sysfs 合成树 + NDK `ASensorManager`，纯 Rust）、GPS（`/dev/gps0` NMEA）。
