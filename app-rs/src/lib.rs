@@ -19,6 +19,7 @@ mod gl;
 mod surface;
 mod sys;
 mod term;
+mod video;
 
 use core::ffi::{c_char, c_int, c_long, c_void};
 use std::ffi::CStr;
@@ -616,6 +617,7 @@ pub unsafe extern "C" fn ANativeActivity_onCreate(activity: *mut ANativeActivity
     probe_sigsys_semantics();
     ahb::spawn_once();
     audio::start_once();
+    video::start_once();
     // In snitch mode the tracee's ptrace stops are reaped by the spy thread.
     // A second waitpid(-1) in the same process would steal them and hang the run.
     if !trace_requested() {

@@ -39,6 +39,20 @@ PT_LOAD 的映射边界。`chmod`/`chown`/`utimensat`/`statx` 现在固定最终
 恶意 ELF 注入、GOT 失败注入、rootfd 并发 close/reopen、
 SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不能写成已完成。
 
+## 视频最新（evidence 67，2026-11-23）
+
+- **FACT**：app 进程内纯 Rust 探针已真实选中 `c2.mtk.avc.decoder` 和
+  `c2.mtk.hevc.decoder`；1920x1080@30、各 150/150 帧、EOS、codec 正常释放。
+- **FACT**：`MediaCodec -> AImageReader(AIMAGE_FORMAT_PRIVATE) -> AHardwareBuffer`
+  已跑通；AVC/HEVC 各产生 150 个 AHB，每个 native handle 有 3 个 fd，描述为
+  `1920x1080 / YUV420_888 / stride=1920`。
+- **FACT（边界）**：当前用 app 内 `AMediaExtractor` 读 MP4，只是硬解与 AHB 能力探针；
+  guest 解复用、独立压缩帧通道、`MEM_IMPORT` 和零拷贝出画均未完成。
+- **FACT（新可靠性缺陷）**：一次息屏状态下的重启动发生在 `eglCreateWindowSurface` 内，
+  abort message 为 `FORTIFY: pthread_mutex_lock called on a destroyed mutex`。点亮后重跑通过；
+  该 Surface 生命周期竞争仍需单独修复和复验。
+- 证据：[`evidence/67-video-mediacodec-ahb.md`](design/evidence/67-video-mediacodec-ahb.md)。
+
 ## acquire fence 当前实验（PanVK → SurfaceControl 已通过，WSI 未完成）
 
 - **FACT**：PanVK 报告 `VK_KHR_external_fence` / `VK_KHR_external_fence_fd`；`vkGetFenceFdKHR`

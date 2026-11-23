@@ -1,0 +1,28 @@
+video|probe|BEGIN|path=/data/user/0/com.linuxhub.husk/files/hevc-1080p30.mp4|bytes=2154642|mode=image-reader-ahb
+video|probe|track|index=0|mime=video/hevc
+video|probe|input-format|mime: string(video/hevc), durationUs: int64(5000000), frame-count: int32(150), max-bitrate: int32(3439000), track-id: int32(1), bitrate: int32(3439000), language: string(und), width: int32(1920), height: int32(1080), display-width: int32(1920), display-height: int32(1080), sar-width: int32(1), sar-height: int32(1), max-input-size: int32(38823), frame-rate: int32(30), csd-0: data, profile: int32(1), level: int32(1024)}
+video|probe|codec|requested=c2.mtk.hevc.decoder|actual=c2.mtk.hevc.decoder
+video|probe|image-reader|size=1920x1080|usage=0x100|window=0xb400007aa2345810|rc=0
+video|probe|configure|rc=0
+video|probe|start|rc=0
+video|probe|output-format|android._color-format: int32(2135033992), android._video-scaling: int32(1), sar-width: int32(1), color-standard: int32(1), color-range: int32(2), color-transfer: int32(3), android._dataspace: int32(260), width: int32(1920), rotation-degrees: int32(0), sar-height: int32(1), max-width: int32(1920), max-height: int32(1080), priority: int32(-1), mime: string(video/raw), crop: Rect(0, 0, 1919, 1079), hdr-static-info: data, frame-rate: int32(30), height: int32(1080), color-format: int32(2130708361)}|color=Some(2130708361)|width=Some(1920)|height=Some(1080)|stride=None|slice-height=None
+video|probe|frame|n=1|pts=0|bytes=1|flags=0x0
+video|probe|ahb|n=1|timestamp_ns=0|ts_rc=0|size=1920x1080|layers=1|format=842094169|usage=0x103|stride=1920|native=0xb400007a2fbfdd00|handle_version=12|num_fds=3|first_fd=207
+video|probe|frame|n=2|pts=33333|bytes=1|flags=0x0
+video|probe|frame|n=3|pts=66666|bytes=1|flags=0x0
+video|probe|frame|n=30|pts=966666|bytes=1|flags=0x0
+video|probe|ahb|n=30|timestamp_ns=966666000|ts_rc=0|size=1920x1080|layers=1|format=842094169|usage=0x103|stride=1920|native=0xb400007a2fbfc980|handle_version=12|num_fds=3|first_fd=260
+video|probe|frame|n=60|pts=1966666|bytes=1|flags=0x0
+video|probe|ahb|n=60|timestamp_ns=1966666000|ts_rc=0|size=1920x1080|layers=1|format=842094169|usage=0x103|stride=1920|native=0xb400007a2fbfde80|handle_version=12|num_fds=3|first_fd=230
+video|probe|frame|n=90|pts=2966666|bytes=1|flags=0x0
+video|probe|ahb|n=90|timestamp_ns=2966666000|ts_rc=0|size=1920x1080|layers=1|format=842094169|usage=0x103|stride=1920|native=0xb400007a2fbfd400|handle_version=12|num_fds=3|first_fd=245
+video|probe|frame|n=120|pts=3966666|bytes=1|flags=0x0
+video|probe|ahb|n=120|timestamp_ns=3966666000|ts_rc=0|size=1920x1080|layers=1|format=842094169|usage=0x103|stride=1920|native=0xb400007a2fbfde80|handle_version=12|num_fds=3|first_fd=230
+video|probe|frame|n=150|pts=4966666|bytes=1|flags=0x0
+video|probe|ahb|n=150|timestamp_ns=4966666000|ts_rc=0|size=1920x1080|layers=1|format=842094169|usage=0x103|stride=1920|native=0xb400007a2fbfc680|handle_version=12|num_fds=3|first_fd=236
+video|probe|frame|n=151|pts=0|bytes=0|flags=0x4
+video|probe|done|pass=true|samples=150|input_bytes=2149375|frames=151|output_bytes=150|images=150|eos=true|elapsed_ms=1441
+video|probe|stop|rc=0
+video|probe|delete-codec|rc=0
+video|probe|delete-image-reader
+video|probe|delete-extractor|rc=0
