@@ -11,8 +11,10 @@
 #
 # usage: husk-session.sh <rootfs-dir> [--user NAME] [--cwd DIR] -- <guest program> [args...]
 #
-# The guest program must be a *relative* path (usr/bin/bash); the loader takes
-# relative program paths and rejects absolute ones.
+# Only the *loader's* own program argument must be relative (usr/bin/env); the
+# loader rejects absolute program paths. Everything after env is an ordinary
+# guest exec, so the guest program is normalised to an absolute path below -
+# which it must be anyway now that env chdirs with -C.
 #
 # Environment:
 #   NR_LD      our loader (default: <parent of rootfs>/libld.so)
@@ -39,6 +41,8 @@ while [ $# -gt 0 ]; do
         *)      break ;;
     esac
 done
+# a leading "--" from the caller is a separator, not a program name
+[ "${1:-}" = "--" ] && shift
 [ $# -gt 0 ] || { echo "husk-session: no command given" >&2; exit 64; }
 
 NR_LD=${NR_LD:-$(dirname "$ROOTFS")/libld.so}
@@ -75,7 +79,15 @@ fi
 cd "$ROOTFS"
 # env is started by the loader with a relative path; everything after it is a
 # normal exec (absolute guest paths are fine there).
-exec "$NR_LD" --library-path "$LIBS" usr/bin/env -i \
+# the loader runs env by a relative path; from here on, guest paths are absolute
+case "${1:-}" in
+    /*) ;;
+    *)  prog=$1; shift; set -- "/$prog" "$@" ;;
+esac
+
+# -C is a *guest* chdir: env runs inside the path layer, so "/home/hu1" is
+# resolved against the rootfs. A host-side `cd` here would leave the guest.
+exec "$NR_LD" --library-path "$LIBS" usr/bin/env -i -C "$CWD" \
     HOME="$home" USER="$USER_NAME" LOGNAME="$USER_NAME" SHELL="$shell" \
     PATH="$PATH_GUEST" LANG=C.UTF-8 TERM="${TERM:-xterm-256color}" COLORTERM=truecolor \
     NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" \

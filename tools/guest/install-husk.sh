@@ -1,0 +1,197 @@
+#!/bin/sh
+# install-husk.sh - put a Husk rootfs + loader into a plain directory.
+#
+# This is the "install it like proot-distro does" path: one tarball, one script,
+# no adb push per file, no root. It works in Termux, in `adb shell`, and in an
+# app's private directory (`run-as`), because all it needs is a writable
+# directory and a loader the kernel lets us execute.
+#
+# usage:
+#   install-husk.sh --rootfs <rootfs.tar[.gz]> [--dest DIR] [--loader PATH] [--user NAME]
+#
+#   --rootfs  Ubuntu base tarball (uncompressed or .gz)
+#   --dest    where the rootfs goes (default: ./root next to this script)
+#   --loader  our loader (default: $NR_LD, else ./libld.so next to this script)
+#   --user    guest user for the generated launcher (default: root)
+#
+# Why two extraction passes: Ubuntu's base tarball contains hard links
+# (usr/bin/uncompress -> gunzip, usr/bin/perl -> perl5.38.2, ...). Android
+# refuses link(2) inside app data (SELinux), so a plain `tar xf` leaves those
+# entries out. Pass 1 lays everything down and tolerates the link errors; pass 2
+# re-extracts *through* the shim, whose link() falls back to a copy, so the
+# missing names materialise as real files. That fallback is the same code dpkg
+# relies on, so this is not a special case for installation.
+set -eu
+
+ROOTFS_TAR=
+DEST=
+LOADER=${NR_LD:-}
+USER_NAME=root
+usage() { sed -n '2,25p' "$0"; }
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --rootfs) [ $# -ge 2 ] || { echo "--rootfs needs a value" >&2; exit 64; }; ROOTFS_TAR=$2; shift 2 ;;
+        --dest)   [ $# -ge 2 ] || { echo "--dest needs a value" >&2; exit 64; };   DEST=$2; shift 2 ;;
+        --loader) [ $# -ge 2 ] || { echo "--loader needs a value" >&2; exit 64; }; LOADER=$2; shift 2 ;;
+        --user)   [ $# -ge 2 ] || { echo "--user needs a value" >&2; exit 64; };   USER_NAME=$2; shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "install-husk: unknown argument $1" >&2; exit 64 ;;
+    esac
+done
+
+HERE=$(cd "$(dirname "$0")" && pwd)
+[ -n "$ROOTFS_TAR" ] || { echo "install-husk: --rootfs is required" >&2; usage >&2; exit 64; }
+# --rootfs may be a local tarball or a URL; in a terminal (Termux) a URL is the
+# normal case, so that path is not a special case here.
+is_url=no
+case "$ROOTFS_TAR" in
+    http://*|https://*) is_url=yes ;;
+    *) [ -f "$ROOTFS_TAR" ] || { echo "install-husk: no such rootfs tarball: $ROOTFS_TAR" >&2; exit 66; } ;;
+esac
+: "${DEST:=$HERE/root}"
+: "${LOADER:=$HERE/libld.so}"
+
+# Everything below works on absolute paths: the launcher we generate has to work
+# from any cwd, and half of the failure modes on Android are relative-path ones.
+mkdir -p "$DEST"
+DEST=$(cd "$DEST" && pwd)
+OUT=$(dirname "$DEST")
+[ -x "$LOADER" ] || { echo "install-husk: loader not executable: $LOADER" >&2; exit 69; }
+LOADER=$(cd "$(dirname "$LOADER")" && pwd)/$(basename "$LOADER")
+# a URL is not a path yet; it is turned into one by the download step below
+[ "$is_url" = yes ] || ROOTFS_TAR=$(cd "$(dirname "$ROOTFS_TAR")" && pwd)/$(basename "$ROOTFS_TAR")
+
+# mksh (Android's /bin/sh) and dash both need a writable TMPDIR for `$(...)`
+# capture and here-documents. Under `run-as` nothing in /tmp or /data/local is
+# writable, so pick one now instead of failing half-way through the install.
+for t in ${TMPDIR:-} "$DEST/tmp" "$OUT/tmp"; do
+    [ -n "$t" ] || continue
+    if mkdir -p "$t" 2>/dev/null && [ -w "$t" ]; then
+        TMPDIR=$(cd "$t" && pwd); export TMPDIR; break
+    fi
+done
+[ -n "${TMPDIR:-}" ] || { echo "install-husk: no writable TMPDIR" >&2; exit 73; }
+
+echo "== husk install =="
+echo "   rootfs : $ROOTFS_TAR"
+echo "   dest   : $DEST"
+echo "   loader : $LOADER"
+
+if [ "$is_url" = yes ]; then
+    name=$(basename "${ROOTFS_TAR%%\?*}")
+    echo "== download =="
+    echo "   from : $ROOTFS_TAR"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fL --retry 2 -o "$OUT/$name.part" "$ROOTFS_TAR" || { echo "install-husk: download failed" >&2; exit 67; }
+    elif command -v wget >/dev/null 2>&1; then
+        wget -O "$OUT/$name.part" "$ROOTFS_TAR" || { echo "install-husk: download failed" >&2; exit 67; }
+    else
+        echo "install-husk: need curl or wget to fetch a URL" >&2; exit 67
+    fi
+    mv "$OUT/$name.part" "$OUT/$name"
+    ROOTFS_TAR=$OUT/$name
+    echo "   saved: $ROOTFS_TAR"
+fi
+
+# 0. does the kernel let us execute the loader from this location? A noexec
+#    mount is the single most confusing failure we have (it looks like the
+#    loader is broken), so say it out loud now. Running the loader with no
+#    program name prints "missing program name" and exits 1 - that output is
+#    exactly what proves exec worked.
+probe=$("$LOADER" 2>&1 || true)
+case "$probe" in
+    *"missing program name"*) ;;
+    *)
+        echo "install-husk: cannot execute the loader from here:" >&2
+        echo "$probe" | head -3 | sed 's/^/    /' >&2
+        echo "              a noexec mount looks like this; put the loader where" >&2
+        echo "              exec is allowed (Termux \$PREFIX allows it, /data/local/tmp does not)." >&2
+        exit 69 ;;
+esac
+
+# 1. first pass: host tar. Hard links fail on Android; that is expected.
+#    Decompress by magic instead of relying on the archiver: Android's toybox tar
+#    sniffs gzip but not xz/zstd, Termux's tar differs again, and the rootfs
+#    images in the wild come as .tar, .tar.gz, .tar.xz and .tar.zst. One code
+#    path, and a clear error for the "gz of a gz" case.
+echo "== pass 1: extract (hard-link errors are expected) =="
+magic=$(od -An -tx1 -N6 "$ROOTFS_TAR" | tr -d ' \n')
+dec=
+case "$magic" in
+    1f8b*)          dec="gzip -dc" ;;
+    fd377a585a00*)  dec="xz -dc" ;;
+    28b52ffd*)      dec="zstd -dc" ;;
+esac
+if [ -n "$dec" ]; then
+    command -v "${dec%% *}" >/dev/null 2>&1 || { echo "install-husk: $ROOTFS_TAR is compressed but ${dec%% *} is not available" >&2; exit 67; }
+    # decompress to a real file first: it makes the nested-compression check
+    # below a two-byte read instead of a stream trick, and costs no RAM.
+    echo "   ($dec -> $OUT/.husk-pass1.tar)"
+    $dec "$ROOTFS_TAR" > "$OUT/.husk-pass1.tar" || { echo "install-husk: decompression failed" >&2; exit 67; }
+    case "$(od -An -tx1 -N2 "$OUT/.husk-pass1.tar" | tr -d ' \n')" in
+        1f8b|fd37|28b5) echo "install-husk: $ROOTFS_TAR is compressed twice (a .gz of a .gz); pass the inner tarball" >&2
+                        rm -f "$OUT/.husk-pass1.tar"; exit 67 ;;
+    esac
+    tar xf "$OUT/.husk-pass1.tar" -C "$DEST" 2>&1 | sed 's/^/   /' || true
+    rm -f "$OUT/.husk-pass1.tar"
+else
+    tar xf "$ROOTFS_TAR" -C "$DEST" 2>&1 | sed 's/^/   /' || true
+fi
+[ -d "$DEST/bin" ] || { echo "install-husk: pass 1 produced no /bin - bad tarball?" >&2; exit 66; }
+
+# 2. second pass: the guest's own tar through the loader, so link() -> copy.
+echo "== pass 2: re-extract through the shim (fixes hard links) =="
+mkdir -p "$DEST/tmp"
+cp "$ROOTFS_TAR" "$DEST/tmp/.husk-rootfs.tar"
+LIBS="$DEST/lib/aarch64-linux-gnu:$DEST/usr/lib/aarch64-linux-gnu"
+[ -d "$DEST/usr/lib/aarch64-linux-gnu" ] || LIBS="$DEST/usr/lib"
+( cd "$DEST" && NR_ROOTFS=$DEST NR_LD=$LOADER "$LOADER" --library-path "$LIBS" usr/bin/env -i \
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    NR_ROOTFS=$DEST NR_LD=$LOADER /bin/sh -c \
+    'tar -xf /tmp/.husk-rootfs.tar -C / && rm -f /tmp/.husk-rootfs.tar' 2>&1 | sed 's/^/   /' )
+
+# 3. session script + launcher, both in the parent of the rootfs. Absolute paths
+#    are baked in: $0 inside the launcher is the launcher, not the rootfs.
+if [ "$HERE/husk-session.sh" != "$OUT/husk-session.sh" ]; then
+    cp "$HERE/husk-session.sh" "$OUT/husk-session.sh"
+fi
+chmod 755 "$OUT/husk-session.sh"
+cat > "$OUT/husk" <<LAUNCHER
+#!/bin/sh
+# generated by install-husk.sh on $(date +%Y-%m-%d) - start a guest shell
+# rootfs: $DEST
+# loader: $LOADER
+[ \$# -gt 0 ] || set -- usr/bin/bash -l
+# husk-session.sh finds the loader through NR_LD; the rootfs is passed explicitly.
+NR_LD="$LOADER" exec "$OUT/husk-session.sh" "$DEST" --user $USER_NAME -- "\$@"
+LAUNCHER
+chmod 755 "$OUT/husk"
+
+# 4. verification that does not lie: run the guest's own tools.
+echo "== verify =="
+out=$( cd "$DEST" && NR_ROOTFS=$DEST NR_LD=$LOADER "$LOADER" --library-path "$LIBS" usr/bin/env -i \
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    NR_ROOTFS=$DEST NR_LD=$LOADER /bin/sh -c \
+    'head -1 /etc/os-release; echo "bins=$(ls /usr/bin | wc -l)"; ls -l /usr/bin/uncompress /usr/bin/perl5.38.2 2>/dev/null | sed "s/  */ /g"' 2>&1 || true )
+echo "$out" | sed 's/^/   /'
+case "$out" in
+    *"PRETTY_NAME=\"Ubuntu"*) ;;
+    *) echo "install-husk: verification failed - the guest did not answer from its own rootfs" >&2; exit 70 ;;
+esac
+# The hard links pass 2 exists for must now be real, readable files. Test them
+# positively: a previous version grepped the combined transcript and matched the
+# "cannot access" error text, i.e. it passed exactly when the file was missing.
+hl=$( cd "$DEST" && NR_ROOTFS=$DEST NR_LD=$LOADER "$LOADER" --library-path "$LIBS" usr/bin/env -i \
+    PATH=/usr/bin:/bin NR_ROOTFS=$DEST NR_LD=$LOADER /bin/sh -c \
+    'test -s /usr/bin/perl5.38.2 && test -s /usr/bin/uncompress && echo yes || echo no' 2>&1 | tail -1 )
+case "$hl" in
+    yes) echo "== ok: hard links materialised (perl5.38.2 + uncompress are real files) ==" ;;
+    *)   echo "install-husk: warning - hard links missing; pass 2 did not go through the shim" >&2 ;;
+esac
+
+cat <<DONE
+
+== done ==
+  $OUT/husk -- usr/bin/bash -l -c 'id; head -1 /etc/os-release'
+DONE
