@@ -105,7 +105,10 @@ fn husk_state(class: &str) -> (&'static str, &'static str) {
             "AAudio capture -> module-pipe-source, 1.9 MB loopback (evidence 88); needs install -g for the mic permission",
         ),
         "camera" => ("absent", "no camera path exists yet"),
-        "input" => ("unknown", "input devices not yet routed into the guest compositor"),
+        "input" => (
+            "partial",
+            "gestures+keys reach the guest over run/husk/input.sock as evdev records (evidence 95); injection into the guest compositor (XTEST / EIS) not wired yet",
+        ),
         "sensors" => ("absent", "no sensor path exists yet"),
         "platform-peripherals" => (
             "absent",

@@ -70,6 +70,10 @@ name = "guest-bench"
 version = "0.2.0"
 
 [[package]]
+name = "husk-input"
+version = "0.1.0"
+
+[[package]]
 name = "husk-record"
 version = "0.1.0"
 dependencies = [

@@ -3,6 +3,19 @@
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
 
+## 最新（2026-11-23 16:05）
+
+输入桥第一次端到端跑通（evidence 95）：`adb input tap/keyevent/swipe` → app 手势识别 →
+`run/husk/input.sock` → guest 内 `husk-input` 解出 `ABS_X/ABS_Y`、`BTN_LEFT`、`KEY_A`、
+`REL_WHEEL`。三个真 bug：guest 工具绕过 `BufReader` 丢数据、app 不检测客户端退出
+（写死 socket）、socket 断线后没有状态同步（现已连接即同步指针/按键）。
+
+同时做了用户要求的"先看再做"：逐行读了 `anland`（GNOME/KDE 在 Android 上的成熟实现），
+记录在 `docs/design/anland-deep-read.md`。三个结论：①输入应注入合成器 seat，不走
+`/dev/input`+libinput+udev（三家先人都这样）；②帧缓冲所有权归 Android 侧（与我们
+evidence 73–79 同形）；③相机/音频可以走同一根 socket 传 fd（SCM_RIGHTS）。它的 Mutter
+后端只支持 mutter 49–51，我们 24.04 是 46，所以只做协议层对接（也是 GPL-3.0 的边界）。
+
 ## 最新（2026-11-23 15:25）
 
 GStreamer 的 `v4l2src` 在 guest 里能跑了：`v4l2src device=/dev/video0 num-buffers=10 !

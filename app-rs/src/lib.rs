@@ -19,6 +19,7 @@ mod camera;
 mod encoder;
 mod caps;
 mod gl;
+mod input;
 mod surface;
 mod sys;
 mod term;
@@ -680,6 +681,7 @@ pub unsafe extern "C" fn ANativeActivity_onCreate(
     ahb::spawn_once();
     audio::start_once();
     camera::start_once();
+    input::start_once();
     encoder::start_once();
     video::start_once();
     caps::start_once();
@@ -961,7 +963,12 @@ fn drain_input(q: *mut c_void, app: &mut App) -> bool {
             } else {
                 let ty = AInputEvent_getType(ev);
                 if ty == AINPUT_EVENT_TYPE_KEY {
-                    if AKeyEvent_getAction(ev) == AKEY_EVENT_ACTION_DOWN {
+                    let action = AKeyEvent_getAction(ev);
+                    let kc = AKeyEvent_getKeyCode(ev);
+                    // The guest desktop gets both edges (it needs releases);
+                    // the terminal below only reacts to presses.
+                    crate::input::key(kc, action == AKEY_EVENT_ACTION_DOWN);
+                    if action == AKEY_EVENT_ACTION_DOWN {
                         let meta = AKeyEvent_getMetaState(ev);
                         let code = AKeyEvent_getKeyCode(ev);
                         app.scroll = 0;
@@ -997,6 +1004,12 @@ fn drain_input(q: *mut c_void, app: &mut App) -> bool {
                     }
                 } else if ty == AINPUT_EVENT_TYPE_MOTION {
                     let action = AMotionEvent_getAction(ev) & AMOTION_EVENT_ACTION_MASK;
+                    crate::input::motion(
+                        action,
+                        AMotionEvent_getX(ev, 0) as i32,
+                        AMotionEvent_getY(ev, 0) as i32,
+                        AMotionEvent_getPointerCount(ev) as i32,
+                    );
                     match action {
                         AMOTION_EVENT_ACTION_DOWN => {
                             app.drag = AMotionEvent_getY(ev, 0) as i32;

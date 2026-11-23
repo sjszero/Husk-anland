@@ -528,6 +528,10 @@ fn write_bridge_meta(files: &std::path::Path, desc: &Desc) {
     }
 }
 
+pub(crate) fn files_dir_pub() -> Option<std::path::PathBuf> {
+    files_dir()
+}
+
 fn files_dir() -> Option<std::path::PathBuf> {
     let act = crate::ACTIVITY.load(Ordering::SeqCst);
     if act.is_null() {
