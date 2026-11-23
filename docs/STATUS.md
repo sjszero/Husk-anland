@@ -3,7 +3,24 @@
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
 
+## 最新（2026-11-23 19:05）
+
+**GNOME Shell 46.2 在 guest 里起成 Wayland 显示服务器，GTK4 客户端（gnome-text-editor）
+能连上并稳定运行**（evidence 101）。挡住它的不是运行时，而是 **rootfs 缺包** +
+`--library-path` 是替不是加：`liblzo2-2`、`gvfs-libs`（`libgvfscommon.so` 不带版本后缀、
+在 `usr/lib/aarch64-linux-gnu/gvfs/`）从前人 2.0 的离线 `.deb` 里补进去，库路径补上
+`$R/lib/aarch64-linux-gnu` 与 `.../gvfs`。JS 初始化不再抛异常。
+
+dbus 的教训（写成规则）：**不要用 `dbus-daemon --fork`**，本机会出现同一 address 上
+多个 daemon，之后所有客户端读不到回应；用 `--nofork` 自己后台化，`XDG_RUNTIME_DIR`
+必须 `chmod 700`，启动前精确清理旧 daemon。
+
+仍未验证：窗口是否 map / 有帧（Screenshot 两次都因 dbus 卡住超时）；
+Shell 仍是 `--headless` 的 surfaceless 渲染器，ScreenCast → dma-buf → AHB → SurfaceControl
+是下一步。
+
 ## 最新（2026-11-23 18:20）
+
 
 **dlopen 进来的库现在也走 guest 路径**（evidence 100，实现见
 `docs/design/dlopen-path-coverage.md`）。做法照 proroot 的答案：拦 `dlopen` → 调用真的 →
