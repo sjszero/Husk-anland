@@ -250,6 +250,62 @@ fn getprop(name: &str) -> String {
     "?".to_string()
 }
 
+// ----------------------------------------------------------- peripherals mode
+
+/// One row per peripheral family, node-first then sysfs marker.
+///
+/// Purpose: make "this machine has no sensors/GPS/USB/BT/NFC" a *measured*
+/// statement instead of an assumption, and prove the guest sees a plain ENOENT
+/// (never a fake device, never a crash). Exits 0 either way.
+fn periph() {
+    let nodes: [(&str, &str); 12] = [
+        ("sensor", "/dev/iio:device0"),
+        ("sensor", "/dev/sensorhub"),
+        ("gps", "/dev/gps0"),
+        ("usb", "/dev/bus/usb"),
+        ("bluetooth", "/dev/rfkill"),
+        ("bluetooth", "/dev/hci0"),
+        ("nfc", "/dev/nfc0"),
+        ("fingerprint", "/dev/fingerprint"),
+        ("input", "/dev/input/event0"),
+        ("hidraw", "/dev/hidraw0"),
+        ("i2c", "/dev/i2c-0"),
+        ("spi", "/dev/spidev0.0"),
+    ];
+    for (kind, path) in nodes {
+        match OpenOptions::new().read(true).open(path) {
+            Ok(f) => println!(
+                "periph|{kind}|PASS|{path} r fd={}",
+                std::os::fd::AsRawFd::as_raw_fd(&f)
+            ),
+            Err(e) => println!(
+                "periph|{kind}|MISSING|{path} errno={}",
+                e.raw_os_error().unwrap_or(0)
+            ),
+        }
+    }
+    for (kind, dir) in [
+        ("sensor", "/sys/class/iio"),
+        ("gps", "/sys/class/gps"),
+        ("bluetooth", "/sys/class/bluetooth"),
+        ("nfc", "/sys/class/nfc"),
+        ("input", "/sys/class/input"),
+        ("usb", "/sys/bus/usb"),
+    ] {
+        match std::fs::read_dir(dir) {
+            Ok(rd) => {
+                let n = rd.filter_map(|e| e.ok()).count();
+                println!("periph|{kind}|SYSDIR|{dir} entries={n}");
+            }
+            Err(e) => println!(
+                "periph|{kind}|SYSDIR-MISSING|{dir} errno={}",
+                e.raw_os_error().unwrap_or(0)
+            ),
+        }
+    }
+    println!("periph|verdict|DONE|no device is faked; missing families are plain ENOENT");
+}
+
 // ---------------------------------------------------------------- kbase mode
 
 fn kbase() {
@@ -4145,6 +4201,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(|s| s.as_str()).unwrap_or("") {
         "nodes" => nodes(),
+        "periph" => periph(),
         "kbase" => kbase(),
         "enc" => enc(),
         "nrscan" => nrscan(),
