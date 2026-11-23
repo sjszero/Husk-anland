@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 10:35）
+# 当前状态（2026-11-23 10:41）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -31,8 +31,10 @@ Y、plane1、plane2 的 GPU 回读 FNV-1a 均与 app 侧哈希一致。evidence 
 **一条持久 Unix socket + 最多 3 个在途 AImage 的有界背压**：app 收到 guest ACK 才释放
 AImage，并在 CLOSE 时先排空在途帧再停止 worker，150/150 帧全部送达。evidence 77 已把
 MediaCodec 的 ByteBuffer 输出改为应用预分配的 **3 个固定 YV12 AHB**，真机完成
-**150/150 帧、3 次 import、147 次 reuse**；但这条路径仍是 CPU I420→YV12 拷贝，
-还没有 YUV→RGB、guest WSI 或完整播放路径。
+**150/150 帧、3 次 import、147 次 reuse**；evidence 78 又把其中一个真实解码 YV12 dma-buf
+作为 Vulkan external storage buffer 导入 PanVK，compute shader 转 RGBA8 后 9/9 个采样点
+与 CPU 参考值逐位一致。但这条路径仍是 CPU I420→YV12 拷贝，GPU 转换只在第一帧执行；
+还没有持久 converter、RGBA 写回 AHB、guest WSI 或完整播放路径。
 音频侧已跑通最小闭环：guest 枚举 7 个 Android 输出设备、读写 `STREAM_MUSIC`
 音量，并把 3 秒 PCM16 经独立 Unix socket 交给 app 内 AAudio（evidence 60）；但低延迟请求被
 vendor policy 拒绝、平台返回 `perf=NONE`；evidence 62 又打通 PulseAudio `module-pipe-sink` →
@@ -51,7 +53,7 @@ PT_LOAD 的映射边界。`chmod`/`chown`/`utimensat`/`statx` 现在固定最终
 恶意 ELF 注入、GOT 失败注入、rootfd 并发 close/reopen、
 SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不能写成已完成。
 
-## 视频与 AHB 回导最新（evidence 67 / 69 / 70 / 71 / 72 / 73 / 74 / 75 / 76，2026-11-23）
+## 视频与 AHB 回导最新（evidence 67 / 69 / 70 / 71 / 72 / 73 / 74 / 75 / 76 / 77 / 78，2026-11-23）
 
 - **FACT**：app 进程内纯 Rust 探针已真实选中 `c2.mtk.avc.decoder` 和
   `c2.mtk.hevc.decoder`；1920x1080@30、各 150/150 帧、EOS、codec 正常释放。
@@ -112,8 +114,13 @@ SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不�
   Vulkan import ring 的问题；完整日志与哈希见
   [`evidence/77-video-fixed-ring.md`](design/evidence/77-video-fixed-ring.md)。
 - **FACT（边界）**：v1 只覆盖单条 AVC 轨与精确 MTK decoder 名。
-- **FACT（仍缺）**：evidence 77 的固定 ring 仍是 CPU I420→YV12 拷贝，不是 decoder→GPU
-  零拷贝；guest WSI/swapchain、YUV→RGB GPU sampling/render、
+- **FACT（evidence 78，2026-11-23）**：真实 AVC 解码的 YV12 dma-buf 已作为
+  `VK_EXT_external_memory_dma_buf` storage buffer 导入 PanVK，Rust compute shader 完成
+  BT.601 limited-range YUV→RGBA8；1920×1080 的第一帧 9 个采样点 CPU/GPU 逐位一致，
+  同一轮固定 ring 仍为 150/150、3 次 import、147 次 reuse。
+- **FACT（仍缺）**：evidence 77/78 的路径仍是 CPU I420→YV12 拷贝，不是 decoder→GPU
+  零拷贝；YUV→RGB 只在第一帧执行且没有持久 converter、RGBA 写回 AHB、
+  guest WSI/swapchain、
   guest 侧 GL/X11/Wayland WSI、HEVC/VP9/AV1 bridge、GStreamer/VA-API、Chromium
   `<video>`、AV 同步、10 分钟播放、丢帧与硬软解对比均未完成。
   测试使用 `HUSK_VIDEO_REALTIME=0`，日志里的 `present|ok=false` 是探针模式预期结果。
@@ -357,6 +364,7 @@ SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不�
 | 本机硬解器与容量 | `c2.mtk.{avc,hevc,vp9,av1}.decoder`；1080p 自报 avc 113–248 / hevc 125–276 fps（未实测） | 39 |
 | 视频路径（设计定稿） | guest 内 Rust VA-API 后端驱动 `husk` → 通道 → app 侧 AMediaCodec；Chromium 与 GStreamer 共用一份后端，不改不重编 | 39 / goals v11 |
 | 视频固定 AHB ring | **通过**：3 个应用预分配 YV12 AHB，AVC 150/150 帧、`imports=3`、`reuses=147`；仍是 CPU I420→YV12 拷贝 | 77 |
+| GPU YUV→RGBA8 | **第一帧通过**：真实 YV12 dma-buf → PanVK external storage buffer → compute → 9/9 CPU/GPU 逐位一致；同轮 ring 150/150，但未写回 AHB/WSI | 78 |
 | 内核 kbase 版本（自报） | `K:r32p1-00bet5(GPL)`，与厂商 `libGLES_mali.so` 同代 | 40 |
 | atom 结构 | 两套：64 B `base_jd_atom_v2`（atom_number@0x28/core_req@0x2c）或 72 B `base_jd_atom`（jc@0x08/atom_number@0x30/core_req@0x34）；stride 必须与结构一致 | 40 / 57 |
 | timeline fd（`STREAM_CREATE`） | **不能当完成通道**：任何被接受的 submit 都让它 POLLIN，`read()` 返回 EINVAL | 40 |

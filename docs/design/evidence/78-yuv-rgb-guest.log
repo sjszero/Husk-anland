@@ -1,0 +1,2330 @@
+vk|loader|PASS|libvulkan.so.1
+vk|symbols|PASS|core entrypoints resolved
+MESA: info: panvk_debug: startup|noafbc
+MESA: info: Created an instance
+vk|instance|PASS|VkResult=0
+MESA: info: Found kbase device '/dev/mali0'.
+WARNING: panvk is not a conformant Vulkan implementation, testing use only.
+FristOneRR 1.2.0 (Mesa 26.3.0-devel)
+MESA: info: panvk (Mali-G77 MC9) FristOneRR 1.2.0 (Mesa 26.3.0-devel)
+MESA: info: panvk: gpu_id=0x90800011 variant=0x0 texture_features0=0xf7fffffe afbc=1 afrc=0
+vk|physical|PASS|count=1 name=Mali-G77 MC9
+vk|ext|INFO|instance=18 device=171
+vk|ext|support|VK_KHR_surface
+vk|ext|missing|VK_KHR_android_surface
+vk|ext|support|VK_KHR_get_physical_device_properties2
+vk|ext|support|VK_KHR_external_memory_capabilities
+vk|ext|support|VK_KHR_external_fence_capabilities
+vk|ext|support|VK_KHR_external_semaphore_capabilities
+vk|ext|support|VK_KHR_get_surface_capabilities2
+vk|ext|support|VK_EXT_surface_maintenance1
+vk|ext|support|VK_KHR_swapchain
+vk|ext|missing|VK_ANDROID_external_memory_android_hardware_buffer
+vk|ext|support|VK_KHR_external_memory
+vk|ext|support|VK_KHR_external_memory_fd
+vk|ext|support|VK_EXT_external_memory_dma_buf
+vk|ext|support|VK_EXT_external_memory_host
+vk|ext|support|VK_EXT_image_drm_format_modifier
+vk|ext|support|VK_KHR_external_fence
+vk|ext|support|VK_KHR_external_fence_fd
+vk|ext|support|VK_KHR_external_semaphore
+vk|ext|support|VK_KHR_external_semaphore_fd
+vk|ext|support|VK_EXT_queue_family_foreign
+vk|ext|support|VK_KHR_timeline_semaphore
+vk|ext|support|VK_KHR_synchronization2
+vk|ext|support|VK_EXT_swapchain_maintenance1
+vk|ext|support|VK_KHR_present_id
+vk|ext|support|VK_KHR_present_wait
+vk|queue_family|PASS|index=0 flags=0x7 queues=1
+vk|device|PASS|queue=0x55627c68b0 VkResult=0
+vk|memory_types|PASS|count=3
+vk|buffer|PASS|created/bound/mapped size=4096 type=2 readback=0x4855534b
+vk|dmabuf|socket_wait|retry=1|/run/husk/video-ahb.sock|No such file or directory (os error 2)
+vk|dmabuf|socket_wait|retry=20|/run/husk/video-ahb.sock|No such file or directory (os error 2)
+vk|dmabuf|socket|PASS|/run/husk/video-ahb.sock
+vk|video-ahb|STREAM|CONNECTED|path=/run/husk/video-ahb.sock|frames=150
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|recv|bytes=356 control_len=32
+vk|dmabuf|fd_count|3
+vk|dmabuf|handoff|NEW|key=0000495a00000005|handles=1
+vk|dmabuf|fd|fd=6 target=anon_inode:gralloc_extra
+vk|dmabuf|found|fd=7 target=/dmabuf:G:pid [18778]
+vk|dmabuf|fd|fd=6 target=anon_inode:gralloc_extra
+vk|dmabuf|found|fd=7 target=/dmabuf:G:pid [18778]
+vk|video-ahb|ring_import_image|slot=0|key=0000495a00000005|VkResult=0|1920x1080
+vk|video-ahb|ring_import_memory|slot=0|key=0000495a00000005|VkResult=0|type=2|size=3110400
+vk|video-ahb|ring_import|slot=0|key=0000495a00000005|dmabuf=90c86090f23fc630|slots=1
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|yuv_rgb|external_props|features=0x6 export=0x201 compatible=0x201
+vk|yuv_rgb|input_import|VkResult=0|size=3110400|required=3110400|fd_size=3137536|type=2
+vk|yuv_rgb|samples|expected=[ffff017a, fffd0000, ffffff00, ff0000ff, ffff0000, ff0003fd, ff0000ff, ffff0000, ffffff00]|gpu=[ffff017a, fffd0000, ffffff00, ff0000ff, ffff0000, ff0003fd, ff0000ff, ffff0000, ffffff00]
+vk|yuv_rgb|PASS|pixels=9/9|frame=1920x1080|offsets=[0, 2592000, 2073600]|strides=[1920, 960, 960]
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xd4abebfa3f8cb0fc|expected=0xd4abebfa3f8cb0fc|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xd4abebfa3f8cb0fc|expected=0xd4abebfa3f8cb0fc|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xf164ae94471897d1|expected=0xf164ae94471897d1|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xa8a073543b9ed2db|expected=0xa8a073543b9ed2db|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=1|reuses=0
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=0|elapsed_ms=232
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|recv|bytes=356 control_len=32
+vk|dmabuf|fd_count|3
+vk|dmabuf|handoff|NEW|key=0000495a00000004|handles=1
+vk|dmabuf|fd|fd=6 target=anon_inode:gralloc_extra
+vk|dmabuf|found|fd=7 target=/dmabuf:G:pid [18778]
+vk|dmabuf|fd|fd=6 target=anon_inode:gralloc_extra
+vk|dmabuf|found|fd=7 target=/dmabuf:G:pid [18778]
+vk|video-ahb|ring_import_image|slot=1|key=0000495a00000004|VkResult=0|1920x1080
+vk|video-ahb|ring_import_memory|slot=1|key=0000495a00000004|VkResult=0|type=2|size=3110400
+vk|video-ahb|ring_import|slot=1|key=0000495a00000004|dmabuf=20199f51c126073a|slots=2
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x17c99df3e5e10a87|expected=0x17c99df3e5e10a87|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x17c99df3e5e10a87|expected=0x17c99df3e5e10a87|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x27b88cdc12ef10cf|expected=0x27b88cdc12ef10cf|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x83ce85aa1bd21d24|expected=0x83ce85aa1bd21d24|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=2|reuses=0
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=1|elapsed_ms=123
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|recv|bytes=356 control_len=32
+vk|dmabuf|fd_count|3
+vk|dmabuf|handoff|NEW|key=0000495a00000003|handles=1
+vk|dmabuf|fd|fd=6 target=anon_inode:gralloc_extra
+vk|dmabuf|found|fd=7 target=/dmabuf:G:pid [18778]
+vk|dmabuf|fd|fd=6 target=anon_inode:gralloc_extra
+vk|dmabuf|found|fd=7 target=/dmabuf:G:pid [18778]
+vk|video-ahb|ring_import_image|slot=2|key=0000495a00000003|VkResult=0|1920x1080
+vk|video-ahb|ring_import_memory|slot=2|key=0000495a00000003|VkResult=0|type=2|size=3110400
+vk|video-ahb|ring_import|slot=2|key=0000495a00000003|dmabuf=4cc766b2db7015d9|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x786ee64eb8e4ba9a|expected=0x786ee64eb8e4ba9a|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x786ee64eb8e4ba9a|expected=0x786ee64eb8e4ba9a|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x745d1173c525d81a|expected=0x745d1173c525d81a|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x5a92a71984abfd9f|expected=0x5a92a71984abfd9f|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=0
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=2|elapsed_ms=114
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x79de5fefa4c228c4|expected=0x79de5fefa4c228c4|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x79de5fefa4c228c4|expected=0x79de5fefa4c228c4|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xc615d42accc6be32|expected=0xc615d42accc6be32|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x2e83030bc37e3d99|expected=0x2e83030bc37e3d99|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=1
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=3|elapsed_ms=106
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x6ceb8fe079cc3d90|expected=0x6ceb8fe079cc3d90|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x6ceb8fe079cc3d90|expected=0x6ceb8fe079cc3d90|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x4f1717fe31f7f256|expected=0x4f1717fe31f7f256|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xea9ed9685e7409f3|expected=0xea9ed9685e7409f3|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=2
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=4|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x3bb5cf23cbea5d95|expected=0x3bb5cf23cbea5d95|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x3bb5cf23cbea5d95|expected=0x3bb5cf23cbea5d95|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xfe739ab43134352|expected=0xfe739ab43134352|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x90142ef72f3baac2|expected=0x90142ef72f3baac2|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=3
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=5|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x5df9e1e00450291f|expected=0x5df9e1e00450291f|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x5df9e1e00450291f|expected=0x5df9e1e00450291f|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x5f4010c57933c9bb|expected=0x5f4010c57933c9bb|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xd0cf2c0bd289d26a|expected=0xd0cf2c0bd289d26a|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=4
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=6|elapsed_ms=123
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x6165334a9d05480f|expected=0x6165334a9d05480f|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x6165334a9d05480f|expected=0x6165334a9d05480f|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xdab305f1b9a2b381|expected=0xdab305f1b9a2b381|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xbd10a33fd240547d|expected=0xbd10a33fd240547d|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=5
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=7|elapsed_ms=126
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0xbed64ff785b93b92|expected=0xbed64ff785b93b92|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xbed64ff785b93b92|expected=0xbed64ff785b93b92|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xa211268028659530|expected=0xa211268028659530|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xe9becb92a9e48e5a|expected=0xe9becb92a9e48e5a|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=6
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=8|elapsed_ms=115
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x3b0aeb8ac76fa8a6|expected=0x3b0aeb8ac76fa8a6|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x3b0aeb8ac76fa8a6|expected=0x3b0aeb8ac76fa8a6|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xa56e867caa28460d|expected=0xa56e867caa28460d|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xf0176d78fa7fc9fb|expected=0xf0176d78fa7fc9fb|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=7
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=9|elapsed_ms=122
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x15c958202e6891d0|expected=0x15c958202e6891d0|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x15c958202e6891d0|expected=0x15c958202e6891d0|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x7afa75e5a0f5cf83|expected=0x7afa75e5a0f5cf83|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xd46214e704979685|expected=0xd46214e704979685|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=8
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=10|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x1e4a4e82876e6d74|expected=0x1e4a4e82876e6d74|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x1e4a4e82876e6d74|expected=0x1e4a4e82876e6d74|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xbb05dd8a7eadc0da|expected=0xbb05dd8a7eadc0da|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x9ebe9df5c9c63d00|expected=0x9ebe9df5c9c63d00|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=9
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=11|elapsed_ms=126
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xb9db842a76363b92|expected=0xb9db842a76363b92|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xb9db842a76363b92|expected=0xb9db842a76363b92|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xa3b4f52f5bfa9e0b|expected=0xa3b4f52f5bfa9e0b|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x915f26df822537eb|expected=0x915f26df822537eb|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=10
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=12|elapsed_ms=122
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x6919a29b8d109804|expected=0x6919a29b8d109804|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x6919a29b8d109804|expected=0x6919a29b8d109804|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x41ef961c954db7d1|expected=0x41ef961c954db7d1|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x3e86aa7a06f8c06f|expected=0x3e86aa7a06f8c06f|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=11
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=13|elapsed_ms=121
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x8d9c01cd11e1aa17|expected=0x8d9c01cd11e1aa17|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x8d9c01cd11e1aa17|expected=0x8d9c01cd11e1aa17|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xbca08cfec49860f3|expected=0xbca08cfec49860f3|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xa8dc919e094b3472|expected=0xa8dc919e094b3472|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=12
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=14|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xcc281ff5469e16fb|expected=0xcc281ff5469e16fb|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xcc281ff5469e16fb|expected=0xcc281ff5469e16fb|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xedaff999f48d7a36|expected=0xedaff999f48d7a36|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x9059d4482ba76024|expected=0x9059d4482ba76024|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=13
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=15|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x78d0dfbd6c303aab|expected=0x78d0dfbd6c303aab|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x78d0dfbd6c303aab|expected=0x78d0dfbd6c303aab|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xf6aba99b748cbf68|expected=0xf6aba99b748cbf68|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x8974679eb7e99982|expected=0x8974679eb7e99982|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=14
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=16|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0xe7e2f864acbfe5ab|expected=0xe7e2f864acbfe5ab|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xe7e2f864acbfe5ab|expected=0xe7e2f864acbfe5ab|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xd12ff04632edcc12|expected=0xd12ff04632edcc12|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xd6ad887307093e84|expected=0xd6ad887307093e84|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=15
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=17|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xef0f83011872980d|expected=0xef0f83011872980d|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xef0f83011872980d|expected=0xef0f83011872980d|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x52685c46a3d44095|expected=0x52685c46a3d44095|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x4c34d75c08a5f2b7|expected=0x4c34d75c08a5f2b7|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=16
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=18|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0xc4ded4cf758ad565|expected=0xc4ded4cf758ad565|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xc4ded4cf758ad565|expected=0xc4ded4cf758ad565|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xabe9f2c8257ed629|expected=0xabe9f2c8257ed629|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x8f91dcb2d03e7725|expected=0x8f91dcb2d03e7725|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=17
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=19|elapsed_ms=97
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x98d11a7e3e0c05f4|expected=0x98d11a7e3e0c05f4|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x98d11a7e3e0c05f4|expected=0x98d11a7e3e0c05f4|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x55b43b70b7a1a1a1|expected=0x55b43b70b7a1a1a1|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x1e99627bcf98761|expected=0x1e99627bcf98761|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=18
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=20|elapsed_ms=126
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xe67038184b6aaa30|expected=0xe67038184b6aaa30|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xe67038184b6aaa30|expected=0xe67038184b6aaa30|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xac604f456cf97ee7|expected=0xac604f456cf97ee7|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x42fe31a4b8662421|expected=0x42fe31a4b8662421|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=19
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=21|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x762fe2957d846813|expected=0x762fe2957d846813|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x762fe2957d846813|expected=0x762fe2957d846813|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x1d5976fb19eac3d|expected=0x1d5976fb19eac3d|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x10554e7b6d23b0a7|expected=0x10554e7b6d23b0a7|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=20
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=22|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0xcd78e121bbe8da86|expected=0xcd78e121bbe8da86|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xcd78e121bbe8da86|expected=0xcd78e121bbe8da86|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xb8cbf03b387b3c85|expected=0xb8cbf03b387b3c85|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x718635a2c5334b5e|expected=0x718635a2c5334b5e|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=21
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=23|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xe6529286ef19bcd7|expected=0xe6529286ef19bcd7|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xe6529286ef19bcd7|expected=0xe6529286ef19bcd7|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x8b455839454efc9e|expected=0x8b455839454efc9e|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x79351a58453c881f|expected=0x79351a58453c881f|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=22
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=24|elapsed_ms=112
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x3fdb40243ec7fae1|expected=0x3fdb40243ec7fae1|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x3fdb40243ec7fae1|expected=0x3fdb40243ec7fae1|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x81b93d2082afd88f|expected=0x81b93d2082afd88f|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xa52112000f21804a|expected=0xa52112000f21804a|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=23
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=25|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0xed94a97014ea9de1|expected=0xed94a97014ea9de1|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xed94a97014ea9de1|expected=0xed94a97014ea9de1|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x570e22c55628d4ee|expected=0x570e22c55628d4ee|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x7d4142c4288060cc|expected=0x7d4142c4288060cc|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=24
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=26|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xbc7dfe08460dbfa6|expected=0xbc7dfe08460dbfa6|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xbc7dfe08460dbfa6|expected=0xbc7dfe08460dbfa6|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x269d556354a41cb8|expected=0x269d556354a41cb8|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xe87e87356bffe09f|expected=0xe87e87356bffe09f|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=25
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=27|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0xb7ee3b449c7ed219|expected=0xb7ee3b449c7ed219|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xb7ee3b449c7ed219|expected=0xb7ee3b449c7ed219|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x42ed93395fe78729|expected=0x42ed93395fe78729|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x219e3641420f922e|expected=0x219e3641420f922e|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=26
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=28|elapsed_ms=116
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x5c71d123eb8f83ec|expected=0x5c71d123eb8f83ec|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x5c71d123eb8f83ec|expected=0x5c71d123eb8f83ec|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x3e1b03eb5a11628b|expected=0x3e1b03eb5a11628b|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x2eedf923db2d9c6|expected=0x2eedf923db2d9c6|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=27
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=29|elapsed_ms=110
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xcae6703a47320c25|expected=0xcae6703a47320c25|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xcae6703a47320c25|expected=0xcae6703a47320c25|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x1d0b895b03bf197e|expected=0x1d0b895b03bf197e|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x2cb058fd2d0e1f1a|expected=0x2cb058fd2d0e1f1a|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=28
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=30|elapsed_ms=182
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x100c9f0e01c36921|expected=0x100c9f0e01c36921|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x100c9f0e01c36921|expected=0x100c9f0e01c36921|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x97cd658722f27f24|expected=0x97cd658722f27f24|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x68b305446755ca18|expected=0x68b305446755ca18|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=29
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=31|elapsed_ms=123
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x1d263c11432a6c08|expected=0x1d263c11432a6c08|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x1d263c11432a6c08|expected=0x1d263c11432a6c08|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xd52d7be6bc3592|expected=0xd52d7be6bc3592|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xd58e88db25521b99|expected=0xd58e88db25521b99|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=30
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=32|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xdf83730d2ee6512f|expected=0xdf83730d2ee6512f|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xdf83730d2ee6512f|expected=0xdf83730d2ee6512f|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x5c3cd95b8dcc3739|expected=0x5c3cd95b8dcc3739|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x31c974364896a80|expected=0x31c974364896a80|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=31
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=33|elapsed_ms=118
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0xd157ea25f3963f7e|expected=0xd157ea25f3963f7e|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xd157ea25f3963f7e|expected=0xd157ea25f3963f7e|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x32df602ec0af623|expected=0x32df602ec0af623|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x668577b41fd177a8|expected=0x668577b41fd177a8|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=32
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=34|elapsed_ms=118
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0xe41c68483448c44d|expected=0xe41c68483448c44d|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xe41c68483448c44d|expected=0xe41c68483448c44d|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x5e39200ed0cf0e22|expected=0x5e39200ed0cf0e22|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xc22e3beb8278751c|expected=0xc22e3beb8278751c|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=33
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=35|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xb68efca8f38c1b0f|expected=0xb68efca8f38c1b0f|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xb68efca8f38c1b0f|expected=0xb68efca8f38c1b0f|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xe0a08451193b6f11|expected=0xe0a08451193b6f11|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xc1de7aba268d834b|expected=0xc1de7aba268d834b|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=34
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=36|elapsed_ms=126
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x24ebeb93d3c73a57|expected=0x24ebeb93d3c73a57|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x24ebeb93d3c73a57|expected=0x24ebeb93d3c73a57|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x60f204a18252a5ec|expected=0x60f204a18252a5ec|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x373b2d5650707f9e|expected=0x373b2d5650707f9e|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=35
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=37|elapsed_ms=114
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x300fbbd01c4ea46b|expected=0x300fbbd01c4ea46b|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x300fbbd01c4ea46b|expected=0x300fbbd01c4ea46b|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x860a7ea4e9bc1fea|expected=0x860a7ea4e9bc1fea|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xd095e2f29bc8543f|expected=0xd095e2f29bc8543f|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=36
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=38|elapsed_ms=120
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x5bafb382701e4656|expected=0x5bafb382701e4656|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x5bafb382701e4656|expected=0x5bafb382701e4656|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x926511ed4938ea6d|expected=0x926511ed4938ea6d|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x6b5c4171b057fd58|expected=0x6b5c4171b057fd58|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=37
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=39|elapsed_ms=184
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x7e941f6f5de24792|expected=0x7e941f6f5de24792|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x7e941f6f5de24792|expected=0x7e941f6f5de24792|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x16bcb36acdc8ccbd|expected=0x16bcb36acdc8ccbd|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x39c2592bbd7d71ea|expected=0x39c2592bbd7d71ea|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=38
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=40|elapsed_ms=122
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0xe2a9b1e326021520|expected=0xe2a9b1e326021520|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xe2a9b1e326021520|expected=0xe2a9b1e326021520|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x535723bf81580837|expected=0x535723bf81580837|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x172312529fd849a|expected=0x172312529fd849a|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=39
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=41|elapsed_ms=123
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x107c286bbe6e28e7|expected=0x107c286bbe6e28e7|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x107c286bbe6e28e7|expected=0x107c286bbe6e28e7|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xa7bd8d31cc3a29f0|expected=0xa7bd8d31cc3a29f0|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x68868a8a00911fb7|expected=0x68868a8a00911fb7|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=40
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=42|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x9c11a56cf5016210|expected=0x9c11a56cf5016210|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x9c11a56cf5016210|expected=0x9c11a56cf5016210|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x40759fe31075319b|expected=0x40759fe31075319b|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x1ff66ae087730fa4|expected=0x1ff66ae087730fa4|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=41
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=43|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0xab8f0823ff43f34d|expected=0xab8f0823ff43f34d|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xab8f0823ff43f34d|expected=0xab8f0823ff43f34d|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xfef1c6dd2c269cc4|expected=0xfef1c6dd2c269cc4|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xed7021d510836d13|expected=0xed7021d510836d13|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=42
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=44|elapsed_ms=118
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xc5e754984ddb0709|expected=0xc5e754984ddb0709|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xc5e754984ddb0709|expected=0xc5e754984ddb0709|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xcfdefc9c9a90d3f1|expected=0xcfdefc9c9a90d3f1|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x19867239716fbdf2|expected=0x19867239716fbdf2|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=43
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=45|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0xc8ed6c90aecb1a|expected=0xc8ed6c90aecb1a|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xc8ed6c90aecb1a|expected=0xc8ed6c90aecb1a|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x5b87256c048d4be7|expected=0x5b87256c048d4be7|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x6199eb4f0ce2638c|expected=0x6199eb4f0ce2638c|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=44
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=46|elapsed_ms=126
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x902eebf0c73c4ced|expected=0x902eebf0c73c4ced|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x902eebf0c73c4ced|expected=0x902eebf0c73c4ced|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x9df664b1935ce741|expected=0x9df664b1935ce741|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xfec509390177fc7b|expected=0xfec509390177fc7b|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=45
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=47|elapsed_ms=120
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xef663f03482a3e2e|expected=0xef663f03482a3e2e|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xef663f03482a3e2e|expected=0xef663f03482a3e2e|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x671b39b1b5afe59b|expected=0x671b39b1b5afe59b|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x6e554283621c61e2|expected=0x6e554283621c61e2|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=46
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=48|elapsed_ms=121
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x9834d9a2d5b27861|expected=0x9834d9a2d5b27861|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x9834d9a2d5b27861|expected=0x9834d9a2d5b27861|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xc908bbfcfd59d4c9|expected=0xc908bbfcfd59d4c9|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x84e3e526e63d8c01|expected=0x84e3e526e63d8c01|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=47
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=49|elapsed_ms=111
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x4430767736c8e2e9|expected=0x4430767736c8e2e9|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x4430767736c8e2e9|expected=0x4430767736c8e2e9|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xe3d05c3347d1b3f8|expected=0xe3d05c3347d1b3f8|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x78908ef043d21a9d|expected=0x78908ef043d21a9d|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=48
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=50|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x8e079ea7dc3e2599|expected=0x8e079ea7dc3e2599|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x8e079ea7dc3e2599|expected=0x8e079ea7dc3e2599|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x6bfd99e0a1b2768b|expected=0x6bfd99e0a1b2768b|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x276355a21b485cb0|expected=0x276355a21b485cb0|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=49
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=51|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0xd0874a8ca90d30f5|expected=0xd0874a8ca90d30f5|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xd0874a8ca90d30f5|expected=0xd0874a8ca90d30f5|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xdf65dbad9c8e7401|expected=0xdf65dbad9c8e7401|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x479c3c6a4773eaea|expected=0x479c3c6a4773eaea|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=50
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=52|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x6f34561155cbd263|expected=0x6f34561155cbd263|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x6f34561155cbd263|expected=0x6f34561155cbd263|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xcf450656061b603e|expected=0xcf450656061b603e|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x4f8f28036dd44fe8|expected=0x4f8f28036dd44fe8|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=51
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=53|elapsed_ms=129
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x2e3a7ef9d61c81b4|expected=0x2e3a7ef9d61c81b4|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x2e3a7ef9d61c81b4|expected=0x2e3a7ef9d61c81b4|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x45601f5367ad87b3|expected=0x45601f5367ad87b3|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xa05458b3ee873867|expected=0xa05458b3ee873867|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=52
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=54|elapsed_ms=116
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0xc9f020c197e4321f|expected=0xc9f020c197e4321f|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xc9f020c197e4321f|expected=0xc9f020c197e4321f|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x714f815222c99c7|expected=0x714f815222c99c7|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x8c78ec2602559d9d|expected=0x8c78ec2602559d9d|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=53
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=55|elapsed_ms=123
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0xa146510efe3b1f6c|expected=0xa146510efe3b1f6c|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xa146510efe3b1f6c|expected=0xa146510efe3b1f6c|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x548db2271b06ac65|expected=0x548db2271b06ac65|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x8cd27aa2fa1e3d82|expected=0x8cd27aa2fa1e3d82|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=54
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=56|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xed5bc713ccfff0c5|expected=0xed5bc713ccfff0c5|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xed5bc713ccfff0c5|expected=0xed5bc713ccfff0c5|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x8bd5bd859f6fab68|expected=0x8bd5bd859f6fab68|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xf53f438504a24a74|expected=0xf53f438504a24a74|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=55
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=57|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x521798343a3230a9|expected=0x521798343a3230a9|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x521798343a3230a9|expected=0x521798343a3230a9|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x3285289041488b9|expected=0x3285289041488b9|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xfe755b7309a9bcc3|expected=0xfe755b7309a9bcc3|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=56
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=58|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0xd86c9146d7c7b6ca|expected=0xd86c9146d7c7b6ca|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xd86c9146d7c7b6ca|expected=0xd86c9146d7c7b6ca|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x283bbe1ffffdfcd5|expected=0x283bbe1ffffdfcd5|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x29d3e853f10a621e|expected=0x29d3e853f10a621e|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=57
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=59|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x7de1dcd2427f4b9b|expected=0x7de1dcd2427f4b9b|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x7de1dcd2427f4b9b|expected=0x7de1dcd2427f4b9b|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x52fb87574f224941|expected=0x52fb87574f224941|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xb3e994aa74b77260|expected=0xb3e994aa74b77260|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=58
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=60|elapsed_ms=113
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x8b1fb0b8146e6c12|expected=0x8b1fb0b8146e6c12|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x8b1fb0b8146e6c12|expected=0x8b1fb0b8146e6c12|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x4dbabd66d99b3555|expected=0x4dbabd66d99b3555|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x5af93716a0cb236e|expected=0x5af93716a0cb236e|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=59
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=61|elapsed_ms=122
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x73ba5f337c0a268d|expected=0x73ba5f337c0a268d|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x73ba5f337c0a268d|expected=0x73ba5f337c0a268d|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xcc297b4f6f0041ae|expected=0xcc297b4f6f0041ae|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xd28d35d1f871036a|expected=0xd28d35d1f871036a|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=60
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=62|elapsed_ms=105
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xa557813b082952f4|expected=0xa557813b082952f4|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xa557813b082952f4|expected=0xa557813b082952f4|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x1ae69285070695d6|expected=0x1ae69285070695d6|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x74c6944aa121c30b|expected=0x74c6944aa121c30b|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=61
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=63|elapsed_ms=114
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0xe12808881555e06e|expected=0xe12808881555e06e|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xe12808881555e06e|expected=0xe12808881555e06e|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xd0b01306984392d3|expected=0xd0b01306984392d3|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x91ae9228701ea879|expected=0x91ae9228701ea879|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=62
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=64|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0xf534ed5b5c5a428f|expected=0xf534ed5b5c5a428f|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xf534ed5b5c5a428f|expected=0xf534ed5b5c5a428f|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xf6d6833be4a16676|expected=0xf6d6833be4a16676|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x3a2e3a0795ac95f7|expected=0x3a2e3a0795ac95f7|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=63
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=65|elapsed_ms=116
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x1efdb3722efe232b|expected=0x1efdb3722efe232b|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x1efdb3722efe232b|expected=0x1efdb3722efe232b|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xa7311a0b1b4d08b|expected=0xa7311a0b1b4d08b|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xac5672d51e13eeb4|expected=0xac5672d51e13eeb4|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=64
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=66|elapsed_ms=120
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x3e557735fa62204b|expected=0x3e557735fa62204b|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x3e557735fa62204b|expected=0x3e557735fa62204b|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xbe9fe61b9daf46ae|expected=0xbe9fe61b9daf46ae|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x85bd9bd71c51c997|expected=0x85bd9bd71c51c997|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=65
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=67|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0xca1128b1ccd60db6|expected=0xca1128b1ccd60db6|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xca1128b1ccd60db6|expected=0xca1128b1ccd60db6|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x33c2dd8b86719514|expected=0x33c2dd8b86719514|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x9c625b25655d071|expected=0x9c625b25655d071|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=66
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=68|elapsed_ms=126
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x333054c7b326d22|expected=0x333054c7b326d22|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x333054c7b326d22|expected=0x333054c7b326d22|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x11406e86d93d9db3|expected=0x11406e86d93d9db3|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xa18a34777fe3f7e6|expected=0xa18a34777fe3f7e6|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=67
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=69|elapsed_ms=114
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x39851cf70a0447dc|expected=0x39851cf70a0447dc|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x39851cf70a0447dc|expected=0x39851cf70a0447dc|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xec38586772d7c28c|expected=0xec38586772d7c28c|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x59ffebd52fa3ca70|expected=0x59ffebd52fa3ca70|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=68
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=70|elapsed_ms=116
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0xde5439de324ac8e6|expected=0xde5439de324ac8e6|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xde5439de324ac8e6|expected=0xde5439de324ac8e6|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x1944085eabec8973|expected=0x1944085eabec8973|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xb4e95efc4efc7f1d|expected=0xb4e95efc4efc7f1d|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=69
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=71|elapsed_ms=162
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x9fc5829e56e3be47|expected=0x9fc5829e56e3be47|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x9fc5829e56e3be47|expected=0x9fc5829e56e3be47|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x86e9eeb26518ecbb|expected=0x86e9eeb26518ecbb|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xe63598053dcbb06e|expected=0xe63598053dcbb06e|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=70
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=72|elapsed_ms=196
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x6c7ae1ff624838e0|expected=0x6c7ae1ff624838e0|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x6c7ae1ff624838e0|expected=0x6c7ae1ff624838e0|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x9fe2a4445b3d827e|expected=0x9fe2a4445b3d827e|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x2c981aec52f412d3|expected=0x2c981aec52f412d3|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=71
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=73|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x4954b410f73837cc|expected=0x4954b410f73837cc|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x4954b410f73837cc|expected=0x4954b410f73837cc|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xf80d2c3ef5ff71fc|expected=0xf80d2c3ef5ff71fc|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x31cf1470926ae79f|expected=0x31cf1470926ae79f|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=72
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=74|elapsed_ms=122
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x8fa3086e2dd8d50e|expected=0x8fa3086e2dd8d50e|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x8fa3086e2dd8d50e|expected=0x8fa3086e2dd8d50e|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xba9164809b064506|expected=0xba9164809b064506|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x64816cb5af6900d2|expected=0x64816cb5af6900d2|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=73
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=75|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0xe572cabb9f914f31|expected=0xe572cabb9f914f31|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xe572cabb9f914f31|expected=0xe572cabb9f914f31|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x1c1cd8762b8bfff7|expected=0x1c1cd8762b8bfff7|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xce069d8cb55c2b7|expected=0xce069d8cb55c2b7|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=74
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=76|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x6c23385ecf0893bb|expected=0x6c23385ecf0893bb|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x6c23385ecf0893bb|expected=0x6c23385ecf0893bb|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xcefd8855c03a4332|expected=0xcefd8855c03a4332|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x2a919f9bd6d9b2a8|expected=0x2a919f9bd6d9b2a8|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=75
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=77|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xa76209e4777667d4|expected=0xa76209e4777667d4|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xa76209e4777667d4|expected=0xa76209e4777667d4|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xe382ae148116f183|expected=0xe382ae148116f183|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x8aaa3ef663392020|expected=0x8aaa3ef663392020|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=76
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=78|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0xeaa2e9328d629dc9|expected=0xeaa2e9328d629dc9|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xeaa2e9328d629dc9|expected=0xeaa2e9328d629dc9|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x856a99a9e8f109bd|expected=0x856a99a9e8f109bd|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x83ff418383b717e5|expected=0x83ff418383b717e5|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=77
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=79|elapsed_ms=121
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x7104289704f1700c|expected=0x7104289704f1700c|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x7104289704f1700c|expected=0x7104289704f1700c|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x73aa1990f006418|expected=0x73aa1990f006418|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x9c8b94a819a1c6ca|expected=0x9c8b94a819a1c6ca|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=78
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=80|elapsed_ms=100
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xae7a2ae95aac650|expected=0xae7a2ae95aac650|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xae7a2ae95aac650|expected=0xae7a2ae95aac650|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xfa30c0949a4f189|expected=0xfa30c0949a4f189|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xd7f3c5ff603f9103|expected=0xd7f3c5ff603f9103|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=79
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=81|elapsed_ms=189
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x45e23cc3d607efde|expected=0x45e23cc3d607efde|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x45e23cc3d607efde|expected=0x45e23cc3d607efde|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x2e022081147a6581|expected=0x2e022081147a6581|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x5a6c5b56c95bc5ec|expected=0x5a6c5b56c95bc5ec|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=80
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=82|elapsed_ms=115
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x636312d8d1053d17|expected=0x636312d8d1053d17|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x636312d8d1053d17|expected=0x636312d8d1053d17|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x968b13a2762ba540|expected=0x968b13a2762ba540|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xc2cdc7437f9c7c31|expected=0xc2cdc7437f9c7c31|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=81
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=83|elapsed_ms=120
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xa4a6d3b1c1f631ef|expected=0xa4a6d3b1c1f631ef|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xa4a6d3b1c1f631ef|expected=0xa4a6d3b1c1f631ef|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x113017a71afb4435|expected=0x113017a71afb4435|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xf7f2995a21f1e7bd|expected=0xf7f2995a21f1e7bd|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=82
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=84|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0xfe573f9af0ab4616|expected=0xfe573f9af0ab4616|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xfe573f9af0ab4616|expected=0xfe573f9af0ab4616|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xbf3760c12885ba31|expected=0xbf3760c12885ba31|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xaf3e2b1d068d8390|expected=0xaf3e2b1d068d8390|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=83
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=85|elapsed_ms=116
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x5f46b56630f3cbed|expected=0x5f46b56630f3cbed|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x5f46b56630f3cbed|expected=0x5f46b56630f3cbed|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x1cfe026ac23cd6d1|expected=0x1cfe026ac23cd6d1|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xf8f30d9884773600|expected=0xf8f30d9884773600|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=84
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=86|elapsed_ms=127
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x1039634b978a9ece|expected=0x1039634b978a9ece|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x1039634b978a9ece|expected=0x1039634b978a9ece|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xfb0e3933ce91c610|expected=0xfb0e3933ce91c610|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x656b625c2ec15565|expected=0x656b625c2ec15565|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=85
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=87|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x45093cdbe6d161a4|expected=0x45093cdbe6d161a4|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x45093cdbe6d161a4|expected=0x45093cdbe6d161a4|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x3880650fd264eca1|expected=0x3880650fd264eca1|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xca06723430dd5fad|expected=0xca06723430dd5fad|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=86
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=88|elapsed_ms=126
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0xaac4e46f929606d0|expected=0xaac4e46f929606d0|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xaac4e46f929606d0|expected=0xaac4e46f929606d0|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xb9b6642f72a9da62|expected=0xb9b6642f72a9da62|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x3655e5e8aea67de4|expected=0x3655e5e8aea67de4|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=87
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=89|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x511121e54a2f7af7|expected=0x511121e54a2f7af7|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x511121e54a2f7af7|expected=0x511121e54a2f7af7|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x5b14eac8bc258275|expected=0x5b14eac8bc258275|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xe62d6f24b0b058d6|expected=0xe62d6f24b0b058d6|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=88
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=90|elapsed_ms=113
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x3b39c2248f6bd4b3|expected=0x3b39c2248f6bd4b3|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x3b39c2248f6bd4b3|expected=0x3b39c2248f6bd4b3|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xe2f694b6dcfa0218|expected=0xe2f694b6dcfa0218|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xeafdacd3090def10|expected=0xeafdacd3090def10|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=89
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=91|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0xed9d8ba03ac6370e|expected=0xed9d8ba03ac6370e|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xed9d8ba03ac6370e|expected=0xed9d8ba03ac6370e|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x6e07040b03c54a83|expected=0x6e07040b03c54a83|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xf866a8a1afd8fab9|expected=0xf866a8a1afd8fab9|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=90
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=92|elapsed_ms=123
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xcdba44f40daf5d3c|expected=0xcdba44f40daf5d3c|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xcdba44f40daf5d3c|expected=0xcdba44f40daf5d3c|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x16929a3766df60b7|expected=0x16929a3766df60b7|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xa1f712b794430554|expected=0xa1f712b794430554|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=91
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=93|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x1dd00d013d4dd57e|expected=0x1dd00d013d4dd57e|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x1dd00d013d4dd57e|expected=0x1dd00d013d4dd57e|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x738251d87b49d854|expected=0x738251d87b49d854|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x143a6ea5274113d8|expected=0x143a6ea5274113d8|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=92
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=94|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x447c9bd4fcd68c9b|expected=0x447c9bd4fcd68c9b|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x447c9bd4fcd68c9b|expected=0x447c9bd4fcd68c9b|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x6846ef47d5fdd9b1|expected=0x6846ef47d5fdd9b1|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x27c9124f486bdddf|expected=0x27c9124f486bdddf|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=93
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=95|elapsed_ms=116
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x1e6414bd8dc55948|expected=0x1e6414bd8dc55948|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x1e6414bd8dc55948|expected=0x1e6414bd8dc55948|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xf76a75213824b538|expected=0xf76a75213824b538|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x3499a79433d6a2a9|expected=0x3499a79433d6a2a9|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=94
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=96|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0xa3d34f6235fb952|expected=0xa3d34f6235fb952|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xa3d34f6235fb952|expected=0xa3d34f6235fb952|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x960bdb8bff4c909e|expected=0x960bdb8bff4c909e|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xaa1a4110ed38386d|expected=0xaa1a4110ed38386d|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=95
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=97|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0xc051e98ae2501cef|expected=0xc051e98ae2501cef|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xc051e98ae2501cef|expected=0xc051e98ae2501cef|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x27ce919a4f96ee46|expected=0x27ce919a4f96ee46|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x767b95c8ae7e518f|expected=0x767b95c8ae7e518f|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=96
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=98|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xc04bf8526acdfc7c|expected=0xc04bf8526acdfc7c|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xc04bf8526acdfc7c|expected=0xc04bf8526acdfc7c|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x68f5aa8bce9dfaac|expected=0x68f5aa8bce9dfaac|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xcef81b1bf9e16ae2|expected=0xcef81b1bf9e16ae2|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=97
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=99|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x46991cc5b25df460|expected=0x46991cc5b25df460|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x46991cc5b25df460|expected=0x46991cc5b25df460|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xddc97719cc4e435f|expected=0xddc97719cc4e435f|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xd75705c5c6337ff1|expected=0xd75705c5c6337ff1|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=98
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=100|elapsed_ms=119
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0xacc2a7fbe6059c6b|expected=0xacc2a7fbe6059c6b|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xacc2a7fbe6059c6b|expected=0xacc2a7fbe6059c6b|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x7f01f84d48cec588|expected=0x7f01f84d48cec588|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xfb38cd2cf0b921e|expected=0xfb38cd2cf0b921e|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=99
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=101|elapsed_ms=123
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x43bb4bad0cce0c6c|expected=0x43bb4bad0cce0c6c|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x43bb4bad0cce0c6c|expected=0x43bb4bad0cce0c6c|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x5745562feff6809e|expected=0x5745562feff6809e|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xf50787d755831c5d|expected=0xf50787d755831c5d|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=100
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=102|elapsed_ms=126
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x58f843415f22333e|expected=0x58f843415f22333e|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x58f843415f22333e|expected=0x58f843415f22333e|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x31fbf40fcf9e16bf|expected=0x31fbf40fcf9e16bf|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xdfdb2833f331a395|expected=0xdfdb2833f331a395|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=101
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=103|elapsed_ms=121
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x746928e9b800b5be|expected=0x746928e9b800b5be|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x746928e9b800b5be|expected=0x746928e9b800b5be|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x36242efee04fb0f7|expected=0x36242efee04fb0f7|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xca8024b3606ffad0|expected=0xca8024b3606ffad0|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=102
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=104|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x6c1ede9a68116061|expected=0x6c1ede9a68116061|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x6c1ede9a68116061|expected=0x6c1ede9a68116061|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x63f41bcabb83ee00|expected=0x63f41bcabb83ee00|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x387bc274608fab1d|expected=0x387bc274608fab1d|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=103
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=105|elapsed_ms=122
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0xb35e5429c9b2821c|expected=0xb35e5429c9b2821c|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xb35e5429c9b2821c|expected=0xb35e5429c9b2821c|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xd502c82e867785a5|expected=0xd502c82e867785a5|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x8ad8bd96153bf2bd|expected=0x8ad8bd96153bf2bd|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=104
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=106|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0xcc82f2d74cd111e|expected=0xcc82f2d74cd111e|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xcc82f2d74cd111e|expected=0xcc82f2d74cd111e|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x213fcc833408517f|expected=0x213fcc833408517f|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x9f73ec654133af95|expected=0x9f73ec654133af95|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=105
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=107|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xdde639a01a95c2c4|expected=0xdde639a01a95c2c4|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xdde639a01a95c2c4|expected=0xdde639a01a95c2c4|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x6ad608ce79f93cf|expected=0x6ad608ce79f93cf|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xe8bafcdf359913f4|expected=0xe8bafcdf359913f4|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=106
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=108|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x191306feeecca137|expected=0x191306feeecca137|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x191306feeecca137|expected=0x191306feeecca137|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x3e2c9dafb707bee5|expected=0x3e2c9dafb707bee5|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x218355a875715da2|expected=0x218355a875715da2|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=107
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=109|elapsed_ms=126
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x71262fd63b5721d9|expected=0x71262fd63b5721d9|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x71262fd63b5721d9|expected=0x71262fd63b5721d9|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x470fe8a7ab9630e7|expected=0x470fe8a7ab9630e7|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xdc82c2ea60add95b|expected=0xdc82c2ea60add95b|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=108
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=110|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xf63636b1ab011583|expected=0xf63636b1ab011583|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xf63636b1ab011583|expected=0xf63636b1ab011583|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xea87ad00d1db8b40|expected=0xea87ad00d1db8b40|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x97045e15b2891b43|expected=0x97045e15b2891b43|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=109
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=111|elapsed_ms=122
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x1b201bf51b3e262d|expected=0x1b201bf51b3e262d|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x1b201bf51b3e262d|expected=0x1b201bf51b3e262d|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x29c68ba95869b9d9|expected=0x29c68ba95869b9d9|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xee741b52e6a7d57e|expected=0xee741b52e6a7d57e|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=110
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=112|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x4341a7ccfeaf11d1|expected=0x4341a7ccfeaf11d1|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x4341a7ccfeaf11d1|expected=0x4341a7ccfeaf11d1|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x8e7a81be6ca7c7bf|expected=0x8e7a81be6ca7c7bf|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x4643a24e984817e0|expected=0x4643a24e984817e0|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=111
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=113|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x571da6922e540256|expected=0x571da6922e540256|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x571da6922e540256|expected=0x571da6922e540256|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xdc4f7bff0aa11fcd|expected=0xdc4f7bff0aa11fcd|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xc373569fbf4479fe|expected=0xc373569fbf4479fe|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=112
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=114|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0xca6d45ae28f76b0a|expected=0xca6d45ae28f76b0a|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xca6d45ae28f76b0a|expected=0xca6d45ae28f76b0a|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xbe9ba57988fd122d|expected=0xbe9ba57988fd122d|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x307b1c2f9508f4fc|expected=0x307b1c2f9508f4fc|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=113
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=115|elapsed_ms=123
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0xa3a6164852e18f9f|expected=0xa3a6164852e18f9f|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xa3a6164852e18f9f|expected=0xa3a6164852e18f9f|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xe31fc2620601fe51|expected=0xe31fc2620601fe51|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x17be65321cb083e2|expected=0x17be65321cb083e2|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=114
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=116|elapsed_ms=118
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xd69e0d5cb693781c|expected=0xd69e0d5cb693781c|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xd69e0d5cb693781c|expected=0xd69e0d5cb693781c|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xff54982b0bfa470a|expected=0xff54982b0bfa470a|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x2e53d87e998a0f62|expected=0x2e53d87e998a0f62|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=115
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=117|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x812a53e82d94dbf6|expected=0x812a53e82d94dbf6|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x812a53e82d94dbf6|expected=0x812a53e82d94dbf6|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x7ab6f993c68e171a|expected=0x7ab6f993c68e171a|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xb9de1e13e350d84d|expected=0xb9de1e13e350d84d|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=116
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=118|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0xed6eee129493a813|expected=0xed6eee129493a813|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xed6eee129493a813|expected=0xed6eee129493a813|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xf1e00bdfa29cadac|expected=0xf1e00bdfa29cadac|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x2c5857fd40f06de8|expected=0x2c5857fd40f06de8|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=117
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=119|elapsed_ms=126
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x80548c95c644df9|expected=0x80548c95c644df9|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x80548c95c644df9|expected=0x80548c95c644df9|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xba1e45cbf370ba82|expected=0xba1e45cbf370ba82|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x5d053d38201dff9b|expected=0x5d053d38201dff9b|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=118
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=120|elapsed_ms=117
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x406d96fc46a72fb4|expected=0x406d96fc46a72fb4|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x406d96fc46a72fb4|expected=0x406d96fc46a72fb4|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xa01bf45790e09f7a|expected=0xa01bf45790e09f7a|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x54b1c270eda0f671|expected=0x54b1c270eda0f671|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=119
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=121|elapsed_ms=108
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x2014f19890c22b66|expected=0x2014f19890c22b66|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x2014f19890c22b66|expected=0x2014f19890c22b66|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xb4768e457ce8f455|expected=0xb4768e457ce8f455|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x15088e76520bef46|expected=0x15088e76520bef46|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=120
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=122|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x30aa655ffa278133|expected=0x30aa655ffa278133|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x30aa655ffa278133|expected=0x30aa655ffa278133|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xebf556380eca5549|expected=0xebf556380eca5549|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xbd16d1e243d0cde6|expected=0xbd16d1e243d0cde6|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=121
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=123|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0xc8c37855ef58311a|expected=0xc8c37855ef58311a|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xc8c37855ef58311a|expected=0xc8c37855ef58311a|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xb3c6cebf120c273d|expected=0xb3c6cebf120c273d|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x9bd81d4dfd331481|expected=0x9bd81d4dfd331481|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=122
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=124|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0xa64b866d78cbc670|expected=0xa64b866d78cbc670|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xa64b866d78cbc670|expected=0xa64b866d78cbc670|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xc24b4120d3595977|expected=0xc24b4120d3595977|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xe09837ee64b06e4d|expected=0xe09837ee64b06e4d|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=123
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=125|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x551e23a009c7ef9|expected=0x551e23a009c7ef9|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x551e23a009c7ef9|expected=0x551e23a009c7ef9|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x2565b8ea1f6a17d1|expected=0x2565b8ea1f6a17d1|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xd46acdd931333969|expected=0xd46acdd931333969|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=124
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=126|elapsed_ms=118
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x976f80c1e33095ee|expected=0x976f80c1e33095ee|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x976f80c1e33095ee|expected=0x976f80c1e33095ee|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x54f25fd70fb661c0|expected=0x54f25fd70fb661c0|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xdb9ece88c323aff0|expected=0xdb9ece88c323aff0|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=125
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=127|elapsed_ms=123
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x123ef8582e9f07ad|expected=0x123ef8582e9f07ad|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x123ef8582e9f07ad|expected=0x123ef8582e9f07ad|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x3ac7e86cec8a3b0|expected=0x3ac7e86cec8a3b0|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x13149b453bd9e2a6|expected=0x13149b453bd9e2a6|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=126
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=128|elapsed_ms=128
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x1fc44fc992e67342|expected=0x1fc44fc992e67342|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x1fc44fc992e67342|expected=0x1fc44fc992e67342|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xdb2ec665f19775db|expected=0xdb2ec665f19775db|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xc374e0a96ee0b593|expected=0xc374e0a96ee0b593|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=127
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=129|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x850d2f800da5a258|expected=0x850d2f800da5a258|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x850d2f800da5a258|expected=0x850d2f800da5a258|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x6731ba1e576bdc95|expected=0x6731ba1e576bdc95|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xc45ac390adf29a8a|expected=0xc45ac390adf29a8a|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=128
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=130|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x465160b4a3ac5675|expected=0x465160b4a3ac5675|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x465160b4a3ac5675|expected=0x465160b4a3ac5675|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x68c22f8a5f762ee|expected=0x68c22f8a5f762ee|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x35a87b60949dc1eb|expected=0x35a87b60949dc1eb|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=129
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=131|elapsed_ms=121
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x1e0419ad9898fb5|expected=0x1e0419ad9898fb5|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x1e0419ad9898fb5|expected=0x1e0419ad9898fb5|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x8bd82b5ccb798c61|expected=0x8bd82b5ccb798c61|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xe1b232f36b2a395d|expected=0xe1b232f36b2a395d|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=130
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=132|elapsed_ms=111
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x5e1f4fa6113048fc|expected=0x5e1f4fa6113048fc|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x5e1f4fa6113048fc|expected=0x5e1f4fa6113048fc|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x730be031e857122a|expected=0x730be031e857122a|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x52b8db9375a228b2|expected=0x52b8db9375a228b2|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=131
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=133|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x3955c153649533b|expected=0x3955c153649533b|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x3955c153649533b|expected=0x3955c153649533b|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xf7553f7a35f53613|expected=0xf7553f7a35f53613|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xd8ec9ad40131d8a6|expected=0xd8ec9ad40131d8a6|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=132
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=134|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x2f8ef3c6f28b2576|expected=0x2f8ef3c6f28b2576|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x2f8ef3c6f28b2576|expected=0x2f8ef3c6f28b2576|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x8dee4f3ffdea0e30|expected=0x8dee4f3ffdea0e30|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xb1a0204b07b18d74|expected=0xb1a0204b07b18d74|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=133
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=135|elapsed_ms=120
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0xc1fe251824ee15bb|expected=0xc1fe251824ee15bb|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xc1fe251824ee15bb|expected=0xc1fe251824ee15bb|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x767d1809fca6bea9|expected=0x767d1809fca6bea9|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xeaefcc62485acacb|expected=0xeaefcc62485acacb|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=134
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=136|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x136ed6df2812ce68|expected=0x136ed6df2812ce68|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x136ed6df2812ce68|expected=0x136ed6df2812ce68|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x935036964e2d02e4|expected=0x935036964e2d02e4|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x5fb427e3d1794ace|expected=0x5fb427e3d1794ace|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=135
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=137|elapsed_ms=103
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x6d45ada42b96f678|expected=0x6d45ada42b96f678|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x6d45ada42b96f678|expected=0x6d45ada42b96f678|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xe2e383bdfe0ff736|expected=0xe2e383bdfe0ff736|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x52d3a9cdf6da182b|expected=0x52d3a9cdf6da182b|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=136
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=138|elapsed_ms=114
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0xaa8477975f5b2a4b|expected=0xaa8477975f5b2a4b|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xaa8477975f5b2a4b|expected=0xaa8477975f5b2a4b|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x4e9c774d09f837d6|expected=0x4e9c774d09f837d6|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x95e6dd5a04a71736|expected=0x95e6dd5a04a71736|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=137
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=139|elapsed_ms=120
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0xfad2d391dacd88b7|expected=0xfad2d391dacd88b7|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xfad2d391dacd88b7|expected=0xfad2d391dacd88b7|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x377c0dd9fea7b560|expected=0x377c0dd9fea7b560|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x77d1e1e25639d324|expected=0x77d1e1e25639d324|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=138
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=140|elapsed_ms=121
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xb4472966eb50cd9c|expected=0xb4472966eb50cd9c|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xb4472966eb50cd9c|expected=0xb4472966eb50cd9c|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xa949145f4c67dfe3|expected=0xa949145f4c67dfe3|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xef0984b9721633b2|expected=0xef0984b9721633b2|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=139
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=141|elapsed_ms=123
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x5e7bdfc8450619aa|expected=0x5e7bdfc8450619aa|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x5e7bdfc8450619aa|expected=0x5e7bdfc8450619aa|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x1f5f371596e872e4|expected=0x1f5f371596e872e4|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xc2ce6711787b1798|expected=0xc2ce6711787b1798|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=140
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=142|elapsed_ms=112
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x5b8e2d55f4b31e01|expected=0x5b8e2d55f4b31e01|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x5b8e2d55f4b31e01|expected=0x5b8e2d55f4b31e01|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x8fbbfd66a8dcdc89|expected=0x8fbbfd66a8dcdc89|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xb5297ae2ed53624b|expected=0xb5297ae2ed53624b|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=141
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=143|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0xa04d72f105d3ebe4|expected=0xa04d72f105d3ebe4|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xa04d72f105d3ebe4|expected=0xa04d72f105d3ebe4|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x8f612a72d9917699|expected=0x8f612a72d9917699|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x993058d9c928108c|expected=0x993058d9c928108c|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=142
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=144|elapsed_ms=126
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x88aaedc97817087|expected=0x88aaedc97817087|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x88aaedc97817087|expected=0x88aaedc97817087|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xcd608eeac8fe2981|expected=0xcd608eeac8fe2981|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x3e38ddfabbbac813|expected=0x3e38ddfabbbac813|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=143
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=145|elapsed_ms=126
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x967065b94bf0e415|expected=0x967065b94bf0e415|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x967065b94bf0e415|expected=0x967065b94bf0e415|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xe68a1936fbd12c9a|expected=0xe68a1936fbd12c9a|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xf3fd418994727b48|expected=0xf3fd418994727b48|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=144
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=146|elapsed_ms=125
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000005|handles=0
+vk|video-ahb|ring_reuse|slot=0|key=0000495a00000005|slots=3
+vk|video-ahb|layout|slot=0|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=0|fnv=0x1f52ce23d78770f8|expected=0x1f52ce23d78770f8|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x1f52ce23d78770f8|expected=0x1f52ce23d78770f8|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xe74174cb243df1d1|expected=0xe74174cb243df1d1|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xf53c6cead59502fc|expected=0xf53c6cead59502fc|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=0|key=0000495a00000005|imports=3|reuses=145
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=147|elapsed_ms=120
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000004|handles=0
+vk|video-ahb|ring_reuse|slot=1|key=0000495a00000004|slots=3
+vk|video-ahb|layout|slot=1|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=1|fnv=0x2fcd82d94753d3de|expected=0x2fcd82d94753d3de|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x2fcd82d94753d3de|expected=0x2fcd82d94753d3de|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0x150a40736b993a1a|expected=0x150a40736b993a1a|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x133ae4859b86054d|expected=0x133ae4859b86054d|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=1|key=0000495a00000004|imports=3|reuses=146
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=148|elapsed_ms=124
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x320 count=1 frames=1
+vk|dmabuf|handoff|REUSE|key=0000495a00000003|handles=0
+vk|video-ahb|ring_reuse|slot=2|key=0000495a00000003|slots=3
+vk|video-ahb|layout|slot=2|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|cpu_luma|PASS|slot=2|fnv=0x2de7f38d259a6e33|expected=0x2de7f38d259a6e33|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0x2de7f38d259a6e33|expected=0x2de7f38d259a6e33|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xc3b0fee494cf5024|expected=0xc3b0fee494cf5024|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0x5d1b68abc3eda0d0|expected=0x5d1b68abc3eda0d0|bytes=518400|size=960x540
+vk|video-ahb|ring_frame|PASS|slot=2|key=0000495a00000003|imports=3|reuses=147
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|frame_summary|PASS|index=149|elapsed_ms=135
+vk|video-ahb|ring_summary|slots=3|imports=3|reuses=147
+vk|video-ahb|ring_drop|key=0000495a00000003
+vk|video-ahb|ring_drop|key=0000495a00000004
+vk|video-ahb|ring_drop|key=0000495a00000005
+vk|video-ahb|STREAM|CLOSED|completed=150/150
+vk|video-ahb|SUMMARY|PASS|completed=150/150
+vk|teardown|PASS|device/instance/loader released

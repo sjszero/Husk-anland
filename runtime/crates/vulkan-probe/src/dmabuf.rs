@@ -28,6 +28,7 @@ const VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO: u32 = 1_000_072_000;
 const VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR: u32 = 1_000_074_000;
 const VK_STRUCTURE_TYPE_BUFFER_MEMORY_REQUIREMENTS_INFO_2: u32 = 1_000_146_000;
 const VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2: u32 = 1_000_146_003;
+const AHB_FORMAT_YV12: u32 = 0x3231_5659;
 
 #[repr(C)]
 struct IoVec {
@@ -3886,6 +3887,46 @@ unsafe fn run_video_core(
         );
     }
 
+    // Run the YUV->RGBA gate once for the stable first slot. Later frames still
+    // execute the existing per-plane CPU/GPU hash checks; the converter's
+    // persistent-resource form is a separate step after this correctness probe.
+    let yuv_ok = if slot_index == 0 && ring.reuses == 0 {
+        if meta.format != AHB_FORMAT_YV12 || meta.plane_count < 3 {
+            line(
+                "yuv_rgb",
+                "SKIP",
+                format!(
+                    "unsupported input format={:#x} planes={}",
+                    meta.format, meta.plane_count
+                ),
+            );
+            true
+        } else {
+            crate::yuv::run(
+                lib,
+                physical,
+                device,
+                queue,
+                family_index,
+                fd,
+                meta.width,
+                meta.height,
+                [
+                    meta.planes[0].offset,
+                    meta.planes[1].offset,
+                    meta.planes[2].offset,
+                ],
+                [
+                    meta.planes[0].row_stride,
+                    meta.planes[1].row_stride,
+                    meta.planes[2].row_stride,
+                ],
+            )
+        }
+    } else {
+        true
+    };
+
     let get_format_properties: unsafe extern "C" fn(
         VkPhysicalDevice,
         u32,
@@ -3968,7 +4009,7 @@ unsafe fn run_video_core(
             plane,
         );
     }
-    let ok = cpu_ok && gpu_ok;
+    let ok = cpu_ok && gpu_ok && yuv_ok;
     line(
         "video-ahb",
         "ring_frame",

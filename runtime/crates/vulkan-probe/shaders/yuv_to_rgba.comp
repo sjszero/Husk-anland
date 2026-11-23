@@ -1,0 +1,58 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(push_constant, std430) uniform Params {
+    uint width;
+    uint height;
+    uint y_offset;
+    uint v_offset;
+    uint u_offset;
+    uint y_stride;
+    uint chroma_stride;
+    uint reserved;
+} pc;
+
+layout(std430, binding = 0) readonly buffer YuvInput {
+    uint words[];
+} input_yuv;
+
+layout(std430, binding = 1) writeonly buffer RgbaOutput {
+    uint words[];
+} output_rgba;
+
+uint byte_at(uint plane_offset, uint row_offset) {
+    uint pos = plane_offset + row_offset;
+    return (input_yuv.words[pos >> 2u] >> ((pos & 3u) * 8u)) & 0xffu;
+}
+
+uint clamp_u8(int value) {
+    return value <= 0 ? 0u : (value >= 255 ? 255u : uint(value));
+}
+
+void main() {
+    uvec2 pixel = gl_GlobalInvocationID.xy;
+    if (pixel.x >= pc.width || pixel.y >= pc.height) {
+        return;
+    }
+
+    uint y = byte_at(pc.y_offset, pixel.y * pc.y_stride + pixel.x);
+    uint chroma_x = pixel.x >> 1u;
+    uint chroma_y = pixel.y >> 1u;
+    uint v = byte_at(pc.v_offset, chroma_y * pc.chroma_stride + chroma_x);
+    uint u = byte_at(pc.u_offset, chroma_y * pc.chroma_stride + chroma_x);
+
+    int c = max(int(y) - 16, 0);
+    int d = int(u) - 128;
+    int e = int(v) - 128;
+
+    int rv = 298 * c + 409 * e;
+    int gv = 298 * c - 100 * d - 208 * e;
+    int bv = 298 * c + 516 * d;
+    uint r = rv <= 0 ? 0u : clamp_u8((rv + 128) >> 8);
+    uint g = gv <= 0 ? 0u : clamp_u8((gv + 128) >> 8);
+    uint b = bv <= 0 ? 0u : clamp_u8((bv + 128) >> 8);
+
+    output_rgba.words[pixel.y * pc.width + pixel.x] =
+        r | (g << 8u) | (b << 16u) | 0xff000000u;
+}
