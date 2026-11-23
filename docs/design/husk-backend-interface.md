@@ -44,7 +44,19 @@ HBI 不按“GPU 接口 / 视频接口 / 音频接口”分成三套互不相关
 
 统一的关键不是“函数名一样”，而是**同一块 Buffer 和同一个 Fence 能在视频解码、GPU 转换、显示和音频时钟之间移动**。这正好对应 Husk 已有的 AHB + dma-buf + sync_file 实测基础。
 
-## 3. 可行性判断
+## 3. 为什么放在系统层
+
+**JUDGMENT：** 正确位置是 Husk 的系统运行层，而不是每个应用、每个播放器各写一套。
+
+- guest 内把 HBI 装成系统库：VA-API driver、Vulkan ICD、EGL/GL 入口、显示后端；
+- app 进程内只保留一个 bionic 侧 `MediaCodec`/`AAudio`/Surface bridge；
+- Chromium、GStreamer、Totem、Mesa 看到的是标准系统接口，不需要知道 MTK、Mali 或 Adreno；
+- 新芯片只替换 HBI 后面的 adapter，不改 Chromium、GStreamer、GNOME 或业务代码。
+
+**FACT：** 这不等于“没有适配”。设备节点、ioctl、buffer modifier、fence、MediaCodec 名字和显示目标仍然由 adapter 处理；
+只是适配从“每个应用各做一次”降为“系统层每个芯片族做一次”。
+
+## 4. 可行性判断
 
 | 能力 | 可行度 | 原因 |
 |---|---:|---|
