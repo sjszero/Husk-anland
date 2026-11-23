@@ -6,10 +6,12 @@
 
 ## 一句话
 
-运行时核心（loader + path-shim + exec/PTY/信号/生命周期）、服务器表面（`/proc`、`/dev/log`、
-装包）和 GPU、显示、视频、音频、相机、输入六类硬件都已在该机跑通；
-**现在卡在最后一段：GNOME 桌面把帧交给 Android Surface**。
-传感器、GPS、USB / 蓝牙 / NFC / 指纹尚未开始；2.0 的 proot 运行时尚未替换。
+运行时核心（loader + path-shim + exec/PTY/信号/生命周期）、服务器表面（`/proc`、`/dev`、
+`/dev/log`、装包）和 GPU、显示、视频、音频、相机、输入六类硬件都已在该机跑通。
+按"对标容器/轻量虚拟机"的环境口径，A（账号）、B（挂载）、C（设备节点）、D（网络表面）
+四段已收口；**E 只剩服务监督器**，F 只剩 16K/64K 实机和 Mali 以外的 GPU 家族适配。
+桌面帧出屏（G）按目标延后，不作为环境完整性判据。传感器、GPS、USB / 蓝牙 / NFC / 指纹
+尚未开始；2.0 的 proot 运行时尚未替换。
 
 ## 已完成（回归门禁，改动后必须重跑）
 
@@ -30,6 +32,7 @@
 | ld.so.cache | 自研 Rust writer（1.1 格式），glibc 自己的静态阅读器接受 | 109 |
 | 服务器表面 | `/proc` 合成、`/sys/class/net`、`/dev/log` 落地；79 PASS / 5 PARTIAL / 6 FAIL | 107 / 109 / 111 / 112 |
 | 挂载 | bind、tmpfs、只读 bind 的命名空间等价物（`mount`/`umount2` + 路径层，`/proc/mounts` 一致）；只读对目录描述符同样生效，元数据写入（chmod/chown/utimensat/xattr）同样 `EROFS`，表有锁、存储目录不留残留 | 112 / 113 / 117 |
+| 设备节点 | `/dev/{null,zero,random,urandom,shm,pts/*,mali0,videoN}` 按名字打开全部正常，`mkfifo` 可用；三条平台墙已定性并写成断言：`/dev` 列不了目录（SELinux，不经 loader 也一样）、`/dev/full` 做不到 `ENOSPC`（要拦 `write(2)`，且 glibc stdio 走内部 `__write_nocancel`，判定为**不支持**）、`/dev/tty` 缺控制终端（`ENXIO`，属终端载体） | 118 |
 | 网络表面 | `ip addr`/`ip route`/`ip link`/`ip -br`/`hostname -I`/`/proc/net/{dev,route}`/`if_nameindex`/`getent`/`getaddrinfo` 全通；netlink 用 `socketpair(AF_UNIX)` 冒充，改网络的动词回 `EPERM`（不假成功），`ip route get` 与 `ip neigh` 回 `EOPNOTSUPP`；MAC 全 0、无 IPv6、无默认网关、`ss` 空表 | 116 |
 | 账号管理 | 自研 `husk-usermgr`（useradd/groupadd/usermod/userdel/groupdel/chpasswd/passwd/chfn/chsh）；`apt-get install tor` 的 postinst 建号成功 | 111 |
 | POSIX 消息队列 | guest 内 `mq_open/mq_send/mq_receive/mq_getattr/mq_unlink` 全通（优先级顺序、`EAGAIN`、`curmsgs` 计数），12/12 PASS；根因是 arm64 glibc 的 `mq_*` 走未实现的 legacy syscall，必须函数级 interpose | 114 |
@@ -50,18 +53,22 @@
   `PipeWireStreamAdded` 正常到达、Produce 节点（`node=Some(32)`，`Stream/Output/Video`）可见，
   `EnumFormat` = BGRx/BGRA 1280x720。
 
-## 下一步（按顺序）
+## 下一步（按环境完整性口径排序）
 
-0. **先解决会话栈身份与稳定性**（evidence 110）：会话进程必须 `NR_FAKE_ROOT=0`；
-   GDBus 的 `SCM_CREDENTIALS` 在 fake root 下 EPERM；gnome-shell 46 目前会
-   `free(): invalid pointer` 崩，要么复现定位、要么退回 mutter headless + ScreenCast。
-1. 写 Rust 消费者：在 `EnumFormat` 里带 `SPA_FORMAT_VIDEO_modifier`，确认 mutter 按 dmabuf 分配。
-2. 帧消费者：PipeWire → dmabuf → AHB → SurfaceControl（复用已验证的 3-buffer ring）。
-3. GNOME 桌面可用性验收：浏览器、文件管理器、终端。
-4. 传感器（IIO sysfs 合成树 + NDK `ASensorManager`，纯 Rust）、GPS（`/dev/gps0` NMEA）。
-5. USB（usbfs ioctl 翻译）/ 蓝牙（org.bluez D-Bus 门面）/ NFC（读卡器姿态）；
-   指纹按平台限制记为不可用。
-6. 2.0 集成：替换 proot 运行时，逐项删除 proot 专用补丁。
+1. **E：服务监督器**（container 式 init）——启动、重启、回收到零僵尸、日志落盘；
+   参考 youki 的 pid1 分层与 Droidspaces 的能力面，形状写 `docs/design/supervisor.md`。
+   验收：一套服务配置起停三次、杀掉子进程立即被回收、日志可按服务分开读。
+2. **E：`top`/`ps` 的进程名**——目前 guest 进程的 comm 是 `libld39.so`（ps 的 COMMAND
+   列因此难看，`pgrep -x bash` 也不命中）；需要把 guest 程序名传给子进程并在 shim 里
+   `prctl(PR_SET_NAME)`。属可用度，不是正确性。
+3. **F：16K/64K 实机**——本机只有 4 KiB；`nr-tools check-elf` 已能静态体检，
+   需要一台 16K 设备把 `mmap`/`mprotect`/动态库加载跑一遍，没机器就写 UNKNOWN。
+4. **F：GPU 家族适配器**——本机只验了 Mali(kbase)。Adreno(kgsl + Turnip) 与通用 DRM
+   按 `docs/design/device-adapters.md` 的表结构补适配器，没设备的一律 UNKNOWN。
+5. **2.0 集成**：替换 proot 运行时，逐项删除 proot 专用补丁（用 artifacts/rollback 里的
+   已知好包做对照）。
+6. **G（延后）**：GNOME 帧出屏。前置未解：会话进程须 `NR_FAKE_ROOT=0`、GDBus 的
+   `SCM_CREDENTIALS` 在 fake root 下 EPERM、gnome-shell 46 会 `free(): invalid pointer` 崩。
 
 ## 已知环境细节（踩过的坑，别再踩）
 

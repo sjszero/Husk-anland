@@ -41,6 +41,7 @@ files/nrfull/root/            # real rootfs: glibc 2.39, bash, coreutils, grep, 
 | `05-mount-audit.sh` | mount/tmpfs/read-only audit: 8 findings from an external review, 11 checks | `sh gexec.sh rootfs-full usr/bin/bash tmp/05-mount-audit.sh` |
 | `06-posix-mqueue.py` `07-sysv-shm.py` `08-sysv-sem-msg.py` | POSIX mqueue, SysV shm, SysV sem/msg | `sh gexec.sh rootfs-full usr/bin/python3 tmp/0N-*.py` |
 | `09-network-surface.sh` | netlink surface: `ip`/`hostname -I`/`/proc/net/*`/`getent` answer, writes are refused with EPERM/EOPNOTSUPP | `sh gexec.sh rootfs-full usr/bin/bash tmp/09.sh` |
+| `10-device-nodes.sh` | device node surface by name, plus the three platform walls (`/dev` listing, `/dev/full`, `/dev/tty`) asserted as known limits | `sh gexec.sh rootfs-full usr/bin/bash tmp/10.sh` |
 | `provision-toolchain.sh` | host-side: resolve, unpack and push the Ubuntu gcc/make toolchain (skips libc6 on purpose). Thin wrapper over `nr-tools provision` (Rust), the only implementation | `./provision-toolchain.sh` |
 
 `run-guest.sh` environment knobs: `DEV=` device id, `ENV=K=V,K2=V2` extra environment
