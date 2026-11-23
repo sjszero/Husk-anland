@@ -3,6 +3,15 @@
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
 
+## 最新（2026-11-23 16:40）
+
+**mutter 46 在 guest 里跑成了 Wayland 合成器，GPU 是 Mali-G77（PanVK）**（evidence 97）。
+关键环境：`DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus`（自建 dbus-daemon）+
+`MESA_LOADER_DRIVER_OVERRIDE=zink GALLIUM_DRIVER=zink` + PanVK 的 ICD + EGL vendor 文件。
+同时确认 `org.gnome.Mutter.ScreenCast` 与 `org.gnome.Mutter.RemoteDesktop` 都在，
+`RemoteDesktop.CreateSession` 返回 `/org/gnome/Mutter/RemoteDesktop/Session/u1` ——
+显示与输入的"标准接口"两条腿都证实可用，剩下的是工程量而不是可行性。
+
 ## 最新（2026-11-23 16:20）
 
 `mutter 46.2` 在 Husk loader 下能跑了（evidence 96）。过程中挖出两个真问题：
