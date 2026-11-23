@@ -67,6 +67,17 @@ PT_LOAD 的映射边界。`chmod`/`chown`/`utimensat`/`statx` 现在固定最终
 恶意 ELF 注入、GOT 失败注入、rootfd 并发 close/reopen、
 SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不能写成已完成。
 
+## VA 系统层接进 app 解码器（evidence 84，2026-11-23）
+
+**FACT：`vaapih264dec` 的 access unit 已经进到 app 侧 `c2.mtk.avc.decoder`，`vaEndPicture` 从 UNIMPLEMENTED 变成 SUCCESS。**
+
+- 走过真实插件路径：`HUSK_VA_ACCESS_UNIT`(94924 B, 12 slices, IDR 起始) → `HUSK_VA_BRIDGE_OPEN` → `HUSK_VA_BRIDGE_SUBMIT` ×2；
+  app 侧 `video|bridge|OPEN|OPEN_READY ... codec=c2.mtk.avc.decoder`，退出时 `expected=2`。
+- 合成 CSD（`h264.rs` 的 SPS/PPS）被 MediaCodec 接受（否则 configure 失败、不会有 OPEN_READY）；"接受"不等于"正确"，等有解码帧再判。
+- **当前卡点（FACT）**：gst-vaapi 用 VA image 建输出池 → `Cannot create VA image` → src pad allocator 失败 → 管线拆掉。
+  下一步是 VA image/surface 导出（`vaCreateImage` / `vaDeriveImage` / `vaMapBuffer`）并把解码帧送回 guest。
+- `frames=0 decoded=0` 不能读成"解码失败"：整段会话只活了 ~40 ms，是 guest 先报错退出，解码器还没来得及出帧。
+
 ## 硬件能力矩阵（evidence 83，2026-11-23）
 
 **FACT：app 进程内已经能量出这台机器对每一类硬件的真实暴露情况，并写成一份两边共读的文件。**

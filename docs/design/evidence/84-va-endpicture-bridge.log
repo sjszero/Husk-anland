@@ -1,0 +1,96 @@
+=== 2026-11-23T04:57:57Z VA bridge smoke ===
+driver sha256: 92d9b0940998f3b4415d17fc17863a7978ebd66d2f385885162508054cbf5083
+--- guest ---
+0:00:00.020155385 [33m18848[00m   0x556be7b4a0 [33;01mWARN   [00m [00m               vaapi gstvaapiutils.c:78:gst_vaapi_warning:[00m vaGetDriverNames() failed with unknown libva error
+HUSK_VA_INIT enter ctx=0x556be7b140
+HUSK_VA_INIT done profiles=5 entrypoints=1 attrs=8 images=1 subpics=1 vendor=0x73bda15021 vtable=0x556be7bd40
+error: XDG_RUNTIME_DIR is invalid or not set in the environment.
+0:00:00.025003693 [33m18848[00m   0x556be7b4a0 [33;01mWARN   [00m [00m            gleglgbm gstgl_gbm_utils.c:473:gst_gl_gbm_find_and_open_drm_node:[00m Found no matching DRM devices
+0:00:00.025048616 [33m18848[00m   0x556be7b4a0 [31;01mERROR  [00m [00m           gldisplay gstgldisplay_gbm.c:439:gst_gl_display_gbm_new:[00m could not find or open DRM device
+error: XDG_RUNTIME_DIR is invalid or not set in the environment.
+0:00:00.025573846 [33m18848[00m   0x556be7b4a0 [33;01mWARN   [00m [00m               vaapi gstvaapiutils.c:78:gst_vaapi_warning:[00m vaGetDriverNames() failed with unknown libva error
+HUSK_VA_INIT enter ctx=0x556be8d840
+HUSK_VA_INIT done profiles=5 entrypoints=1 attrs=8 images=1 subpics=1 vendor=0x73bda15021 vtable=0x556be8dba0
+HUSK_VA_BUFFER context=1 type=0 size=672 elements=1 bytes=672 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=1 size=240 elements=1 bytes=240 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=5133 elements=1 bytes=5133 prefix=6588843a0c6001e202215c215554e857
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=3706 elements=1 bytes=3706 prefix=65005a22210e84628000863c7000103d
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=4852 elements=1 bytes=4852 prefix=650029488843a118a000218f1c00040f
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=3668 elements=1 bytes=3668 prefix=65003fc88843a118a000218f1c00040f
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=2570 elements=1 bytes=2570 prefix=650015922210e84628000863c7000103
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=3961 elements=1 bytes=3961 prefix=65001a422210e84628000863c7000103
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=923 elements=1 bytes=923 prefix=65001fe22210e84628000863c7000103
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=11889 elements=1 bytes=11889 prefix=6500096088843a118a000218f1c00040
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=25920 elements=1 bytes=25920 prefix=65000a8c88843a118a000218f1c00040
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=25714 elements=1 bytes=25714 prefix=65000bf488843a118a000218f1c00040
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=5875 elements=1 bytes=5875 prefix=65000d5c88843a118a000218f1c00040
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=665 elements=1 bytes=665 prefix=65000e8888843a118a000218f1c00040
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_END_ENTER ctx=0x556be8d840 context=1
+HUSK_VA_END_ACTIVE context=1 surface=1 buffers=26 size=1920x1088 profile=13
+HUSK_VA_END_GATHER slices=12 access_bytes=94924 picture_params=672 slice_params=3128 types=4:3128,5:5133,4:3128,5:3706,4:3128,5:4852,4:3128,5:3668,4:3128,5:2570,4:3128,5:3961,4:3128,5:923,4:3128,5:11889,4:3128,5:25920,4:3128,5:25714,4:3128,5:5875,4:3128,5:665
+HUSK_VA_ACCESS_UNIT context=1 surface=1 profile=13 size=1920x1088 slices=12 bytes=94924 buffers=4:3128,5:5133,4:3128,5:3706,4:3128,5:4852,4:3128,5:3668,4:3128,5:2570,4:3128,5:3961,4:3128,5:923,4:3128,5:11889,4:3128,5:25920,4:3128,5:25714,4:3128,5:5875,4:3128,5:665 prefix=000000016588843a0c6001e202215c215554e857b00c4e00569b06631b6a1010
+HUSK_VA_BRIDGE_OPEN context=1 size=1920x1088 codec=c2.mtk.avc.decoder
+HUSK_VA_BRIDGE_SUBMIT context=1 surface=1 profile=13 bytes=94924
+HUSK_VA_BUFFER context=1 type=0 size=672 elements=1 bytes=672 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=1 size=240 elements=1 bytes=240 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=1710 elements=1 bytes=1710 prefix=419a21af0cc3879ee69e42000100300e
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=853 elements=1 bytes=853 prefix=41005a2688687e0244955fc12d555555
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=518 elements=1 bytes=518 prefix=41002949a21a0418091fffe08b7bbfd5
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=189 elements=1 bytes=189 prefix=41003fc9a21a06d809157fa913ea3efa
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=119 elements=1 bytes=119 prefix=41001592688681ef5a8ec048fc45deee
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=99 elements=1 bytes=99 prefix=41001a42688681ef5a820c048fd5bea9
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=828 elements=1 bytes=828 prefix=41001fe2688681ef5a835e1a81c0200a
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=9162 elements=1 bytes=9162 prefix=410009609a21a07bd6a0100888d800aa
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=20185 elements=1 bytes=20185 prefix=41000a8c9a21a07bd6a3f8d800b62b71
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=20224 elements=1 bytes=20224 prefix=41000bf49a21a0ef0d407b4f9805d978
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=4274 elements=1 bytes=4274 prefix=41000d5c9a21a07bd6a3f8d80016b35b
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_BUFFER context=1 type=5 size=12 elements=1 bytes=12 prefix=41000e889a21a07bd6a00a52
+HUSK_VA_BUFFER context=1 type=4 size=3128 elements=1 bytes=3128 prefix=00000000000000000000000000000000
+HUSK_VA_END_ENTER ctx=0x556be8d840 context=1
+HUSK_VA_END_ACTIVE context=1 surface=2 buffers=26 size=1920x1088 profile=13
+HUSK_VA_END_GATHER slices=12 access_bytes=58221 picture_params=672 slice_params=3128 types=4:3128,5:1710,4:3128,5:853,4:3128,5:518,4:3128,5:189,4:3128,5:119,4:3128,5:99,4:3128,5:828,4:3128,5:9162,4:3128,5:20185,4:3128,5:20224,4:3128,5:4274,4:3128,5:12
+HUSK_VA_ACCESS_UNIT context=1 surface=2 profile=13 size=1920x1088 slices=12 bytes=58221 buffers=4:3128,5:1710,4:3128,5:853,4:3128,5:518,4:3128,5:189,4:3128,5:119,4:3128,5:99,4:3128,5:828,4:3128,5:9162,4:3128,5:20185,4:3128,5:20224,4:3128,5:4274,4:3128,5:12 prefix=00000001419a21af0cc3879ee69e42000100300e164c20002418a30003012203
+HUSK_VA_BRIDGE_SUBMIT context=1 surface=2 profile=13 bytes=58221
+0:00:00.179753616 [33m18848[00m   0x73b0000b70 [31;01mERROR  [00m [00m    vaapivideomemory gstvaapivideomemory.c:936:allocator_configure_image_info:[00m Cannot create VA image
+0:00:00.180501231 [33m18848[00m   0x73b0000b70 [31;01mERROR  [00m [00m         vaapidecode gstvaapipluginbase.c:660:ensure_srcpad_allocator:<vaapidecode_h264-0>[00m failed to create src pad's allocator
+0:00:00.180872693 [33m18848[00m   0x73b0000b70 [33;01mWARN   [00m [00m        videodecoder gstvideodecoder.c:4392:gst_video_decoder_negotiate_pool:<vaapidecode_h264-0>[00m Subclass failed to decide allocation
+0:00:00.181167693 [33m18848[00m   0x73b0000b70 [33;01mWARN   [00m [00m             qtdemux qtdemux.c:7439:gst_qtdemux_loop:<qtdemux0>[00m error: Internal data stream error.
+0:00:00.181314462 [33m18848[00m   0x73b0000b70 [33;01mWARN   [00m [00m             qtdemux qtdemux.c:7439:gst_qtdemux_loop:<qtdemux0>[00m error: streaming stopped, reason error (-5)
+ERROR: from element /GstPipeline:pipeline0/GstQTDemux:qtdemux0: Internal data stream error.
+Additional debug info:
+../gst/isomp4/qtdemux.c(7439): gst_qtdemux_loop (): /GstPipeline:pipeline0/GstQTDemux:qtdemux0:
+streaming stopped, reason error (-5)
+ERROR: pipeline doesn't want to preroll.
+HOST_RC=1
+--- app ---
+11-23 12:57:26.321 18101 18590 I Husk    : video|bridge|client|disconnected
+11-23 12:57:56.485 18101 18590 I Husk    : video|bridge|client|connected|fd=3
+11-23 12:57:56.531 18101 18590 I Husk    : video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+11-23 12:57:56.534 18101 18590 I Husk    : video|bridge|output|fixed-bytebuffer-yv12-ring
+11-23 12:57:56.583 18101 18590 I Husk    : video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+11-23 12:57:56.622 18101 18590 I Husk    : video|bridge|client|read|peer closed
+11-23 12:57:56.654 18101 18590 I Husk    : video|bridge|disconnect|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1088 frames=0 expected=2 decoded=0 dropped=2 output_bytes=0 images_last=0 stop_rc=0 delete_rc=0
+11-23 12:57:56.659 18101 18590 I Husk    : video|bridge|client|disconnected
