@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 10:41）
+# 当前状态（2026-11-23 11:02）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -33,8 +33,12 @@ AImage，并在 CLOSE 时先排空在途帧再停止 worker，150/150 帧全部�
 MediaCodec 的 ByteBuffer 输出改为应用预分配的 **3 个固定 YV12 AHB**，真机完成
 **150/150 帧、3 次 import、147 次 reuse**；evidence 78 又把其中一个真实解码 YV12 dma-buf
 作为 Vulkan external storage buffer 导入 PanVK，compute shader 转 RGBA8 后 9/9 个采样点
-与 CPU 参考值逐位一致。但这条路径仍是 CPU I420→YV12 拷贝，GPU 转换只在第一帧执行；
-还没有持久 converter、RGBA 写回 AHB、guest WSI 或完整播放路径。
+与 CPU 参考值逐位一致。evidence 79 又把转换器改为每个固定 slot 的持久对象，逐帧把真实
+YV12 转成 RGBA8 并写回 app 分配的 output AHB，再经 SurfaceControl 实际上屏：guest
+150/150 帧完成，三个 slot 各 50/50 转换成功，app `150/150 PRESENT`，截图可见完整彩条。
+会话结束后 fd/线程回到基线。但这条路径仍是 CPU I420→YV12 拷贝，不是 decoder→GPU
+零拷贝；guest WSI、VA-API/GStreamer/Chromium、HEVC/VP9/AV1、AV 同步和 10 分钟实时播放
+仍未完成。
 音频侧已跑通最小闭环：guest 枚举 7 个 Android 输出设备、读写 `STREAM_MUSIC`
 音量，并把 3 秒 PCM16 经独立 Unix socket 交给 app 内 AAudio（evidence 60）；但低延迟请求被
 vendor policy 拒绝、平台返回 `perf=NONE`；evidence 62 又打通 PulseAudio `module-pipe-sink` →
@@ -118,9 +122,12 @@ SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不�
   `VK_EXT_external_memory_dma_buf` storage buffer 导入 PanVK，Rust compute shader 完成
   BT.601 limited-range YUV→RGBA8；1920×1080 的第一帧 9 个采样点 CPU/GPU 逐位一致，
   同一轮固定 ring 仍为 150/150、3 次 import、147 次 reuse。
-- **FACT（仍缺）**：evidence 77/78 的路径仍是 CPU I420→YV12 拷贝，不是 decoder→GPU
-  零拷贝；YUV→RGB 只在第一帧执行且没有持久 converter、RGBA 写回 AHB、
-  guest WSI/swapchain、
+- **FACT（evidence 79，2026-11-23）**：持久 YV12→RGBA8 converter 已逐帧跑通并写回 app
+  分配的 RGBA8 AHB。150/150 帧中三个 slot 各 50/50 转换成功，app `150/150 PRESENT`，
+  SurfaceFlinger 层 `husk-video` 可见，截图确认彩条真实上屏；3 次 import、147 次 reuse，
+  会话后 fd/线程回到基线。v3 framing 的 `NEW/REUSE` 握手错位已修复。
+- **FACT（仍缺）**：evidence 77/78/79 的路径仍是 CPU I420→YV12 拷贝，不是 decoder→GPU
+  零拷贝；guest WSI/swapchain、
   guest 侧 GL/X11/Wayland WSI、HEVC/VP9/AV1 bridge、GStreamer/VA-API、Chromium
   `<video>`、AV 同步、10 分钟播放、丢帧与硬软解对比均未完成。
   测试使用 `HUSK_VIDEO_REALTIME=0`，日志里的 `present|ok=false` 是探针模式预期结果。

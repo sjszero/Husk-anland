@@ -321,6 +321,14 @@ struct AhbMeta {
     planes: [PlaneMeta; 4],
     plane_fnv: [u64; 4],
     plane_bytes: [usize; 4],
+    output_buffer_key: u64,
+    output_dmabuf_key: u64,
+    output_width: u32,
+    output_height: u32,
+    output_stride: u32,
+    output_format: u32,
+    output_offset: u64,
+    handle_count: usize,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -337,6 +345,7 @@ fn parse_meta(text: &str) -> Result<AhbMeta, String> {
         && magic != Some("HUSK-AHB-2")
         && magic != Some("HUSK-VIDEO-AHB-1")
         && magic != Some("HUSK-VIDEO-AHB-2")
+        && magic != Some("HUSK-VIDEO-AHB-3")
     {
         return Err("bad magic".to_string());
     }
@@ -356,6 +365,14 @@ fn parse_meta(text: &str) -> Result<AhbMeta, String> {
     let mut luma_bytes = 0usize;
     let mut plane_fnv = [0u64; 4];
     let mut plane_bytes = [0usize; 4];
+    let mut output_buffer_key = 0u64;
+    let mut output_dmabuf_key = 0u64;
+    let mut output_width = 0u32;
+    let mut output_height = 0u32;
+    let mut output_stride = 0u32;
+    let mut output_format = 0u32;
+    let mut output_offset = 0u64;
+    let mut handle_count = 1usize;
     for line in lines {
         let Some((key, value)) = line.split_once('=') else {
             continue;
@@ -397,6 +414,26 @@ fn parse_meta(text: &str) -> Result<AhbMeta, String> {
             "plane_count" => plane_count = value.parse().unwrap_or(0),
             "luma_fnv" => luma_fnv = value.parse().unwrap_or(0),
             "luma_bytes" => luma_bytes = value.parse().unwrap_or(0),
+            "output_buffer_key" => {
+                output_buffer_key = value
+                    .strip_prefix("0x")
+                    .and_then(|v| u64::from_str_radix(v, 16).ok())
+                    .or_else(|| u64::from_str_radix(value, 16).ok())
+                    .unwrap_or(0)
+            }
+            "output_dmabuf_key" => {
+                output_dmabuf_key = value
+                    .strip_prefix("0x")
+                    .and_then(|v| u64::from_str_radix(v, 16).ok())
+                    .or_else(|| u64::from_str_radix(value, 16).ok())
+                    .unwrap_or(0)
+            }
+            "output_width" => output_width = value.parse().unwrap_or(0),
+            "output_height" => output_height = value.parse().unwrap_or(0),
+            "output_stride" => output_stride = value.parse().unwrap_or(0),
+            "output_format" => output_format = value.parse().unwrap_or(0),
+            "output_offset" => output_offset = value.parse().unwrap_or(0),
+            "handle_count" => handle_count = value.parse().unwrap_or(1).clamp(1, 2),
             _ => {}
         }
         if let Some(rest) = key.strip_prefix("plane") {
@@ -439,6 +476,14 @@ fn parse_meta(text: &str) -> Result<AhbMeta, String> {
         planes,
         plane_fnv,
         plane_bytes,
+        output_buffer_key,
+        output_dmabuf_key,
+        output_width,
+        output_height,
+        output_stride,
+        output_format,
+        output_offset,
+        handle_count,
     })
 }
 
@@ -2646,7 +2691,11 @@ unsafe fn receive_handle_from_stream(
         .map_err(|e| format!("read meta: {e}"))?;
     let meta_text = core::str::from_utf8(&meta_buf).map_err(|e| format!("meta utf8: {e}"))?;
     let meta = parse_meta(meta_text).map_err(|e| format!("meta: {e}"))?;
-    let v2 = meta_text.starts_with("HUSK-VIDEO-AHB-2");
+    // v2 and v3 both carry a one-byte NEW/REUSE flag before any SCM_RIGHTS
+    // payload. Keep this in lockstep with the app sender: v3 adds the output
+    // AHB metadata and a second handle group, but does not change framing.
+    let has_handle_flag =
+        meta_text.starts_with("HUSK-VIDEO-AHB-2") || meta_text.starts_with("HUSK-VIDEO-AHB-3");
     line(
         "dmabuf",
         "meta",
@@ -2657,7 +2706,7 @@ unsafe fn receive_handle_from_stream(
     );
 
     let mut handle_flag = b'N';
-    if v2 {
+    if has_handle_flag {
         let mut flag = [0u8; 1];
         stream
             .read_exact(&mut flag)
@@ -2669,10 +2718,10 @@ unsafe fn receive_handle_from_stream(
     }
     let mut handles = Vec::new();
     if handle_flag == b'N' {
-        handles.reserve(meta.count);
-        for slot in 0..meta.count {
+        handles.reserve(meta.handle_count);
+        for slot in 0..meta.handle_count {
             let fds = recv_handle_fds(stream)
-                .map_err(|e| format!("receive handle {slot}/{}: {e}", meta.count))?;
+                .map_err(|e| format!("receive handle {slot}/{}: {e}", meta.handle_count))?;
             handles.push(fds);
         }
     }
@@ -3503,6 +3552,7 @@ struct VideoSlot {
     image: VkImage,
     image_memory: VkDeviceMemory,
     dmabuf_fd: c_int,
+    converter: Option<crate::yuv::Converter>,
     destroy_image: FnDestroyImage,
     free_memory: FnFreeMemory,
 }
@@ -3531,8 +3581,11 @@ unsafe fn create_video_slot(
     lib: *mut c_void,
     physical: VkPhysicalDevice,
     device: VkDevice,
+    queue: VkQueue,
+    family_index: u32,
     meta: &AhbMeta,
     fd: c_int,
+    output_fd: Option<c_int>,
     key: u64,
     slot_index: usize,
 ) -> Result<VideoSlot, String> {
@@ -3692,17 +3745,55 @@ unsafe fn create_video_slot(
         destroy_image(device, image, ptr::null());
         return Err(format!("vkBindImageMemory {bind_result}"));
     }
+    let converter = match output_fd {
+        Some(output_fd) => match crate::yuv::Converter::new(
+            lib,
+            physical,
+            device,
+            queue,
+            family_index,
+            held_fd,
+            output_fd,
+            meta.width,
+            meta.height,
+            [
+                meta.planes[0].offset,
+                meta.planes[1].offset,
+                meta.planes[2].offset,
+            ],
+            [
+                meta.planes[0].row_stride,
+                meta.planes[1].row_stride,
+                meta.planes[2].row_stride,
+            ],
+            meta.output_offset,
+            meta.output_stride,
+            slot_index,
+        ) {
+            Ok(converter) => Some(converter),
+            Err(error) => {
+                close(held_fd);
+                free_memory(device, image_memory, ptr::null());
+                destroy_image(device, image, ptr::null());
+                return Err(format!("YUV converter: {error}"));
+            }
+        },
+        None => None,
+    };
     Ok(VideoSlot {
         key,
         image,
         image_memory,
         dmabuf_fd: held_fd,
+        converter,
         destroy_image,
         free_memory,
     })
 }
 
 unsafe fn destroy_video_slot(device: VkDevice, slot: VideoSlot) {
+    let mut slot = slot;
+    drop(slot.converter.take());
     close(slot.dmabuf_fd);
     (slot.free_memory)(device, slot.image_memory, ptr::null());
     (slot.destroy_image)(device, slot.image, ptr::null());
@@ -3711,6 +3802,9 @@ unsafe fn destroy_video_slot(device: VkDevice, slot: VideoSlot) {
 unsafe fn teardown_video_ring(device: VkDevice, ring: &mut VideoRing) {
     while let Some(slot) = ring.slots.pop() {
         let key = slot.key;
+        if let Some(converter) = slot.converter.as_ref() {
+            line("yuv_conv", "SUMMARY", converter.summary());
+        }
         destroy_video_slot(device, slot);
         line("video-ahb", "ring_drop", format!("key={key:016x}"));
     }
@@ -3726,9 +3820,20 @@ unsafe fn run_video_core(
     queue: VkQueue,
     family_index: u32,
     meta: AhbMeta,
-    fds: Vec<c_int>,
+    handles: Vec<Vec<c_int>>,
     ring: &mut VideoRing,
 ) -> bool {
+    let mut handle_groups = handles.into_iter();
+    let fds = handle_groups.next().unwrap_or_default();
+    let output_fds = handle_groups.next().unwrap_or_default();
+    let close_handles = || {
+        for &fd in &fds {
+            close(fd);
+        }
+        for &fd in &output_fds {
+            close(fd);
+        }
+    };
     if meta.width == 0
         || meta.height == 0
         || meta.plane_count != 3
@@ -3737,9 +3842,7 @@ unsafe fn run_video_core(
         || meta.planes[2].pixel_stride != 1
     {
         line("video-ahb", "FAIL", "unsupported YUV plane layout");
-        for &fd in &fds {
-            close(fd);
-        }
+        close_handles();
         return false;
     }
 
@@ -3751,9 +3854,7 @@ unsafe fn run_video_core(
     };
     if slot_key == 0 {
         line("video-ahb", "FAIL", "no stable AHB/dma-buf slot key");
-        for &fd in &fds {
-            close(fd);
-        }
+        close_handles();
         return false;
     }
     let slot_index = match ring.find(slot_key) {
@@ -3768,15 +3869,11 @@ unsafe fn run_video_core(
                             meta.dmabuf_key
                         ),
                     );
-                    for &fd in &fds {
-                        close(fd);
-                    }
+                    close_handles();
                     return false;
                 }
             }
-            for &fd in &fds {
-                close(fd);
-            }
+            close_handles();
             ring.reuses = ring.reuses.saturating_add(1);
             line(
                 "video-ahb",
@@ -3792,17 +3889,13 @@ unsafe fn run_video_core(
         None => {
             let Some(fd) = find_dmabuf(&fds) else {
                 line("video-ahb", "FAIL", "no dma-buf fd in native handle");
-                for &fd in &fds {
-                    close(fd);
-                }
+                close_handles();
                 return false;
             };
             let actual_dma_key = dmabuf_key(fd).unwrap_or(0);
             if actual_dma_key == 0 {
                 line("video-ahb", "FAIL", "no stable dma-buf key");
-                for &fd in &fds {
-                    close(fd);
-                }
+                close_handles();
                 return false;
             }
             if meta.dmabuf_key != 0 && actual_dma_key != meta.dmabuf_key {
@@ -3814,9 +3907,7 @@ unsafe fn run_video_core(
                         meta.dmabuf_key
                     ),
                 );
-                for &fd in &fds {
-                    close(fd);
-                }
+                close_handles();
                 return false;
             }
             if ring.slots.len() >= VIDEO_SLOT_LIMIT {
@@ -3825,13 +3916,77 @@ unsafe fn run_video_core(
                     "ring_full",
                     format!("slots={}|key={slot_key:016x}", ring.slots.len()),
                 );
-                for &fd in &fds {
-                    close(fd);
-                }
+                close_handles();
                 return false;
             }
             let index = ring.slots.len();
-            match create_video_slot(lib, physical, device, &meta, fd, slot_key, index) {
+            let output_fd = find_dmabuf(&output_fds);
+            if meta.handle_count > 1 && output_fd.is_none() {
+                line("video-ahb", "FAIL", "no output dma-buf in second handle");
+                close_handles();
+                return false;
+            }
+            if let Some(output_fd) = output_fd {
+                if meta.output_format != 1
+                    || meta.output_width != meta.width
+                    || meta.output_height != meta.height
+                    || meta.output_stride == 0
+                {
+                    line(
+                        "video-ahb",
+                        "FAIL",
+                        format!(
+                            "unsupported output AHB|{}x{}|stride={}|format={}",
+                            meta.output_width,
+                            meta.output_height,
+                            meta.output_stride,
+                            meta.output_format
+                        ),
+                    );
+                    close_handles();
+                    return false;
+                }
+                let output_key = dmabuf_key(output_fd).unwrap_or(0);
+                if output_key == 0
+                    || (meta.output_dmabuf_key != 0 && output_key != meta.output_dmabuf_key)
+                {
+                    line(
+                        "video-ahb",
+                        "FAIL",
+                        format!(
+                            "output dma-buf key mismatch|expected={:016x}|actual={output_key:016x}",
+                            meta.output_dmabuf_key
+                        ),
+                    );
+                    close_handles();
+                    return false;
+                }
+                line(
+                    "video-ahb",
+                    "output_layout",
+                    format!(
+                        "slot={index}|key={:016x}|dmabuf={output_key:016x}|{}x{}|stride={}|format={}|offset={}",
+                        meta.output_buffer_key,
+                        meta.output_width,
+                        meta.output_height,
+                        meta.output_stride,
+                        meta.output_format,
+                        meta.output_offset
+                    ),
+                );
+            }
+            match create_video_slot(
+                lib,
+                physical,
+                device,
+                queue,
+                family_index,
+                &meta,
+                fd,
+                output_fd,
+                slot_key,
+                index,
+            ) {
                 Ok(slot) => {
                     ring.slots.push(slot);
                     ring.imports = ring.imports.saturating_add(1);
@@ -3850,20 +4005,18 @@ unsafe fn run_video_core(
                         "ring_import_fail",
                         format!("slot={index}|key={slot_key:016x}|{error}"),
                     );
-                    for &fd in &fds {
-                        close(fd);
-                    }
+                    close_handles();
                     return false;
                 }
             }
-            for &fd in &fds {
-                close(fd);
-            }
+            close_handles();
             index
         }
     };
 
-    let slot = &ring.slots[slot_index];
+    let imports = ring.imports;
+    let reuses = ring.reuses;
+    let slot = &mut ring.slots[slot_index];
     let fd = slot.dmabuf_fd;
     let image = slot.image;
     let dmabuf_size = lseek(fd, 0, 2);
@@ -3887,43 +4040,24 @@ unsafe fn run_video_core(
         );
     }
 
-    // Run the YUV->RGBA gate once for the stable first slot. Later frames still
-    // execute the existing per-plane CPU/GPU hash checks; the converter's
-    // persistent-resource form is a separate step after this correctness probe.
-    let yuv_ok = if slot_index == 0 && ring.reuses == 0 {
-        if meta.format != AHB_FORMAT_YV12 || meta.plane_count < 3 {
-            line(
-                "yuv_rgb",
-                "SKIP",
-                format!(
-                    "unsupported input format={:#x} planes={}",
-                    meta.format, meta.plane_count
-                ),
-            );
-            true
-        } else {
-            crate::yuv::run(
-                lib,
-                physical,
-                device,
-                queue,
-                family_index,
-                fd,
-                meta.width,
-                meta.height,
-                [
-                    meta.planes[0].offset,
-                    meta.planes[1].offset,
-                    meta.planes[2].offset,
-                ],
-                [
-                    meta.planes[0].row_stride,
-                    meta.planes[1].row_stride,
-                    meta.planes[2].row_stride,
-                ],
-            )
-        }
+    let yuv_ok = if meta.format != AHB_FORMAT_YV12 || meta.plane_count < 3 {
+        line(
+            "yuv_conv",
+            "SKIP",
+            format!(
+                "slot={slot_index}|unsupported input format={:#x} planes={}",
+                meta.format, meta.plane_count
+            ),
+        );
+        true
+    } else if let Some(converter) = slot.converter.as_mut() {
+        converter.convert()
     } else {
+        line(
+            "yuv_conv",
+            "SKIP",
+            format!("slot={slot_index}|no output AHB converter"),
+        );
         true
     };
 
@@ -4017,8 +4151,8 @@ unsafe fn run_video_core(
             "{}|slot={slot_index}|key={:016x}|imports={}|reuses={}",
             if ok { "PASS" } else { "FAIL" },
             slot.key,
-            ring.imports,
-            ring.reuses
+            imports,
+            reuses
         ),
     );
     ok
@@ -4035,8 +4169,16 @@ unsafe fn run_video_on_stream(
     ring: &mut VideoRing,
     stream: &mut UnixStream,
 ) -> bool {
-    let fds = handles.into_iter().next().unwrap_or_default();
-    let ok = run_video_core(lib, physical, device, queue, family_index, meta, fds, ring);
+    let ok = run_video_core(
+        lib,
+        physical,
+        device,
+        queue,
+        family_index,
+        meta,
+        handles,
+        ring,
+    );
     let ack = if ok { b'D' } else { b'F' };
     let handoff = stream.write_all(&[ack]).is_ok();
     line(

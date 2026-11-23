@@ -10,7 +10,8 @@ layout(push_constant, std430) uniform Params {
     uint u_offset;
     uint y_stride;
     uint chroma_stride;
-    uint reserved;
+    uint output_offset_words;
+    uint output_stride_words;
 } pc;
 
 layout(std430, binding = 0) readonly buffer YuvInput {
@@ -53,6 +54,6 @@ void main() {
     uint g = gv <= 0 ? 0u : clamp_u8((gv + 128) >> 8);
     uint b = bv <= 0 ? 0u : clamp_u8((bv + 128) >> 8);
 
-    output_rgba.words[pixel.y * pc.width + pixel.x] =
+    output_rgba.words[pc.output_offset_words + pixel.y * pc.output_stride_words + pixel.x] =
         r | (g << 8u) | (b << 16u) | 0xff000000u;
 }

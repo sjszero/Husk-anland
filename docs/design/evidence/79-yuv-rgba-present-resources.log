@@ -1,0 +1,18 @@
+phase=before
+pid=20812
+vm_rss_kib=174368
+threads=46
+fds=140
+
+phase=after
+pid=20812
+vm_rss_kib=205172
+threads=46
+fds=140
+fds_t_plus_1s=140
+fds_t_plus_2s=140
+fds_t_plus_3s=140
+fds_t_plus_4s=140
+fds_t_plus_5s=140
+
+notes=fd/thread counts return to the pre-run baseline; RSS retains approximately 31 MiB of allocator/driver cache after the session.

@@ -118,7 +118,9 @@ loader 必须与镜像同源，所以 `--loader-out` 是从镜像自己的 `ld.s
 - **未实测**：16K 页内核。机制与实测对齐数据见 [design/page-size.md](design/page-size.md)（Ubuntu arm64 用户态本身 64K 对齐，16K 内核不需要改造 guest）。
 - **已补测**：10 分钟长稳（600 s / 568 tick / 11 360 次 fork-exec / 同 pid / 零僵尸，evidence 32）；更长时间仍 UNKNOWN。
 - **UNKNOWN**：多 husk 并发实例。
-- **未实测**：GPU 真正执行一个 job（atom 结构还没构造，见 evidence 36）。
+- **已补测**：guest 内 PanVK 已在 Mali-G77 上完成 compute job、离屏 draw、Zink surfaceless
+  renderer，以及 SurfaceControl 连续帧和 10,000 帧长稳（evidence 46–59）。这些不再属于
+  “未实测 GPU job”。
 - **FACT**：`execl` 家族拦不到（原因见 [ARCHITECTURE §6](ARCHITECTURE.md)）。
 
 ---
@@ -159,3 +161,24 @@ loader 必须与镜像同源，所以 `--loader-out` 是从镜像自己的 `ld.s
 | `mmap(prot=3, off=0x41000)` | 成功；CPU 写 `0xA5` 读回一致 |
 | 反例 | prot 与 `flags&3` 不符 → EPERM；写 PROT_READ 映射 → SIGSEGV |
 | 上游 Mesa | 25.2 与 main 无 kbase 后端；rootfs 无 panvk ICD |
+
+后续路线已从手搓 kbase atom 转为 FristOneRR PanVK（evidence 45–46）：guest 内 PanVK 直接打开
+`/dev/mali0`，已报出 Mali-G77 MC9，并完成 logical device、compute、离屏 graphics 和
+surfaceless Zink；GPU 到 app AHB / SurfaceControl 的显示路径已由 evidence 53–59 打通。
+当前剩余重点是 WSI、窗口集成和 Mesa 兼容边界，不是“GPU 还完全不能用”。
+
+## 11. 硬解、GPU 转换与上屏（RMX3357，evidence 67–79）
+
+| 项 | 结果 |
+|---|---|
+| 硬解器 | `c2.mtk.avc.decoder` 真机可用；HEVC/VP9/AV1 尚未接 bridge |
+| 解码输出 | 3 个固定 YV12 AHB；evidence 77 完成 150/150、3 import、147 reuse |
+| GPU 转换 | persistent per-slot PanVK converter；evidence 79 三 slot 各 50/50 |
+| RGBA 输出 | 写回 app 分配的 RGBA8 AHB，再交 SurfaceControl |
+| 实际上屏 | app `150/150 PRESENT`；截图确认彩条，SurfaceFlinger 存在 `husk-video` |
+| 资源 | 会话后 fd 140→140、线程 46→46；RSS 174,368→205,172 KiB，缓存尚未完全回收 |
+| 边界 | 仍是 MediaCodec ByteBuffer → CPU I420/YV12 拷贝；WSI、VA-API/GStreamer/Chromium、HEVC/VP9/AV1、AV 同步和 10 分钟实时播放未完成 |
+
+音频已有 guest PulseAudio → 纯 Rust relay → app 内 AAudio 的连续路径；evidence 63 完成
+610 秒 / 28,818,432 frames，播放器与 relay 均返回 0，fd/RSS 稳定，但仍有 1 次 xrun，
+低延迟请求被 vendor policy 拒绝，AV 同步与桌面播放器验收未完成。

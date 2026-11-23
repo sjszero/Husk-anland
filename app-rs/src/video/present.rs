@@ -6,6 +6,7 @@
 //! only after SurfaceFlinger reports its release fence.  No pixels are copied.
 
 use core::ffi::{c_char, c_int, c_void};
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -89,6 +90,7 @@ struct Presenter {
     parent: usize,
     control: SurfaceControl,
     pending: Arc<Mutex<Option<*mut Ahb>>>,
+    busy: Arc<Mutex<HashSet<usize>>>,
     stats: Arc<Stats>,
     callbacks: Arc<AtomicU64>,
     retired: Vec<RetiredControl>,
@@ -199,6 +201,7 @@ struct CallbackCtx {
     stats: *mut c_void,
     shared: Arc<Stats>,
     callbacks: Arc<AtomicU64>,
+    busy: Arc<Mutex<HashSet<usize>>>,
 }
 
 unsafe extern "C" fn on_complete(context: *mut c_void, stats: *mut c_void) {
@@ -213,6 +216,9 @@ unsafe extern "C" fn on_complete(context: *mut c_void, stats: *mut c_void) {
         let released = wait_release_fence(&ctx);
         if let Some(buffer) = ctx.previous.take() {
             (ctx.release)(buffer);
+            if let Ok(mut busy) = ctx.busy.lock() {
+                busy.remove(&(buffer as usize));
+            }
             ctx.shared.released.fetch_add(1, Ordering::Relaxed);
         }
         let completed = ctx.shared.completed.fetch_add(1, Ordering::Relaxed) + 1;
@@ -247,6 +253,7 @@ impl Presenter {
             parent,
             control,
             pending: Arc::new(Mutex::new(None)),
+            busy: Arc::new(Mutex::new(HashSet::new())),
             stats: Arc::new(Stats::default()),
             callbacks: Arc::new(AtomicU64::new(0)),
             retired: Vec::new(),
@@ -334,6 +341,9 @@ impl Presenter {
         };
 
         (self.s.acquire)(buffer);
+        if let Ok(mut busy) = self.busy.lock() {
+            busy.insert(buffer as usize);
+        }
         self.callbacks.fetch_add(1, Ordering::AcqRel);
         let previous = self
             .pending
@@ -345,8 +355,14 @@ impl Presenter {
         if transaction.is_null() {
             if let Some(buffer) = previous {
                 (self.s.release)(buffer);
+                if let Ok(mut busy) = self.busy.lock() {
+                    busy.remove(&(buffer as usize));
+                }
             }
             (self.s.release)(buffer);
+            if let Ok(mut busy) = self.busy.lock() {
+                busy.remove(&(buffer as usize));
+            }
             self.callbacks.fetch_sub(1, Ordering::AcqRel);
             return false;
         }
@@ -362,6 +378,7 @@ impl Presenter {
             stats: core::ptr::null_mut(),
             shared: Arc::clone(&self.stats),
             callbacks: Arc::clone(&self.callbacks),
+            busy: Arc::clone(&self.busy),
         });
         (self.s.set_on_complete)(
             transaction,
@@ -398,6 +415,9 @@ impl Presenter {
         (self.s.delete_transaction)(transaction);
         if let Some(buffer) = self.pending.lock().ok().and_then(|mut slot| slot.take()) {
             (self.s.release)(buffer);
+            if let Ok(mut busy) = self.busy.lock() {
+                busy.remove(&(buffer as usize));
+            }
             self.stats.released.fetch_add(1, Ordering::Relaxed);
         }
         self.drain_retired();
@@ -424,8 +444,38 @@ impl Drop for Presenter {
     }
 }
 
-fn enabled(files: &Path) -> bool {
+pub(super) fn enabled(files: &Path) -> bool {
     files.join("rootfs-full/run/husk/present").exists()
+}
+
+pub(super) fn wait_available(files: &Path, buffer: *mut c_void, timeout: Duration) -> bool {
+    if !enabled(files) || buffer.is_null() {
+        return true;
+    }
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        let available = match PRESENTER.lock() {
+            Ok(slot) => slot
+                .as_ref()
+                .and_then(|presenter| {
+                    presenter
+                        .busy
+                        .lock()
+                        .ok()
+                        .map(|busy| !busy.contains(&(buffer as usize)))
+                })
+                .unwrap_or(true),
+            Err(_) => false,
+        };
+        if available {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            crate::log("video|present|WAIT|timeout");
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
 }
 
 pub(super) unsafe fn present_if_enabled(

@@ -9,11 +9,14 @@
 //! measurable; it buys a stable ring and lets the guest cache Vulkan resources.
 
 use super::*;
+use std::collections::VecDeque;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 
 const FIXED_SLOTS: usize = 3;
 const AHB_FORMAT_YV12: u32 = 0x3231_5659;
+const AHB_FORMAT_R8G8B8A8_UNORM: u32 = 1;
+const AHB_USAGE_CPU_READ_OFTEN: u64 = 1 << 1;
 const AHB_USAGE_CPU_WRITE_OFTEN: u64 = 1 << 5;
 const AHB_USAGE_GPU_SAMPLED_IMAGE: u64 = 1 << 8;
 const AHB_USAGE_GPU_FRAMEBUFFER: u64 = 1 << 9;
@@ -24,6 +27,12 @@ struct Slot {
     buffer_key: u64,
     dma_key: u64,
     desc: AhbDesc,
+    output_buffer: *mut Ahb,
+    output_key: u64,
+    output_dma_key: u64,
+    output_desc: AhbDesc,
+    output_offset: u64,
+    output_stride: u32,
 }
 
 pub(super) struct FixedFrame {
@@ -35,12 +44,19 @@ pub(super) struct FixedFrame {
     pub timestamp_ns: i64,
     pub plane_hashes: [u64; 4],
     pub plane_bytes: [usize; 4],
+    pub output_buffer: *mut Ahb,
+    pub output_key: u64,
+    pub output_dma_key: u64,
+    pub output_desc: AhbDesc,
+    pub output_offset: u64,
+    pub output_stride: u32,
 }
 
 pub(super) struct FixedRing {
     pub api: ImageApi,
+    files: std::path::PathBuf,
     slots: Vec<Slot>,
-    free: Vec<usize>,
+    free: VecDeque<usize>,
     release_tx: Sender<usize>,
     released_rx: Receiver<usize>,
     pub width: u32,
@@ -65,6 +81,16 @@ impl FixedRing {
                 | AHB_USAGE_GPU_FRAMEBUFFER,
             ..AhbDesc::default()
         };
+        let output_requested = AhbDesc {
+            width,
+            height,
+            layers: 1,
+            format: AHB_FORMAT_R8G8B8A8_UNORM,
+            usage: AHB_USAGE_CPU_READ_OFTEN
+                | AHB_USAGE_GPU_SAMPLED_IMAGE
+                | AHB_USAGE_GPU_FRAMEBUFFER,
+            ..AhbDesc::default()
+        };
 
         for index in 0..FIXED_SLOTS {
             let mut buffer = core::ptr::null_mut();
@@ -72,6 +98,7 @@ impl FixedRing {
             if rc != 0 || buffer.is_null() {
                 for slot in &slots {
                     (api.ahb_release)(slot.buffer);
+                    (api.ahb_release)(slot.output_buffer);
                 }
                 return Err(format!(
                     "AHardwareBuffer_allocate slot={index} rc={rc} ptr={buffer:p}"
@@ -111,10 +138,90 @@ impl FixedRing {
                 (api.ahb_release)(buffer);
                 for slot in &slots {
                     (api.ahb_release)(slot.buffer);
+                    (api.ahb_release)(slot.output_buffer);
                 }
                 return Err(format!(
                     "bad fixed AHB slot={index}: size={}x{} format={:#x} dma={dma_key:016x} key={buffer_key:016x}",
                     actual.width, actual.height, actual.format
+                ));
+            }
+
+            let mut output_buffer = core::ptr::null_mut();
+            let output_rc = (api.ahb_allocate)(&output_requested, &mut output_buffer);
+            if output_rc != 0 || output_buffer.is_null() {
+                (api.ahb_release)(buffer);
+                for slot in &slots {
+                    (api.ahb_release)(slot.buffer);
+                    (api.ahb_release)(slot.output_buffer);
+                }
+                return Err(format!(
+                    "AHardwareBuffer_allocate output slot={index} rc={output_rc} ptr={output_buffer:p}"
+                ));
+            }
+            let mut output_desc = AhbDesc::default();
+            (api.ahb_describe)(output_buffer, &mut output_desc);
+            let output_native = (api.ahb_native_handle)(output_buffer);
+            let output_dma_key = dmabuf_key_from_native(output_native).unwrap_or(0);
+            let mut output_ahb_id = 0u64;
+            let output_id_rc = api
+                .ahb_get_id
+                .map(|get_id| get_id(output_buffer, &mut output_ahb_id))
+                .unwrap_or(-1);
+            let output_key = if output_id_rc == 0 && output_ahb_id != 0 {
+                output_ahb_id
+            } else {
+                output_dma_key
+            };
+            let mut output_planes = AhbPlanes::default();
+            let output_lock_rc = (api.ahb_lock_planes)(
+                output_buffer,
+                AHB_USAGE_CPU_READ_OFTEN,
+                -1,
+                core::ptr::null(),
+                &mut output_planes,
+            );
+            if output_lock_rc == 0 && output_planes.plane_count > 0 {
+                let _ = (api.ahb_unlock)(output_buffer, core::ptr::null_mut());
+            }
+            let output_stride = if output_planes.plane_count > 0 {
+                output_planes.planes[0].row_stride
+            } else {
+                output_desc.stride
+            };
+            result(
+                files,
+                &format!(
+                    "video|fixed-ring|output|slot={index}|rc={output_rc}|size={}x{}|stride={}|format={:#x}|usage=0x{:x}|lock_rc={output_lock_rc}|planes={}|id_rc={output_id_rc}|id={output_ahb_id:016x}|dma={output_dma_key:016x}|key={output_key:016x}",
+                    output_desc.width,
+                    output_desc.height,
+                    output_desc.stride,
+                    output_desc.format,
+                    output_desc.usage,
+                    output_planes.plane_count
+                ),
+            );
+            if output_desc.format != AHB_FORMAT_R8G8B8A8_UNORM
+                || output_desc.width != width
+                || output_desc.height != height
+                || output_dma_key == 0
+                || output_key == 0
+                || output_lock_rc != 0
+                || output_planes.plane_count == 0
+                || output_stride < width.saturating_mul(4)
+            {
+                (api.ahb_release)(output_buffer);
+                (api.ahb_release)(buffer);
+                for slot in &slots {
+                    (api.ahb_release)(slot.buffer);
+                    (api.ahb_release)(slot.output_buffer);
+                }
+                return Err(format!(
+                    "bad fixed output slot={index}: size={}x{} format={:#x} stride={} lock_rc={output_lock_rc} planes={} dma={output_dma_key:016x} key={output_key:016x}",
+                    output_desc.width,
+                    output_desc.height,
+                    output_desc.format,
+                    output_desc.stride,
+                    output_planes.plane_count
                 ));
             }
             slots.push(Slot {
@@ -122,6 +229,12 @@ impl FixedRing {
                 buffer_key,
                 dma_key,
                 desc: actual,
+                output_buffer,
+                output_key,
+                output_dma_key,
+                output_desc,
+                output_offset: 0,
+                output_stride,
             });
         }
 
@@ -131,6 +244,7 @@ impl FixedRing {
         );
         Ok(Self {
             api,
+            files: files.to_path_buf(),
             slots,
             free: (0..FIXED_SLOTS).collect(),
             release_tx,
@@ -151,16 +265,24 @@ impl FixedRing {
         loop {
             while let Ok(slot) = self.released_rx.try_recv() {
                 if !self.free.contains(&slot) {
-                    self.free.push(slot);
+                    self.free.push_back(slot);
                 }
             }
-            if let Some(slot) = self.free.pop() {
+            if let Some(slot) = self.free.pop_front() {
+                let output_buffer = self.slots[slot].output_buffer;
+                if !super::present::wait_available(
+                    &self.files,
+                    output_buffer.cast(),
+                    Duration::from_secs(5),
+                ) {
+                    return None;
+                }
                 return Some(slot);
             }
             match self.released_rx.recv_timeout(Duration::from_millis(100)) {
                 Ok(slot) => {
                     if !self.free.contains(&slot) {
-                        self.free.push(slot);
+                        self.free.push_back(slot);
                     }
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
@@ -171,7 +293,7 @@ impl FixedRing {
 
     fn release_slot(&mut self, slot: usize) {
         if slot < self.slots.len() && !self.free.contains(&slot) {
-            self.free.push(slot);
+            self.free.push_back(slot);
         }
     }
 
@@ -317,6 +439,12 @@ impl FixedRing {
             timestamp_ns: pts_us.saturating_mul(1000),
             plane_hashes: hashes,
             plane_bytes: bytes,
+            output_buffer: slot.output_buffer,
+            output_key: slot.output_key,
+            output_dma_key: slot.output_dma_key,
+            output_desc: slot.output_desc,
+            output_offset: slot.output_offset,
+            output_stride: slot.output_stride,
         })
     }
 }
@@ -326,6 +454,7 @@ impl Drop for FixedRing {
         unsafe {
             for slot in &self.slots {
                 (self.api.ahb_release)(slot.buffer);
+                (self.api.ahb_release)(slot.output_buffer);
             }
         }
         self.slots.clear();
@@ -442,6 +571,12 @@ pub(super) unsafe fn drain_outputs(
                     frame.timestamp_ns,
                     &frame.plane_hashes,
                     &frame.plane_bytes,
+                    frame.output_buffer,
+                    frame.output_key,
+                    frame.output_dma_key,
+                    &frame.output_desc,
+                    frame.output_offset,
+                    frame.output_stride,
                     slot,
                     ring.release_sender(),
                 ) {

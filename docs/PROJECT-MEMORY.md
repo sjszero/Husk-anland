@@ -290,10 +290,13 @@ eglinfo 报 Mali-G77；音频出声并有延迟数字；H.264/HEVC 硬解、AV �
    有界背压，并在 CLOSE 前排空尾部帧，150/150 全部 ACK/RELEASE。evidence 77 又把
    ByteBuffer 输出改成应用预分配 3 个固定 YV12 AHB 的 ring，150/150 帧、3 次 import、
    147 次 reuse 已通过；evidence 78 又把真实 YV12 dma-buf 作为 PanVK external storage
-   buffer 导入，compute 转 RGBA8 后第一帧 9/9 采样点 CPU/GPU 逐位一致。但它仍是 CPU
-   I420→YV12 拷贝，转换资源每帧重建且只跑第一帧。下一步做持久 converter、RGBA 写回 AHB、
-   decoder→GPU 零拷贝、guest WSI、VA-API/GStreamer/Chromium、AV 同步和 10 分钟门禁，
-   视频仍不能跳过 MediaCodec 硬解验收。
+   buffer 导入，compute 转 RGBA8 后第一帧 9/9 采样点 CPU/GPU 逐位一致。evidence 79 已把
+   converter 改成三个固定 slot 的持久对象，逐帧写回 app 分配的 RGBA8 AHB 并经
+   SurfaceControl 实际显示：150/150 帧、三个 slot 各 50/50、app 150/150 PRESENT，
+   截图确认彩条显示，3 次 import、147 次 reuse，会话后 fd/线程回到基线。它仍是 CPU
+   I420→YV12 拷贝，不是 decoder→GPU 零拷贝。下一步做 decoder→GPU 零拷贝、guest WSI、
+   VA-API/GStreamer/Chromium、AV 同步和 10 分钟实时播放门禁，视频仍不能跳过 MediaCodec
+   硬解验收。
 6. 先以显式 `NR_LD=$(cat files/libdir)/libld.so` 跑回归；`files/gexec2.sh` 默认的
    `files/libld39.so` 是旧 loader，不能用来验证当前 App。
 7. 最后做 2.0 proot 替换与补丁清除。

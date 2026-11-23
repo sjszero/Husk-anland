@@ -38,6 +38,12 @@ struct FrameJob {
     release: Option<Sender<usize>>,
 
     buffer: usize,
+    output_buffer: usize,
+    output_key: u64,
+    output_dma_key: u64,
+    output_desc: AhbDesc,
+    output_offset: u64,
+    output_stride: u32,
     meta: String,
 }
 
@@ -78,6 +84,7 @@ fn metadata(
     timestamp_ns: i64,
     plane_hashes: &[u64; 4],
     plane_bytes: &[usize; 4],
+    output: Option<(u64, u64, &AhbDesc, u64, u32)>,
 ) -> String {
     let count = (planes.plane_count as usize).min(planes.planes.len());
     let mut base = usize::MAX;
@@ -91,8 +98,13 @@ fn metadata(
         base = 0;
     }
 
+    let magic = if output.is_some() {
+        "HUSK-VIDEO-AHB-3"
+    } else {
+        "HUSK-VIDEO-AHB-2"
+    };
     let mut text = format!(
-        "HUSK-VIDEO-AHB-2\nframe_index={index}\nbuffer_key={buffer_key:016x}\ndmabuf_key={dma_key:016x}\nwidth={}\nheight={}\nstride={}\nformat={}\nusage=0x{:x}\ntimestamp_ns={timestamp_ns}\nplane_count={count}\nluma_fnv={}\nluma_bytes={}\ncookies=0,0,0,0,0,0,0,0,0\n",
+        "{magic}\nframe_index={index}\nbuffer_key={buffer_key:016x}\ndmabuf_key={dma_key:016x}\nwidth={}\nheight={}\nstride={}\nformat={}\nusage=0x{:x}\ntimestamp_ns={timestamp_ns}\nplane_count={count}\nluma_fnv={}\nluma_bytes={}\ncookies=0,0,0,0,0,0,0,0,0\n",
         desc.width,
         desc.height,
         desc.stride,
@@ -101,6 +113,12 @@ fn metadata(
         plane_hashes[0],
         plane_bytes[0],
     );
+    if let Some((output_key, output_dma_key, output_desc, output_offset, output_stride)) = output {
+        text.push_str(&format!(
+            "handle_count=2\noutput_buffer_key={output_key:016x}\noutput_dmabuf_key={output_dma_key:016x}\noutput_width={}\noutput_height={}\noutput_stride={output_stride}\noutput_format={}\noutput_offset={output_offset}\noutput_usage=0x{:x}\n",
+            output_desc.width, output_desc.height, output_desc.format, output_desc.usage
+        ));
+    }
     for index in 0..count {
         let plane = planes.planes[index];
         let offset = (plane.data as usize).saturating_sub(base);
@@ -273,15 +291,30 @@ fn worker(
             }
             let send_rc = if new_key {
                 handle_count = handle_count.saturating_add(1);
-                unsafe { (api.ahb_send_to_socket)(job.buffer as *const Ahb, stream.as_raw_fd()) }
+                let input_rc = unsafe {
+                    (api.ahb_send_to_socket)(job.buffer as *const Ahb, stream.as_raw_fd())
+                };
+                if input_rc != 0 {
+                    input_rc
+                } else if job.output_buffer != 0 {
+                    unsafe {
+                        (api.ahb_send_to_socket)(
+                            job.output_buffer as *const Ahb,
+                            stream.as_raw_fd(),
+                        )
+                    }
+                } else {
+                    -1
+                }
             } else {
                 reuse_count = reuse_count.saturating_add(1);
                 0
             };
             crate::log(&format!(
-                "video|ahb-ring|FRAME|index={}|key={:016x}|handle={}|send_rc={send_rc}|bytes={}|socket={}",
+                "video|ahb-ring|FRAME|index={}|key={:016x}|output_key={:016x}|handle={}|send_rc={send_rc}|bytes={}|socket={}",
                 job.index,
                 job.buffer_key,
+                job.output_key,
                 if new_key { "NEW" } else { "REUSE" },
                 job.meta.len(),
                 stream.as_raw_fd()
@@ -301,6 +334,22 @@ fn worker(
                 return Err("guest acknowledgement timeout".into());
             };
             let ok = ack == b'D';
+            if ok && job.output_buffer != 0 {
+                let presented = unsafe {
+                    super::present::present_if_enabled(
+                        &files,
+                        job.output_buffer as *mut Ahb,
+                        job.output_desc.width,
+                        job.output_desc.height,
+                    )
+                };
+                if presented {
+                    crate::log(&format!(
+                        "video|ahb-ring|PRESENT|index={}|output_key={:016x}|size={}x{}",
+                        job.index, job.output_key, job.output_desc.width, job.output_desc.height
+                    ));
+                }
+            }
             crate::log(&format!(
                 "video|ahb-ring|ACK|index={}|byte=0x{ack:02x}|ok={ok}|elapsed_ms={}",
                 job.index,
@@ -489,6 +538,7 @@ pub(super) unsafe fn export_if_enabled(
         timestamp_ns,
         plane_hashes,
         plane_bytes,
+        None,
     );
     let mut slot = session_slot().lock().expect("session mutex");
     let Some(session) = slot.as_mut() else {
@@ -511,6 +561,12 @@ pub(super) unsafe fn export_if_enabled(
         slot: 0,
         release: None,
         buffer: buffer as usize,
+        output_buffer: 0,
+        output_key: 0,
+        output_dma_key: 0,
+        output_desc: AhbDesc::default(),
+        output_offset: 0,
+        output_stride: 0,
         meta,
     };
     if session.tx.send(job).is_err() {
@@ -538,6 +594,12 @@ pub(super) unsafe fn export_fixed_if_enabled(
     timestamp_ns: i64,
     plane_hashes: &[u64; 4],
     plane_bytes: &[usize; 4],
+    output_buffer: *mut Ahb,
+    output_key: u64,
+    output_dma_key: u64,
+    output_desc: &AhbDesc,
+    output_offset: u64,
+    output_stride: u32,
     slot: usize,
     release: Sender<usize>,
 ) -> bool {
@@ -556,6 +618,12 @@ pub(super) unsafe fn export_fixed_if_enabled(
         ));
         return false;
     }
+    if output_buffer.is_null() || output_key == 0 || output_dma_key == 0 || output_stride == 0 {
+        crate::log(&format!(
+            "video|ahb-ring|FAIL|frame={frame_index}|missing output AHB metadata"
+        ));
+        return false;
+    }
     if !ensure_session(files, api) {
         return false;
     }
@@ -568,6 +636,13 @@ pub(super) unsafe fn export_fixed_if_enabled(
         timestamp_ns,
         plane_hashes,
         plane_bytes,
+        Some((
+            output_key,
+            output_dma_key,
+            output_desc,
+            output_offset,
+            output_stride,
+        )),
     );
     let mut active = session_slot().lock().expect("session mutex");
     let Some(session) = active.as_mut() else {
@@ -590,6 +665,12 @@ pub(super) unsafe fn export_fixed_if_enabled(
         slot,
         release: Some(release),
         buffer: buffer as usize,
+        output_buffer: output_buffer as usize,
+        output_key,
+        output_dma_key,
+        output_desc: *output_desc,
+        output_offset,
+        output_stride,
         meta,
     };
     if session.tx.send(job).is_err() {
