@@ -50,6 +50,49 @@ pub unsafe extern "C" fn bcmp(a: *const u8, b: *const u8, n: CSizet) -> CInt {
 
 const PATH_MAX: usize = 4096;
 const AT_FDCWD: CInt = -100;
+
+// ------------------------------------------------------------ mount table ---
+//
+// A container can mount; we cannot. mount(2) needs CAP_SYS_ADMIN and this
+// domain has none. What a container's userspace actually observes, though, is
+// the namespace it lives in: paths under a bind target lead somewhere else, a
+// tmpfs starts empty, a read-only bind refuses writes. That part is
+// reproducible in the path layer, which is exactly where we already stand.
+//
+// The table lives in a file (/run/husk/mounts) with an in-process cache, so a
+// mount made by one process is visible to processes started after it. A mount
+// made while another process is already running is not retroactively visible
+// to that process; that is the documented difference from a real namespace.
+const MNT_MAX: usize = 8;
+const MNT_P: usize = 128;
+const MNT_FILE: &[u8] = b"/run/husk/mounts\0";
+const MNT_DIR: &[u8] = b"/run/husk\0";
+const MS_RDONLY: usize = 1;
+const MS_REMOUNT: usize = 32;
+const MS_BIND: usize = 4096;
+const O_WRITEISH: CInt = 0o3 | 0o100 | 0o1000 | 0o2000;
+
+#[derive(Clone, Copy)]
+struct MntE {
+    tgt: [u8; MNT_P],
+    tlen: u16,
+    src: [u8; MNT_P],
+    slen: u16,
+    ro: u8,
+    tmpfs: u8,
+}
+
+static mut MNT: [MntE; MNT_MAX] = [MntE {
+    tgt: [0; MNT_P],
+    tlen: 0,
+    src: [0; MNT_P],
+    slen: 0,
+    ro: 0,
+    tmpfs: 0,
+}; MNT_MAX];
+static mut MNT_N: usize = 0;
+static mut MNT_READY: u8 = 0;
+
 const AT_SYMLINK_NOFOLLOW: CInt = 0x100;
 const AT_EMPTY_PATH: CInt = 0x1000;
 const AT_SYMLINK_FOLLOW: CInt = 0x400;
@@ -57,6 +100,7 @@ const O_PATH: CInt = 0o10000000;
 const O_NOFOLLOW: CInt = 0o100000; // AArch64 UAPI
 const O_DIRECTORY: CInt = 0o40000; // AArch64 UAPI, not asm-generic 0o200000
 const O_CLOEXEC: CInt = 0o2000000;
+const O_RDONLY0: CInt = 0;
 
 const SYS_WRITE: usize = 64;
 const SYS_OPENAT: usize = 56;
@@ -1049,7 +1093,24 @@ unsafe fn normalize(p: &[u8], out: &mut [u8; PATH_MAX]) -> usize {
     n
 }
 
+/// Applies the emulated mount table (longest prefix wins) after the plain
+/// absolute-path computation. Chained mounts are followed up to four hops; a
+/// cycle would otherwise spin here.
 unsafe fn abs_guest(path: *const CChar, out: &mut [u8; PATH_MAX]) -> Option<usize> {
+    let mut n = abs_guest_raw(path, out)?;
+    let mut hop = 0;
+    while hop < 4 {
+        let m = mnt_apply(out, n);
+        if m == n {
+            break;
+        }
+        n = m;
+        hop += 1;
+    }
+    Some(n)
+}
+
+unsafe fn abs_guest_raw(path: *const CChar, out: &mut [u8; PATH_MAX]) -> Option<usize> {
     if path.is_null() {
         return None;
     }
@@ -1331,6 +1392,364 @@ unsafe fn root_fstype() -> &'static [u8] {
     }
 }
 
+unsafe fn mnt_setup_dir() {
+    // Through our own mkdirat: the raw syscall would resolve /run/husk against
+    // the *host* root, where it does not exist and never will.
+    mkdirat(AT_FDCWD, MNT_DIR.as_ptr() as *const CChar, 0o755);
+}
+
+unsafe fn mnt_pad(out: &mut [u8; 2048], at: &mut usize, s: &[u8]) {
+    let room = out.len() - *at;
+    let n = if s.len() < room { s.len() } else { room };
+    if n == 0 {
+        return;
+    }
+    out[*at..*at + n].copy_from_slice(&s[..n]);
+    *at += n;
+}
+
+unsafe fn mnt_load() {
+    if MNT_READY != 0 {
+        return;
+    }
+    MNT_READY = 1;
+    let fd = openat(
+        AT_FDCWD,
+        MNT_FILE.as_ptr() as *const CChar,
+        0,
+        0,
+    );
+    if fd < 0 {
+        return;
+    }
+    static mut BUF: [u8; 2048] = [0; 2048];
+    let n = syscall4(
+        SYS_READ,
+        fd as usize,
+        core::ptr::addr_of_mut!(BUF) as usize,
+        BUF.len(),
+        0,
+    );
+    syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+    if n <= 0 {
+        return;
+    }
+    let buf = core::slice::from_raw_parts(core::ptr::addr_of!(BUF) as *const u8, n as usize);
+    let mut i = 0usize;
+    while i < buf.len() && MNT_N < MNT_MAX {
+        let mut e = i;
+        while e < buf.len() && buf[e] != b'\n' {
+            e += 1;
+        }
+        let line = &buf[i..e];
+        i = e + 1;
+        let mut f: [&[u8]; 4] = [&[], &[], &[], &[]];
+        let mut nf = 0usize;
+        let mut st = 0usize;
+        let mut k = 0usize;
+        while k <= line.len() {
+            if k == line.len() || line[k] == b'\t' {
+                if nf < 4 {
+                    f[nf] = &line[st..k];
+                    nf += 1;
+                }
+                st = k + 1;
+            }
+            k += 1;
+        }
+        if nf < 4 || f[2].len() == 0 || f[2].len() >= MNT_P || f[3].len() >= MNT_P {
+            continue;
+        }
+        let ent = &mut MNT[MNT_N];
+        ent.tgt[..f[2].len()].copy_from_slice(f[2]);
+        ent.tlen = f[2].len() as u16;
+        ent.src[..f[3].len()].copy_from_slice(f[3]);
+        ent.slen = f[3].len() as u16;
+        ent.ro = if f[1] == b"1" { 1 } else { 0 };
+        ent.tmpfs = if f[0] == b"t" { 1 } else { 0 };
+        MNT_N += 1;
+    }
+}
+
+unsafe fn mnt_save() {
+    let mut out = [0u8; 2048];
+    let mut at = 0usize;
+    let mut i = 0usize;
+    while i < MNT_N {
+        let e = &MNT[i];
+        mnt_pad(&mut out, &mut at, if e.tmpfs != 0 { b"t" } else { b"b" });
+        mnt_pad(&mut out, &mut at, if e.ro != 0 { b"\t1\t" } else { b"\t0\t" });
+        mnt_pad(&mut out, &mut at, &e.tgt[..e.tlen as usize]);
+        mnt_pad(&mut out, &mut at, b"\t");
+        mnt_pad(&mut out, &mut at, &e.src[..e.slen as usize]);
+        mnt_pad(&mut out, &mut at, b"\n");
+        i += 1;
+    }
+    mnt_setup_dir();
+    let fd = openat(
+        AT_FDCWD,
+        MNT_FILE.as_ptr() as *const CChar,
+        0o1 | 0o100 | 0o1000,
+        0o644,
+    );
+    if fd < 0 {
+        return;
+    }
+    syscall4(SYS_WRITE, fd as usize, out.as_ptr() as usize, at, 0);
+    syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+}
+
+/// Longest matching mount point wins, exactly like the kernel's lookup.
+unsafe fn mnt_apply(gp: &mut [u8; PATH_MAX], n: usize) -> usize {
+    mnt_load();
+    let mut best: isize = -1;
+    let mut bi = 0usize;
+    let mut i = 0usize;
+    while i < MNT_N {
+        let e = &MNT[i];
+        let tl = e.tlen as usize;
+        if tl <= n
+            && &gp[..tl] == &e.tgt[..tl]
+            && (n == tl || gp[tl] == b'/')
+            && (tl as isize) > best
+        {
+            best = tl as isize;
+            bi = i;
+        }
+        i += 1;
+    }
+    if best < 0 {
+        return n;
+    }
+    let e = &MNT[bi];
+    let tl = e.tlen as usize;
+    let sl = e.slen as usize;
+    let rest = n - tl;
+    if sl + rest >= PATH_MAX {
+        return n;
+    }
+    let mut tmp = [0u8; PATH_MAX];
+    tmp[..sl].copy_from_slice(&e.src[..sl]);
+    if rest > 0 {
+        tmp[sl..sl + rest].copy_from_slice(&gp[tl..n]);
+    }
+    gp[..sl + rest].copy_from_slice(&tmp[..sl + rest]);
+    sl + rest
+}
+
+/// Read-only check must run on the path *as the guest wrote it*: by the time
+/// `abs_guest` has applied the table the mount point is gone and the path looks
+/// like an ordinary source path, so a post-mapping check never fires.
+unsafe fn path_is_ro(path: *const CChar) -> bool {
+    if path.is_null() || *path != b'/' as CChar {
+        return false;
+    }
+    let mut gp = [0u8; PATH_MAX];
+    match abs_guest_raw(path, &mut gp) {
+        Some(n) => mnt_is_ro(&gp[..n]),
+        None => false,
+    }
+}
+
+unsafe fn mnt_is_ro(gp: &[u8]) -> bool {
+    mnt_load();
+    let mut i = 0usize;
+    while i < MNT_N {
+        let e = &MNT[i];
+        let tl = e.tlen as usize;
+        if e.ro != 0
+            && tl <= gp.len()
+            && &gp[..tl] == &e.tgt[..tl]
+            && (gp.len() == tl || gp[tl] == b'/')
+        {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mount(
+    source: *const CChar,
+    target: *const CChar,
+    fstype: *const CChar,
+    flags: usize,
+    _data: *const core::ffi::c_void,
+) -> CInt {
+    let rfd = rootfd();
+    if rfd < 0 {
+        return set_errno(1);
+    }
+    if target.is_null() {
+        return set_errno(14);
+    }
+    // The target is resolved *raw*: mounting onto an existing mount point must
+    // stack, not be rewritten into the mount's source.
+    let mut gp = [0u8; PATH_MAX];
+    let n = match abs_guest_raw(target, &mut gp) {
+        Some(n) => n,
+        None => return set_errno(36),
+    };
+    // The target must exist and be a directory, like mount(2). Translate it to
+    // the host path first: the raw syscall knows nothing about the guest root.
+    let mut name = [0u8; 256];
+    let parent = match rc::resolve_parent_follow(rfd, &gp[..n], &mut name) {
+        Ok(fd) => fd,
+        Err(e) => return set_errno(e),
+    };
+    let nl = name.iter().position(|c| *c == 0).unwrap_or(0);
+    let mut real = [0u8; PATH_MAX];
+    if real_path(parent, &name[..nl], &mut real).is_none() {
+        rc::close(parent);
+        return set_errno(2);
+    }
+    rc::close(parent);
+    let tfd = syscall4(
+        SYS_OPENAT,
+        AT_FDCWD as usize,
+        real.as_ptr() as usize,
+        (O_RDONLY0 | O_DIRECTORY) as usize,
+        0,
+    );
+    if tfd < 0 {
+        return -1;
+    }
+    syscall4(SYS_CLOSE, tfd as usize, 0, 0, 0);
+    mnt_load();
+    if flags & MS_REMOUNT != 0 {
+        let mut i = 0usize;
+        while i < MNT_N {
+            let e = &mut MNT[i];
+            let tl = e.tlen as usize;
+            if tl == n && &e.tgt[..tl] == &gp[..n] {
+                e.ro = if flags & MS_RDONLY != 0 { 1 } else { 0 };
+                mnt_save();
+                return 0;
+            }
+            i += 1;
+        }
+        return set_errno(22);
+    }
+    if MNT_N >= MNT_MAX {
+        return set_errno(28);
+    }
+    if n >= MNT_P {
+        return set_errno(36);
+    }
+    let bind = flags & MS_BIND != 0;
+    let is_tmpfs = !bind && !fstype.is_null() && bytes(fstype) == b"tmpfs";
+    if !bind && !is_tmpfs {
+        // Only the two forms a namespace this shape can honestly provide.
+        return set_errno(19);
+    }
+    // util-linux performs a bind as two calls (bind, then bind|remount for the
+    // flags). A second call for the same target with the same source is the
+    // same mount, not EBUSY; mirror the kernel by updating the flags instead.
+    let mut i = 0usize;
+    while i < MNT_N {
+        let tl = MNT[i].tlen as usize;
+        if tl == n && &MNT[i].tgt[..tl] == &gp[..n] {
+            if bind && !source.is_null() {
+                let mut sp = [0u8; PATH_MAX];
+                if let Some(sn) = abs_guest(source, &mut sp) {
+                    if sn < MNT_P
+                        && sn == MNT[i].slen as usize
+                        && &MNT[i].src[..sn] == &sp[..sn]
+                    {
+                        MNT[i].ro = if flags & MS_RDONLY != 0 { 1 } else { 0 };
+                        mnt_save();
+                        return 0;
+                    }
+                }
+            }
+            return set_errno(16);
+        }
+        i += 1;
+    }
+    let mut e = MntE {
+        tgt: [0; MNT_P],
+        tlen: n as u16,
+        src: [0; MNT_P],
+        slen: 0,
+        ro: if flags & MS_RDONLY != 0 { 1 } else { 0 },
+        tmpfs: if is_tmpfs { 1 } else { 0 },
+    };
+    e.tgt[..n].copy_from_slice(&gp[..n]);
+    if is_tmpfs {
+        mnt_setup_dir();
+        let mut sd = [0u8; 64];
+        let base = b"/run/husk/tmp";
+        let mut k = 0usize;
+        while k < base.len() {
+            sd[k] = base[k];
+            k += 1;
+        }
+        let mut d = [0u8; 16];
+        let dn = put_i64(&mut d, 0, MNT_N as i64);
+        let mut j = 0usize;
+        while j < dn {
+            sd[k] = d[j];
+            k += 1;
+            j += 1;
+        }
+        mkdirat(AT_FDCWD, sd.as_ptr() as *const CChar, 0o755);
+        e.src[..k].copy_from_slice(&sd[..k]);
+        e.slen = k as u16;
+    } else {
+        if source.is_null() {
+            return set_errno(14);
+        }
+        let mut sp = [0u8; PATH_MAX];
+        let sn = match abs_guest(source, &mut sp) {
+            Some(v) => v,
+            None => return set_errno(36),
+        };
+        if sn >= MNT_P {
+            return set_errno(36);
+        }
+        e.src[..sn].copy_from_slice(&sp[..sn]);
+        e.slen = sn as u16;
+    }
+    MNT[MNT_N] = e;
+    MNT_N += 1;
+    mnt_save();
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn umount2(target: *const CChar, _flags: CInt) -> CInt {
+    let rfd = rootfd();
+    if rfd < 0 {
+        return set_errno(1);
+    }
+    if target.is_null() {
+        return set_errno(14);
+    }
+    let mut gp = [0u8; PATH_MAX];
+    let n = match abs_guest_raw(target, &mut gp) {
+        Some(n) => n,
+        None => return set_errno(36),
+    };
+    mnt_load();
+    let mut i = 0usize;
+    while i < MNT_N {
+        let tl = MNT[i].tlen as usize;
+        if tl == n && &MNT[i].tgt[..tl] == &gp[..n] {
+            let mut k = i;
+            while k + 1 < MNT_N {
+                MNT[k] = MNT[k + 1];
+                k += 1;
+            }
+            MNT_N -= 1;
+            mnt_save();
+            return 0;
+        }
+        i += 1;
+    }
+    set_errno(22)
+}
+
 unsafe fn virt_mount_text(info: bool) -> usize {
     let mut at = 0usize;
     let fs = root_fstype();
@@ -1356,6 +1775,29 @@ unsafe fn virt_mount_text(info: bool) -> usize {
         vt_put(&mut at, b"devtmpfs /dev devtmpfs rw,nosuid,relatime 0 0\n");
         vt_put(&mut at, b"devpts /dev/pts devpts rw,nosuid,noexec,relatime 0 0\n");
         vt_put(&mut at, b"tmpfs /dev/shm tmpfs rw,nosuid,nodev 0 0\n");
+    }
+    mnt_load();
+    let mut i = 0usize;
+    while i < MNT_N {
+        let e = &MNT[i];
+        let tl = e.tlen as usize;
+        if info {
+            vt_put(&mut at, b"30 20 0:40 / ");
+            vt_put(&mut at, &e.tgt[..tl]);
+            vt_put(&mut at, b" ");
+            vt_put(&mut at, if e.ro != 0 { b"ro" } else { b"rw" });
+            vt_put(&mut at, b",relatime - ");
+            vt_put(&mut at, if e.tmpfs != 0 { b"tmpfs tmpfs " } else { b"none none " });
+            vt_put(&mut at, if e.ro != 0 { b"ro" } else { b"rw" });
+            vt_put(&mut at, b"\n");
+        } else {
+            vt_put(&mut at, if e.tmpfs != 0 { b"tmpfs " } else { b"none " });
+            vt_put(&mut at, &e.tgt[..tl]);
+            vt_put(&mut at, if e.tmpfs != 0 { b" tmpfs " } else { b" none " });
+            vt_put(&mut at, if e.ro != 0 { b"ro" } else { b"rw" });
+            vt_put(&mut at, b",relatime 0 0\n");
+        }
+        i += 1;
     }
     at
 }
@@ -1823,6 +2265,9 @@ unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt)
                 Some(n) => n,
                 None => PATH_MAX,
             };
+            if n < PATH_MAX && flags & O_WRITEISH != 0 && path_is_ro(path) {
+                return set_errno(30);
+            }
             // DRM 假节点：先于 passthrough 判断，否则 /dev/* 会直接落到宿主上 ENOENT
             if verbose_on() && n >= 4 && &gp[..4] == b"/dev".as_ref() {
                 dbg(&[b"nrshim open ", &gp[..n], b"\n"]);
@@ -2149,6 +2594,11 @@ where
             None => return set_errno(36),
         }
     };
+    // Every operation that goes through here modifies the tree (mkdir, unlink,
+    // rmdir, mknod, symlink): a read-only emulated mount must refuse with EROFS.
+    if path_is_ro(path) {
+        return set_errno(30);
+    }
     let rfd = rootfd();
     let mut nb = [0u8; 260];
     let mut raw = [0u8; PATH_MAX];

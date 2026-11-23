@@ -41,6 +41,11 @@ S fs xattr "$(python3 -c 'import os;os.setxattr("/tmp",b"user.husk",b"1");os.rem
 S fs otmpfile "$(python3 -c 'import os;os.close(os.open("/tmp",os.O_TMPFILE|os.O_RDWR,0o600))' 2>/dev/null; ok $?)" "O_TMPFILE"
 S fs sparse "$(python3 -c 'f=open("/tmp/.sp","wb");f.truncate(1<<30);f.close()' 2>/dev/null && rm -f /tmp/.sp; ok $?)" "1 GiB truncate"
 S fs hardlink PARTIAL "$(mkdir -p /var/tmp/hl && echo x >/var/tmp/hl/a && ln /var/tmp/hl/a /var/tmp/hl/b 2>/dev/null; ok $?) nlink=$(stat -c %h /var/tmp/hl/a 2>/dev/null) (kernel denies link(2); emulated as copy)"
+# Mounting is part of the container surface. mount(2) needs CAP_SYS_ADMIN, so
+# these measure the namespace-equivalent the shim provides (evidence 112).
+S fs bind_mount "$(mkdir -p /var/tmp/hb1 /var/tmp/hb2; echo b > /var/tmp/hb1/f; mount --bind /var/tmp/hb1 /var/tmp/hb2 2>/dev/null; cat /var/tmp/hb2/f 2>/dev/null | grep -q '^b$'; r=$?; umount /var/tmp/hb2 2>/dev/null; ok $r)" "mount --bind: target shows source content"
+S fs tmpfs_mount "$(mkdir -p /var/tmp/ht1; mount -t tmpfs tmpfs /var/tmp/ht1 2>/dev/null; sh -c 'echo t > /var/tmp/ht1/a' 2>/dev/null; grep -q '^t$' /var/tmp/ht1/a 2>/dev/null; r=$?; umount /var/tmp/ht1 2>/dev/null; ok $r)" "mount -t tmpfs: writable scratch"
+S fs ro_mount "$(mkdir -p /var/tmp/hr1 /var/tmp/hr2; echo x > /var/tmp/hr1/f; mount --bind -o ro /var/tmp/hr1 /var/tmp/hr2 2>/dev/null; sh -c 'echo y > /var/tmp/hr2/g' 2>/dev/null && r=1 || r=0; umount /var/tmp/hr2 2>/dev/null; [ ! -e /var/tmp/hr1/g ] || r=1; ok $r)" "ro bind: read ok, write EROFS"
 S fs mmap_shared "$(python3 -c 'import mmap;f=open("/tmp/.mm","w+b");f.truncate(4096);m=mmap.mmap(f.fileno(),4096);m[0:2]=b"ok";m.flush();assert m[0:2]==b"ok"' 2>/dev/null && rm -f /tmp/.mm; ok $?)" "MAP_SHARED + flush"
 
 # ------------------------------------------------------------------- ipc -----
