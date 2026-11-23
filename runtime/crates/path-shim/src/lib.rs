@@ -991,6 +991,10 @@ unsafe fn name_once() {
             skip_value = true;
             continue;
         }
+        if len == 7 && &buf[start..start + 7] == b"--argv0" {
+            skip_value = true;
+            continue;
+        }
         if len >= 2 && buf[start] == b'-' && buf[start + 1] == b'-' {
             continue; // any other loader option
         }
@@ -6013,6 +6017,16 @@ pub unsafe extern "C" fn execve(
         EXE_GUEST[..n].copy_from_slice(&gp[..n]);
         EXE_GUEST_LEN = n;
     }
+    // The path exactly as this call named it (guest-absolute, NUL terminated).
+    // A script's interpreter has to receive *this* string and not the resolved
+    // target, because that is what the kernel hands over - and it is what makes
+    // a symlink dispatcher work at all: /usr/sbin/addgroup is a symlink to the
+    // adduser script and decides what to do from its own $0.
+    let mut as_given = [0u8; PATH_MAX];
+    if n < PATH_MAX {
+        as_given[..n].copy_from_slice(&gp[..n]);
+        as_given[n] = 0;
+    }
     if pseudo_path(&gp[..n]) && passthrough(&gp[..n]) {
         return ret_or_errno(syscall4(
             SYS_EXECVE,
@@ -6192,7 +6206,7 @@ pub unsafe extern "C" fn execve(
             sargs[k] = shebang_arg.as_ptr() as *const CChar;
             k += 1;
         }
-        sargs[k] = real.as_ptr() as *const CChar;
+        sargs[k] = as_given.as_ptr() as *const CChar;
         k += 1;
         let mut i = 1usize;
         while !argv.is_null() && !(*argv.add(i)).is_null() && k < 63 {
@@ -6257,6 +6271,16 @@ pub unsafe extern "C" fn execve(
     k += 1;
     args[k] = lib.as_ptr() as *const CChar;
     k += 1;
+    // argv[0] the way the caller wrote it. The program argument below is a
+    // *resolved* path, so without this every symlink-dispatched program sees
+    // its target's name; that is what turned `addgroup --system X` into an
+    // adduser call (evidence 137).
+    if !argv.is_null() && !(*argv).is_null() {
+        args[k] = b"--argv0\0".as_ptr() as *const CChar;
+        k += 1;
+        args[k] = *argv;
+        k += 1;
+    }
     args[k] = tgt.as_ptr() as *const CChar;
     k += 1;
     if is_script {
@@ -6265,7 +6289,7 @@ pub unsafe extern "C" fn execve(
             k += 1;
         }
         if k < 62 {
-            args[k] = real.as_ptr() as *const CChar;
+            args[k] = as_given.as_ptr() as *const CChar;
             k += 1;
         }
     }
