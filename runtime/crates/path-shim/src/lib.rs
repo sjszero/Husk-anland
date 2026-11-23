@@ -3528,6 +3528,37 @@ pub unsafe extern "C" fn access(path: *const CChar, mode: CInt) -> CInt {
 /// Resolve `path` into a parent fd + final component and hand both to `f`.
 /// `follow` follows a symlink in the final component (chmod/touch semantics);
 /// most other calls (unlink/rename/mkdir/symlink) must not.
+/// Read-only mounts must refuse *metadata* writes with EROFS exactly like they
+/// refuse a write through `open()`. chmod, chown, utimensat, xattr writes and
+/// mknod all change the tree just as much as writing a byte does; they simply
+/// do not go through `open()`, so they need their own check.
+unsafe fn ro_refuse_at(dirfd: CInt, path: *const CChar) -> bool {
+    if path.is_null() || *path == 0 {
+        return false;
+    }
+    let mut gp = [0u8; PATH_MAX];
+    let ro = if *path == b'/' as CChar {
+        match abs_guest(path, &mut gp) {
+            Some(n) => ro_gp(&gp[..n]),
+            None => false,
+        }
+    } else {
+        match resolve_dirfd_rel(dirfd, bytes(path), &mut gp) {
+            Ok(Some(n)) => ro_gp(&gp[..n]),
+            _ => false,
+        }
+    };
+    if ro {
+        set_errno(30); // EROFS
+    }
+    ro
+}
+
+/// Same, for the path-only entry points (xattr) that have no directory fd.
+unsafe fn ro_refuse(path: *const CChar) -> bool {
+    ro_refuse_at(AT_FDCWD, path)
+}
+
 unsafe fn pathop<F>(dirfd: CInt, path: *const CChar, follow: bool, f: F) -> CInt
 where
     F: FnOnce(CInt, *const CChar) -> Ssize,
@@ -3799,6 +3830,9 @@ unsafe fn fd_proc_path(fd: CInt, out: &mut [u8; 32]) -> &[u8] {
 }
 
 unsafe fn chmod_target(dirfd: CInt, path: *const CChar, mode: CInt, follow: bool) -> CInt {
+    if ro_refuse_at(dirfd, path) {
+        return -1;
+    }
     let fd = match target_fd(dirfd, path, follow) {
         Ok(fd) => fd,
         Err(e) => return set_errno(e),
@@ -3824,15 +3858,18 @@ unsafe fn chown_target(
     follow: bool,
     raw_flags: CInt,
 ) -> CInt {
+    if path.is_null() {
+        return set_errno(14);
+    }
+    if ro_refuse_at(dirfd, path) {
+        return -1;
+    }
     // Under the fake-root convention the guest cannot change ownership (no
     // CAP_CHOWN), and every package manager calls it on every file. Reporting
     // success is what a user namespace would do; the real owner on disk stays
     // u0_a302. See the fake-root note above getuid().
     if fake_root_on() {
         return 0;
-    }
-    if path.is_null() {
-        return set_errno(14);
     }
     if *path == 0 && raw_flags & AT_EMPTY_PATH != 0 {
         return ret_or_errno(syscall5(
@@ -3873,6 +3910,9 @@ unsafe fn utimens_target(
 ) -> CInt {
     if path.is_null() {
         return set_errno(14);
+    }
+    if ro_refuse_at(dirfd, path) {
+        return -1;
     }
     // Under the fake-root convention the guest cannot change ownership (no
     // CAP_CHOWN), and every package manager calls it on every file. Reporting
@@ -5174,6 +5214,9 @@ pub unsafe extern "C" fn setxattr(
     size: CSizet,
     flags: CInt,
 ) -> CInt {
+    if ro_refuse(path) {
+        return -1;
+    }
     ret_or_errno(xattr_pinned(path, |p| {
         syscall5(
             SYS_SETXATTR,
@@ -5194,6 +5237,9 @@ pub unsafe extern "C" fn lsetxattr(
     size: CSizet,
     flags: CInt,
 ) -> CInt {
+    if ro_refuse(path) {
+        return -1;
+    }
     ret_or_errno(pathonly(path, false, |p| {
         syscall5(
             SYS_LSETXATTR,
@@ -5222,6 +5268,9 @@ pub unsafe extern "C" fn llistxattr(path: *const CChar, list: *mut CChar, size: 
 
 #[no_mangle]
 pub unsafe extern "C" fn removexattr(path: *const CChar, name: *const CChar) -> CInt {
+    if ro_refuse(path) {
+        return -1;
+    }
     ret_or_errno(xattr_pinned(path, |p| {
         syscall4(SYS_REMOVEXATTR, p as usize, name as usize, 0, 0)
     }))
@@ -5229,6 +5278,9 @@ pub unsafe extern "C" fn removexattr(path: *const CChar, name: *const CChar) -> 
 
 #[no_mangle]
 pub unsafe extern "C" fn lremovexattr(path: *const CChar, name: *const CChar) -> CInt {
+    if ro_refuse(path) {
+        return -1;
+    }
     ret_or_errno(pathonly(path, false, |p| {
         syscall4(SYS_LREMOVEXATTR, p as usize, name as usize, 0, 0)
     }))

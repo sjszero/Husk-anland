@@ -49,6 +49,15 @@ except OSError as e:
 PY
 )" "unlink through a directory descriptor"
 [ "$(sh -c 'cat /mnt/ro/f')" = "data" ] && ok "content untouched" || bad "content changed"
+# Metadata writes do not go through open(), so they need their own check.
+MODE0=$(sh -c 'stat -c %a /mnt/ro/f')
+want_erofs "$(python3 -c 'import os;os.chmod("/mnt/ro/f",0o600)' 2>&1)" "chmod"
+want_erofs "$(python3 -c 'import os;d=os.open("/mnt/ro",os.O_RDONLY);os.chmod("f",0o600,dir_fd=d)' 2>&1)" "fchmodat through a directory descriptor"
+want_erofs "$(python3 -c 'import os;os.chown("/mnt/ro/f",0,0)' 2>&1)" "chown"
+want_erofs "$(python3 -c 'import os;os.utime("/mnt/ro/f",None)' 2>&1)" "utimensat"
+want_erofs "$(python3 -c 'import os;os.truncate("/mnt/ro/f",0)' 2>&1)" "truncate"
+want_erofs "$(python3 -c 'import os;os.setxattr("/mnt/ro/f","user.husk",b"x")' 2>&1)" "setxattr"
+[ "$(sh -c 'stat -c %a /mnt/ro/f')" = "$MODE0" ] && ok "mode untouched" || bad "mode changed"
 umount /mnt/ro
 
 echo "== B-02 a new tmpfs never inherits a dead one's files =="
