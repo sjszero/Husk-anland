@@ -30,7 +30,9 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径>   <loader>
 2. 传感器 / GPS / USB / 蓝牙 / NFC / 指纹——未开始（先读 `husk-notes/prior-art/sensor-gps-*.md`、`platform-peripherals-*.md`）；
 3. 2.0 集成：映射表与替代启动器已落地（docs/design/linuxhub-2.0-swap.md，evidence 129），
    还剩两件：① `su`/PAM 的 `PAM_SYSTEM_ERR` 要定位（现在靠直接以用户身份启动绕开）；② 把 2.0 的 Kotlin 侧真正接上；
-4. 交付形态：一条"放进终端（Termux 类）即可安装/启动"的路径（现在只有 adb 推文件 + gexec.sh）。
+4. 交付形态：**已落地**（`tools/guest/install-husk.sh`，evidence 130）——本地 tarball 或 URL 一条命令
+   装完 + 生成启动器，本机 app 私有目录端到端通；**真 Termux 验收 UNKNOWN**（本机没装 Termux，
+   adb shell 里也没有 curl/wget，URL 分支只在 macOS 上证过下载段）。
 
 **参考笔记不进仓库**：`/Users/l/Documents/Codex/2026-08-10/husk-notes/prior-art/`（必读 `references.md`）。
 **推 GitHub 走代理**：`HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 git -c http.proxy=http://127.0.0.1:7897 push origin main`
@@ -42,7 +44,10 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径>   <loader>
 按"对标容器/轻量虚拟机"的环境口径，A（账号）、B（挂载）、C（设备节点）、D（网络表面）
 四段已收口，E（进程视图 + 服务监督器）已收口；**F 只剩 16K/64K 实机和 Mali 以外的 GPU 家族适配**。
 桌面帧出屏（G）按目标延后，不作为环境完整性判据。传感器、GPS、USB / 蓝牙 / NFC / 指纹
-尚未开始；2.0 的 proot 运行时尚未替换。
+尚未开始；2.0 的 proot 运行时尚未替换（契约与启动器已就绪，Kotlin 侧未接）。
+
+另外记一条会反复踩的事实（evidence 130）：2.0 assets 里的 `ubuntu-base-24.04.4-base-arm64.tar`
+**是 gzip**（`1f 8b`，md5 `0be8b9e5…`），只是文件名没有 `.gz`。装之前先 `od -An -tx1 -N6`。
 
 ## 已完成（回归门禁，改动后必须重跑）
 
@@ -71,6 +76,7 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径>   <loader>
 | 设备节点 | `/dev/{null,zero,random,urandom,shm,pts/*,mali0,videoN}` 按名字打开全部正常，`mkfifo` 可用；三条平台墙已定性并写成断言：`/dev` 列不了目录（SELinux，不经 loader 也一样）、`/dev/full` 做不到 `ENOSPC`（要拦 `write(2)`，且 glibc stdio 走内部 `__write_nocancel`，判定为**不支持**）、`/dev/tty` 缺控制终端（`ENXIO`，属终端载体） | 118 |
 | 网络表面 | `ip addr`/`ip route`/`ip link`/`ip -br`/`hostname -I`/`/proc/net/{dev,route}`/`if_nameindex`/`getent`/`getaddrinfo` 全通；**出口流量**（DNS/UDP/TCP/HTTP/HTTPS/`apt-get install` 真实下载）可用，改网络的动词回 `EPERM`（不假成功），`ip route get` 与 `ip neigh` 回 `EOPNOTSUPP`；MAC 全 0、无 IPv6、无默认网关、`ss` 空表；原始 ICMP 不可用 | 116 / 121 |
 | 账号管理 | 自研 `husk-usermgr`（useradd/groupadd/usermod/userdel/groupdel/chpasswd/passwd/chfn/chsh）；`apt-get install tor` 的 postinst 建号成功 | 111 |
+| 安装路径（E 段） | `tools/guest/install-husk.sh`：`--rootfs <tar[.gz|.xz|.zst] | URL> --dest --loader [--user]`，两遍解包补 SELinux 拒掉的硬链接（pass 2 走 shim 的 link→copy 回退），生成 `husk` 启动器（绝对路径 + `NR_LD` 内建）；实测 `PRETTY_NAME="Ubuntu 24.04.4 LTS"`、`bins=294`、`perl5.38.2`/`uncompress` 成为真实文件；`--cwd` 用 `env -C` 落到 guest，`--user hu1` → `uid=1000(hu1)` / `/home/hu1`。**真 Termux 未验（UNKNOWN）** | 130 |
 | POSIX 消息队列 | guest 内 `mq_open/mq_send/mq_receive/mq_getattr/mq_unlink` 全通（优先级顺序、`EAGAIN`、`curmsgs` 计数），12/12 PASS；根因是 arm64 glibc 的 `mq_*` 走未实现的 legacy syscall，必须函数级 interpose | 114 |
 | SysV IPC | `shmget/shmat/shmdt/shmctl`、`semget/semop/semctl`、`msgget/msgsnd/msgrcv/msgctl` 全部在 shim 里实现（文件 + mmap + flock）：跨进程共享内存、P/V 阻塞唤醒、按类型取消息、`IPC_RMID` 宽限期；13 + 24 项全通过。`SEM_UNDO` = `EOPNOTSUPP`；`/proc/sysvipc/{shm,sem,msg}` 已合成，`ipcs` 出正确表头 | 115 / 116 |
 

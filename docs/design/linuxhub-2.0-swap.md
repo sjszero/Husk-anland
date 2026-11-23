@@ -70,7 +70,10 @@ prootCommand(...) = libproot.so --link2symlink -0 -r <rootfs>
 - 从 guest 自己的 `/etc/passwd` 取 uid/gid/home/shell（不从 Android uid 推）；
 - 把 `HOME USER LOGNAME SHELL PATH LANG TERM`、`NR_ROOTFS`、`NR_LD`、`NR_FAKE_UID`、`NR_FAKE_GID`
   一起交给 `env -i`，所以环境重置也不会把 shim 弄丢；
-- 2.0 的 `su - <user>` 由 `NR_FAKE_UID/NR_FAKE_GID` + `bash -l` 直接达成。
+- 2.0 的 `su - <user>` 由 `NR_FAKE_UID/NR_FAKE_GID` + `bash -l` 直接达成；
+- `--cwd` 用 `usr/bin/env -i -C <dir>` 实现（宿主侧 `cd` 与 guest 无关），程序路径在这里规范成绝对路径；
+- 装 rootfs 与生成启动器的是 `tools/guest/install-husk.sh`（本地 tarball 或 URL，两遍解包补 SELinux
+  拒掉的硬链接），用法与实测见 `docs/design/evidence/130-install-path-20261123.md`。
 
 ## 6. 验收（本机做到哪一步）
 
@@ -78,6 +81,7 @@ prootCommand(...) = libproot.so --link2symlink -0 -r <rootfs>
 |---|---|
 | 用户会话身份 | `id` → `uid=1000(hu1) gid=1000(hu1) groups=1000(hu1)`，`id -un`=hu1 |
 | 主目录 | `cd ~` → `/home/hu1`，登录脚本生效 |
+| 默认工作目录 | `--cwd /usr/bin` → `pwd` = `/usr/bin`（不经登录 shell 也成立） |
 | setuid 跟随 | `os.setuid(1001)` 后 `getuid/geteuid` 都变 1001 |
 | 默认会话不变 | 不设 `NR_FAKE_*` 时仍是 `uid=0` / `root` |
 | 硬链接 | guest 内 `ln` rc=0（副本回退） |
