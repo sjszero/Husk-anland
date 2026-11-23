@@ -18,7 +18,9 @@
 
 use core::ffi::{c_char, c_int, c_ulong, c_void};
 use std::fs::{File, OpenOptions};
+use std::io::Read;
 use std::os::unix::io::AsRawFd;
+use std::os::unix::net::UnixStream;
 use std::path::Path;
 
 extern "C" {
@@ -29,7 +31,52 @@ extern "C" {
     fn munmap(addr: *mut c_void, len: usize) -> c_int;
     fn poll(fds: *mut core::ffi::c_void, nfds: u64, timeout: c_int) -> c_int;
     fn read(fd: c_int, buf: *mut core::ffi::c_void, count: usize) -> isize;
+    fn recvmsg(fd: c_int, msg: *mut MsgHdr, flags: c_int) -> isize;
     fn close(fd: c_int) -> c_int;
+}
+
+const SOL_SOCKET: c_int = 1;
+const SCM_RIGHTS: c_int = 1;
+const PROT_READ: c_int = 1;
+const PROT_WRITE: c_int = 2;
+const MAP_SHARED: c_int = 1;
+
+#[repr(C)]
+struct IoVec {
+    base: *mut c_void,
+    len: usize,
+}
+
+#[repr(C)]
+struct MsgHdr {
+    name: *mut c_void,
+    name_len: u32,
+    iov: *mut IoVec,
+    iov_len: usize,
+    control: *mut c_void,
+    control_len: usize,
+    flags: c_int,
+}
+
+#[repr(C)]
+struct CmsgHdr {
+    len: usize,
+    level: c_int,
+    ty: c_int,
+}
+
+#[repr(C)]
+struct MemImport {
+    flags: u64,
+    phandle: u64,
+    ty: u32,
+    padding: u32,
+}
+
+#[repr(C)]
+struct StickyResourceMap {
+    count: u64,
+    address: u64,
 }
 
 fn errno() -> i32 {
@@ -2555,7 +2602,7 @@ fn csf() {
 
 /// MEM_IMPORT (nr 22, union 24B → 0xc0188016)。r32 这份 UAPI **没有** export，
 /// 只有 import：所以零拷贝方向是「app 分配 dma-buf → guest 导入 → GPU 直接写」。
-/// 这里只验命令是否存在 + 合法/非法 fd 的 errno，不假设能导。
+/// `phandle` 是指向用户态 `int fd` 的指针，不是 fd 数值本身。
 fn imp(arg: &str) {
     let Some(f) = kbase_open() else { line("open", "FAIL", "version_check/set_flags"); return };
     let fd = f.as_raw_fd();
@@ -2568,19 +2615,229 @@ fn imp(arg: &str) {
         if let Ok(v) = arg.parse::<i64>() { cases.push((format!("arg={v}"), v)); }
     }
     for (label, ph) in cases {
-        // in{flags,phandle,type=UMM(2),padding}
-        let mut u = [0u32; 6];
-        u[2] = ph as u32; u[3] = (ph >> 32) as u32; u[4] = 2;
-        let r = unsafe { ioctl(fd, 0xc018_8016u64, u.as_mut_ptr() as *mut core::ffi::c_void) };
+        let mut import_fd = ph as c_int;
+        // CPU_RD | CPU_WR | GPU_RD | GPU_WR | COHERENT_SYSTEM | IMPORT_SHARED.
+        let mut req = MemImport {
+            flags: 0xf | (1 << 10) | (1 << 18),
+            phandle: &mut import_fd as *mut c_int as usize as u64,
+            ty: 2,
+            padding: 0,
+        };
+        let r = unsafe { ioctl(fd, 0xc018_8016u64, &mut req as *mut MemImport as *mut core::ffi::c_void) };
         if r < 0 {
             let e = errno();
             let verdict = if e == 25 { "ENOTTY(命令不存在)" } else { "REACHED" };
             line(&format!("imp/{label}"), verdict, format!("errno={e} ({})", strerror_guess(e)));
         } else {
+            let va_pages = req.ty as u64 | ((req.padding as u64) << 32);
             line(&format!("imp/{label}"), "PASS", format!(
-                "flags={:#x} gpu_va={:#x} va_pages={}", u[0], u[1] as u64 | ((u[2] as u64) << 32), u[3]));
+                "flags={:#x} gpu_va={:#x} va_pages={va_pages}", req.flags, req.phandle));
         }
     }
+}
+
+fn cmsg_align(n: usize) -> usize {
+    let a = core::mem::size_of::<usize>();
+    (n + a - 1) & !(a - 1)
+}
+
+unsafe fn recv_handle_fds(stream: &UnixStream) -> Result<Vec<c_int>, String> {
+    let mut data = [0u8; 512];
+    let mut control = [0u8; 512];
+    let mut iov = IoVec {
+        base: data.as_mut_ptr() as *mut c_void,
+        len: data.len(),
+    };
+    let mut msg = MsgHdr {
+        name: core::ptr::null_mut(),
+        name_len: 0,
+        iov: &mut iov,
+        iov_len: 1,
+        control: control.as_mut_ptr() as *mut c_void,
+        control_len: control.len(),
+        flags: 0,
+    };
+    let n = recvmsg(stream.as_raw_fd(), &mut msg, 0);
+    if n < 0 {
+        return Err(format!("recvmsg: {}", std::io::Error::last_os_error()));
+    }
+    line("imp/socket", "recv", format!("bytes={n} control_len={}", msg.control_len));
+
+    let mut fds = Vec::new();
+    let header = core::mem::size_of::<CmsgHdr>();
+    let mut off = 0usize;
+    while off + header <= msg.control_len {
+        let h = control.as_ptr().add(off) as *const CmsgHdr;
+        let len = (*h).len;
+        if len < header || off + len > msg.control_len {
+            break;
+        }
+        if (*h).level == SOL_SOCKET && (*h).ty == SCM_RIGHTS {
+            let data_off = off + cmsg_align(header);
+            let data_len = len.saturating_sub(cmsg_align(header));
+            for i in 0..data_len / core::mem::size_of::<c_int>() {
+                let p = control.as_ptr().add(data_off + i * core::mem::size_of::<c_int>()) as *const c_int;
+                fds.push(p.read_unaligned());
+            }
+        }
+        off += cmsg_align(len);
+    }
+    if fds.is_empty() {
+        return Err("SCM_RIGHTS contained no fds".to_string());
+    }
+    Ok(fds)
+}
+
+unsafe fn find_dmabuf(fds: &[c_int]) -> Option<c_int> {
+    for &fd in fds {
+        let target = std::fs::read_link(format!("/proc/self/fd/{fd}"))
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|e| format!("<readlink: {e}>"));
+        let is_dmabuf = target.contains("dmabuf") || target.contains("dma-buf");
+        line("imp/socket", if is_dmabuf { "dmabuf" } else { "fd" },
+            format!("fd={fd} target={target}"));
+        if is_dmabuf {
+            return Some(fd);
+        }
+    }
+    None
+}
+
+unsafe fn imp_socket(path: &str) {
+    let mut stream = match UnixStream::connect(path) {
+        Ok(v) => v,
+        Err(e) => {
+            line("imp/socket", "FAIL", format!("connect {path}: {e}"));
+            return;
+        }
+    };
+    line("imp/socket", "PASS", path);
+    let mut frame_len = [0u8; 4];
+    if let Err(e) = stream.read_exact(&mut frame_len) {
+        line("imp/socket", "FAIL", format!("meta length: {e}"));
+        return;
+    }
+    let meta_len = u32::from_be_bytes(frame_len) as usize;
+    if meta_len == 0 || meta_len > 4096 {
+        line("imp/socket", "FAIL", format!("meta length={meta_len}"));
+        return;
+    }
+    let mut meta = vec![0u8; meta_len];
+    if let Err(e) = stream.read_exact(&mut meta) {
+        line("imp/socket", "FAIL", format!("meta: {e}"));
+        return;
+    }
+    let meta = String::from_utf8_lossy(&meta);
+    let mut width = 0usize;
+    let mut height = 0usize;
+    let mut stride = 0usize;
+    for l in meta.lines() {
+        if let Some(v) = l.strip_prefix("width=") { width = v.parse().unwrap_or(0); }
+        if let Some(v) = l.strip_prefix("height=") { height = v.parse().unwrap_or(0); }
+        if let Some(v) = l.strip_prefix("stride=") { stride = v.parse().unwrap_or(0); }
+    }
+    line("imp/socket", "meta", format!("{}x{} stride={stride}", width, height));
+
+    let fds = match recv_handle_fds(&stream) {
+        Ok(v) => v,
+        Err(e) => {
+            line("imp/socket", "FAIL", e);
+            return;
+        }
+    };
+    let Some(dmabuf) = find_dmabuf(&fds) else {
+        line("imp/socket", "FAIL", "no dma-buf fd");
+        for &fd in &fds { close(fd); }
+        return;
+    };
+
+    let Some(kbase) = kbase_open() else {
+        line("imp/mem_import", "FAIL", "kbase_open");
+        for &fd in &fds { close(fd); }
+        return;
+    };
+
+    let mut import_fd = dmabuf;
+    let mut req = MemImport {
+        flags: 0xf | (1 << 10) | (1 << 18),
+        phandle: &mut import_fd as *mut c_int as usize as u64,
+        ty: 2,
+        padding: 0,
+    };
+    let e = ioctl_errno(kbase.as_raw_fd(), 0xc018_8016u64 as c_ulong,
+        &mut req as *mut MemImport as *mut c_void);
+    if e != 0 {
+        line("imp/mem_import", "FAIL", format!("errno={e} ({})", strerror_guess(e)));
+        for &fd in &fds { close(fd); }
+        return;
+    }
+    let va_pages = req.ty as u64 | ((req.padding as u64) << 32);
+    line("imp/mem_import", "PASS", format!(
+        "flags={:#x} cookie={:#x} va_pages={va_pages}", req.flags, req.phandle));
+
+    let size = (va_pages as usize).saturating_mul(4096);
+    let mapping = mmap(core::ptr::null_mut(), size, PROT_READ | PROT_WRITE, MAP_SHARED,
+        kbase.as_raw_fd(), req.phandle as i64);
+    if mapping as isize == -1 {
+        let e = errno();
+        line("imp/mmap", "FAIL", format!("errno={e} ({})", strerror_guess(e)));
+        for &fd in &fds { close(fd); }
+        return;
+    }
+    line("imp/mmap", "PASS", format!("size={size} ptr={mapping:p}"));
+
+    // UMM imports must be permanently mapped before GPU translation. `address`
+    // points to an array of GPU VAs; for SAME_VA imports the post-mmap CPU
+    // address is the GPU VA, not the pre-mmap cookie returned by MEM_IMPORT.
+    let mut gpu_vas = [mapping as u64];
+    let mut sticky = StickyResourceMap {
+        count: gpu_vas.len() as u64,
+        address: gpu_vas.as_mut_ptr() as usize as u64,
+    };
+    let sticky_errno = ioctl_errno(kbase.as_raw_fd(), 0x4010_801du64 as c_ulong,
+        &mut sticky as *mut StickyResourceMap as *mut c_void);
+    line("imp/sticky_map", if sticky_errno == 0 { "PASS" } else { "FAIL" },
+        format!("errno={sticky_errno} ({}) gpu_va={:#x}",
+            strerror_guess(sticky_errno), gpu_vas[0]));
+
+    // The kbase SAME_VA window is the GPU translation mapping. UMM imports are
+    // not guaranteed CPU-coherent there; the authoritative CPU view is the
+    // dma-buf mapping itself.
+    let direct = mmap(core::ptr::null_mut(), size, PROT_READ | PROT_WRITE, MAP_SHARED,
+        dmabuf, 0);
+    let mut direct_ok = false;
+    if direct as isize == -1 {
+        let e = errno();
+        line("imp/dmabuf_mmap", "FAIL", format!("errno={e} ({})", strerror_guess(e)));
+    } else {
+        let before = (direct as *const u32).read_unaligned();
+        let pitch = stride.saturating_mul(4);
+        if width > 0 && height > 0 && stride >= width {
+            for y in 0..height {
+                for x in 0..width {
+                    let p = direct.cast::<u8>().add(y * pitch + x * 4) as *mut u32;
+                    p.write_unaligned(0xff00_00ff);
+                }
+            }
+            let direct_first = (direct as *const u32).read_unaligned();
+            let kbase_first = (mapping as *const u32).read_unaligned();
+            direct_ok = direct_first == 0xff00_00ff;
+            line("imp/write", "PASS", format!("red={}x{} before={before:#x}", width, height));
+            line("imp/dmabuf_read", if direct_ok { "PASS" } else { "FAIL" },
+                format!("direct_first={direct_first:#x}"));
+            line("imp/kbase_view", "INFO",
+                format!("kbase_first={kbase_first:#x} (CPU coherency is not required here)"));
+        }
+        munmap(direct, size);
+    }
+    munmap(mapping, size);
+
+    let ok = sticky_errno == 0 && direct_ok;
+    use std::io::Write;
+    let ack = if ok { b'D' } else { b'F' };
+    let _ = stream.write_all(&[ack]);
+    for &fd in &fds { close(fd); }
+    line("imp/socket", "DONE", format!("ack={}", ack as char));
 }
 
 fn main() {
@@ -2630,6 +2887,7 @@ fn main() {
         ),
         "csf" => csf(),
         "imp" => imp(args.get(2).map(|s| s.as_str()).unwrap_or("")),
+        "imp_socket" => unsafe { imp_socket(args.get(2).map(|s| s.as_str()).unwrap_or("")) },
         "crz" => crz(
             args.get(2).map(|s| s.as_str()).unwrap_or("0x0"),
             args.get(3).map(|s| s.as_str()).unwrap_or("0x1"),

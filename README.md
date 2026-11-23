@@ -23,8 +23,8 @@
 > eventfd fallback 为 0。evidence 59 已改为 3-slot 持久 Vulkan 资源池，并连续跑完
 > 10,000 帧 / 665.385 秒：10,000/10,000 帧均为真实 `SYNC_FD`，7,106 帧导出时仍 pending，
 > completion 与 9 点 GPU 回读均 10,000/10,000，fallback=0，app transaction 10,000/10,000，
-> app/guest fd 与 RSS 无累积增长。WSI、SurfaceFlinger 内部等待 trace 与窗口生命周期仍未验收
-> （见 evidence 53–59 与 `docs/PROJECT-MEMORY.md`）。音频最小闭环已跑通：guest 枚举 7 个
+> app/guest fd 与 RSS 无累积增长。WSI 与 SurfaceFlinger 内部等待 trace 仍未验收；窗口生命周期已由 evidence 72
+> 覆盖旋转和 Home/前台 SurfaceControl 重建（见 evidence 53–59 与 `docs/PROJECT-MEMORY.md`）。音频最小闭环已跑通：guest 枚举 7 个
 > Android 输出设备、控制 `STREAM_MUSIC` 音量，并通过独立 Unix socket 把 PCM16 交给 app 内
 > AAudio 真开流写入；平台拒绝 low-latency 请求并降为 `perf=NONE`。随后又打通 PulseAudio
 > `module-pipe-sink` → 纯 Rust relay → 持续 `OPEN/DATA/CLOSE` AAudio 会话，标准 guest
@@ -35,8 +35,10 @@
 > `/run/husk/video.sock`（evidence 69 / 70）；evidence 71 又把解码后的 150 个 AHB 连续直接
 > 提交到 `husk-video` SurfaceControl 子层，两次实时会话均 `150/150` 完成并截图证明动态播放。
 > evidence 72 进一步验证播放中旋转，以及 Home/前台恢复时 NativeWindow 与 SurfaceControl 代际
-> 替换：旧层按回调代际退役、新层重建后继续上屏。仍缺解码 AHB 经 kbase `MEM_IMPORT` 回导
-> guest、guest 侧 WSI、AV 同步和 10 分钟门禁。
+> 替换：旧层按回调代际退役、新层重建后继续上屏。evidence 73 又完成 app AHB dma-buf 到
+> guest 的 `MEM_IMPORT` + `STICKY_RESOURCE_MAP`，同一 block 可由 guest CPU 写、由 guest
+> PanVK 当作 LINEAR 2D image 执行 GPU clear，再由 app 回读并上屏。仍缺解码 AHB 的
+> YUV/Private layout 回导、guest 侧 WSI、AV 同步和 10 分钟门禁。
 > 音频调试发现的 path root-fd 被 guest 关闭问题已修复，当前 loader 功能矩阵 31/31（evidence 61）。
 
 ---
@@ -141,8 +143,10 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
   音量控制、持续 AAudio 会话，以及 PulseAudio pipe → Rust relay → 标准 guest `paplay`
   （evidence 60 / 62 / 63）；610 秒连续会话和 fd/RSS 稳定性已通过，AV 同步仍未完成。
   SurfaceFlinger 内部等待 trace、
-  MediaCodec 解码 AHB 已能在 app 内实时上屏（evidence 71），但 `MEM_IMPORT` 回导 guest、
-  guest 侧 WSI、AV 同步与 AAudio 产品化通路都还没完成；
+  MediaCodec 解码 AHB 已能在 app 内实时上屏（evidence 71）；AHB dma-buf 的
+  `MEM_IMPORT` / `STICKY_RESOURCE_MAP` 与 guest PanVK GPU 写回已在 RGBA 测试面通过
+  （evidence 73），但解码帧的 YUV/Private layout、guest 侧 WSI、AV 同步与 AAudio 产品化
+  通路都还没完成；
 - `execl` 系列函数不生效；`freopen`、`glob`、`nftw`、`dlmopen` 未覆盖；
 - **libc 内部调用**（NSS / locale / `/etc/hosts` / `ld.so.cache`）仍读宿主，槽位方案未实现，
   因此 `apt`/`dpkg`/locale 在完整 rootfs 里尚不可靠；
@@ -199,7 +203,7 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
 | 上游 Mesa | 25.2 与 main 均**没有** kbase 后端；Ubuntu 25.2.8 panfrost 模型表也无 G77/G78 |
 | 当前 GPU 路线 | FristOneRR PanVK（Mesa 26.3.0-devel，glibc 构建）+ 发行版 Zink；DRM 语义层保留为后备 |
 | PanVK / Zink 验证 | `vulkaninfo` + 纯 Rust probe：Mali-G77 / logical device / compute job / 离屏 graphics draw + GPU 像素回读 PASS；Zink surfaceless renderer 也报 Mali-G77；Android 窗口 3-buffer ring 连续 12 帧零拷贝上屏，eventfd acquire bridge 连续 120 帧并完成 5,600 帧短 soak；PanVK `vkGetFenceFdKHR(SYNC_FD)` 已接到同一 SurfaceControl ring，120 帧全部使用真实 sync_file（evidence 58）；3-slot 持久资源池完成 10,000 帧 / 665.385 秒长稳，fd/RSS 无累积增长（evidence 59）；WSI / SurfaceFlinger 等待 trace 尚未验收 |
-| 显示 / 视频 / 音频 | 显示已完成 AHB→dmabuf→guest PanVK 导入、GPU 访问、3-buffer ring 零拷贝上屏、release-fence 复用、eventfd fallback 120 帧，以及 PanVK 真实 `SYNC_FD` 接入 SurfaceControl ring 120 帧（[evidence 49](docs/design/evidence/49-ahb-dmabuf-handle.md)、[evidence 50](docs/design/evidence/50-guest-dmabuf-panvk-import.md)、[evidence 53](docs/design/evidence/53-surfacecontrol-zero-copy.md)、[evidence 54](docs/design/evidence/54-surfacecontrol-ring.md)、[evidence 55](docs/design/evidence/55-eventfd-acquire-fence.md)、[evidence 56](docs/design/evidence/56-eventfd-ring-soak.md)、[evidence 57](docs/design/evidence/57-pending-kbase-syncfile.md)、[evidence 58](docs/design/evidence/58-panvk-syncfd-ring.md)、[evidence 59](docs/design/evidence/59-panvk-pooled-syncfd-soak.md)）；音频已通设备枚举、音量、持续 AAudio 与 PulseAudio → Rust relay → `paplay`，并完成 610 秒连续会话（[evidence 60](docs/design/evidence/60-audio-aaudio-bridge.md)、[evidence 62](docs/design/evidence/62-audio-pulse-aaudio-continuous.md)、[evidence 63](docs/design/evidence/63-audio-aaudio-10min-final.md)）；SurfaceFlinger 内部等待 trace、视频、AV 同步仍未完成 |
+| 显示 / 视频 / 音频 | 显示已完成 AHB→dmabuf→guest PanVK 导入、GPU 访问、3-buffer ring 零拷贝上屏、release-fence 复用、eventfd fallback 120 帧，以及 PanVK 真实 `SYNC_FD` 接入 SurfaceControl ring 120 帧（[evidence 49](docs/design/evidence/49-ahb-dmabuf-handle.md)、[evidence 50](docs/design/evidence/50-guest-dmabuf-panvk-import.md)、[evidence 53](docs/design/evidence/53-surfacecontrol-zero-copy.md)、[evidence 54](docs/design/evidence/54-surfacecontrol-ring.md)、[evidence 55](docs/design/evidence/55-eventfd-acquire-fence.md)、[evidence 56](docs/design/evidence/56-eventfd-ring-soak.md)、[evidence 57](docs/design/evidence/57-pending-kbase-syncfile.md)、[evidence 58](docs/design/evidence/58-panvk-syncfd-ring.md)、[evidence 59](docs/design/evidence/59-panvk-pooled-syncfd-soak.md)、[evidence 73](docs/design/evidence/73-ahb-kbase-sticky-panvk.md)）；音频已通设备枚举、音量、持续 AAudio 与 PulseAudio → Rust relay → `paplay`，并完成 610 秒连续会话（[evidence 60](docs/design/evidence/60-audio-aaudio-bridge.md)、[evidence 62](docs/design/evidence/62-audio-pulse-aaudio-continuous.md)、[evidence 63](docs/design/evidence/63-audio-aaudio-10min-final.md)）；SurfaceFlinger 内部等待 trace、解码 AHB 回导、视频、AV 同步仍未完成 |
 
 细节与原始输出：[evidence 35](docs/design/evidence/35-gpu-ioctl-surface-from-vendor-driver.md)、
 [evidence 36](docs/design/evidence/36-gpu-route-reality-check.md)、

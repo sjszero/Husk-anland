@@ -519,7 +519,9 @@ fn bridge_config() -> Option<(usize, usize)> {
 
 fn write_bridge_meta(files: &std::path::Path, desc: &Desc) {
     let meta = bridge_meta(desc);
-    let path = files.join("ahb-bridge.meta");
+    let dir = files.join("rootfs-full/run/husk");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("ahb-bridge.meta");
     match std::fs::write(&path, meta) {
         Ok(()) => crate::log(&format!("ahb|bridge|META|{}", path.display())),
         Err(e) => crate::log(&format!("ahb|bridge|META_FAIL|{e}")),
@@ -556,7 +558,9 @@ unsafe fn serve_bridge(lib: *mut c_void, s: &Symbols, buffer: *mut Ahb, desc: &D
         return;
     }
     write_bridge_meta(&files, desc);
-    let path = files.join("ahb-bridge.sock");
+    let dir = files.join("rootfs-full/run/husk");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("ahb-bridge.sock");
     let _ = std::fs::remove_file(&path);
     let listener = match std::os::unix::net::UnixListener::bind(&path) {
         Ok(l) => l,

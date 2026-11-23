@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 09:25）
+# 当前状态（2026-11-23 09:35）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -20,8 +20,11 @@ evidence 54 完成 12 帧，evidence 55 用 eventfd completion bridge 完成 120
 无 eventfd fallback。evidence 59 已把每帧重建改为 3-slot 持久资源池，并连续跑完
 **10,000 帧 / 665.385 秒**：真实 `SYNC_FD` 10,000/10,000，completion 与 9 点回读均
 10,000/10,000，fallback=0，app transaction 10,000/10,000；app/guest fd 与 RSS 无累积增长。
-**eventfd 仅保留为 fallback；WSI / swapchain、窗口生命周期和 SurfaceFlinger 内部等待 trace
-仍未完成。**音频侧已跑通最小闭环：guest 枚举 7 个 Android 输出设备、读写 `STREAM_MUSIC`
+**eventfd 仅保留为 fallback；WSI / swapchain 和 SurfaceFlinger 内部等待 trace 仍未完成。**
+evidence 72 已完成播放中的旋转与 NativeWindow/SurfaceControl 代际替换；evidence 73 又把
+app 分配的 AHB dma-buf 交给 guest，`MEM_IMPORT` 与 `STICKY_RESOURCE_MAP` 均通过，同一
+dma-buf 可由 guest 写入、由 PanVK 当作 LINEAR 2D image 清屏，app 回读 9/9 后上屏。
+音频侧已跑通最小闭环：guest 枚举 7 个 Android 输出设备、读写 `STREAM_MUSIC`
 音量，并把 3 秒 PCM16 经独立 Unix socket 交给 app 内 AAudio（evidence 60）；但低延迟请求被
 vendor policy 拒绝、平台返回 `perf=NONE`；evidence 62 又打通 PulseAudio `module-pipe-sink` →
 纯 Rust relay → 持续 `OPEN/DATA/CLOSE` AAudio 会话，标准 guest `paplay` 已成功播放；evidence
@@ -39,7 +42,7 @@ PT_LOAD 的映射边界。`chmod`/`chown`/`utimensat`/`statx` 现在固定最终
 恶意 ELF 注入、GOT 失败注入、rootfd 并发 close/reopen、
 SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不能写成已完成。
 
-## 视频最新（evidence 67 / 69 / 70 / 71 / 72，2026-11-23）
+## 视频与 AHB 回导最新（evidence 67 / 69 / 70 / 71 / 72 / 73，2026-11-23）
 
 - **FACT**：app 进程内纯 Rust 探针已真实选中 `c2.mtk.avc.decoder` 和
   `c2.mtk.hevc.decoder`；1920x1080@30、各 150/150 帧、EOS、codec 正常释放。
@@ -66,10 +69,16 @@ SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不�
   切 Home 再回前台时旧 NativeWindow 被销毁；JNI 每秒刷新发现新 parent SurfaceControl，
   presenter 按回调代际安全退役旧层并重建，日志 `rebuild|PASS`，恢复后继续上屏。后台无窗口期间
   解出的帧被明确跳过（本会话 submitted=119），不是崩溃，也不冒充“后台全部显示”。
+- **FACT（evidence 73）**：app 分配的 `64x64 RGBA8` AHB 经 `SCM_RIGHTS` 进入 guest；
+  `MEM_IMPORT` 返回 `cookie=0x41000 / va_pages=4`，`STICKY_RESOURCE_MAP` 返回 0；直接映射
+  dma-buf 写入红色后，app 回读 9/9 并 `SurfaceControl` 上屏。同一 fd 再由 guest PanVK 按
+  `DRM_FORMAT_MOD_LINEAR` 导入成 2D image，GPU clear 后 staging 与直接 dma-buf 都回读 9/9 红。
+  这证明 guest CPU 与 guest GPU 都能写同一 AHB 后备存储，app 能零拷贝展示。
 - **FACT（边界）**：v1 只覆盖单条 AVC 轨与精确 MTK decoder 名。
-- **FACT（仍缺）**：解码 AHB 回导 guest / kbase `MEM_IMPORT`、guest 侧 GL/X11/Wayland WSI、
-  HEVC/VP9/AV1 bridge、GStreamer/VA-API、Chromium `<video>`、AV 同步、10 分钟播放、丢帧与
-  硬软解对比未完成。presenter 遇到 parent SurfaceControl 变化时当前只拒绝提交，不会重建子层。
+- **FACT（仍缺）**：evidence 73 的测试 AHB 是 `64x64 RGBA8 LINEAR`，还不是 MediaCodec 输出的
+  `AIMAGE_FORMAT_PRIVATE / YUV420_888` 解码帧；解码 AHB 的 plane/modifier/sampling 回导、
+  guest 侧 GL/X11/Wayland WSI、HEVC/VP9/AV1 bridge、GStreamer/VA-API、Chromium `<video>`、
+  AV 同步、10 分钟播放、丢帧与硬软解对比均未完成。
 - **FACT（新可靠性缺陷）**：一次息屏状态下的重启动发生在 `eglCreateWindowSurface` 内，
   abort message 为 `FORTIFY: pthread_mutex_lock called on a destroyed mutex`。点亮后重跑通过；
   该 Surface 生命周期竞争已由 `WINDOW_ALIVE + focus` 状态门修复。最终产物连续完成息屏冷启动、
@@ -80,6 +89,7 @@ SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不�
 - Guest socket 路径证据：[`evidence/70-guest-unix-socket-path.md`](design/evidence/70-guest-unix-socket-path.md)。
 - 实时硬解上屏证据：[`evidence/71-video-realtime-surface-playback.md`](design/evidence/71-video-realtime-surface-playback.md)。
 - 旋转与 SurfaceControl 重建证据：[`evidence/72-video-window-lifecycle.md`](design/evidence/72-video-window-lifecycle.md)。
+- AHB 回导与 PanVK GPU 写回证据：[`evidence/73-ahb-kbase-sticky-panvk.md`](design/evidence/73-ahb-kbase-sticky-panvk.md)。
 - 生命周期证据：[`evidence/68-screen-off-surface-lifecycle.md`](design/evidence/68-screen-off-surface-lifecycle.md)。
 
 ## acquire fence 当前实验（PanVK → SurfaceControl 已通过，WSI 未完成）

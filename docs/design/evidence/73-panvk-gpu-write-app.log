@@ -1,0 +1,12 @@
+11-23 09:19:02.478 31460 31650 I Husk    : ahb|bridge|META|/data/user/0/com.linuxhub.husk/files/rootfs-full/run/husk/ahb-bridge.meta
+11-23 09:19:02.478 31460 31650 I Husk    : ahb|bridge|LISTEN|/data/user/0/com.linuxhub.husk/files/rootfs-full/run/husk/ahb-bridge.sock
+11-23 09:19:06.657 31460 31650 I Husk    : ahb|bridge|META_SEND|rc=Ok(())
+11-23 09:19:06.657 31460 31650 I Husk    : ahb|bridge|SEND|rc=0
+11-23 09:19:06.658 31460 31650 I Husk    : ahb|bridge|ACK_TIMEOUT|Ok(())
+11-23 09:19:06.667 31460 31650 I Husk    : ahb|bridge|ACK|byte=0x44
+11-23 09:19:06.667 31460 31650 I Husk    : ahb|present|readback|red=9/9|unlock=0
+11-23 09:19:06.668 31460 31650 I Husk    : ahb|present|surface_parent=0xb400007aa62fe5c0
+11-23 09:19:06.671 31460 31650 I Husk    : ahb|present|control=0xb400007aa62fd760
+11-23 09:19:06.673 31460 31650 I Husk    : ahb|present|PASS|SurfaceControl 1080x2400 from 64x64
+11-23 09:19:11.674 31460 31650 I Husk    : ahb|present|released
+11-23 09:19:11.674 31460 31650 I Husk    : ahb|bridge|PRESENT|true

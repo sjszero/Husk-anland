@@ -1,5 +1,23 @@
 # 变更记录
 
+## 2026-11-23 — AHB 回导 guest：sticky map 与 PanVK GPU 写回
+
+- **evidence 73**：app 分配的 `64x64 RGBA8` AHardwareBuffer 经 `SCM_RIGHTS` 进入 glibc
+  guest；正确的 `MEM_IMPORT` 布局返回 `cookie=0x41000 / va_pages=4`，
+  `STICKY_RESOURCE_MAP`（`0x4010801d`，`{count, address}`）返回 0。
+- 修正了 AHB meta 的 stride 解释：`stride=64` 是像素，必须按 `stride * 4` 计算 pitch；
+  kbase UMM mapping 只作为 GPU 翻译窗口，CPU 权威视图直接 `mmap(dmabuf)`。guest 写入后
+  直接 dma-buf 视图、kbase 视图和 app AHB 的 9 点回读均为红，app 经 SurfaceControl 实际上屏。
+- 同一 fd 又交给 guest PanVK：LINEAR 2D image 创建、dma-buf import、bind 均成功；
+  GPU `vkCmdClearColorImage` 后 staging 与直接 dma-buf 视图均 9/9 红，app 再次回读并上屏。
+- `gpu-probe` sha256 `2a9bd65836cbc2a384baef81615b30d7f3162789562211a3c67893cb3c5247cd`；
+  `vulkan-probe` sha256 `10a1fd47dc8eab25a3275ea47805146c50156337523938887c2b53e23f012ab7`；
+  `libhuskapp.so` sha256 `bc79e576569eecdae7dfd9d89b418a8c1c440d27782164923f95c6c6d5c9ab2f`；
+  debug APK sha256 `31905cc784c69dd8590983920e2381282c209543f9536bff341a0baebc07b49d`。
+- **边界**：当前证据的 AHB 是 RGBA8 LINEAR 测试面，不是 MediaCodec 的
+  `AIMAGE_FORMAT_PRIVATE / YUV420_888` 解码帧；guest WSI、VA-API/GStreamer/Chromium、
+  AV 同步和 10 分钟视频门禁仍未完成。
+
 ## 2026-11-23 — 视频跨旋转与 SurfaceControl 重建
 
 - **evidence 72**：播放中的 1080p30 AVC 从 1080x2400 旋转到 2280x1080 后继续上屏，

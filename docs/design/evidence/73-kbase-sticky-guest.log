@@ -1,0 +1,12 @@
+gpu|imp/socket|PASS|/run/husk/ahb-bridge.sock
+gpu|imp/socket|meta|64x64 stride=64
+gpu|imp/socket|recv|bytes=356 control_len=32
+gpu|imp/socket|fd|fd=4 target=anon_inode:gralloc_extra
+gpu|imp/socket|dmabuf|fd=5 target=/dmabuf:G:pid [31319]
+gpu|imp/mem_import|PASS|flags=0x4500f cookie=0x41000 va_pages=4
+gpu|imp/mmap|PASS|size=16384 ptr=0x79b27da000
+gpu|imp/sticky_map|PASS|errno=0 (ok) gpu_va=0x79b27da000
+gpu|imp/write|PASS|red=64x64 before=0x9a5c0000
+gpu|imp/dmabuf_read|PASS|direct_first=0xff0000ff
+gpu|imp/kbase_view|INFO|kbase_first=0xff0000ff (CPU coherency is not required here)
+gpu|imp/socket|DONE|ack=D
