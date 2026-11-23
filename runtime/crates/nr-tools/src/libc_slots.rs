@@ -44,7 +44,11 @@ pub const SLOT_NAME_MAX: usize = 32;
 
 const ALIGN: u64 = 0x4000; // the module has to be loadable on a 16 KiB page
 const PATCH_LEN: usize = 6; // instructions overwritten at the entry
-const STUB_LEN: usize = PATCH_LEN + 1; // + the branch back
+// One slot per entry, plus one for the branch back, plus two per window
+// instruction: a `b.cond`/`cbz`/`tbz` whose target falls out of the ±1 MiB
+// reach after the move is re-expressed as an inverted short branch over a
+// full-width `b`, which is a two-instruction form.
+const STUB_LEN: usize = PATCH_LEN * 3 + 1;
 const SHT_GNU_VERSYM: u32 = 0x6FFF_FFFF;
 
 // ---------------------------------------------------------------- encodings
@@ -100,7 +104,6 @@ fn relocate(words: &[u32], orig_pc: u64, new_pc: u64) -> Result<Vec<u32>, String
     while k < words.len() {
         let w = words[k];
         let from = orig_pc + k as u64 * 4;
-        let to = new_pc + k as u64 * 4;
         let imm21 = |w: u32| -> i64 {
             let immlo = ((w >> 29) & 0x3) as u64;
             let immhi = ((w >> 5) & 0x7ffff) as u64;
@@ -134,6 +137,9 @@ fn relocate(words: &[u32], orig_pc: u64, new_pc: u64) -> Result<Vec<u32>, String
             Ok((w & 0xfc00_0000) | (((imm / 4) as u32) & 0x03ff_ffff))
         };
 
+        let to = new_pc + out.len() as u64 * 4;
+        let mut emit = |v: u32, out: &mut Vec<u32>| out.push(v);
+
         let nw = if (w & 0x1f00_0000) == 0x1000_0000 {
             // adr / adrp: absolute target, then re-express from the new place
             let is_adrp = (w & 0x8000_0000) != 0;
@@ -163,14 +169,45 @@ fn relocate(words: &[u32], orig_pc: u64, new_pc: u64) -> Result<Vec<u32>, String
             let imm = sign_extend((w & 0x03ff_ffff) as u64, 26) * 4;
             enc_imm26((from as i64 + imm) - to as i64)?
         } else if (w & 0xff00_0000) == 0x5400_0000 {
-            let imm = sign_extend(((w >> 5) & 0x7ffff) as u64, 19) * 4;
-            enc_imm19((from as i64 + imm) - to as i64)?
+            // b.cond: imm19, ±1 MiB around the *new* address
+            let target = from as i64 + sign_extend(((w >> 5) & 0x7ffff) as u64, 19) * 4;
+            match enc_imm19(target - to as i64) {
+                Ok(v) => v,
+                Err(_) => {
+                    // invert the condition, branch over the full-width `b`
+                    let inv = (w & !0xf) | ((w & 0xf) ^ 1);
+                    emit((inv & !(0x7ffff << 5)) | ((8 / 4) << 5), &mut out);
+                    emit(b_bytes(to + 4, target as u64), &mut out);
+                    k += 1;
+                    continue;
+                }
+            }
         } else if (w & 0x7e00_0000) == 0x3400_0000 {
-            let imm = sign_extend(((w >> 5) & 0x7ffff) as u64, 19) * 4;
-            enc_imm19((from as i64 + imm) - to as i64)?
+            // cbz / cbnz: imm19, ±1 MiB
+            let target = from as i64 + sign_extend(((w >> 5) & 0x7ffff) as u64, 19) * 4;
+            match enc_imm19(target - to as i64) {
+                Ok(v) => v,
+                Err(_) => {
+                    let inv = w ^ 0x0100_0000; // cbnz <-> cbz
+                    emit((inv & !(0x7ffff << 5)) | ((8 / 4) << 5), &mut out);
+                    emit(b_bytes(to + 4, target as u64), &mut out);
+                    k += 1;
+                    continue;
+                }
+            }
         } else if (w & 0x7e00_0000) == 0x3600_0000 {
-            let imm = sign_extend(((w >> 5) & 0x3fff) as u64, 14) * 4;
-            enc_imm14((from as i64 + imm) - to as i64)?
+            // tbz / tbnz: imm14, ±32 KiB
+            let target = from as i64 + sign_extend(((w >> 5) & 0x3fff) as u64, 14) * 4;
+            match enc_imm14(target - to as i64) {
+                Ok(v) => v,
+                Err(_) => {
+                    let inv = w ^ 0x0100_0000; // tbnz <-> tbz
+                    emit((inv & !(0x3fff << 5)) | ((8 / 4) << 5), &mut out);
+                    emit(b_bytes(to + 4, target as u64), &mut out);
+                    k += 1;
+                    continue;
+                }
+            }
         } else {
             w
         };
@@ -440,7 +477,6 @@ pub fn main(args: &[String]) {
     //     up holding garbage.
     let cap = names.len();
     let slot_len = align((SLOT_HDR + cap * SLOT_STRIDE) as u64, 0x1000);
-    let stub_len = align((cap * STUB_LEN * 4) as u64, 0x1000);
     let file_len = e.data.len() as u64;
 
     let gap_lo = align(rx.off + rx.filesz, 0x1000);
@@ -451,6 +487,28 @@ pub fn main(args: &[String]) {
         .map(|p| p.off)
         .min()
         .unwrap_or(u64::MAX);
+    let (stub_off, stub_vaddr) = (gap_lo, rx.vaddr + (gap_lo - rx.off));
+
+    // The stub page is packed sequentially, not at a fixed stride: a window
+    // whose `b.cond`/`cbz`/`tbz` falls out of reach grows by one instruction,
+    // and the next stub starts after it. Offsets are recorded per entry, so the
+    // runtime does not need a stride.
+    let mut cursor = 0usize;
+    let mut placed: Vec<(String, u64, Vec<u32>)> = Vec::with_capacity(picked.len());
+    for (name, entry, raw) in picked.iter() {
+        let stub = stub_vaddr + (cursor * 4) as u64;
+        match relocate(raw, *entry, stub) {
+            Ok(m) => {
+                cursor += m.len() + 1;
+                placed.push((name.clone(), *entry, m));
+            }
+            Err(why) => skipped.push((
+                name.clone(),
+                format!("window would not survive the move ({why})"),
+            )),
+        }
+    }
+    let stub_len = align((cursor * 4) as u64, 0x1000).max(0x1000);
     if gap_lo + stub_len + slot_len > gap_hi {
         die(format!(
             "the padding after the executable LOAD is {:#x} bytes, the two pages need {:#x}",
@@ -458,11 +516,8 @@ pub fn main(args: &[String]) {
             stub_len + slot_len
         ));
     }
-    let (stub_off, stub_vaddr) = (gap_lo, rx.vaddr + (gap_lo - rx.off));
-    let (slot_off, slot_vaddr) = (
-        stub_off + stub_len,
-        stub_vaddr + stub_len,
-    );
+    let slot_vaddr = stub_vaddr + stub_len;
+    let slot_off = stub_off + stub_len;
     for (what, at, len) in [
         ("stub", stub_off, stub_len),
         ("slot", slot_off, slot_len),
@@ -484,23 +539,16 @@ pub fn main(args: &[String]) {
     put_u32(&mut d, slot_off as usize + 16, SLOT_STRIDE as u32);
 
     let mut ok = 0usize;
-    for (i, (name, entry, raw)) in picked.iter().enumerate() {
-        let stub = stub_vaddr + (i * STUB_LEN * 4) as u64;
-        let e_off = slot_off as usize + SLOT_HDR + i * SLOT_STRIDE;
+    let mut at = 0usize; // instructions written so far in the stub page
+    for (i, (name, entry, moved)) in placed.iter().enumerate() {
+        let stub = stub_vaddr + (at * 4) as u64;
+        at += moved.len() + 1;
+        let slot_i = names.iter().position(|n| n == name).unwrap_or(i);
+        let e_off = slot_off as usize + SLOT_HDR + slot_i * SLOT_STRIDE;
         let nm = name.as_bytes();
         if nm.len() >= SLOT_NAME_MAX {
             die(format!("{name}: name longer than {SLOT_NAME_MAX} bytes"));
         }
-        let moved = match relocate(raw, *entry, stub) {
-            Ok(m) => m,
-            Err(why) => {
-                skipped.push((
-                    name.clone(),
-                    format!("window would not survive the move ({why})"),
-                ));
-                continue;
-            }
-        };
         d[e_off..e_off + nm.len()].copy_from_slice(nm);
         put_u64(&mut d, e_off + 32, 0); // target: filled by the runtime
         put_u64(&mut d, e_off + 40, stub - slot_vaddr); // stub, page-relative
@@ -509,21 +557,28 @@ pub fn main(args: &[String]) {
         for (k, w) in moved.iter().enumerate() {
             put_u32(&mut d, s_off + k * 4, *w);
         }
+        // Back to the first instruction after the six overwritten at the entry.
+        // The window may have grown while being relocated, so the landing point
+        // is measured from the rewritten length, not from PATCH_LEN.
         put_u32(
             &mut d,
-            s_off + PATCH_LEN * 4,
-            b_bytes(stub + (PATCH_LEN * 4) as u64, entry + (PATCH_LEN * 4) as u64),
+            s_off + moved.len() * 4,
+            b_bytes(
+                stub + (moved.len() * 4) as u64,
+                entry + (PATCH_LEN * 4) as u64,
+            ),
         );
 
-        let at = e.try_vaddr_to_off(*entry).unwrap();
-        put_u32(&mut d, at, adrp(16, *entry, slot_vaddr));
-        put_u32(&mut d, at + 4, ldr_x(17, 16, (SLOT_HDR + i * SLOT_STRIDE + 32) as u64));
-        put_u32(&mut d, at + 8, cbnz_x(17, 12));
-        put_u32(&mut d, at + 12, ldr_x(17, 16, (SLOT_HDR + i * SLOT_STRIDE + 40) as u64));
-        put_u32(&mut d, at + 16, ADD_X17_X16_X17);
-        put_u32(&mut d, at + 20, BR_X17);
+        let a = e.try_vaddr_to_off(*entry).unwrap();
+        put_u32(&mut d, a, adrp(16, *entry, slot_vaddr));
+        put_u32(&mut d, a + 4, ldr_x(17, 16, (SLOT_HDR + slot_i * SLOT_STRIDE + 32) as u64));
+        put_u32(&mut d, a + 8, cbnz_x(17, 12));
+        put_u32(&mut d, a + 12, ldr_x(17, 16, (SLOT_HDR + slot_i * SLOT_STRIDE + 40) as u64));
+        put_u32(&mut d, a + 16, ADD_X17_X16_X17);
+        put_u32(&mut d, a + 20, BR_X17);
         ok += 1;
     }
+
 
     // ------------------------------------------------------------ program headers
     //

@@ -159,6 +159,7 @@ const SYS_SETRESGID: usize = 149;
 const SYS_GETGID: usize = 176;
 const SYS_RENAMEAT: usize = 38;
 const SYS_RENAMEAT2: usize = 276;
+const SYS_FCHMOD: usize = 52;
 const SYS_FCHMODAT: usize = 53;
 const SYS_FCHOWNAT: usize = 54;
 const SYS_UTIMENSAT: usize = 88;
@@ -1208,6 +1209,18 @@ unsafe fn passthrough(p: &[u8]) -> bool {
     if p == b"/dev/log" {
         return false;
     }
+    // /dev/mqueue is a filesystem the kernel would mount; there is none here.
+    // The named-queue service lives inside the guest root (see the POSIX
+    // mqueue section), so it must not be passed through to the host /dev,
+    // where an app cannot even create the directory.
+    const MQ_PREFIX: &[u8] = b"/dev/mqueue";
+    if p == MQ_PREFIX
+        || (p.len() > MQ_PREFIX.len()
+            && &p[..MQ_PREFIX.len()] == MQ_PREFIX
+            && p[MQ_PREFIX.len()] == b'/')
+    {
+        return false;
+    }
     // Android denies these two files to apps (SELinux), but programs and
     // configure scripts do read them. Serve them from the guest root instead:
     // the deploy step writes the real values there, so nothing is invented.
@@ -2110,9 +2123,13 @@ pub unsafe extern "C" fn mq_open(name: *const CChar, oflag: CInt, mode: CInt) ->
         None => return set_errno(22),
     };
     qp[qn] = 0;
+    let entry_errno = *__errno_location();
     mq_mkdirs();
+    // The queue is a directory here, so it needs the execute bits whatever the
+    // caller asked for: mode 0666 (what a program passes for a queue it only
+    // wants read/write on) would otherwise make the queue unusable.
+    let m = ((if mode == 0 { 0o666 } else { mode }) & 0o666) | 0o700;
     if oflag & MQ_FLAGS_CREAT != 0 {
-        let m = if mode == 0 { 0o666 } else { mode };
         let r = mkdirat(AT_FDCWD, qp.as_ptr() as *const CChar, m);
         if r < 0 {
             let e = *__errno_location();
@@ -2122,6 +2139,9 @@ pub unsafe extern "C" fn mq_open(name: *const CChar, oflag: CInt, mode: CInt) ->
             if oflag & MQ_FLAGS_EXCL != 0 {
                 return set_errno(17);
             }
+            // A queue directory left behind by an older build may lack the
+            // execute bits (0666 with no x). Repair it below, on the open
+            // descriptor: a raw fchmodat here would bypass path translation.
         }
     }
     let mut flags = O_DIRECTORY;
@@ -2132,7 +2152,23 @@ pub unsafe extern "C" fn mq_open(name: *const CChar, oflag: CInt, mode: CInt) ->
     if fd < 0 {
         return -1;
     }
+    if oflag & MQ_FLAGS_CREAT != 0 {
+        syscall4(SYS_FCHMOD, fd as usize, m as usize, 0, 0);
+    }
+    // The create path above walks through mkdirat, whose EEXIST leaves errno
+    // set even though this call succeeded. POSIX says a successful call must
+    // not disturb errno, and a stale value here misleads every caller that
+    // inspects errno after a successful mq_open.
+    *__errno_location() = entry_errno;
     fd
+}
+
+/// The fortified entry point glibc exports alongside `mq_open`. It is called
+/// without a mode argument (it refuses the O_CREAT case), so the third argument
+/// here is never read.
+#[no_mangle]
+pub unsafe extern "C" fn __mq_open_2(name: *const CChar, oflag: CInt) -> CInt {
+    mq_open(name, oflag, 0)
 }
 
 #[no_mangle]
@@ -2146,6 +2182,7 @@ pub unsafe extern "C" fn mq_close(mqdes: CInt) -> CInt {
 
 #[no_mangle]
 pub unsafe extern "C" fn mq_unlink(name: *const CChar) -> CInt {
+    let entry_errno = *__errno_location();
     let mut qp = [0u8; 320];
     let qn = match mq_path(name, &mut qp) {
         Some(n) => n,
@@ -2184,7 +2221,11 @@ pub unsafe extern "C" fn mq_unlink(name: *const CChar) -> CInt {
         }
     }
     rc::close(dfd);
-    rmdirat_path(&qp[..qn])
+    let rr = unlinkat(AT_FDCWD, qp.as_ptr() as *const CChar, 0x200);
+    if rr == 0 {
+        *__errno_location() = entry_errno;
+    }
+    rr
 }
 
 unsafe fn rmdirat_path(p: &[u8]) -> CInt {
@@ -2196,10 +2237,48 @@ unsafe fn rmdirat_path(p: &[u8]) -> CInt {
     })
 }
 
+/// Number of messages currently queued: every regular file in the queue
+/// directory is one message, and `.`/`..` are the only other names.
+unsafe fn mq_count(dfd: CInt) -> usize {
+    let mut n = 0usize;
+    let mut buf = [0u8; 1024];
+    let mut pb = [0u8; 32];
+    let scan = openat(AT_FDCWD, fd_proc_path(dfd, &mut pb).as_ptr() as *const CChar, O_DIRECTORY | 0o4000, 0);
+    let sfd = if scan >= 0 { scan } else { dfd };
+    loop {
+        let r = syscall4(61, sfd as usize, buf.as_mut_ptr() as usize, buf.len(), 0) as isize;
+        if r <= 0 {
+            break;
+        }
+        let mut off = 0usize;
+        while off < r as usize {
+            let reclen = u16::from_le_bytes([buf[off + 16], buf[off + 17]]) as usize;
+            if reclen == 0 {
+                break;
+            }
+            let nm = &buf[off + 19..off + reclen];
+            let len = nm.iter().position(|c| *c == 0).unwrap_or(nm.len());
+            let nm = &nm[..len];
+            if nm != b"." && nm != b".." {
+                n += 1;
+            }
+            off += reclen;
+        }
+    }
+    if scan >= 0 {
+        rc::close(scan);
+    }
+    n
+}
+
 /// Scans the queue directory and remembers the best (priority, name) message.
 unsafe fn mq_pick(dfd: CInt, best: &mut [u8; 64], best_len: &mut usize, best_prio: &mut u32) -> bool {
     let mut found = false;
     let mut buf = [0u8; 1024];
+    // getdents64 keeps a file offset on the descriptor; without this the second
+    // scan of the same queue starts at EOF and every later receive returns
+    // EAGAIN even though messages are still queued.
+    syscall4(SYS_LSEEK, dfd as usize, 0, 0, 0);
     loop {
         let n = syscall4(61, dfd as usize, buf.as_mut_ptr() as usize, buf.len(), 0) as isize;
         if n <= 0 {
@@ -2279,7 +2358,7 @@ unsafe fn mq_send_impl(mqdes: CInt, msg: *const CChar, len: usize, prio: u32) ->
         0o666usize,
     );
     if fd < 0 {
-        return -1;
+        return set_errno((-fd) as CInt);
     }
     let mut left = len;
     let mut p = msg as *const u8;
@@ -2406,7 +2485,7 @@ pub unsafe extern "C" fn mq_getattr(mqdes: CInt, attr: *mut i64) -> CInt {
     core::ptr::write_volatile(a, if nonblock { MQ_FLAGS_NONBLOCK as i64 } else { 0 });
     core::ptr::write_volatile(a.add(1), 0); // mq_maxmsg: unbounded
     core::ptr::write_volatile(a.add(2), 8192); // mq_msgsize ceiling we honour
-    core::ptr::write_volatile(a.add(3), 0); // mq_curmsgs: not tracked
+    core::ptr::write_volatile(a.add(3), mq_count(mqdes) as i64);
     let mut i = 4;
     while i < 8 {
         core::ptr::write_volatile(a.add(i), 0);

@@ -26,33 +26,50 @@ app 域不允许把「已改过的文件映射」重新变成可执行（W^X / e
 
 对 libc.so.6 做一次离线 ELF 手术：
 
-1. 追加一个新的 PT_LOAD：`RW`，内容是一个头 + 一张表。
+1. 追加两个页（都借 EXEC LOAD 之后那段零填充，或复用 PT_NOTE）：
+
+   * **slot 页**（`RW`，复用一个 PT_NOTE）：头 + 表，`target` 初值 0。
+
+     ```
+     struct husk_slots {
+         u8   magic[12];   // "HUSK-SLOT-1\0"
+         u32  count;
+         u32  stride;      // 48，表项定长，运行时按它走
+         struct { char name[32]; u64 target; u64 stub_delta; } e[count];
+     };
+     ```
+
+     `name` 与 shim 导出符号一字不差，`stub_delta` 是该函数 stub 在 stub 页内的偏移。
+
+   * **stub 页**（`R|X`，扩进 EXEC LOAD）：每个函数一段，内容是它被覆盖掉的那 6 条指令，
+     末尾再加一条 `b 入口+24` 跳回去。
+
+2. 对每个要接管的函数（列表见下），把入口前 24 字节改成：
 
    ```
-   struct husk_slots {
-       u8   magic[12];   // "HUSK-SLOT-1\0"
-       u32  count;
-       u32  _pad;
-       struct { char name[32]; u64 target; } e[count];
-   };
+   adrp x16, <slot page>            ; 4 字节
+   ldr  x17, [x16, #<target>]       ; 4 字节，运行时填的 shim 地址
+   cbnz x17, #12                    ; 4 字节，填了就跳最后一条
+   ldr  x17, [x16, #<stub_delta>]   ; 4 字节，stub 是相对槽页的偏移
+   add  x17, x16, x17               ; 4 字节
+   br   x17                         ; 4 字节
    ```
 
-   `name` 用和 shim 导出符号完全一致的字符串，`target` 初值 0。
+   两条路径都是必须的：guest loader 在 `_dl_init` 之前就会调 libc（重定位、`open`、`mmap`），
+   那时槽还是 0，只能走 stub 里的原指令。用 `adrp` 而不是 `ldr #imm` 字面量：字面量 ±1MB，
+   而新页可能在文件末尾，和 `.text` 的距离可能超过 1MB；`adrp` 是 ±4GB。
 
-2. 对每个要接管的函数（列表见下），把入口前 16 字节改成：
+   搬走的 6 条指令要**重新编码**所有 PC 相对指令（`adrp/adr`、`ldr` 字面量、`b/bl`、
+   `b.cond`、`cbz/cbnz`、`tbz/tbnz`）。搬不过去的就按名字拒绝，不硬改。
 
-   ```
-   adrp x16, <slots page>      ; 4 字节
-   ldr  x16, [x16, #<off>]     ; 4 字节，off 是槽在页内的偏移（8 对齐）
-   br   x16                    ; 4 字节
-   nop                         ; 4 字节
-   ```
+3. 够不着的条件分支要**展开**，不能拒绝：glibc 里不少函数开头就是 `b.ne`/`cbz` 去 ±1MB 外的
+   错误分支，搬到 stub 页后 19 位 immediate 装不下（`mq_unlink` 就是 `-1085120`）。做法是把它
+   换成两条：**反条件跳过下一条 + 全宽 `b`**（±128 MiB）。stub 因此变长，页内按实际长度紧凑排布，
+   不再用固定 stride。这一改动把 `mq_unlink`、`__open_2`、`__openat_2`、`__openat64_2`、
+   `renameat2`、`mkstemps`、`mkostemps` 一并救了回来（74/87 → 82/87，evidence 114）。
 
-   用 `adrp + ldr` 而不是 `ldr x16, #imm` 字面量：字面量寻址范围 ±1MB，而新段追加在
-   文件末尾，和 `.text` 的 vaddr 距离远超 1MB；adrp 是 ±4GB。
-
-3. 校验：入口必须是 16 字节对齐的函数起点（`st_value` 来自 `.dynsym`），
-   并且**不能**落在 `.plt`、ifunc 解析器或 `__libc_start_main` 前的引导路径上。
+4. 校验：入口必须是 4 字节对齐的函数起点（`st_value` 来自 `.dynsym`）、这块窗口里不能有别的符号
+   起头、也不能是任何分支的目标；stub 页必须落在零填充里（写完前逐字节检查）。
 
 ### 运行时（shim，`_dl_init` 钩子里）
 
@@ -60,9 +77,8 @@ app 域不允许把「已改过的文件映射」重新变成可执行（W^X / e
 2. 遍历 PT_LOAD，找到以 `HUSK-SLOT-1` 开头的段（内容已经映射，直接读）。
 3. 对每个条目按名字在 **shim 自己的 interpose 表**里查地址，写进 `target`。
    只写 RW 数据段，不需要任何 `mprotect`。
-4. 任何名字在 shim 侧找不到 → 把 `target` 写成 libc 里一个「返回 -1 并置 errno=ENOSYS」
-   的小桩（也放在新段里），而不是留 0；留 0 会让 `br x16` 跳到地址 0，现象是
-   NULL 解引用，不好查。
+4. 任何名字在 shim 侧找不到 → `target` 留 0。留 0 不是错误：入口会掉进 stub 分支，
+   原样执行那 6 条指令，行为与没打补丁完全一致（这也是 loader 自举期间需要的）。
 
 顺序保证：`_dl_init` 钩子早于任何构造函数，也早于 `__libc_start_main`，
 所以槽在使用前一定填好。
