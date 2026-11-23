@@ -1,0 +1,15 @@
+[package]
+name = "v4l2-preload"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "husk_v4l2"
+crate-type = ["cdylib"]
+
+[dependencies]
+v4l2-shim = { path = "../v4l2-shim" }
+
+[profile.release]
+panic = "abort"

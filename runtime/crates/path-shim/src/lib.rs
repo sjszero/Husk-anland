@@ -2312,8 +2312,8 @@ pub unsafe extern "C" fn close(fd: CInt) -> CInt {
         dbg(&[b"close preserved rootfd\n"]);
         return 0;
     }
-    if fd >= 0 && V4L2_CTX.is_video_fd(fd) {
-        V4L2_CTX.close(fd);
+    if fd >= 0 && v4l2_is_fake(fd) {
+        v4l2_forget(fd);
     }
     ret_or_errno(syscall4(SYS_CLOSE, fd as usize, 0, 0, 0))
 }
@@ -5000,8 +5000,8 @@ unsafe fn drm_fake_open() -> CInt {
 
 #[no_mangle]
 pub unsafe extern "C" fn ioctl(fd: CInt, request: u64, arg: *mut u8) -> CInt {
-    if V4L2_CTX.is_video_fd(fd) {
-        let r = V4L2_CTX.ioctl(fd, request, arg);
+    if v4l2_is_fake(fd) {
+        let r = v4l2_dispatch_ioctl(fd, request, arg);
         return if r < 0 { set_errno((-r) as CInt) } else { 0 };
     }
     if let Some(api) = drm_api() {
@@ -5043,8 +5043,8 @@ pub unsafe extern "C" fn mmap(
     fd: CInt,
     off: i64,
 ) -> *mut u8 {
-    if V4L2_CTX.is_video_fd(fd) {
-        return match V4L2_CTX.mmap(fd, len, off) {
+    if v4l2_is_fake(fd) {
+        return match v4l2_dispatch_mmap(fd, len, off) {
             Some(p) => p,
             None => set_errno_ptr(22, core::ptr::null_mut()) as *mut u8,
         };
@@ -5204,8 +5204,57 @@ unsafe fn v4l2_statx(n: u32, buf: *mut u8) -> CInt {
     0
 }
 
-/// open("/dev/videoN")：给一个 memfd，登记在 v4l2 表里。
-unsafe fn v4l2_open(n: u32) -> Option<CInt> {
+/* ---- LD_PRELOAD 层（libhusk-v4l2.so）的交接 -------------------------------
+ *
+ * loader 只能改启动时已加载对象的 GOT；GStreamer 的 libgstvideo4linux2.so 是
+ * dlopen 的，它调 open("/dev/video1") 会绕过我们落到 Android 那个 0660 的节点。
+ * 所以 preload 拥有一份 Ctx，并把函数表地址写进 HUSK_V4L2_API（hex），
+ * 我们两边共用同一份状态（app 的 camera.sock 一次只收一个客户端）。
+ * 表：[open, ioctl, mmap, is_fake, close, nonblock]
+ */
+type V4l2Open = unsafe extern "C" fn(u32) -> CInt;
+type V4l2Ioctl = unsafe extern "C" fn(CInt, u64, *mut u8) -> i64;
+type V4l2Mmap = unsafe extern "C" fn(CInt, usize, i64) -> *mut u8;
+type V4l2IsFake = unsafe extern "C" fn(CInt) -> CInt;
+type V4l2Close = unsafe extern "C" fn(CInt);
+type V4l2Nonblock = unsafe extern "C" fn(CInt, CInt);
+
+unsafe fn v4l2_api() -> Option<*const usize> {
+    let v = env_lookup(b"HUSK_V4L2_API")?;
+    if v.len() < 4 || v[0] != b'0' || (v[1] | 0x20) != b'x' {
+        return None;
+    }
+    let mut p: usize = 0;
+    for c in &v[2..] {
+        let d = match c {
+            b'0'..=b'9' => c - b'0',
+            b'a'..=b'f' => c - b'a' + 10,
+            b'A'..=b'F' => c - b'A' + 10,
+            _ => return None,
+        };
+        p = (p << 4) | d as usize;
+    }
+    if p == 0 {
+        None
+    } else {
+        Some(p as *const usize)
+    }
+}
+
+unsafe fn v4l2_is_fake(fd: CInt) -> bool {
+    if let Some(t) = v4l2_api() {
+        let f: V4l2IsFake = core::mem::transmute(*t.add(3));
+        return f(fd) != 0;
+    }
+    v4l2_ready() && V4L2_CTX.is_video_fd(fd)
+}
+
+unsafe fn v4l2_fake_open(n: u32) -> Option<CInt> {
+    if let Some(t) = v4l2_api() {
+        let f: V4l2Open = core::mem::transmute(*t);
+        let fd = f(n);
+        return if fd >= 0 { Some(fd) } else { None };
+    }
     if !v4l2_ready() {
         return None;
     }
@@ -5217,6 +5266,46 @@ unsafe fn v4l2_open(n: u32) -> Option<CInt> {
     }
 }
 
+unsafe fn v4l2_dispatch_ioctl(fd: CInt, req: u64, arg: *mut u8) -> i64 {
+    if let Some(t) = v4l2_api() {
+        let f: V4l2Ioctl = core::mem::transmute(*t.add(1));
+        return f(fd, req, arg);
+    }
+    V4L2_CTX.ioctl(fd, req, arg)
+}
+
+unsafe fn v4l2_dispatch_mmap(fd: CInt, len: usize, off: i64) -> Option<*mut u8> {
+    if let Some(t) = v4l2_api() {
+        let f: V4l2Mmap = core::mem::transmute(*t.add(2));
+        let p = f(fd, len, off);
+        return if p.is_null() { None } else { Some(p) };
+    }
+    V4L2_CTX.mmap(fd, len, off)
+}
+
+unsafe fn v4l2_forget(fd: CInt) {
+    if let Some(t) = v4l2_api() {
+        let f: V4l2Close = core::mem::transmute(*t.add(4));
+        f(fd);
+        return;
+    }
+    V4L2_CTX.close(fd);
+}
+
+unsafe fn v4l2_nonblock(fd: CInt, on: bool) {
+    if let Some(t) = v4l2_api() {
+        let f: V4l2Nonblock = core::mem::transmute(*t.add(5));
+        f(fd, if on { 1 } else { 0 });
+        return;
+    }
+    V4L2_CTX.update_nonblock(fd, on);
+}
+
+/// open("/dev/videoN")：给一个 memfd，登记在 v4l2 表里。
+unsafe fn v4l2_open(n: u32) -> Option<CInt> {
+    v4l2_fake_open(n)
+}
+
 /// fcntl: 只跟踪 O_NONBLOCK，其余原样走。glibc 的 fcntl 是可变参，第三个参数
 /// 按 usize 接（F_GETFD/F_GETFL/F_SETFD 不带参数，不会用到它）。
 #[no_mangle]
@@ -5224,11 +5313,11 @@ pub unsafe extern "C" fn fcntl(fd: CInt, cmd: CInt, arg: usize) -> CInt {
     const F_GETFL: CInt = 3;
     const F_SETFL: CInt = 4;
     let r = syscall4(SYS_FCNTL, fd as usize, cmd as usize, arg, 0);
-    if r >= 0 && V4L2_CTX.is_video_fd(fd) {
+    if r >= 0 && v4l2_is_fake(fd) {
         if cmd == F_SETFL {
-            V4L2_CTX.update_nonblock(fd, (arg & 0o4000) != 0); // O_NONBLOCK
+            v4l2_nonblock(fd, (arg & 0o4000) != 0); // O_NONBLOCK
         } else if cmd == F_GETFL {
-            V4L2_CTX.update_nonblock(fd, (r as usize & 0o4000) != 0);
+            v4l2_nonblock(fd, (r as usize & 0o4000) != 0);
         }
     }
     ret_or_errno(r)

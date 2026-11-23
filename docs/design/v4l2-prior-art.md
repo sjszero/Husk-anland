@@ -162,3 +162,8 @@ Changes (our runtime has no ptrace and no bind mounts):
 - `poll` always-readable means a broken stream shows up as `DQBUF` returning `EAGAIN`
   after the 1 s app timeout, not as a hung `poll`. Tools that trust `poll` will spin;
   `v4l2-ctl` and GStreamer both tolerate it, but it must be written down.
+- **dlopen'd consumers are a separate problem.** `libgstvideo4linux2.so` imports
+  `open64@GLIBC_2.17`; the loader shim cannot patch it and an unversioned preload
+  definition does not bind to the versioned reference (measured, evidence 91). The
+  WIP `runtime/crates/v4l2-preload` documents the two fixes (version script or
+  dlopen-time GOT patching).

@@ -90,3 +90,38 @@ adb -s UKHMMB8PYTGECMNV shell 'timeout 120 run-as com.linuxhub.husk sh files/gex
 
 Landmine hit while measuring: with the screen off the app is frozen (`LcdOff`) and
 the guest blocks forever inside the first `INFO` — keep the device awake.
+
+## GStreamer: blocked, and exactly why (FACT)
+
+`gst-launch-1.0 v4l2src device=/dev/video1` fails:
+
+```
+Cannot identify device '/dev/video1'.
+gst_v4l2_open (): system error: Permission denied
+```
+
+Cause chain, measured:
+
+1. `libgstvideo4linux2.so` is **dlopen'd**, so the loader-embedded shim (which only
+   patches the GOT of objects present at startup) never sees its calls.
+2. It imports `open64@GLIBC_2.17` (verified with `readelf --dyn-syms`), not
+   `v4l2_open`. A preload that exports an **unversioned** `open64` does not get
+   bound to a versioned reference here: with `LD_PRELOAD=libhusk_v4l2.so` in place
+   the shim's `openat` was instrumented and **was never called**, and the fd it ends
+   up with is Android's `/dev/video1` (0660 `media:system`) → `EACCES`.
+3. `libv4l2.so.0` (which the plugin also links) would answer `v4l2_ioctl` etc., but
+   the device open happens before any of those calls.
+
+`runtime/crates/v4l2-preload` is the WIP fix (hooks for `open/openat/open64/*_2`,
+`ioctl`, `mmap`, `stat`, the `v4l2_*` API, and a `HUSK_V4L2_API` handshake).
+It is **not** wired in. Two ways out, both recorded in that crate:
+
+- give it a version script so the symbols carry the glibc versions the plugin
+  references (`open64` 2.17, `statx` 2.28, `fstatat` 2.33 …), or
+- patch the GOT of every object `dlopen` returns (hook `dlopen` in the shim).
+
+Until then: **guest programs that call libc normally work** (our harness, any tool
+built like it); GStreamer's v4l2 plugin does not, so "preview through GStreamer" is
+still open. A second, independent `LD_PRELOAD` crash was also observed when the
+loader shim forwarded into the preload's function table (segv inside the shim on the
+first device open), which is why the handshake is disabled for now.
