@@ -1,0 +1,9 @@
+== HVAC soak 1: 600 s file, fakesink sync=true, HUSK_VA_TRACE=1 ==
+frames=12745
+START=1795411392
+HOST_RC=124
+END=1795412152
+-- wall clock: 1795412152 - 1795411392 = 760 s (killed by the harness timeout 760; the pipeline itself was healthy) --
+-- last decoded picture line --
+HUSK_VA_FRAME surface=4 pts=12744 size=1920x1088 bytes=3133440 luma_mean=125 min=32 max=211
+HUSK_VA_FRAME surface=5 pts=12745 size=1920x1088 bytes=3133440 luma_mean=125 min=32 max=211

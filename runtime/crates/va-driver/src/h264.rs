@@ -65,6 +65,13 @@ pub fn build_csd(
     let profile_idc = profile_idc(profile, chroma_format_idc, bit_depth_luma_minus8);
     let high_profile = matches!(profile_idc, 100 | 110 | 122 | 244);
     let level_idc = level_idc_for(visible_width, visible_height);
+    // Constrained baseline is profile_idc 66 with constraint_set0_flag set.
+    // Encoders in the wild emit 0xC0 (set0 + set1) for it; matching that keeps
+    // the synthesized header byte-identical to the common case.
+    let constraint_flags = match profile {
+        VAProfile_VAProfileH264ConstrainedBaseline => 0xc0u32,
+        _ => 0x00,
+    };
 
     let (default_l0, default_l1) = match slice {
         Some(data) if data.len() >= 20 => (data[18], data[19]),
@@ -74,7 +81,7 @@ pub fn build_csd(
     let mut sps = BitWriter::new(128);
     sps.put_bits(8, 0x67); // nal_ref_idc=3, nal_unit_type=7
     sps.put_bits(8, profile_idc as u32);
-    sps.put_bits(8, 0); // constraint_set flags and reserved bits
+    sps.put_bits(8, constraint_flags); // constraint_set flags and reserved bits
     sps.put_bits(8, level_idc as u32);
     sps.ue(0); // seq_parameter_set_id
 
@@ -214,14 +221,23 @@ fn profile_idc(profile: VAProfile, chroma_format_idc: u32, bit_depth_luma_minus8
     }
 }
 
+/// Smallest H.264 level whose `MaxFS` covers the coded picture.
+///
+/// `MaxFS` is expressed in 16x16 macroblocks, so the comparison runs on pixel
+/// counts: 3600 MBs = 921600 (level 3.1), 8192 MBs = 2097152 (level 4.0),
+/// 36864 MBs = 8912896 (level 5.1). A 1920x1088 coded picture is 2088960
+/// pixels, which is inside level 4.0 - the previous fixed 1920x1080 threshold
+/// reported 5.1 for it, one level above the real stream.
 fn level_idc_for(width: u32, height: u32) -> u8 {
     let pixels = width.saturating_mul(height);
-    if pixels > 1920 * 1080 {
-        51
-    } else if pixels > 1280 * 720 {
+    if pixels <= 921_600 {
+        31
+    } else if pixels <= 2_097_152 {
         40
+    } else if pixels <= 8_912_896 {
+        51
     } else {
-        30
+        62
     }
 }
 

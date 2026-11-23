@@ -112,21 +112,13 @@ impl VideoClient {
         };
         close_fd(fd);
 
-        // Test hook: an explicit Annex-B CSD overrides the synthesized one.
-        // The synthesized SPS/PPS is a reconstruction from VA picture/slice
-        // parameters; when a stream's real parameter sets differ, decoding can
-        // silently produce nothing. This lets the transport be tested against
-        // known-good parameter sets while the synthesis is being fixed.
-        let (csd0, csd1) = override_csd(csd0, csd1);
         if std::env::var_os("HUSK_VA_TRACE").is_some() {
             eprintln!(
                 "HUSK_VA_CSD sps={} pps={}",
-                hex_encode(&csd0),
-                hex_encode(&csd1)
+                hex_encode(csd0),
+                hex_encode(csd1)
             );
         }
-        let csd0 = csd0.as_slice();
-        let csd1 = csd1.as_slice();
         let mut csd = Vec::with_capacity(csd0.len() + csd1.len());
         csd.extend_from_slice(csd0);
         csd.extend_from_slice(csd1);
@@ -243,27 +235,6 @@ fn parse_field<T: std::str::FromStr>(fields: &[(&str, &str)], key: &str) -> std:
             format!("frame reply {key}={raw} is not a number"),
         )
     })
-}
-
-fn override_csd(sps: &[u8], pps: &[u8]) -> (Vec<u8>, Vec<u8>) {
-    let read = |key: &str, fallback: &[u8]| -> Vec<u8> {
-        let Some(text) = std::env::var_os(key) else {
-            return fallback.to_vec();
-        };
-        let text = text.to_string_lossy();
-        match video_protocol::hex_decode(text.trim()) {
-            Ok(bytes) if !bytes.is_empty() => {
-                let mut out = Vec::with_capacity(bytes.len() + 4);
-                if !bytes.starts_with(&[0, 0, 0, 1]) && !bytes.starts_with(&[0, 0, 1]) {
-                    out.extend_from_slice(&[0, 0, 0, 1]);
-                }
-                out.extend_from_slice(&bytes);
-                out
-            }
-            _ => fallback.to_vec(),
-        }
-    };
-    (read("HUSK_VA_SPS", sps), read("HUSK_VA_PPS", pps))
 }
 
 fn candidate_paths() -> Vec<PathBuf> {

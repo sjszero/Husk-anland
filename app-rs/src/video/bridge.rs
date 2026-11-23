@@ -24,6 +24,15 @@ const FRAME_WAIT: Duration = Duration::from_secs(5);
 
 static STARTED: AtomicBool = AtomicBool::new(false);
 
+/// Only one decoder session may exist at a time.
+///
+/// The presenter, the event bridge and the single Codec2 instance are all
+/// process-wide singletons, so a second concurrent `OPEN` used to succeed and
+/// then produce nothing: `FRAME` returned NONE forever while the client saw a
+/// healthy socket. Refusing it with a named error is the honest behaviour -
+/// and it is what a guest tunnel through one surface can actually support.
+static SESSION_ACTIVE: AtomicBool = AtomicBool::new(false);
+
 fn sequence_log(files: &Path, line: &str) {
     crate::log(line);
     if let Ok(mut out) = OpenOptions::new()
@@ -558,7 +567,10 @@ impl<'a> Session<'a> {
             if Instant::now() >= deadline {
                 return Ok(None);
             }
-            self.drain_frames(files, 50_000)?;
+            // Short slices, not one 50 ms block: the picture is usually a few
+            // milliseconds away, and a 50 ms block quantises every frame to
+            // 20 fps or worse (measured 13 fps on 1080p30 before this change).
+            self.drain_frames(files, 2_000)?;
         }
     }
 
@@ -659,6 +671,7 @@ impl<'a> Session<'a> {
 
 impl Drop for Session<'_> {
     fn drop(&mut self) {
+        SESSION_ACTIVE.store(false, Ordering::SeqCst);
         super::ebridge::shutdown();
         if !self.codec.is_null() {
             unsafe {
@@ -798,6 +811,12 @@ unsafe fn handle_client(files: &Path, api: &Api, mut stream: UnixStream) {
             "OPEN" => {
                 if session.is_some() {
                     send_line(&mut stream, "OPEN_ERROR session already open")
+                } else if SESSION_ACTIVE
+                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_err()
+                {
+                    sequence_log(files, "video|bridge|OPEN_REFUSED|another session is active");
+                    send_line(&mut stream, "OPEN_ERROR another video session is active")
                 } else {
                     match Session::open(api, files, &line) {
                         Ok((active, ring_fd)) => {
@@ -827,6 +846,7 @@ unsafe fn handle_client(files: &Path, api: &Api, mut stream: UnixStream) {
                             Ok(())
                         }
                         Err(e) => {
+                            SESSION_ACTIVE.store(false, Ordering::SeqCst);
                             sequence_log(files, &format!("video|bridge|OPEN_FAIL|{e}"));
                             send_line(&mut stream, &format!("OPEN_ERROR {e}"))
                         }
@@ -870,7 +890,21 @@ unsafe fn handle_client(files: &Path, api: &Api, mut stream: UnixStream) {
                             });
                             sent
                         }
-                        Ok(None) => send_line(&mut stream, "FRAME_NONE"),
+                        Ok(None) => {
+                            // A miss is worth a line: "the client asked and the
+                            // codec had nothing" is the single most confusing
+                            // failure mode on this path (RC=0, zero pictures).
+                            sequence_log(
+                                files,
+                                &format!(
+                                    "video|bridge|FRAME_NONE|pts={pts}|pending={}|frames={}|decoded={}",
+                                    active.pending.len(),
+                                    active.stats.0,
+                                    active.stats.1
+                                ),
+                            );
+                            send_line(&mut stream, "FRAME_NONE")
+                        }
                         Err(e) => {
                             sequence_log(files, &format!("video|bridge|FRAME_FAIL|{e}"));
                             send_line(&mut stream, &format!("FRAME_ERROR {e}"))
@@ -931,6 +965,10 @@ fn serve() {
         crate::log("video|bridge|FAIL|MediaCodec symbols unavailable");
         return;
     };
+    // Leak once: connection threads need a `'static` table. It is a few
+    // primitive words plus the dlopen handle, and this loop runs at most a
+    // couple of times per process.
+    let api: &'static Api = Box::leak(Box::new(api));
     sequence_log(&files, "video|bridge|API|libmediandk.so");
     let marker = files.join("video-bridge");
     let guest_marker = files.join("rootfs-full/run/husk/enabled");
@@ -976,9 +1014,15 @@ fn serve() {
         };
         let _ = listener.set_nonblocking(true);
         sequence_log(&files, &format!("video|bridge|LISTEN|{}", path.display()));
+        // One thread per connection: a client that is refused must get a named
+        // error, not an invisible EAGAIN because the accept loop is busy
+        // streaming for the previous one.
         while enabled() {
             match listener.accept() {
-                Ok((stream, _)) => unsafe { handle_client(&files, &api, stream) },
+                Ok((stream, _)) => {
+                    let files = files.clone();
+                    std::thread::spawn(move || unsafe { handle_client(&files, api, stream) });
+                }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     std::thread::sleep(Duration::from_millis(25));
                 }

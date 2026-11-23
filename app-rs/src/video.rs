@@ -218,6 +218,13 @@ struct Api {
     format_set_buffer: FnFormatSetBuffer,
 }
 
+// The API table is a dlopen handle plus resolved function pointers; it is
+// immutable once loaded and every entry is safe to call from any thread, so
+// concurrent connection threads may share one `&Api`. Raw pointers make this
+// non-automatic, hence the explicit unsafe impls.
+unsafe impl Send for Api {}
+unsafe impl Sync for Api {}
+
 #[derive(Clone, Copy)]
 struct ImageApi {
     _media_handle: *mut c_void,

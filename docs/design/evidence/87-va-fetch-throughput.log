@@ -1,0 +1,32 @@
+== A: submit only, 600 frames (vaapih264dec ! fakesink) ==
+T0=1795413453
+RC=0
+T1=1795413472          # 19 s wall clock -> ~33 fps (incl. ~2 s startup)
+
+== B: fetch, 600 frames (vaapih264dec ! videoconvert ! I420 ! fakesink) ==
+T0=1795413472
+HUSK_VA_DELIVERED frames=300 surface=5
+HUSK_VA_DELIVERED frames=600 surface=5
+RC=0
+T1=1795413507          # 35 s wall clock -> ~18 fps
+
+== C: 120 s continuous, before the 2 ms poll slicing ==
+START=1795413143
+HUSK_VA_DELIVERED frames=300 surface=5
+...
+HUSK_VA_DELIVERED frames=1500 surface=5
+HOST_RC=124            # harness timeout
+END=1795413263         # 1500 frames / 120 s -> ~12.5 fps
+
+== D: 120 s continuous, after the 2 ms poll slicing ==
+START=1795413295
+HUSK_VA_DELIVERED frames=300 surface=5
+...
+HUSK_VA_DELIVERED frames=2100 surface=5
+HOST_RC=124
+END=1795413415         # 2100+ frames / 120 s -> ~17.5 fps
+
+== E: hard proof without any trace: write the whole 10 s clip to a file ==
+vaapih264dec ! videoconvert ! video/x-raw,format=I420 ! filesink
+-rw-rw-rw- 1 u0_a302 u0_a302 466560000 frames.i420
+466560000 == 150 * 1920 * 1080 * 3 / 2   (150 tight I420 frames, exact)

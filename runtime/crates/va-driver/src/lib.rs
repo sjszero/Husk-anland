@@ -85,6 +85,11 @@ struct ContextState {
     surface_frames: HashMap<VASurfaceID, SurfaceFrame>,
     /// PTS of the picture most recently submitted to each surface.
     surface_pts: HashMap<VASurfaceID, i64>,
+    /// Latest content of every picture-parameter buffer, taken at unmap time.
+    /// The client fills these structs through the mapping, and on this stack the
+    /// bytes are gone again by the time vaEndPicture runs, so the snapshot is the
+    /// only reliable copy.
+    pp_snapshots: HashMap<VABufferID, Vec<u8>>,
     /// Images are backed by an ordinary buffer so `vaMapBuffer` needs no
     /// second code path; this map exists to validate destroy/map by image id.
     images: HashMap<VAImageID, ImageInfo>,
@@ -699,6 +704,15 @@ unsafe extern "C" fn map_buffer(
 }
 
 unsafe extern "C" fn unmap_buffer(ctx: VADriverContextP, buffer: VABufferID) -> VAStatus {
+    let _ = with_state(ctx, |state| {
+        if let Some(info) = state.buffers.get(&buffer) {
+            if info.type_ == VABufferType_VAPictureParameterBufferType
+                && info.data.iter().any(|byte| *byte != 0)
+            {
+                state.pp_snapshots.insert(buffer, info.data.clone());
+            }
+        }
+    });
     if std::env::var_os("HUSK_VA_TRACE").is_some() {
         let _ = with_state(ctx, |state| {
             if let Some(info) = state.buffers.get(&buffer) {
@@ -841,12 +855,17 @@ unsafe extern "C" fn render_picture(
         if picture.context != context {
             return VA_STATUS_ERROR_INVALID_CONTEXT as VAStatus;
         }
+        let mut summary = String::new();
         for index in 0..num_buffers as usize {
             let id = *buffers.add(index);
-            if !state.buffers.contains_key(&id) {
+            let Some(info) = state.buffers.get(&id) else {
                 return VA_STATUS_ERROR_INVALID_BUFFER as VAStatus;
-            }
+            };
+            summary.push_str(&format!("{id}:{} ", info.type_));
             picture.buffers.push(id);
+        }
+        if std::env::var_os("HUSK_VA_TRACE").is_some() {
+            eprintln!("HUSK_VA_RENDER context={context} ids={summary}");
         }
         VA_STATUS_SUCCESS as VAStatus
     }) else {
@@ -954,12 +973,18 @@ unsafe extern "C" fn end_picture(ctx: VADriverContextP, context: VAContextID) ->
             }
         }
 
+        // Prefer the copy taken when the client unmapped the buffer: the
+        // in-place bytes are zero again by now on this stack.
+        if let Some(snapshot) = picture
+            .buffers
+            .iter()
+            .filter_map(|id| state.pp_snapshots.get(id))
+            .next()
+            .cloned()
+        {
+            picture_params = Some(snapshot);
+        }
         if picture_params.is_none() {
-            // gst-vaapi submits the picture parameter buffer in its own
-            // vaRenderPicture call, so it is not always part of this picture's
-            // buffer list. Taking the create-time copy is wrong twice over: the
-            // client fills the struct after vaMapBuffer, so that copy is zeros.
-            // Use the newest non-empty picture buffer instead.
             picture_params = state
                 .buffers
                 .iter()
@@ -969,6 +994,7 @@ unsafe extern "C" fn end_picture(ctx: VADriverContextP, context: VAContextID) ->
                 })
                 .max_by_key(|(id, _)| **id)
                 .map(|(_, buffer)| buffer.data.clone())
+                .or_else(|| state.pp_snapshots.values().next().cloned())
                 .or_else(|| state.picture_params.get(&context).cloned());
         }
         if trace {
@@ -1200,7 +1226,17 @@ unsafe fn ensure_frame(ctx: VADriverContextP, surface: VASurfaceID) -> Result<()
         };
         match client.fetch_frame(pts) {
             Ok(Some(frame)) => frame,
-            Ok(None) => return Err(VA_STATUS_ERROR_INVALID_SURFACE as VAStatus),
+            Ok(None) => {
+                // Bounded, unconditional: "the client asked for a picture the
+                // codec never produced" used to be invisible without a full
+                // trace, and a full trace changes the timing enough to hide it.
+                static MISSES: std::sync::atomic::AtomicUsize =
+                    std::sync::atomic::AtomicUsize::new(0);
+                if MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 5 {
+                    eprintln!("HUSK_VA_FRAME_NONE surface={surface} pts={pts}");
+                }
+                return Err(VA_STATUS_ERROR_INVALID_SURFACE as VAStatus);
+            }
             Err(error) => {
                 eprintln!("HUSK_VA_FRAME_FAILED surface={surface} pts={pts} {error}");
                 return Err(VA_STATUS_ERROR_DECODING_ERROR as VAStatus);
@@ -1231,6 +1267,16 @@ unsafe fn ensure_frame(ctx: VADriverContextP, surface: VASurfaceID) -> Result<()
             frame.height,
             frame.nv12.len()
         );
+    }
+    // One line per 300 pictures. Without it a healthy run and a silent stall
+    // look identical in the guest log once HUSK_VA_TRACE is off; it costs
+    // nothing and it is not a substitute for the detailed trace.
+    {
+        static DELIVERED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = DELIVERED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        if n % 300 == 0 {
+            eprintln!("HUSK_VA_DELIVERED frames={n} surface={surface}");
+        }
     }
     let _ = with_state(ctx, |state| {
         state.surface_frames.insert(

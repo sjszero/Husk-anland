@@ -3,7 +3,7 @@
 > 本文件是目标的**权威规格**。会话里的 goal 对象不可编辑，重建 goal 时以本文件为准；
 > 改目标就改这里，再把下面的「粘贴块」整段贴进去。纯文本版：`docs/goal-objective.txt`。
 
-最后更新：2026-11-23（v49：evidence 85 —— 标准 GStreamer `vaapih264dec ! videoconvert ! I420 ! fakesink` 经 Husk VA 驱动取到 11 帧真实硬解像素（MTK `c2.mtk.avc.decoder`，1920x1080，luma_mean=125），VA image 全套 + FRAME/PTS 异步领取 + 几何对齐已实现；**合成 CSD 仍错**（width/height=0、frame_mbs_only=0、level 51），当前靠 `HUSK_VA_SPS/HUSK_VA_PPS` 测试钩子喂真实参数集，CSD 修正、10 分钟长稳、HEVC/VP9/AV1、Chromium、AV 同步、上屏均未做）
+最后更新：2026-11-23（v50：evidence 86/87 —— 合成 CSD 修好：不带 `HUSK_VA_SPS/PPS` 旁路，`vaapih264dec ! videoconvert ! I420` 也能拿到真实硬解帧（11 帧 1080p，合成头 `67 42 c0 28` 与真实流逐字节一致）；根因是取值时序（客户端在 `vaMapBuffer` 后自己写参数，`vaEndPicture` 时已是全 0），现在在 `vaUnmapBuffer` 取快照；同时把 level 按 `MaxFS` 修对、并发第二个视频会话改成明确拒绝。**新暴露的硬上限：VA 系统层取帧吞吐只有 ≈18 fps（只提交 33 fps），瓶颈是一次进一次出≈55 ms/帧，做满 1080p30 需要帧级流水或走 evidence 80 的 AHB 路径**；HEVC/VP9/AV1、Chromium、AV 同步、上屏仍未做）
 
 ---
 

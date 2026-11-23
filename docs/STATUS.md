@@ -67,6 +67,40 @@ PT_LOAD 的映射边界。`chmod`/`chown`/`utimensat`/`statx` 现在固定最终
 恶意 ELF 注入、GOT 失败注入、rootfd 并发 close/reopen、
 SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不能写成已完成。
 
+## 合成 CSD 修好 + 取帧吞吐上限（evidence 86 / 87，2026-11-23）
+
+**FACT：不带任何 `HUSK_VA_SPS/HUSK_VA_PPS` 旁路，`vaapih264dec ! videoconvert !
+video/x-raw,format=I420` 能拿到真实解码帧（11 帧 1080p、`HOST_RC=0`）。**
+
+- 根因不是偏移写错，是**取值时序**：`vaCreateBuffer` 传的 `data` 是 NULL，客户端在
+  `vaMapBuffer` 之后自己写参数；到 `vaEndPicture` 时 `state.buffers[id].data` 已经是全 0。
+  现在在 `vaUnmapBuffer` 对 picture-parameter buffer 内容非全 0 时取快照
+  （`ContextState::pp_snapshots`），`vaEndPicture` 优先用快照。
+  解析出的真实字段：`width_mbs_minus1=119(1920) / height=67(1088) / frame_mbs_only=1 /
+  poc_type=2 / chroma_format_idc=1 / num_ref_frames=1`——和 mp4 `avcC` 里的真实 SPS 一致。
+- 顺手修两个合成错误：level 改成按 `MaxFS`（4.0 的 8192 MB 覆盖 1920x1088，之前误报 5.1）；
+  ConstrainedBaseline 补 `constraint_set0/1`（0xc0）。现在合成头 `67 42 c0 28` 与真实流逐字节相同。
+- 测试钩子 `HUSK_VA_SPS/HUSK_VA_PPS`（`video_client::override_csd`）已删除。
+- 已知偏差：合成 SPS 不带 `frame_cropping`，声明可见 1088（真实 1080）。写出的帧仍是 1080，
+  因为 `h264parse` 自己知道可见高度；用 `filesink` 复核过：466,560,000 = 150 × 1920×1080×3/2。
+
+**FACT（吞吐，这是当前最硬的上限）**：1080p30 码流，
+只提交不取帧 600 帧 / 19 s ≈ **33 fps**；带取帧 600 帧 / 35 s ≈ **18 fps**。
+INFERENCE：瓶颈是一次进一次出的取帧往返（≈55 ms/帧），不是解码吞吐。
+要把 1080p30 做满需要帧级流水；产品播放路径应继续走 evidence 80 的 6-slot AHB 路径
+（已实测 600 秒 / 18000 帧 / 30 fps）。**所以 VA 系统层现在"能解码"但"不够快"，
+不能写成 1080p30 流畅。**
+
+**FACT（并发会话已修）**：一个进程只允许一个解码会话。修复前第二个 `OPEN` 会"成功"然后
+永远零帧（`HUSK_VA_FRAME_NONE`），并把 presenter/ebridge 单例搅乱，要等 30 秒读超时才恢复；
+现在直接 `OPEN_ERROR another video session is active`，accept 也改成每连接一个线程
+（否则第二个连接只能拿到 `EAGAIN`）。
+
+**两个坑**：`HUSK_VA_TRACE=0` 也算开 trace（`var_os().is_some()`），而 `HUSK_VA_FRAME` 是
+trace 门控的——关掉 trace 后"一条帧日志都没有"不等于没出帧；现在有
+`HUSK_VA_DELIVERED frames=N`（每 300 帧一行）。另外只改 `jniLibs/*.so` 时
+`assembleDebug` 不重新打包，必须 `--rerun-tasks` 并用 `strings` 复核 APK 里的 `.so`。
+
 ## VA 驱动拿到真实解码帧（evidence 85，2026-11-23）
 
 **FACT：`vaapih264dec ! videoconvert ! video/x-raw,format=I420 ! fakesink` 跑通，取到 11 帧真实像素，`HOST_RC=0`，gst-vaapi 不再报 `failed to make image current`。**
