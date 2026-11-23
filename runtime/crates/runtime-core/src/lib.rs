@@ -52,31 +52,64 @@ unsafe fn sc4(n: usize, a: usize, b: usize, c: usize, d: usize) -> Ssize {
 
 #[inline]
 pub fn errno_of(r: Ssize) -> Option<CInt> {
-    if r < 0 && r > -4096 { Some((-r) as CInt) } else { None }
+    if r < 0 && r > -4096 {
+        Some((-r) as CInt)
+    } else {
+        None
+    }
 }
 
 pub unsafe fn openat(dirfd: CInt, path: &[u8], flags: CInt, mode: CInt) -> Result<CInt, CInt> {
-    if path.is_empty() { return Err(2); }
-    if path.len() >= PATH_MAX { return Err(ENAMETOOLONG); }
+    if path.is_empty() {
+        return Err(2);
+    }
+    if path.len() >= PATH_MAX {
+        return Err(ENAMETOOLONG);
+    }
     let mut buf = [0u8; PATH_MAX];
     buf[..path.len()].copy_from_slice(path);
-    let r = sc4(SYS_OPENAT, dirfd as usize, buf.as_ptr() as usize, flags as usize, mode as usize);
-    match errno_of(r) { Some(e) => Err(e), None => Ok(r as CInt) }
+    let r = sc4(
+        SYS_OPENAT,
+        dirfd as usize,
+        buf.as_ptr() as usize,
+        flags as usize,
+        mode as usize,
+    );
+    match errno_of(r) {
+        Some(e) => Err(e),
+        None => Ok(r as CInt),
+    }
 }
 
-pub unsafe fn close(fd: CInt) { sc3(SYS_CLOSE, fd as usize, 0, 0); }
+pub unsafe fn close(fd: CInt) {
+    sc3(SYS_CLOSE, fd as usize, 0, 0);
+}
 
 pub unsafe fn dup(fd: CInt) -> Result<CInt, CInt> {
     let r = sc3(SYS_DUP, fd as usize, 0, 0);
-    match errno_of(r) { Some(e) => Err(e), None => Ok(r as CInt) }
+    match errno_of(r) {
+        Some(e) => Err(e),
+        None => Ok(r as CInt),
+    }
 }
 
 unsafe fn readlinkat(dirfd: CInt, name: &[u8], out: &mut [u8]) -> Result<usize, CInt> {
     let mut nb = [0u8; 256];
-    if name.len() >= nb.len() { return Err(36); }
+    if name.len() >= nb.len() {
+        return Err(36);
+    }
     nb[..name.len()].copy_from_slice(name);
-    let r = sc4(SYS_READLINKAT, dirfd as usize, nb.as_ptr() as usize, out.as_mut_ptr() as usize, out.len());
-    match errno_of(r) { Some(e) => Err(e), None => Ok(r as usize) }
+    let r = sc4(
+        SYS_READLINKAT,
+        dirfd as usize,
+        nb.as_ptr() as usize,
+        out.as_mut_ptr() as usize,
+        out.len(),
+    );
+    match errno_of(r) {
+        Some(e) => Err(e),
+        None => Ok(r as usize),
+    }
 }
 
 unsafe fn fd_is_symlink(fd: CInt) -> Result<bool, CInt> {
@@ -88,83 +121,144 @@ unsafe fn fd_is_symlink(fd: CInt) -> Result<bool, CInt> {
         st.as_mut_ptr() as usize,
         AT_EMPTY_PATH as usize,
     );
-    if let Some(e) = errno_of(r) { return Err(e); }
+    if let Some(e) = errno_of(r) {
+        return Err(e);
+    }
     let mode = core::ptr::read_unaligned(st.as_ptr().add(16) as *const u32);
     Ok(mode & S_IFMT == S_IFLNK)
 }
 
-fn compose_symlink_target(dir: &[u8], target: &[u8], out: &mut [u8; PATH_MAX])
-    -> Result<usize, CInt>
-{
+fn compose_symlink_target(
+    dir: &[u8],
+    target: &[u8],
+    out: &mut [u8; PATH_MAX],
+) -> Result<usize, CInt> {
     if target.first() == Some(&b'/') {
-        if target.len() >= PATH_MAX { return Err(ENAMETOOLONG); }
+        if target.len() >= PATH_MAX {
+            return Err(ENAMETOOLONG);
+        }
         out[..target.len()].copy_from_slice(target);
         return Ok(target.len());
     }
     let n = dir.len() + 1 + target.len();
-    if n >= PATH_MAX { return Err(ENAMETOOLONG); }
+    if n >= PATH_MAX {
+        return Err(ENAMETOOLONG);
+    }
     out[..dir.len()].copy_from_slice(dir);
     out[dir.len()] = b'/';
     out[dir.len() + 1..n].copy_from_slice(target);
     Ok(n)
 }
 
-fn is_dot(c: &[u8]) -> bool { c == b"." }
-fn is_dotdot(c: &[u8]) -> bool { c == b".." }
+fn is_dot(c: &[u8]) -> bool {
+    c == b"."
+}
+fn is_dotdot(c: &[u8]) -> bool {
+    c == b".."
+}
 
 /// Resolve an absolute guest path under `rootfd`.
 /// Returns an owned directory fd and the final component copied into `name`.
 pub unsafe fn resolve_parent(rootfd: CInt, path: &[u8], name: &mut [u8]) -> Result<CInt, CInt> {
-    resolve_parent_impl(rootfd, path, name, false, core::ptr::null_mut(), core::ptr::null_mut())
+    resolve_parent_impl(
+        rootfd,
+        path,
+        name,
+        false,
+        core::ptr::null_mut(),
+        core::ptr::null_mut(),
+    )
 }
 
 /// Like `resolve_parent`, but also follows a symlink in the final component
 /// (chroot semantics), which is what open/stat/access/exec need by default.
-pub unsafe fn resolve_parent_follow(rootfd: CInt, path: &[u8], name: &mut [u8]) -> Result<CInt, CInt> {
-    resolve_parent_impl(rootfd, path, name, true, core::ptr::null_mut(), core::ptr::null_mut())
+pub unsafe fn resolve_parent_follow(
+    rootfd: CInt,
+    path: &[u8],
+    name: &mut [u8],
+) -> Result<CInt, CInt> {
+    resolve_parent_impl(
+        rootfd,
+        path,
+        name,
+        true,
+        core::ptr::null_mut(),
+        core::ptr::null_mut(),
+    )
 }
 
 /// Resolve the parent of `path` and return its canonical guest directory.
 /// The directory is needed when a final symlink target is relative and the
 /// symlink itself must be resolved manually to avoid a follow race.
-unsafe fn resolve_parent_with_dir(rootfd: CInt, path: &[u8], name: &mut [u8], follow: bool)
-    -> Result<(CInt, [u8; PATH_MAX], usize), CInt>
-{
+unsafe fn resolve_parent_with_dir(
+    rootfd: CInt,
+    path: &[u8],
+    name: &mut [u8],
+    follow: bool,
+) -> Result<(CInt, [u8; PATH_MAX], usize), CInt> {
     let mut dir = [0u8; PATH_MAX];
     let mut dir_len = 0usize;
     let fd = resolve_parent_impl(rootfd, path, name, follow, dir.as_mut_ptr(), &mut dir_len)?;
     Ok((fd, dir, dir_len))
 }
 
-unsafe fn resolve_parent_impl(rootfd: CInt, path: &[u8], name: &mut [u8], follow: bool,
-                              dir_buf: *mut u8, dir_len: *mut usize) -> Result<CInt, CInt> {
-    if path.first() != Some(&b'/') { return Err(EACCES); }
-    if path.len() >= PATH_MAX { return Err(ENAMETOOLONG); }
+unsafe fn resolve_parent_impl(
+    rootfd: CInt,
+    path: &[u8],
+    name: &mut [u8],
+    follow: bool,
+    dir_buf: *mut u8,
+    dir_len: *mut usize,
+) -> Result<CInt, CInt> {
+    if path.first() != Some(&b'/') {
+        return Err(EACCES);
+    }
+    if path.len() >= PATH_MAX {
+        return Err(ENAMETOOLONG);
+    }
     resolve_at(rootfd, rootfd, path, name, 0, follow, dir_buf, dir_len)
 }
 
 fn norm(p: &[u8], out: &mut [u8; PATH_MAX]) -> usize {
     let mut n = 0usize;
     out[0] = b'/';
-    for c in p.split(|x| *x == b'/').filter(|c| !c.is_empty() && *c != b".") {
+    for c in p
+        .split(|x| *x == b'/')
+        .filter(|c| !c.is_empty() && *c != b".")
+    {
         if c == b".." {
             n = pop_component(out, n);
             continue;
         }
-        if n + 1 + c.len() >= PATH_MAX { break; }
-        out[n] = b'/'; n += 1;
-        out[n..n + c.len()].copy_from_slice(c); n += c.len();
+        if n + 1 + c.len() >= PATH_MAX {
+            break;
+        }
+        out[n] = b'/';
+        n += 1;
+        out[n..n + c.len()].copy_from_slice(c);
+        n += c.len();
     }
-    if n == 0 { n = 1; out[0] = b'/'; }
+    if n == 0 {
+        n = 1;
+        out[0] = b'/';
+    }
     n
 }
 
 /// Drop the last component of an absolute path held in `out`, clamping at "/".
 pub fn pop_component(out: &[u8; PATH_MAX], n: usize) -> usize {
-    if n == 0 { return 1; }
+    if n == 0 {
+        return 1;
+    }
     let mut k = n;
-    while k > 0 && out[k - 1] != b'/' { k -= 1; }
-    if k > 0 { k - 1 } else { 1 }
+    while k > 0 && out[k - 1] != b'/' {
+        k -= 1;
+    }
+    if k > 0 {
+        k - 1
+    } else {
+        1
+    }
 }
 
 struct Walk {
@@ -177,7 +271,9 @@ impl Walk {
     }
 
     unsafe fn replace(&mut self, fd: CInt) {
-        if self.cur >= 0 { close(self.cur); }
+        if self.cur >= 0 {
+            close(self.cur);
+        }
         self.cur = fd;
     }
 
@@ -191,22 +287,39 @@ impl Walk {
 impl Drop for Walk {
     fn drop(&mut self) {
         unsafe {
-            if self.cur >= 0 { close(self.cur); }
+            if self.cur >= 0 {
+                close(self.cur);
+            }
         }
     }
 }
 
-unsafe fn resolve_at(root: CInt, _base: CInt, path: &[u8], name: &mut [u8], depth: u32,
-                     follow: bool, dir_buf: *mut u8, dir_len: *mut usize) -> Result<CInt, CInt> {
-    if depth > 16 { return Err(ELOOP); }
+unsafe fn resolve_at(
+    root: CInt,
+    _base: CInt,
+    path: &[u8],
+    name: &mut [u8],
+    depth: u32,
+    follow: bool,
+    dir_buf: *mut u8,
+    dir_len: *mut usize,
+) -> Result<CInt, CInt> {
+    if depth > 16 {
+        return Err(ELOOP);
+    }
     let mut walk = Walk::new(root)?;
     let mut gpath = [0u8; PATH_MAX];
     let mut glen = 1usize;
     gpath[0] = b'/';
-    let mut it = path.split(|c| *c == b'/').filter(|c| !c.is_empty()).peekable();
+    let mut it = path
+        .split(|c| *c == b'/')
+        .filter(|c| !c.is_empty())
+        .peekable();
     while let Some(comp) = it.next() {
         let last = it.peek().is_none();
-        if is_dot(comp) { continue; }
+        if is_dot(comp) {
+            continue;
+        }
         if is_dotdot(comp) {
             // `..` is opened from the current directory descriptor; the guest
             // path stack decides when we are at the root and must clamp. This
@@ -221,35 +334,58 @@ unsafe fn resolve_at(root: CInt, _base: CInt, path: &[u8], name: &mut [u8], dept
         }
         let mut link = [0u8; PATH_MAX];
         let n = readlinkat(walk.cur, comp, &mut link).unwrap_or(0);
-        if n == link.len() { return Err(ENAMETOOLONG); }
+        if n == link.len() {
+            return Err(ENAMETOOLONG);
+        }
         if n > 0 && (!last || follow) {
             // Compose the new absolute guest path, then re-walk from the root.
             let target = &link[..n];
             let mut raw = [0u8; PATH_MAX];
             let mut rn = if target[0] == b'/' {
-                if target.len() >= PATH_MAX { return Err(ENAMETOOLONG); }
+                if target.len() >= PATH_MAX {
+                    return Err(ENAMETOOLONG);
+                }
                 raw[..target.len()].copy_from_slice(target);
                 target.len()
             } else {
-                if glen + 1 + target.len() >= PATH_MAX { return Err(ENAMETOOLONG); }
+                if glen + 1 + target.len() >= PATH_MAX {
+                    return Err(ENAMETOOLONG);
+                }
                 raw[..glen].copy_from_slice(&gpath[..glen]);
                 let mut rn = glen;
-                raw[rn] = b'/'; rn += 1;
-                raw[rn..rn + target.len()].copy_from_slice(target); rn += target.len();
+                raw[rn] = b'/';
+                rn += 1;
+                raw[rn..rn + target.len()].copy_from_slice(target);
+                rn += target.len();
                 rn
             };
             for c in it.by_ref() {
-                if rn + 1 + c.len() >= PATH_MAX { return Err(ENAMETOOLONG); }
-                raw[rn] = b'/'; rn += 1;
-                raw[rn..rn + c.len()].copy_from_slice(c); rn += c.len();
+                if rn + 1 + c.len() >= PATH_MAX {
+                    return Err(ENAMETOOLONG);
+                }
+                raw[rn] = b'/';
+                rn += 1;
+                raw[rn..rn + c.len()].copy_from_slice(c);
+                rn += c.len();
             }
             let mut np = [0u8; PATH_MAX];
             let nn = norm(&raw[..rn], &mut np);
             drop(walk);
-            return resolve_at(root, root, &np[..nn], name, depth + 1, follow, dir_buf, dir_len);
+            return resolve_at(
+                root,
+                root,
+                &np[..nn],
+                name,
+                depth + 1,
+                follow,
+                dir_buf,
+                dir_len,
+            );
         }
         if last {
-            if comp.len() >= name.len() { return Err(ENAMETOOLONG); }
+            if comp.len() >= name.len() {
+                return Err(ENAMETOOLONG);
+            }
             name[..comp.len()].copy_from_slice(comp);
             if !dir_buf.is_null() && !dir_len.is_null() {
                 core::ptr::copy_nonoverlapping(gpath.as_ptr(), dir_buf, glen);
@@ -257,14 +393,26 @@ unsafe fn resolve_at(root: CInt, _base: CInt, path: &[u8], name: &mut [u8], dept
             }
             return Ok(walk.finish());
         }
-        let fd = openat(walk.cur, comp, O_PATH | O_NOFOLLOW | O_DIRECTORY | O_CLOEXEC, 0)?;
+        let fd = openat(
+            walk.cur,
+            comp,
+            O_PATH | O_NOFOLLOW | O_DIRECTORY | O_CLOEXEC,
+            0,
+        )?;
         walk.replace(fd);
-        if glen + 1 + comp.len() >= PATH_MAX { return Err(ENAMETOOLONG); }
-        gpath[glen] = b'/'; glen += 1;
-        gpath[glen..glen + comp.len()].copy_from_slice(comp); glen += comp.len();
+        if glen + 1 + comp.len() >= PATH_MAX {
+            return Err(ENAMETOOLONG);
+        }
+        gpath[glen] = b'/';
+        glen += 1;
+        gpath[glen..glen + comp.len()].copy_from_slice(comp);
+        glen += comp.len();
     }
-    if name.len() < 2 { return Err(ENAMETOOLONG); }
-    name[0] = b'.'; name[1] = 0;
+    if name.len() < 2 {
+        return Err(ENAMETOOLONG);
+    }
+    name[0] = b'.';
+    name[1] = 0;
     if !dir_buf.is_null() && !dir_len.is_null() {
         core::ptr::copy_nonoverlapping(gpath.as_ptr(), dir_buf, glen);
         *dir_len = glen;
@@ -272,31 +420,50 @@ unsafe fn resolve_at(root: CInt, _base: CInt, path: &[u8], name: &mut [u8], dept
     Ok(walk.finish())
 }
 
-pub unsafe fn resolve_open(rootfd: CInt, path: &[u8], flags: CInt, mode: CInt) -> Result<CInt, CInt> {
-    if path.len() >= PATH_MAX { return Err(ENAMETOOLONG); }
+pub unsafe fn resolve_open(
+    rootfd: CInt,
+    path: &[u8],
+    flags: CInt,
+    mode: CInt,
+) -> Result<CInt, CInt> {
+    if path.len() >= PATH_MAX {
+        return Err(ENAMETOOLONG);
+    }
     let follow = flags & O_NOFOLLOW == 0;
     let mut current = [0u8; PATH_MAX];
     current[..path.len()].copy_from_slice(path);
     let mut current_len = path.len();
     let mut depth = 0u32;
     loop {
-        if depth > 16 { return Err(ELOOP); }
+        if depth > 16 {
+            return Err(ELOOP);
+        }
         let mut name = [0u8; 256];
-        let (parent, dir, dir_len) = resolve_parent_with_dir(rootfd, &current[..current_len], &mut name, false)?;
+        let (parent, dir, dir_len) =
+            resolve_parent_with_dir(rootfd, &current[..current_len], &mut name, false)?;
         let n = name.iter().position(|c| *c == 0).unwrap_or(0);
         let open_flags = if follow { flags | O_NOFOLLOW } else { flags };
         let mut result = openat(parent, &name[..n], open_flags, mode);
         if follow && flags & O_PATH != 0 {
             if let Ok(fd) = result {
                 match fd_is_symlink(fd) {
-                    Ok(true) => { close(fd); result = Err(ELOOP); }
+                    Ok(true) => {
+                        close(fd);
+                        result = Err(ELOOP);
+                    }
                     Ok(false) => {}
-                    Err(e) => { close(fd); result = Err(e); }
+                    Err(e) => {
+                        close(fd);
+                        result = Err(e);
+                    }
                 }
             }
         }
         match result {
-            Ok(fd) => { close(parent); return Ok(fd); }
+            Ok(fd) => {
+                close(parent);
+                return Ok(fd);
+            }
             Err(e) if follow && (e == ELOOP || e == ENOTDIR) => {
                 let mut link = [0u8; PATH_MAX];
                 let r = readlinkat(parent, &name[..n], &mut link);
@@ -304,13 +471,20 @@ pub unsafe fn resolve_open(rootfd: CInt, path: &[u8], flags: CInt, mode: CInt) -
                 let link_len = match r {
                     Ok(v) if v < link.len() => v,
                     Ok(_) => return Err(ENAMETOOLONG),
-                    Err(22) => { depth += 1; continue; }
+                    Err(22) => {
+                        depth += 1;
+                        continue;
+                    }
                     Err(_) => return Err(e),
                 };
-                current_len = compose_symlink_target(&dir[..dir_len], &link[..link_len], &mut current)?;
+                current_len =
+                    compose_symlink_target(&dir[..dir_len], &link[..link_len], &mut current)?;
                 depth += 1;
             }
-            Err(e) => { close(parent); return Err(e); }
+            Err(e) => {
+                close(parent);
+                return Err(e);
+            }
         }
     }
 }
@@ -322,29 +496,44 @@ pub unsafe fn resolve_open(rootfd: CInt, path: &[u8], flags: CInt, mode: CInt) -
 /// metadata semantics use this descriptor instead of a parentfd + final-name
 /// pair, which closes the final-component replacement race on this kernel.
 pub unsafe fn resolve_final(rootfd: CInt, path: &[u8], follow: bool) -> Result<CInt, CInt> {
-    if path.first() != Some(&b'/') { return Err(EACCES); }
-    if path.len() >= PATH_MAX { return Err(ENAMETOOLONG); }
+    if path.first() != Some(&b'/') {
+        return Err(EACCES);
+    }
+    if path.len() >= PATH_MAX {
+        return Err(ENAMETOOLONG);
+    }
     let force_dir = path.len() > 1 && path.last() == Some(&b'/');
     let mut current = [0u8; PATH_MAX];
     current[..path.len()].copy_from_slice(path);
     let mut current_len = path.len();
     let mut depth = 0u32;
     loop {
-        if depth > 16 { return Err(ELOOP); }
+        if depth > 16 {
+            return Err(ELOOP);
+        }
         let mut name = [0u8; 256];
         let (parent, dir, dir_len) =
             resolve_parent_with_dir(rootfd, &current[..current_len], &mut name, false)?;
         let n = name.iter().position(|c| *c == 0).unwrap_or(0);
 
         let mut open_flags = O_PATH | O_NOFOLLOW | O_CLOEXEC;
-        if force_dir { open_flags |= O_DIRECTORY; }
+        if force_dir {
+            open_flags |= O_DIRECTORY;
+        }
         let fd = match openat(parent, &name[..n], open_flags, 0) {
             Ok(fd) => fd,
-            Err(e) => { close(parent); return Err(e); }
+            Err(e) => {
+                close(parent);
+                return Err(e);
+            }
         };
         let is_link = match fd_is_symlink(fd) {
             Ok(v) => v,
-            Err(e) => { close(fd); close(parent); return Err(e); }
+            Err(e) => {
+                close(fd);
+                close(parent);
+                return Err(e);
+            }
         };
         if !follow || !is_link {
             close(parent);
@@ -365,20 +554,32 @@ pub unsafe fn resolve_final(rootfd: CInt, path: &[u8], follow: bool) -> Result<C
     }
 }
 
-pub unsafe fn resolve_fstat(rootfd: CInt, path: &[u8], st: *mut u8, flags: CInt) -> Result<(), CInt> {
+pub unsafe fn resolve_fstat(
+    rootfd: CInt,
+    path: &[u8],
+    st: *mut u8,
+    flags: CInt,
+) -> Result<(), CInt> {
     let follow = flags & 0x100 == 0;
     let fd = resolve_final(rootfd, path, follow)?;
     let r = sc3(SYS_FSTAT, fd as usize, st as usize, 0);
     close(fd);
-    match errno_of(r) { Some(e) => Err(e), None => Ok(()) }
+    match errno_of(r) {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
 }
 
 /// Check access through an already-open descriptor. `access()` itself takes a
 /// path, so the descriptor is addressed through `/proc/self/fd/N`; the fd pins
 /// the inode and prevents a final-component replacement race.
 pub unsafe fn access_fd(fd: CInt, mode: CInt, nofollow: bool) -> Result<(), CInt> {
-    if fd < 0 { return Err(9); } // EBADF
-    if mode & !7 != 0 { return Err(22); } // EINVAL
+    if fd < 0 {
+        return Err(9);
+    } // EBADF
+    if mode & !7 != 0 {
+        return Err(22);
+    } // EINVAL
     if nofollow && fd_is_symlink(fd)? {
         // A symlink inode is always 0777 on Linux. Its target is deliberately
         // not consulted under AT_SYMLINK_NOFOLLOW.
@@ -407,29 +608,55 @@ pub unsafe fn access_fd(fd: CInt, mode: CInt, nofollow: bool) -> Result<(), CInt
         at += 1;
     }
     path[at] = 0;
-    let r = sc4(SYS_FACCESSAT, AT_FDCWD as usize, path.as_ptr() as usize, mode as usize, 0);
-    match errno_of(r) { Some(e) => Err(e), None => Ok(()) }
+    let r = sc4(
+        SYS_FACCESSAT,
+        AT_FDCWD as usize,
+        path.as_ptr() as usize,
+        mode as usize,
+        0,
+    );
+    match errno_of(r) {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
 }
 
-pub unsafe fn resolve_access(rootfd: CInt, path: &[u8], mode: CInt, flags: CInt) -> Result<(), CInt> {
-    if path.len() >= PATH_MAX { return Err(ENAMETOOLONG); }
+pub unsafe fn resolve_access(
+    rootfd: CInt,
+    path: &[u8],
+    mode: CInt,
+    flags: CInt,
+) -> Result<(), CInt> {
+    if path.len() >= PATH_MAX {
+        return Err(ENAMETOOLONG);
+    }
     let nofollow = flags & AT_SYMLINK_NOFOLLOW != 0;
     let mut current = [0u8; PATH_MAX];
     current[..path.len()].copy_from_slice(path);
     let mut current_len = path.len();
     let mut depth = 0u32;
     loop {
-        if depth > 16 { return Err(ELOOP); }
+        if depth > 16 {
+            return Err(ELOOP);
+        }
         let mut name = [0u8; 256];
-        let (parent, dir, dir_len) = resolve_parent_with_dir(rootfd, &current[..current_len], &mut name, false)?;
+        let (parent, dir, dir_len) =
+            resolve_parent_with_dir(rootfd, &current[..current_len], &mut name, false)?;
         let n = name.iter().position(|c| *c == 0).unwrap_or(0);
         let fd = match openat(parent, &name[..n], O_PATH | O_NOFOLLOW | O_CLOEXEC, 0) {
             Ok(fd) => fd,
-            Err(e) => { close(parent); return Err(e); }
+            Err(e) => {
+                close(parent);
+                return Err(e);
+            }
         };
         let is_link = match fd_is_symlink(fd) {
             Ok(v) => v,
-            Err(e) => { close(fd); close(parent); return Err(e); }
+            Err(e) => {
+                close(fd);
+                close(parent);
+                return Err(e);
+            }
         };
         if nofollow || !is_link {
             let r = access_fd(fd, mode, nofollow);

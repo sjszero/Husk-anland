@@ -64,18 +64,26 @@ struct ObjMap {
 // Keeping it in BSS avoids compiler-generated stack memcpy/memset before the
 // shim's own imports are resolved.
 static mut MAP_SCRATCH: ObjMap = ObjMap {
-    ranges: [MapRange { start: 0, end: 0, flags: 0 }; MAX_LOAD_RANGES],
+    ranges: [MapRange {
+        start: 0,
+        end: 0,
+        flags: 0,
+    }; MAX_LOAD_RANGES],
     count: 0,
 };
 
 impl ObjMap {
     fn contains(&self, addr: usize, len: usize) -> bool {
         let start = addr as u64;
-        let Some(end) = start.checked_add(len as u64) else { return false };
+        let Some(end) = start.checked_add(len as u64) else {
+            return false;
+        };
         let mut i = 0;
         while i < self.count {
             let r = self.ranges[i];
-            if start >= r.start && end <= r.end { return true; }
+            if start >= r.start && end <= r.end {
+                return true;
+            }
             i += 1;
         }
         false
@@ -83,11 +91,15 @@ impl ObjMap {
 
     fn exec_contains(&self, addr: usize, len: usize) -> bool {
         let start = addr as u64;
-        let Some(end) = start.checked_add(len as u64) else { return false };
+        let Some(end) = start.checked_add(len as u64) else {
+            return false;
+        };
         let mut i = 0;
         while i < self.count {
             let r = self.ranges[i];
-            if r.flags & PF_X != 0 && start >= r.start && end <= r.end { return true; }
+            if r.flags & PF_X != 0 && start >= r.start && end <= r.end {
+                return true;
+            }
             i += 1;
         }
         false
@@ -95,15 +107,25 @@ impl ObjMap {
 }
 
 #[inline]
-unsafe fn rd8(p: usize) -> u64 { core::ptr::read_volatile(p as *const u64) }
+unsafe fn rd8(p: usize) -> u64 {
+    core::ptr::read_volatile(p as *const u64)
+}
 #[inline]
-unsafe fn rd4(p: usize) -> u32 { core::ptr::read_volatile(p as *const u32) }
+unsafe fn rd4(p: usize) -> u32 {
+    core::ptr::read_volatile(p as *const u32)
+}
 #[inline]
-unsafe fn rd2(p: usize) -> u16 { core::ptr::read_volatile(p as *const u16) }
+unsafe fn rd2(p: usize) -> u16 {
+    core::ptr::read_volatile(p as *const u16)
+}
 #[inline]
-unsafe fn rd1(p: usize) -> u8 { core::ptr::read_volatile(p as *const u8) }
+unsafe fn rd1(p: usize) -> u8 {
+    core::ptr::read_volatile(p as *const u8)
+}
 #[inline]
-unsafe fn wr8(p: usize, v: u64) { core::ptr::write_volatile(p as *mut u64, v) }
+unsafe fn wr8(p: usize, v: u64) {
+    core::ptr::write_volatile(p as *mut u64, v)
+}
 
 unsafe fn sys_mprotect(addr: usize, len: usize, prot: usize) -> isize {
     let ret: isize;
@@ -132,19 +154,31 @@ unsafe fn say_hex(mut v: usize) {
     let mut buf = [b'0'; 18];
     let mut n = 0;
     let mut tmp = [0u8; 16];
-    if v == 0 { say(&[b"0"]); return; }
-    while v != 0 { tmp[n] = b"0123456789abcdef"[v & 0xf]; v >>= 4; n += 1; }
+    if v == 0 {
+        say(&[b"0"]);
+        return;
+    }
+    while v != 0 {
+        tmp[n] = b"0123456789abcdef"[v & 0xf];
+        v >>= 4;
+        n += 1;
+    }
     buf[0] = b'0';
     buf[1] = b'x';
     let mut i = 0;
-    while i < n { buf[2 + i] = tmp[n - 1 - i]; i += 1; }
+    while i < n {
+        buf[2 + i] = tmp[n - 1 - i];
+        i += 1;
+    }
     say(&[&buf[..2 + n]]);
 }
 
 unsafe fn mem_eq(a: usize, b: usize, n: usize) -> bool {
     let mut i = 0;
     while i < n {
-        if rd1(a + i) != rd1(b + i) { return false; }
+        if rd1(a + i) != rd1(b + i) {
+            return false;
+        }
         i += 1;
     }
     true
@@ -152,26 +186,52 @@ unsafe fn mem_eq(a: usize, b: usize, n: usize) -> bool {
 
 unsafe fn map_from_phdr(phdr: usize, phnum: usize, l_addr: u64, map: &mut ObjMap) -> bool {
     map.count = 0;
-    if phdr == 0 || phnum == 0 || phnum > 64 { return false; }
+    if phdr == 0 || phnum == 0 || phnum > 64 {
+        return false;
+    }
     let mut i = 0usize;
     while i < phnum {
-        let off = match i.checked_mul(56) { Some(v) => v, None => return false };
-        let p = match phdr.checked_add(off) { Some(v) => v, None => return false };
-        if debug2_on() { say(&[b"nr-boot: phdr p="]); say_hex(p); say(&[b"\n"]); }
+        let off = match i.checked_mul(56) {
+            Some(v) => v,
+            None => return false,
+        };
+        let p = match phdr.checked_add(off) {
+            Some(v) => v,
+            None => return false,
+        };
+        if debug2_on() {
+            say(&[b"nr-boot: phdr p="]);
+            say_hex(p);
+            say(&[b"\n"]);
+        }
         let typ = rd4(p);
         let flags = rd4(p + 4);
         let vaddr = rd8(p + 16);
         let memsz = rd8(p + 40);
         if debug2_on() {
-            say(&[b"nr-boot: phdr typ="]); say_hex(typ as usize);
-            say(&[b" vaddr="]); say_hex(vaddr as usize);
-            say(&[b" memsz="]); say_hex(memsz as usize); say(&[b"\n"]);
+            say(&[b"nr-boot: phdr typ="]);
+            say_hex(typ as usize);
+            say(&[b" vaddr="]);
+            say_hex(vaddr as usize);
+            say(&[b" memsz="]);
+            say_hex(memsz as usize);
+            say(&[b"\n"]);
         }
         if typ == PT_LOAD && memsz != 0 {
-            if map.count >= MAX_LOAD_RANGES { return false; }
-            let start = match l_addr.checked_add(vaddr) { Some(v) => v, None => return false };
-            let end = match start.checked_add(memsz) { Some(v) => v, None => return false };
-            if end <= start { return false; }
+            if map.count >= MAX_LOAD_RANGES {
+                return false;
+            }
+            let start = match l_addr.checked_add(vaddr) {
+                Some(v) => v,
+                None => return false,
+            };
+            let end = match start.checked_add(memsz) {
+                Some(v) => v,
+                None => return false,
+            };
+            if end <= start {
+                return false;
+            }
             map.ranges[map.count] = MapRange { start, end, flags };
             map.count += 1;
         }
@@ -189,28 +249,54 @@ unsafe fn object_map(l_addr: u64, l_ld: usize, map: &mut ObjMap) -> bool {
     // high userspace address. Small non-zero "addresses" are malformed link-map
     // data; refuse to dereference them and fail closed instead of faulting.
     const MIN_USER_MAPPING: u64 = 0x1_0000_0000;
-    if l_addr != 0 && l_addr < MIN_USER_MAPPING { return false; }
+    if l_addr != 0 && l_addr < MIN_USER_MAPPING {
+        return false;
+    }
     // ET_EXEC keeps link-time virtual addresses (for example its dynamic table
     // at 0xa1fdb0) with l_addr == 0. Only a relocated ET_DYN object must have a
     // high mapped l_ld; the PT_LOAD range check below validates ET_EXEC.
-    if l_addr != 0 && l_ld != 0 && (l_ld as u64) < MIN_USER_MAPPING { return false; }
-    if debug2_on() { say(&[b"nr-boot: objmap magic\n"]); }
+    if l_addr != 0 && l_ld != 0 && (l_ld as u64) < MIN_USER_MAPPING {
+        return false;
+    }
+    if debug2_on() {
+        say(&[b"nr-boot: objmap magic\n"]);
+    }
     if l_addr != 0 && rd4(l_addr as usize) == 0x464c_457f {
         let base = l_addr as usize;
-        if debug2_on() { say(&[b"nr-boot: objmap header\n"]); }
-        if rd1(base + 4) != 2 || rd1(base + 5) != 1 { return false; }
+        if debug2_on() {
+            say(&[b"nr-boot: objmap header\n"]);
+        }
+        if rd1(base + 4) != 2 || rd1(base + 5) != 1 {
+            return false;
+        }
         let phoff = rd8(base + 32);
         let phentsize = rd2(base + 54) as usize;
         let phnum = rd2(base + 56) as usize;
         if debug2_on() {
-            say(&[b"nr-boot: objmap phoff="]); say_hex(phoff as usize);
-            say(&[b" entsize="]); say_hex(phentsize);
-            say(&[b" phnum="]); say_hex(phnum); say(&[b"\n"]);
+            say(&[b"nr-boot: objmap phoff="]);
+            say_hex(phoff as usize);
+            say(&[b" entsize="]);
+            say_hex(phentsize);
+            say(&[b" phnum="]);
+            say_hex(phnum);
+            say(&[b"\n"]);
         }
-        if phentsize != 56 || phnum == 0 || phnum > 64 { return false; }
-        let phoff = match usize::try_from(phoff) { Ok(v) => v, Err(_) => return false };
-        let phdr = match base.checked_add(phoff) { Some(v) => v, None => return false };
-        if debug2_on() { say(&[b"nr-boot: objmap computed phdr="]); say_hex(phdr); say(&[b"\n"]); }
+        if phentsize != 56 || phnum == 0 || phnum > 64 {
+            return false;
+        }
+        let phoff = match usize::try_from(phoff) {
+            Ok(v) => v,
+            Err(_) => return false,
+        };
+        let phdr = match base.checked_add(phoff) {
+            Some(v) => v,
+            None => return false,
+        };
+        if debug2_on() {
+            say(&[b"nr-boot: objmap computed phdr="]);
+            say_hex(phdr);
+            say(&[b"\n"]);
+        }
         let ok = map_from_phdr(phdr, phnum, l_addr, map);
         if debug2_on() {
             say(&[b"nr-boot: objmap parsed="]);
@@ -231,10 +317,14 @@ unsafe fn object_map(l_addr: u64, l_ld: usize, map: &mut ObjMap) -> bool {
 
 unsafe fn norm_dyn(v: u64, l_addr: u64, map: &ObjMap) -> usize {
     let p = v as usize;
-    if p != 0 && map.contains(p, 1) { return p; }
+    if p != 0 && map.contains(p, 1) {
+        return p;
+    }
     if l_addr != 0 {
         let q = p.wrapping_add(l_addr as usize);
-        if map.contains(q, 1) { return q; }
+        if map.contains(q, 1) {
+            return q;
+        }
     }
     0
 }
@@ -243,14 +333,22 @@ unsafe fn norm_dyn(v: u64, l_addr: u64, map: &ObjMap) -> usize {
 /// the object's PT_LOAD ranges; a malformed dynamic table cannot walk into an
 /// unrelated mapping.
 unsafe fn dyn_val(l_ld: usize, tag: i64, map: &ObjMap) -> u64 {
-    if l_ld == 0 || !map.contains(l_ld, 16) { return 0; }
+    if l_ld == 0 || !map.contains(l_ld, 16) {
+        return 0;
+    }
     let mut p = l_ld;
     let mut guard = 0;
     while guard < 1024 {
-        if !map.contains(p, 16) { return 0; }
+        if !map.contains(p, 16) {
+            return 0;
+        }
         let t = rd8(p) as i64;
-        if t == DT_NULL { return 0; }
-        if t == tag { return rd8(p + 8); }
+        if t == DT_NULL {
+            return 0;
+        }
+        if t == tag {
+            return rd8(p + 8);
+        }
         p += 16;
         guard += 1;
     }
@@ -272,27 +370,45 @@ fn gnu_hash(name: usize, len: usize) -> u32 {
 /// Resolve `name` in one object. Returns an absolute address or 0.
 unsafe fn find_sym(l_addr: u64, l_ld: usize, name: usize, len: usize) -> u64 {
     let map_ptr = core::ptr::addr_of_mut!(MAP_SCRATCH);
-    if !object_map(l_addr, l_ld, &mut *map_ptr) { return 0; }
+    if !object_map(l_addr, l_ld, &mut *map_ptr) {
+        return 0;
+    }
     let map = &*map_ptr;
     if debug2_on() {
-        say(&[b"nr-boot: map ranges="]); say_hex(map.count);
-        say(&[b" first="]); say_hex(map.ranges[0].start as usize);
-        say(&[b" last="]); say_hex(map.ranges[map.count - 1].end as usize); say(&[b"\n"]);
+        say(&[b"nr-boot: map ranges="]);
+        say_hex(map.count);
+        say(&[b" first="]);
+        say_hex(map.ranges[0].start as usize);
+        say(&[b" last="]);
+        say_hex(map.ranges[map.count - 1].end as usize);
+        say(&[b"\n"]);
     }
-    if len == 0 || len > 255 { return 0; }
+    if len == 0 || len > 255 {
+        return 0;
+    }
 
     let strtab = norm_dyn(dyn_val(l_ld, DT_STRTAB, &map), l_addr, &map);
     let symtab = norm_dyn(dyn_val(l_ld, DT_SYMTAB, &map), l_addr, &map);
     let hash = norm_dyn(dyn_val(l_ld, DT_GNU_HASH, &map), l_addr, &map);
     let strsz = dyn_val(l_ld, DT_STRSZ, &map) as usize;
     if debug2_on() {
-        say(&[b"nr-boot: tables str="]); say_hex(strtab);
-        say(&[b" sym="]); say_hex(symtab);
-        say(&[b" hash="]); say_hex(hash);
-        say(&[b" strsz="]); say_hex(strsz); say(&[b"\n"]);
+        say(&[b"nr-boot: tables str="]);
+        say_hex(strtab);
+        say(&[b" sym="]);
+        say_hex(symtab);
+        say(&[b" hash="]);
+        say_hex(hash);
+        say(&[b" strsz="]);
+        say_hex(strsz);
+        say(&[b"\n"]);
     }
-    if strtab == 0 || symtab == 0 || hash == 0 || strsz == 0 ||
-       !map.contains(strtab, strsz) || !map.contains(hash, 16) {
+    if strtab == 0
+        || symtab == 0
+        || hash == 0
+        || strsz == 0
+        || !map.contains(strtab, strsz)
+        || !map.contains(hash, 16)
+    {
         return 0;
     }
 
@@ -302,63 +418,134 @@ unsafe fn find_sym(l_addr: u64, l_ld: usize, name: usize, len: usize) -> u64 {
     if nbuckets == 0 || nbuckets > (1 << 20) || maskwords > (1 << 20) || symndx > (1 << 24) {
         return 0;
     }
-    let bloom_size = match maskwords.checked_mul(8) { Some(v) => v, None => return 0 };
-    let bucket_size = match nbuckets.checked_mul(4) { Some(v) => v, None => return 0 };
+    let bloom_size = match maskwords.checked_mul(8) {
+        Some(v) => v,
+        None => return 0,
+    };
+    let bucket_size = match nbuckets.checked_mul(4) {
+        Some(v) => v,
+        None => return 0,
+    };
     let buckets = match hash.checked_add(16).and_then(|v| v.checked_add(bloom_size)) {
         Some(v) => v,
         None => return 0,
     };
-    let chain = match buckets.checked_add(bucket_size) { Some(v) => v, None => return 0 };
+    let chain = match buckets.checked_add(bucket_size) {
+        Some(v) => v,
+        None => return 0,
+    };
     if debug2_on() {
-        say(&[b"nr-boot: hash buckets="]); say_hex(buckets);
-        say(&[b" chain="]); say_hex(chain); say(&[b"\n"]);
+        say(&[b"nr-boot: hash buckets="]);
+        say_hex(buckets);
+        say(&[b" chain="]);
+        say_hex(chain);
+        say(&[b"\n"]);
     }
-    if !map.contains(buckets, bucket_size) || !map.contains(chain, 4) { return 0; }
+    if !map.contains(buckets, bucket_size) || !map.contains(chain, 4) {
+        return 0;
+    }
 
     let h = gnu_hash(name, len);
-    let bucket = match (h as usize % nbuckets).checked_mul(4) { Some(v) => v, None => return 0 };
+    let bucket = match (h as usize % nbuckets).checked_mul(4) {
+        Some(v) => v,
+        None => return 0,
+    };
     let mut idx = rd4(buckets + bucket) as usize;
     if debug2_on() {
-        say(&[b"nr-boot: gnu h="]); say_hex(h as usize);
-        say(&[b" bucket="]); say_hex((h as usize % nbuckets) * 4);
-        say(&[b" idx="]); say_hex(idx); say(&[b"\n"]);
+        say(&[b"nr-boot: gnu h="]);
+        say_hex(h as usize);
+        say(&[b" bucket="]);
+        say_hex((h as usize % nbuckets) * 4);
+        say(&[b" idx="]);
+        say_hex(idx);
+        say(&[b"\n"]);
     }
-    if idx < symndx { return 0; }
+    if idx < symndx {
+        return 0;
+    }
     let mut guard = 0usize;
     loop {
-        if guard >= (1 << 20) { return 0; }
-        let chain_off = match (idx - symndx).checked_mul(4) { Some(v) => v, None => return 0 };
-        let cp = match chain.checked_add(chain_off) { Some(v) => v, None => return 0 };
-        if debug2_on() { say(&[b"nr-boot: chain cp="]); say_hex(cp); say(&[b" idx="]); say_hex(idx); say(&[b"\n"]); }
-        if !map.contains(cp, 4) { return 0; }
+        if guard >= (1 << 20) {
+            return 0;
+        }
+        let chain_off = match (idx - symndx).checked_mul(4) {
+            Some(v) => v,
+            None => return 0,
+        };
+        let cp = match chain.checked_add(chain_off) {
+            Some(v) => v,
+            None => return 0,
+        };
+        if debug2_on() {
+            say(&[b"nr-boot: chain cp="]);
+            say_hex(cp);
+            say(&[b" idx="]);
+            say_hex(idx);
+            say(&[b"\n"]);
+        }
+        if !map.contains(cp, 4) {
+            return 0;
+        }
         let c = rd4(cp);
-        if debug2_on() { say(&[b"nr-boot: chain c="]); say_hex(c as usize); say(&[b"\n"]); }
+        if debug2_on() {
+            say(&[b"nr-boot: chain c="]);
+            say_hex(c as usize);
+            say(&[b"\n"]);
+        }
         if (c | 1) == (h | 1) {
-            let sym_off = match idx.checked_mul(24) { Some(v) => v, None => return 0 };
-            let sp = match symtab.checked_add(sym_off) { Some(v) => v, None => return 0 };
-            if debug2_on() { say(&[b"nr-boot: sym sp="]); say_hex(sp); say(&[b"\n"]); }
-            if !map.contains(sp, 24) { return 0; }
+            let sym_off = match idx.checked_mul(24) {
+                Some(v) => v,
+                None => return 0,
+            };
+            let sp = match symtab.checked_add(sym_off) {
+                Some(v) => v,
+                None => return 0,
+            };
+            if debug2_on() {
+                say(&[b"nr-boot: sym sp="]);
+                say_hex(sp);
+                say(&[b"\n"]);
+            }
+            if !map.contains(sp, 24) {
+                return 0;
+            }
             let st_name = rd4(sp) as usize;
-            if st_name >= strsz || len >= strsz - st_name { return 0; }
+            if st_name >= strsz || len >= strsz - st_name {
+                return 0;
+            }
             let nm = strtab + st_name;
-            if !map.contains(nm, len + 1) { return 0; }
+            if !map.contains(nm, len + 1) {
+                return 0;
+            }
             if rd1(nm + len) == 0 && mem_eq(nm, name, len) {
                 let st_value = rd8(sp + 8);
                 let st_info = rd1(sp + 4);
-                let addr = match l_addr.checked_add(st_value) { Some(v) => v, None => return 0 };
-                if !map.contains(addr as usize, 1) { return 0; }
+                let addr = match l_addr.checked_add(st_value) {
+                    Some(v) => v,
+                    None => return 0,
+                };
+                if !map.contains(addr as usize, 1) {
+                    return 0;
+                }
                 // An IFUNC resolves to a resolver function; call it, exactly like
                 // the loader does, otherwise callers get the resolver's address.
                 if (st_info & 0xf) == STT_GNU_IFUNC {
-                    if !map.exec_contains(addr as usize, 4) { return 0; }
+                    if !map.exec_contains(addr as usize, 4) {
+                        return 0;
+                    }
                     let f: extern "C" fn() -> usize = core::mem::transmute(addr as usize);
                     return f() as u64;
                 }
                 return addr;
             }
         }
-        if c & 1 != 0 { return 0; }
-        idx = match idx.checked_add(1) { Some(v) => v, None => return 0 };
+        if c & 1 != 0 {
+            return 0;
+        }
+        idx = match idx.checked_add(1) {
+            Some(v) => v,
+            None => return 0,
+        };
         guard += 1;
     }
 }
@@ -371,13 +558,23 @@ unsafe fn resolve(main_map: usize, name: usize, len: usize) -> u64 {
         let l_addr = rd8(l + L_ADDR);
         let l_ld = rd8(l + L_LD) as usize;
         if debug2_on() {
-            say(&[b"nr-boot: lookup obj="]); say_hex(guard);
-            say(&[b" l_addr="]); say_hex(l_addr as usize);
-            say(&[b" l_ld="]); say_hex(l_ld); say(&[b"\n"]);
+            say(&[b"nr-boot: lookup obj="]);
+            say_hex(guard);
+            say(&[b" l_addr="]);
+            say_hex(l_addr as usize);
+            say(&[b" l_ld="]);
+            say_hex(l_ld);
+            say(&[b"\n"]);
         }
         let a = find_sym(l_addr, l_ld, name, len);
-        if debug2_on() { say(&[b"nr-boot: lookup -> "]); say_hex(a as usize); say(&[b"\n"]); }
-        if a != 0 { return a; }
+        if debug2_on() {
+            say(&[b"nr-boot: lookup -> "]);
+            say_hex(a as usize);
+            say(&[b"\n"]);
+        }
+        if a != 0 {
+            return a;
+        }
         l = rd8(l + L_NEXT) as usize;
         guard += 1;
     }
@@ -391,7 +588,9 @@ static mut PAGE: usize = 0;
 static mut KERNEL_PAGE: usize = 0;
 
 unsafe fn page_size() -> usize {
-    if PAGE != 0 { return PAGE; }
+    if PAGE != 0 {
+        return PAGE;
+    }
     let k = KERNEL_PAGE;
     if k >= 4096 && k.is_power_of_two() {
         PAGE = k;
@@ -405,7 +604,11 @@ unsafe fn page_size() -> usize {
     // make_writable() rather than to corruption.
     let here = core::ptr::addr_of!(PAGE) as usize;
     let a4 = here & !0xfff;
-    PAGE = if sys_mprotect(a4, 4096, PROT_READ | PROT_WRITE) == 0 { 4096 } else { 16384 };
+    PAGE = if sys_mprotect(a4, 4096, PROT_READ | PROT_WRITE) == 0 {
+        4096
+    } else {
+        16384
+    };
     PAGE
 }
 
@@ -420,14 +623,20 @@ struct Tables;
 
 impl Tables {
     #[inline]
-    unsafe fn count(t: usize) -> usize { rd8(t) as usize }
+    unsafe fn count(t: usize) -> usize {
+        rd8(t) as usize
+    }
     // entry layout, 24 bytes: { name_vaddr, name_len, payload }
     //   externs   payload = loader-relative address of our PLT slot
     //   interpose payload = loader-relative address of our function
     #[inline]
-    unsafe fn entry(t: usize, i: usize) -> usize { t + 8 + i * 24 }
+    unsafe fn entry(t: usize, i: usize) -> usize {
+        t + 8 + i * 24
+    }
     #[inline]
-    unsafe fn slot(t: usize, i: usize) -> usize { rd8(Tables::entry(t, i) + 16) as usize }
+    unsafe fn slot(t: usize, i: usize) -> usize {
+        rd8(Tables::entry(t, i) + 16) as usize
+    }
     #[inline]
     unsafe fn name(t: usize, i: usize) -> (usize, usize) {
         let e = Tables::entry(t, i);
@@ -446,11 +655,15 @@ static mut AT_RANDOM_WORDS: u64 = 0;
 /// Per-process entropy the kernel already placed in memory (auxv AT_RANDOM).
 /// Read here because the only other source, getrandom(2), is trapped by this
 /// device's seccomp policy and kills the process with SIGSYS.
-pub unsafe fn at_random() -> u64 { AT_RANDOM_WORDS }
+pub unsafe fn at_random() -> u64 {
+    AT_RANDOM_WORDS
+}
 
 /// The environment vector the loader was started with (NULL before glibc's
 /// start-up installs `environ`).
-pub unsafe fn envp() -> usize { ENVP }
+pub unsafe fn envp() -> usize {
+    ENVP
+}
 
 static mut EXECFN: usize = 0;
 static mut LOADER_BASE: usize = 0;
@@ -458,26 +671,43 @@ static mut LIBC_BASE: u64 = 0;
 static mut MAIN_PHDR: usize = 0;
 static mut MAIN_PHNUM: usize = 0;
 
-pub unsafe fn loader_base() -> usize { LOADER_BASE }
-pub unsafe fn libc_base() -> u64 { LIBC_BASE }
+pub unsafe fn loader_base() -> usize {
+    LOADER_BASE
+}
+pub unsafe fn libc_base() -> u64 {
+    LIBC_BASE
+}
 
 unsafe fn auxv_ptr(envp: usize) -> usize {
-    if envp == 0 { return 0; }
+    if envp == 0 {
+        return 0;
+    }
     let mut p = envp;
     let mut i = 0;
-    while i < 4096 && rd8(p) != 0 { p += 8; i += 1; }
-    if i >= 4096 { return 0; }
+    while i < 4096 && rd8(p) != 0 {
+        p += 8;
+        i += 1;
+    }
+    if i >= 4096 {
+        return 0;
+    }
     p + 8
 }
 
 unsafe fn auxv_val(envp: usize, tag: u64) -> u64 {
     let mut p = auxv_ptr(envp);
-    if p == 0 { return 0; }
+    if p == 0 {
+        return 0;
+    }
     let mut j = 0;
     while j < 64 {
         let k = rd8(p);
-        if k == 0 { return 0; }
-        if k == tag { return rd8(p + 8); }
+        if k == 0 {
+            return 0;
+        }
+        if k == tag {
+            return rd8(p + 8);
+        }
         p += 16;
         j += 1;
     }
@@ -486,12 +716,18 @@ unsafe fn auxv_val(envp: usize, tag: u64) -> u64 {
 
 unsafe fn read_at_random(envp: usize) -> u64 {
     let mut p = auxv_ptr(envp);
-    if p == 0 { return 0; }
+    if p == 0 {
+        return 0;
+    }
     let mut j = 0;
     while j < 64 {
         let k = rd8(p);
-        if k == 0 { return 0; }
-        if k == 25 { return rd8(p + 8); } // AT_RANDOM -> 16 random bytes
+        if k == 0 {
+            return 0;
+        }
+        if k == 25 {
+            return rd8(p + 8);
+        } // AT_RANDOM -> 16 random bytes
         p += 16;
         j += 1;
     }
@@ -499,12 +735,20 @@ unsafe fn read_at_random(envp: usize) -> u64 {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn nr_boot(base: usize, main_map: usize, ext: usize, interp: usize,
-                                  envp: usize, relocs: usize) -> usize {
+pub unsafe extern "C" fn nr_boot(
+    base: usize,
+    main_map: usize,
+    ext: usize,
+    interp: usize,
+    envp: usize,
+    relocs: usize,
+) -> usize {
     // _dl_init is reached once per process, but be explicit about it: running the
     // GOT rewrite twice would be harmless, while a partial second run (e.g. after
     // a failed first one) would be confusing.
-    if BOOTED != 0 { return 0; }
+    if BOOTED != 0 {
+        return 0;
+    }
     BOOTED = 1;
     if base == 0 || main_map == 0 || ext == 0 || interp == 0 {
         say(&[b"nr-boot: invalid descriptor\n"]);
@@ -529,18 +773,32 @@ pub unsafe extern "C" fn nr_boot(base: usize, main_map: usize, ext: usize, inter
     MAIN_MAP = main_map;
     ENVP = envp;
     LOADER_BASE = base;
-    if AT_RANDOM_WORDS == 0 { AT_RANDOM_WORDS = read_at_random(envp); }
-    if EXECFN == 0 { EXECFN = auxv_val(envp, 31) as usize; } // AT_EXECFN
-    if KERNEL_PAGE == 0 { KERNEL_PAGE = auxv_val(envp, 6) as usize; } // AT_PAGESZ
+    if AT_RANDOM_WORDS == 0 {
+        AT_RANDOM_WORDS = read_at_random(envp);
+    }
+    if EXECFN == 0 {
+        EXECFN = auxv_val(envp, 31) as usize;
+    } // AT_EXECFN
+    if KERNEL_PAGE == 0 {
+        KERNEL_PAGE = auxv_val(envp, 6) as usize;
+    } // AT_PAGESZ
     if MAIN_PHDR == 0 {
         MAIN_PHDR = auxv_val(envp, 3) as usize; // AT_PHDR
         MAIN_PHNUM = auxv_val(envp, 5) as usize; // AT_PHNUM
     }
     if debug2_on() {
-        say(&[b"nr-boot: base="]); say_hex(base);
-        say(&[b" main_map="]); say_hex(main_map); say(&[b"\n"]);
+        say(&[b"nr-boot: base="]);
+        say_hex(base);
+        say(&[b" main_map="]);
+        say_hex(main_map);
+        say(&[b"\n"]);
         say(&[b"nr-boot: exec="]);
-        if EXECFN != 0 { say(&[core::slice::from_raw_parts(EXECFN as *const u8, strlen(EXECFN))]); }
+        if EXECFN != 0 {
+            say(&[core::slice::from_raw_parts(
+                EXECFN as *const u8,
+                strlen(EXECFN),
+            )]);
+        }
         say(&[b"\n"]);
     }
 
@@ -567,11 +825,16 @@ pub unsafe extern "C" fn nr_boot(base: usize, main_map: usize, ext: usize, inter
         };
         if addr == 0 {
             say(&[b"nr-boot: unresolved import: "]);
-            say(&[core::slice::from_raw_parts((base + name) as *const u8, len), b"\n"]);
+            say(&[
+                core::slice::from_raw_parts((base + name) as *const u8, len),
+                b"\n",
+            ]);
             return 10 + i;
         }
         let slot = base + Tables::slot(ext, i);
-        if !make_writable(slot, 8) { return 40 + i; }
+        if !make_writable(slot, 8) {
+            return 40 + i;
+        }
         wr8(slot, addr);
         i += 1;
     }
@@ -593,10 +856,19 @@ pub unsafe extern "C" fn nr_boot(base: usize, main_map: usize, ext: usize, inter
         let (n_here, failed_here) = patch_object(l_addr, l_ld, base, interp, count);
         if debug2_on() {
             let nm = rd8(l + L_NAME) as usize;
-            say(&[b"nr-boot: patch @"]); say_hex(l_addr as usize); say(&[b" "]);
-            if nm != 0 { say(&[core::slice::from_raw_parts(nm as *const u8, strlen(nm))]); }
-            else { say(&[b"?"]); }
-            say(&[b"="]); say_hex(n_here); say(&[b" failed="]); say_hex(failed_here); say(&[b"\n"]);
+            say(&[b"nr-boot: patch @"]);
+            say_hex(l_addr as usize);
+            say(&[b" "]);
+            if nm != 0 {
+                say(&[core::slice::from_raw_parts(nm as *const u8, strlen(nm))]);
+            } else {
+                say(&[b"?"]);
+            }
+            say(&[b"="]);
+            say_hex(n_here);
+            say(&[b" failed="]);
+            say_hex(failed_here);
+            say(&[b"\n"]);
         }
         patched += n_here;
         patch_failures += failed_here;
@@ -635,7 +907,11 @@ pub unsafe extern "C" fn nr_boot(base: usize, main_map: usize, ext: usize, inter
     // to be baked into libc at build time, with the target address in a writable
     // slot; see docs/design/libc-interpose.md. Kept behind NR_BODY_PATCH=1
     // because the bisect knobs (NR_BODY_N / NR_BODY_ONLY) live here.
-    let libc_bodies = if body_patch_on() { patch_libc_bodies(base, interp, main_map) } else { 0 };
+    let libc_bodies = if body_patch_on() {
+        patch_libc_bodies(base, interp, main_map)
+    } else {
+        0
+    };
 
     // 3. the seccomp trap catcher. This device's policy answers some optional
     //    syscalls with SIGSYS, and a handler can only be installed by us: the
@@ -645,7 +921,6 @@ pub unsafe extern "C" fn nr_boot(base: usize, main_map: usize, ext: usize, inter
     // 4. start at the guest root, not at the host directory the app launcher
     //    picked (see set_guest_cwd).
     crate::set_guest_cwd();
-
 
     if debug_on() {
         say(&[b"nr-boot: imports="]);
@@ -667,34 +942,50 @@ pub unsafe extern "C" fn nr_boot(base: usize, main_map: usize, ext: usize, inter
 /// yet at this point, so `environ` is still NULL.
 unsafe fn strlen(p: usize) -> usize {
     let mut n = 0;
-    while n < 4096 && rd1(p + n) != 0 { n += 1; }
+    while n < 4096 && rd1(p + n) != 0 {
+        n += 1;
+    }
     n
 }
 
 unsafe fn debug_var(want: &[u8]) -> bool {
     let env = ENVP;
-    if env == 0 { return false; }
+    if env == 0 {
+        return false;
+    }
     let mut i = 0;
     while i < 512 {
         let e = rd8(env + i * 8) as usize;
-        if e == 0 { return false; }
-        if mem_eq(e, want.as_ptr() as usize, want.len()) { return true; }
+        if e == 0 {
+            return false;
+        }
+        if mem_eq(e, want.as_ptr() as usize, want.len()) {
+            return true;
+        }
         i += 1;
     }
     false
 }
 
-unsafe fn debug2_on() -> bool { debug_var(b"NR_BOOT_DEBUG2=1") }
+unsafe fn debug2_on() -> bool {
+    debug_var(b"NR_BOOT_DEBUG2=1")
+}
 
 unsafe fn debug_on() -> bool {
     let env = ENVP;
-    if env == 0 { return false; }
+    if env == 0 {
+        return false;
+    }
     let want = b"NR_BOOT_DEBUG=1";
     let mut i = 0;
     while i < 512 {
         let e = rd8(env + i * 8) as usize;
-        if e == 0 { return false; }
-        if mem_eq(e, want.as_ptr() as usize, want.len()) { return true; }
+        if e == 0 {
+            return false;
+        }
+        if mem_eq(e, want.as_ptr() as usize, want.len()) {
+            return true;
+        }
         i += 1;
     }
     false
@@ -719,19 +1010,68 @@ unsafe fn self_lookup(base: usize, interp: usize, name: usize, len: usize) -> u6
 /// Every one of these has a standalone implementation in the shim (raw syscalls
 /// plus runtime-core), so redirecting libc's internal callers cannot recurse.
 static BODY_PATCH: [&[u8]; 62] = [
-    b"open", b"open64", b"openat", b"openat64",
-    b"__open_2", b"__open64_2", b"__openat_2", b"__openat64_2",
-    b"stat", b"stat64", b"lstat", b"lstat64", b"fstatat", b"fstatat64",
-    b"statx", b"statfs", b"access", b"faccessat", b"eaccess", b"euidaccess",
-    b"mkdir", b"mkdirat", b"rmdir", b"unlink", b"unlinkat",
-    b"rename", b"renameat", b"renameat2", b"symlink", b"symlinkat",
-    b"link", b"linkat", b"chmod", b"fchmodat", b"chown", b"lchown", b"fchownat",
-    b"truncate", b"utimensat", b"utimes", b"readlink", b"readlinkat",
-    b"__readlink_chk", b"__readlinkat_chk",
-    b"chdir", b"fchdir", b"getcwd", b"opendir", b"fopen", b"fopen64",
-    b"creat", b"creat64", b"realpath", b"__realpath_chk",
-    b"canonicalize_file_name", b"mkstemp", b"mkstemps", b"mkostemp",
-    b"mkostemps", b"mkdtemp", b"getxattr", b"lgetxattr",
+    b"open",
+    b"open64",
+    b"openat",
+    b"openat64",
+    b"__open_2",
+    b"__open64_2",
+    b"__openat_2",
+    b"__openat64_2",
+    b"stat",
+    b"stat64",
+    b"lstat",
+    b"lstat64",
+    b"fstatat",
+    b"fstatat64",
+    b"statx",
+    b"statfs",
+    b"access",
+    b"faccessat",
+    b"eaccess",
+    b"euidaccess",
+    b"mkdir",
+    b"mkdirat",
+    b"rmdir",
+    b"unlink",
+    b"unlinkat",
+    b"rename",
+    b"renameat",
+    b"renameat2",
+    b"symlink",
+    b"symlinkat",
+    b"link",
+    b"linkat",
+    b"chmod",
+    b"fchmodat",
+    b"chown",
+    b"lchown",
+    b"fchownat",
+    b"truncate",
+    b"utimensat",
+    b"utimes",
+    b"readlink",
+    b"readlinkat",
+    b"__readlink_chk",
+    b"__readlinkat_chk",
+    b"chdir",
+    b"fchdir",
+    b"getcwd",
+    b"opendir",
+    b"fopen",
+    b"fopen64",
+    b"creat",
+    b"creat64",
+    b"realpath",
+    b"__realpath_chk",
+    b"canonicalize_file_name",
+    b"mkstemp",
+    b"mkstemps",
+    b"mkostemp",
+    b"mkostemps",
+    b"mkdtemp",
+    b"getxattr",
+    b"lgetxattr",
 ];
 
 /// `NR_BODY_N=<n>` patches only the first n names. Used to bisect which body
@@ -739,11 +1079,15 @@ static BODY_PATCH: [&[u8]; 62] = [
 unsafe fn body_limit() -> usize {
     let key = b"NR_BODY_N=";
     let env = ENVP;
-    if env == 0 { return BODY_PATCH.len(); }
+    if env == 0 {
+        return BODY_PATCH.len();
+    }
     let mut i = 0;
     while i < 512 {
         let e = rd8(env + i * 8) as usize;
-        if e == 0 { return BODY_PATCH.len(); }
+        if e == 0 {
+            return BODY_PATCH.len();
+        }
         if mem_eq(e, key.as_ptr() as usize, key.len()) {
             let mut v = 0usize;
             let mut j = key.len();
@@ -758,21 +1102,31 @@ unsafe fn body_limit() -> usize {
     BODY_PATCH.len()
 }
 
-unsafe fn body_patch_on() -> bool { debug_var(b"NR_BODY_PATCH=1") }
+unsafe fn body_patch_on() -> bool {
+    debug_var(b"NR_BODY_PATCH=1")
+}
 
 /// `NR_BODY_ONLY=<name>` restricts the bisect knob to a single symbol.
 unsafe fn body_only() -> Option<(usize, usize)> {
     let key = b"NR_BODY_ONLY=";
     let env = ENVP;
-    if env == 0 { return None; }
+    if env == 0 {
+        return None;
+    }
     let mut i = 0;
     while i < 512 {
         let e = rd8(env + i * 8) as usize;
-        if e == 0 { return None; }
+        if e == 0 {
+            return None;
+        }
         if mem_eq(e, key.as_ptr() as usize, key.len()) {
             let mut n = 0;
-            while n < 64 && rd1(e + key.len() + n) != 0 { n += 1; }
-            if n == 0 { return None; }
+            while n < 64 && rd1(e + key.len() + n) != 0 {
+                n += 1;
+            }
+            if n == 0 {
+                return None;
+            }
             return Some((e + key.len(), n));
         }
         i += 1;
@@ -787,14 +1141,18 @@ unsafe fn in_body_list(nm: usize, len: usize) -> bool {
     let mut i = 0;
     while i < BODY_PATCH.len() {
         let cand = BODY_PATCH[i];
-        if cand.len() == len && mem_eq(nm, cand.as_ptr() as usize, len) { return true; }
+        if cand.len() == len && mem_eq(nm, cand.as_ptr() as usize, len) {
+            return true;
+        }
         i += 1;
     }
     false
 }
 
 #[inline]
-unsafe fn wr4(p: usize, v: u32) { core::ptr::write_volatile(p as *mut u32, v); }
+unsafe fn wr4(p: usize, v: u32) {
+    core::ptr::write_volatile(p as *mut u32, v);
+}
 
 /// Overwrite the first 16 bytes of a function with
 /// `ldr x16, #8 ; br x16 ; .quad target`. Callers still branch to the same
@@ -807,7 +1165,10 @@ unsafe fn patch_body(at: usize, to: usize) -> bool {
     let r1 = sys_mprotect(start, end - start, PROT_READ | PROT_WRITE);
     if r1 != 0 {
         if debug2_on() {
-            say(&[b"  body-rw-fail "]); say_hex(at); say(&[b" r="]); say_hex(r1 as usize);
+            say(&[b"  body-rw-fail "]);
+            say_hex(at);
+            say(&[b" r="]);
+            say_hex(r1 as usize);
             say(&[b"\n"]);
         }
         return false;
@@ -818,7 +1179,11 @@ unsafe fn patch_body(at: usize, to: usize) -> bool {
     flush_icache(at, 16);
     let r2 = sys_mprotect(start, end - start, PROT_READ | PROT_EXEC);
     if debug2_on() {
-        say(&[b"  body-rx "]); say_hex(at); say(&[b" r="]); say_hex(r2 as usize); say(&[b"\n"]);
+        say(&[b"  body-rx "]);
+        say_hex(at);
+        say(&[b" r="]);
+        say_hex(r2 as usize);
+        say(&[b"\n"]);
     }
     true
 }
@@ -878,8 +1243,11 @@ unsafe fn patch_bodies_of(l_addr: u64, l_ld: usize, base: usize, interp: usize) 
                 let ours = base + Tables::slot(interp, i);
                 if at as usize != ours && patch_body(at as usize, ours) {
                     if debug2_on() {
-                        say(&[b"  body ", core::slice::from_raw_parts(nm as *const u8, len),
-                             b" at=", ]);
+                        say(&[
+                            b"  body ",
+                            core::slice::from_raw_parts(nm as *const u8, len),
+                            b" at=",
+                        ]);
                         say_hex(at as usize);
                         say(&[b" -> "]);
                         say_hex(ours);
@@ -899,16 +1267,26 @@ unsafe fn patch_bodies_of(l_addr: u64, l_ld: usize, base: usize, interp: usize) 
     done
 }
 
-unsafe fn patch_object(l_addr: u64, l_ld: usize, base: usize, interp: usize, count: usize)
-    -> (usize, usize)
-{
+unsafe fn patch_object(
+    l_addr: u64,
+    l_ld: usize,
+    base: usize,
+    interp: usize,
+    count: usize,
+) -> (usize, usize) {
     let mut done = 0;
     let mut failed = 0;
-    if l_ld == 0 { return (0, 0); }
+    if l_ld == 0 {
+        return (0, 0);
+    }
     let map_ptr = core::ptr::addr_of_mut!(MAP_SCRATCH);
-    if !object_map(l_addr, l_ld, &mut *map_ptr) { return (0, 1); }
+    if !object_map(l_addr, l_ld, &mut *map_ptr) {
+        return (0, 1);
+    }
     let map = &*map_ptr;
-    if !map.contains(l_ld, 16) { return (0, 1); }
+    if !map.contains(l_ld, 16) {
+        return (0, 1);
+    }
     let strtab = norm_dyn(dyn_val(l_ld, DT_STRTAB, &map), l_addr, &map);
     let symtab = norm_dyn(dyn_val(l_ld, DT_SYMTAB, &map), l_addr, &map);
     let strsz = dyn_val(l_ld, DT_STRSZ, &map) as usize;
@@ -930,10 +1308,19 @@ unsafe fn patch_object(l_addr: u64, l_ld: usize, base: usize, interp: usize, cou
         // when the resulting pointer lands inside this object's PT_LOAD map.
         t += 1;
         if debug2_on() {
-            say(&[b"  table "]); say_hex((t - 1) as usize); say(&[b" addr="]); say_hex(addr);
-            say(&[b" size="]); say_hex(size); say(&[b" l_addr="]); say_hex(l_addr as usize); say(&[b"\n"]);
+            say(&[b"  table "]);
+            say_hex((t - 1) as usize);
+            say(&[b" addr="]);
+            say_hex(addr);
+            say(&[b" size="]);
+            say_hex(size);
+            say(&[b" l_addr="]);
+            say_hex(l_addr as usize);
+            say(&[b"\n"]);
         }
-        if addr == 0 || size == 0 { continue; }
+        if addr == 0 || size == 0 {
+            continue;
+        }
         if size > (1 << 28) || size % 24 != 0 {
             failed += 1;
             continue;
@@ -942,22 +1329,52 @@ unsafe fn patch_object(l_addr: u64, l_ld: usize, base: usize, interp: usize, cou
             failed += 1;
             continue;
         }
-        let end = match addr.checked_add(size) { Some(v) => v, None => { failed += 1; continue; } };
+        let end = match addr.checked_add(size) {
+            Some(v) => v,
+            None => {
+                failed += 1;
+                continue;
+            }
+        };
         let mut p = addr;
         while p < end {
-            if !map.contains(p, 24) { failed += 1; break; }
+            if !map.contains(p, 24) {
+                failed += 1;
+                break;
+            }
             let r_offset = rd8(p);
             let r_info = rd8(p + 8);
             let sym = (r_info >> 32) as usize;
             let kind = (r_info & 0xffff_ffff) as u32;
             p += 24;
-            if sym == 0 { continue; }
-            if kind != R_AARCH64_JUMP_SLOT && kind != R_AARCH64_GLOB_DAT { continue; }
-            let sym_off = match sym.checked_mul(24) { Some(v) => v, None => { failed += 1; continue; } };
-            let sp = match symtab.checked_add(sym_off) { Some(v) => v, None => { failed += 1; continue; } };
-            if !map.contains(sp, 24) { failed += 1; continue; }
+            if sym == 0 {
+                continue;
+            }
+            if kind != R_AARCH64_JUMP_SLOT && kind != R_AARCH64_GLOB_DAT {
+                continue;
+            }
+            let sym_off = match sym.checked_mul(24) {
+                Some(v) => v,
+                None => {
+                    failed += 1;
+                    continue;
+                }
+            };
+            let sp = match symtab.checked_add(sym_off) {
+                Some(v) => v,
+                None => {
+                    failed += 1;
+                    continue;
+                }
+            };
+            if !map.contains(sp, 24) {
+                failed += 1;
+                continue;
+            }
             let st_name = rd4(sp) as usize;
-            if st_name == 0 { continue; }
+            if st_name == 0 {
+                continue;
+            }
             if st_name >= strsz {
                 failed += 1;
                 continue;
@@ -967,13 +1384,29 @@ unsafe fn patch_object(l_addr: u64, l_ld: usize, base: usize, interp: usize, cou
             while i < count {
                 let (name, len) = Tables::name(interp, i);
                 let nm = base + name;
-                if len < strsz - st_name && map.contains(cand_name, len + 1) &&
-                   mem_eq(nm, cand_name, len) && rd1(cand_name + len) == 0 {
+                if len < strsz - st_name
+                    && map.contains(cand_name, len + 1)
+                    && mem_eq(nm, cand_name, len)
+                    && rd1(cand_name + len) == 0
+                {
                     if debug2_on() {
-                        say(&[b"  hit ", core::slice::from_raw_parts(cand_name as *const u8, len), b"\n"]);
+                        say(&[
+                            b"  hit ",
+                            core::slice::from_raw_parts(cand_name as *const u8, len),
+                            b"\n",
+                        ]);
                     }
-                    let slot = match l_addr.checked_add(r_offset) { Some(v) => v as usize, None => { failed += 1; break; } };
-                    if !map.contains(slot, 8) { failed += 1; break; }
+                    let slot = match l_addr.checked_add(r_offset) {
+                        Some(v) => v as usize,
+                        None => {
+                            failed += 1;
+                            break;
+                        }
+                    };
+                    if !map.contains(slot, 8) {
+                        failed += 1;
+                        break;
+                    }
                     let target = (base + Tables::slot(interp, i)) as u64;
                     if rd8(slot) != target {
                         if make_writable(slot, 8) {
@@ -1000,6 +1433,10 @@ pub unsafe extern "C" fn nr_resolve_name(main_map: usize, name: usize, len: usiz
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn nr_set_main_map(m: usize) { MAIN_MAP = m; }
+pub unsafe extern "C" fn nr_set_main_map(m: usize) {
+    MAIN_MAP = m;
+}
 #[no_mangle]
-pub unsafe extern "C" fn nr_get_main_map() -> usize { MAIN_MAP }
+pub unsafe extern "C" fn nr_get_main_map() -> usize {
+    MAIN_MAP
+}

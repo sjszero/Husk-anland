@@ -26,3 +26,6 @@ license = "MIT"
 [profile.release]
 panic = "abort"
 opt-level = 3
+
+[profile.dev]
+panic = "abort"

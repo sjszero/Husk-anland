@@ -61,13 +61,19 @@ fn main() {
                 }
                 if pid > 0 {
                     let mut st: i32 = 0;
-                    if unsafe { waitpid(pid, &mut st, 0) } == pid && (st & 0x7f) == 0 && (st >> 8) == 0 {
+                    if unsafe { waitpid(pid, &mut st, 0) } == pid
+                        && (st & 0x7f) == 0
+                        && (st >> 8) == 0
+                    {
                         ok += 1;
                     }
                 }
             }
             let ns = t0.elapsed().as_nanos() as f64 / n as f64;
-            println!("{:<28} {:8.0} ns/op  ({}/{} ok)", "fork+execve+wait", ns, ok, n);
+            println!(
+                "{:<28} {:8.0} ns/op  ({}/{} ok)",
+                "fork+execve+wait", ns, ok, n
+            );
             std::process::exit(if ok == n { 0 } else { 1 });
         }
         "syscall" => {
@@ -78,12 +84,18 @@ fn main() {
                 sink = unsafe { getpid() };
             }
             let ns = t0.elapsed().as_nanos() as f64 / n as f64;
-            println!("{:<28} {:8.1} ns/op  ({} calls, sink={})", "getpid", ns, n, sink);
+            println!(
+                "{:<28} {:8.1} ns/op  ({} calls, sink={})",
+                "getpid", ns, n, sink
+            );
         }
         m if m.starts_with("stat") => {
             let (path, label) = match m {
                 "stat-real" => (format!("{root}/etc/os-release"), "stat-real"),
-                "stat-deep" => ("/usr/lib/aarch64-linux-gnu/libc.so.6".to_string(), "stat-deep"),
+                "stat-deep" => (
+                    "/usr/lib/aarch64-linux-gnu/libc.so.6".to_string(),
+                    "stat-deep",
+                ),
                 _ => ("/etc/os-release".to_string(), "stat-guest"),
             };
             let n = 20_000;

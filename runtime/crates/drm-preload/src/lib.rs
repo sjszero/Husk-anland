@@ -43,11 +43,16 @@ pub extern "C" fn rust_eh_personality() {}
 
 fn lock() {
     let mut n: u64 = 0;
-    while LOCK.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
+    while LOCK
+        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
         core::hint::spin_loop();
         n += 1;
         if n == 50_000_000 {
-            unsafe { sycall_write(b"[preload] LOCK SPIN DEADLOCK\n"); }
+            unsafe {
+                sycall_write(b"[preload] LOCK SPIN DEADLOCK\n");
+            }
         }
     }
 }
@@ -64,7 +69,15 @@ fn ioctl_raw(fd: i32, req: u64, arg: *mut u8) -> i64 {
 }
 
 fn open_raw(path: &[u8], flags: i32, mode: i32) -> i32 {
-    unsafe { syscall(SYS_OPENAT, AT_FDCWD as i64, path.as_ptr() as i64, flags as i64, mode as i64) as i32 }
+    unsafe {
+        syscall(
+            SYS_OPENAT,
+            AT_FDCWD as i64,
+            path.as_ptr() as i64,
+            flags as i64,
+            mode as i64,
+        ) as i32
+    }
 }
 
 const SYS_READLINKAT: i64 = 78;
@@ -99,19 +112,35 @@ unsafe fn is_fake(fd: i32) -> bool {
     let mut v = fd as u32;
     let mut d = [0u8; 10];
     let mut dn = 0;
-    if v == 0 { d[0] = b'0'; dn = 1; }
-    while v > 0 { d[dn] = b'0' + (v % 10) as u8; v /= 10; dn += 1; }
+    if v == 0 {
+        d[0] = b'0';
+        dn = 1;
+    }
+    while v > 0 {
+        d[dn] = b'0' + (v % 10) as u8;
+        v /= 10;
+        dn += 1;
+    }
     let mut j = 14;
-    while dn > 0 { dn -= 1; link[j] = d[dn]; j += 1; }
+    while dn > 0 {
+        dn -= 1;
+        link[j] = d[dn];
+        j += 1;
+    }
     let mut out = [0u8; 96];
-    let r = syscall(SYS_READLINKAT, AT_FDCWD as i64, link.as_ptr() as i64, out.as_mut_ptr() as i64, out.len() as i64);
+    let r = syscall(
+        SYS_READLINKAT,
+        AT_FDCWD as i64,
+        link.as_ptr() as i64,
+        out.as_mut_ptr() as i64,
+        out.len() as i64,
+    );
     if r <= 0 {
         return false;
     }
     let n = r as usize;
     let s = &out[..n];
-    let hit = s.windows(12).any(|w| w == b"/memfd:husk-")
-        || s.windows(4).any(|w| w == b"mali");
+    let hit = s.windows(12).any(|w| w == b"/memfd:husk-") || s.windows(4).any(|w| w == b"mali");
     hit
 }
 
@@ -145,7 +174,9 @@ unsafe fn is_drm_node(p: *const u8) -> bool {
 
 /// 假节点：懒初始化 kbase context，返回真 fd（/dev/null）
 unsafe fn fake_drm_open() -> i32 {
-    if debug_on() { sycall_write(b"[preload] fake_drm_open enter\n"); }
+    if debug_on() {
+        sycall_write(b"[preload] fake_drm_open enter\n");
+    }
     lock();
     if !CTX.ready {
         let mali = open_raw(b"/dev/mali0\0", O_RDWR, 0);
@@ -154,7 +185,13 @@ unsafe fn fake_drm_open() -> i32 {
             return -1;
         }
         let ir = CTX.init(mali, |f, req, arg| ioctl_raw(f, req, arg));
-        if debug_on() { sycall_write(if ir.is_ok() { b"[preload] CTX.init ok\n" } else { b"[preload] CTX.init FAIL\n" }); }
+        if debug_on() {
+            sycall_write(if ir.is_ok() {
+                b"[preload] CTX.init ok\n"
+            } else {
+                b"[preload] CTX.init FAIL\n"
+            });
+        }
         if ir.is_err() {
             unlock();
             return -1;
@@ -212,16 +249,26 @@ pub unsafe extern "C" fn openat64(dirfd: i32, path: *const u8, flags: i32, _mode
 
 #[no_mangle]
 pub(crate) unsafe fn ioctl_impl(fd: i32, request: u64, arg: *mut u8) -> i32 {
-    if debug_on() { sycall_write(b"[ioctl enter]\n"); }
+    if debug_on() {
+        sycall_write(b"[ioctl enter]\n");
+    }
     if debug_on() && is_fake(fd) {
         let mut b = [0u8; 40];
         let hex = b"0123456789abcdef";
         let pre = b"[preload ioctl] ";
         let mut i = 0;
-        while i < pre.len() { b[i] = pre[i]; i += 1; }
+        while i < pre.len() {
+            b[i] = pre[i];
+            i += 1;
+        }
         let mut sh = 60;
-        while sh >= 0 { b[i] = hex[((request >> sh) & 0xf) as usize]; i += 1; sh -= 4; }
-        b[i] = b'\n'; i += 1;
+        while sh >= 0 {
+            b[i] = hex[((request >> sh) & 0xf) as usize];
+            i += 1;
+            sh -= 4;
+        }
+        b[i] = b'\n';
+        i += 1;
         sycall_write(&b[..i]);
     }
     if is_fake(fd) {
@@ -234,18 +281,37 @@ pub(crate) unsafe fn ioctl_impl(fd: i32, request: u64, arg: *mut u8) -> i32 {
                 let hex = b"0123456789abcdef";
                 let p0 = b"[ioctl] req=";
                 let mut i = 0;
-                while i < p0.len() { b[i] = p0[i]; i += 1; }
+                while i < p0.len() {
+                    b[i] = p0[i];
+                    i += 1;
+                }
                 let mut sh = 60;
-                while sh >= 0 { b[i] = hex[((request >> sh) & 0xf) as usize]; i += 1; sh -= 4; }
+                while sh >= 0 {
+                    b[i] = hex[((request >> sh) & 0xf) as usize];
+                    i += 1;
+                    sh -= 4;
+                }
                 let p1 = b" ret=";
                 let mut k = 0;
-                while k < p1.len() { b[i] = p1[k]; i += 1; k += 1; }
+                while k < p1.len() {
+                    b[i] = p1[k];
+                    i += 1;
+                    k += 1;
+                }
                 let neg = r < 0;
                 let v = if neg { (-r) as u64 } else { r as u64 };
-                if neg { b[i] = b'-'; i += 1; }
+                if neg {
+                    b[i] = b'-';
+                    i += 1;
+                }
                 let mut sh2 = 28;
-                while sh2 >= 0 { b[i] = hex[((v >> sh2) & 0xf) as usize]; i += 1; sh2 -= 4; }
-                b[i] = b'\n'; i += 1;
+                while sh2 >= 0 {
+                    b[i] = hex[((v >> sh2) & 0xf) as usize];
+                    i += 1;
+                    sh2 -= 4;
+                }
+                b[i] = b'\n';
+                i += 1;
                 sycall_write(&b[..i]);
             }
             if debug_on() && request == 0xc0106444 && !arg.is_null() {
@@ -255,15 +321,29 @@ pub(crate) unsafe fn ioctl_impl(fd: i32, request: u64, arg: *mut u8) -> i32 {
                 let hex = b"0123456789abcdef";
                 let p0 = b"[getparam] id=";
                 let mut i = 0;
-                while i < p0.len() { b[i] = p0[i]; i += 1; }
-                b[i] = hex[((param >> 4) & 0xf) as usize]; i += 1;
-                b[i] = hex[(param & 0xf) as usize]; i += 1;
+                while i < p0.len() {
+                    b[i] = p0[i];
+                    i += 1;
+                }
+                b[i] = hex[((param >> 4) & 0xf) as usize];
+                i += 1;
+                b[i] = hex[(param & 0xf) as usize];
+                i += 1;
                 let p1 = b" val=";
                 let mut k = 0;
-                while k < p1.len() { b[i] = p1[k]; i += 1; k += 1; }
+                while k < p1.len() {
+                    b[i] = p1[k];
+                    i += 1;
+                    k += 1;
+                }
                 let mut sh = 60;
-                while sh >= 0 { b[i] = hex[((value >> sh) & 0xf) as usize]; i += 1; sh -= 4; }
-                b[i] = b'\n'; i += 1;
+                while sh >= 0 {
+                    b[i] = hex[((value >> sh) & 0xf) as usize];
+                    i += 1;
+                    sh -= 4;
+                }
+                b[i] = b'\n';
+                i += 1;
                 sycall_write(&b[..i]);
             }
             if r < 0 {
@@ -353,10 +433,18 @@ pub unsafe extern "C" fn mmap64(
  * 交接方式：preload 在构造函数里把函数表地址写进环境变量 HUSK_DRM_API；
  * path-shim 在需要时读一次。没有 preload 时变量不存在，path-shim 用自己的实现。
  */
-pub(crate) unsafe fn debug_on_pub() -> bool { debug_on() }
+pub(crate) unsafe fn debug_on_pub() -> bool {
+    debug_on()
+}
 
 pub(crate) unsafe fn syscall_readlinkat(path: *const u8, out: *mut u8, len: usize) -> i64 {
-    syscall(SYS_READLINKAT, AT_FDCWD as i64, path as i64, out as i64, len as i64)
+    syscall(
+        SYS_READLINKAT,
+        AT_FDCWD as i64,
+        path as i64,
+        out as i64,
+        len as i64,
+    )
 }
 
 static DBG: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(2);
@@ -371,7 +459,13 @@ unsafe fn debug_on() -> bool {
     let mut on = false;
     const SYS_OPENAT2: i64 = 56;
     const SYS_READ: i64 = 63;
-    let fd = syscall(SYS_OPENAT2, AT_FDCWD as i64, b"/proc/self/environ\0".as_ptr() as i64, 0i64, 0i64);
+    let fd = syscall(
+        SYS_OPENAT2,
+        AT_FDCWD as i64,
+        b"/proc/self/environ\0".as_ptr() as i64,
+        0i64,
+        0i64,
+    );
     if fd >= 0 {
         let mut buf = [0u8; 4096];
         let n = syscall(SYS_READ, fd, buf.as_mut_ptr() as i64, 4096i64);
@@ -381,7 +475,10 @@ unsafe fn debug_on() -> bool {
             let needle = b"NR_DRM_DEBUG=";
             let mut i = 0;
             while i + needle.len() <= s.len() {
-                if &s[i..i + needle.len()] == needle { on = true; break; }
+                if &s[i..i + needle.len()] == needle {
+                    on = true;
+                    break;
+                }
                 i += 1;
             }
         }
@@ -397,7 +494,9 @@ extern "C" {
 const ENVIRON: *mut *mut u8 = &raw mut environ as *mut *mut u8;
 
 #[no_mangle]
-pub unsafe extern "C" fn husk_drm_fake_open() -> i32 { fake_drm_open() }
+pub unsafe extern "C" fn husk_drm_fake_open() -> i32 {
+    fake_drm_open()
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn husk_drm_ioctl(fd: i32, request: u64, arg: *mut u8) -> i32 {
@@ -405,18 +504,33 @@ pub unsafe extern "C" fn husk_drm_ioctl(fd: i32, request: u64, arg: *mut u8) -> 
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn husk_drm_mmap(addr: *mut u8, len: usize, prot: i32, flags: i32, fd: i32, off: i64) -> *mut u8 {
+pub unsafe extern "C" fn husk_drm_mmap(
+    addr: *mut u8,
+    len: usize,
+    prot: i32,
+    flags: i32,
+    fd: i32,
+    off: i64,
+) -> *mut u8 {
     do_mmap(addr, len, prot, flags, fd, off)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn drm_shim_is_fake(fd: i32) -> i32 {
-    if is_fake(fd) { 1 } else { 0 }
+    if is_fake(fd) {
+        1
+    } else {
+        0
+    }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn husk_drm_is_fake(fd: i32) -> i32 {
-    if is_fake(fd) { 1 } else { 0 }
+    if is_fake(fd) {
+        1
+    } else {
+        0
+    }
 }
 
 static mut API: [usize; 4] = [0; 4];
@@ -431,17 +545,37 @@ unsafe extern "C" fn api_init() {
     let mut v = &raw const API as usize;
     let mut buf = [0u8; 20];
     let mut i = 0;
-    buf[i] = b'0'; i += 1;
-    buf[i] = b'x'; i += 1;
+    buf[i] = b'0';
+    i += 1;
+    buf[i] = b'x';
+    i += 1;
     let mut digits = 0;
     let mut tmp = [0u8; 16];
-    while v > 0 { tmp[digits] = HEX[v & 0xf]; v >>= 4; digits += 1; }
-    if digits == 0 { tmp[0] = b'0'; digits = 1; }
-    while digits > 0 { digits -= 1; buf[i] = tmp[digits]; i += 1; }
+    while v > 0 {
+        tmp[digits] = HEX[v & 0xf];
+        v >>= 4;
+        digits += 1;
+    }
+    if digits == 0 {
+        tmp[0] = b'0';
+        digits = 1;
+    }
+    while digits > 0 {
+        digits -= 1;
+        buf[i] = tmp[digits];
+        i += 1;
+    }
     buf[i] = 0;
     let mut j = 0;
-    while j <= i { API_ENV[j] = buf[j]; j += 1; }
-    setenv(b"HUSK_DRM_API\0".as_ptr(), (&raw const API_ENV) as *const u8, 1);
+    while j <= i {
+        API_ENV[j] = buf[j];
+        j += 1;
+    }
+    setenv(
+        b"HUSK_DRM_API\0".as_ptr(),
+        (&raw const API_ENV) as *const u8,
+        1,
+    );
 }
 
 #[used]

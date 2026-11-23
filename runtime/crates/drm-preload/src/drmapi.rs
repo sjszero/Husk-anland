@@ -80,7 +80,9 @@ fn set_errno(e: c_int) {
 
 fn dbg(tag: &[u8]) {
     unsafe {
-        if !crate::debug_on_pub() { return; }
+        if !crate::debug_on_pub() {
+            return;
+        }
         let n = 64i64;
         core::arch::asm!("mov x8, #64", "svc 0", in("x0") 2i64, in("x1") tag.as_ptr(), in("x2") tag.len(), in("x3") 0i64, out("x8") _, options(nostack));
         let _ = n;
@@ -99,16 +101,29 @@ unsafe fn dbg_fd_link(fd: c_int) {
     let mut v = fd as u32;
     let mut d = [0u8; 3];
     let mut dn = 0;
-    if v == 0 { d[0] = b'0'; dn = 1; }
-    while v > 0 { d[dn] = b'0' + (v % 10) as u8; v /= 10; dn += 1; }
+    if v == 0 {
+        d[0] = b'0';
+        dn = 1;
+    }
+    while v > 0 {
+        d[dn] = b'0' + (v % 10) as u8;
+        v /= 10;
+        dn += 1;
+    }
     let mut i = 14;
-    while dn > 0 { dn -= 1; p[i] = d[dn]; i += 1; }
+    while dn > 0 {
+        dn -= 1;
+        p[i] = d[dn];
+        i += 1;
+    }
     p[i] = 0;
     let mut out = [0u8; 128];
     let r = crate::syscall_readlinkat(p.as_ptr(), out.as_mut_ptr(), out.len());
     if crate::debug_on_pub() {
         dbg(b"[drmapi] fd link = ");
-        if r > 0 { dbg(&out[..r as usize]); }
+        if r > 0 {
+            dbg(&out[..r as usize]);
+        }
         dbg(b"\n");
     }
 }
@@ -181,7 +196,11 @@ pub unsafe extern "C" fn drmGetDevice2(fd: c_int, _flags: u32, out: *mut *mut Dr
         return -ENODEV;
     }
     *out = make_device();
-    if (*out).is_null() { -12 } else { 0 }
+    if (*out).is_null() {
+        -12
+    } else {
+        0
+    }
 }
 
 #[no_mangle]
@@ -190,7 +209,11 @@ pub unsafe extern "C" fn drmGetDevice(fd: c_int, out: *mut *mut DrmDevice) -> c_
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn drmGetDevices2(_flags: u32, devices: *mut *mut DrmDevice, max: c_int) -> c_int {
+pub unsafe extern "C" fn drmGetDevices2(
+    _flags: u32,
+    devices: *mut *mut DrmDevice,
+    max: c_int,
+) -> c_int {
     dbg(b"[drmapi] devices2\n");
     if devices.is_null() || max < 1 {
         return 0;
@@ -321,15 +344,31 @@ pub unsafe extern "C" fn drmIoctl(fd: c_int, request: u64, arg: *mut c_void) -> 
     let hex = b"0123456789abcdef";
     let pre = b"[drmapi] drmioctl fd=";
     let mut i = 0;
-    while i < pre.len() { b[i] = pre[i]; i += 1; }
-    if fd >= 10 { b[i] = b'0' + (fd / 10) as u8; i += 1; }
-    b[i] = b'0' + (fd % 10) as u8; i += 1;
+    while i < pre.len() {
+        b[i] = pre[i];
+        i += 1;
+    }
+    if fd >= 10 {
+        b[i] = b'0' + (fd / 10) as u8;
+        i += 1;
+    }
+    b[i] = b'0' + (fd % 10) as u8;
+    i += 1;
     let pre2 = b" req=";
     let mut k = 0;
-    while k < pre2.len() { b[i] = pre2[k]; i += 1; k += 1; }
+    while k < pre2.len() {
+        b[i] = pre2[k];
+        i += 1;
+        k += 1;
+    }
     let mut sh = 60;
-    while sh >= 0 { b[i] = hex[((request >> sh) & 0xf) as usize]; i += 1; sh -= 4; }
-    b[i] = b'\n'; i += 1;
+    while sh >= 0 {
+        b[i] = hex[((request >> sh) & 0xf) as usize];
+        i += 1;
+        sh -= 4;
+    }
+    b[i] = b'\n';
+    i += 1;
     dbg(&b[..i]);
     dbg_fd_link(fd);
     crate::ioctl_impl(fd, request, arg as *mut u8) as c_int

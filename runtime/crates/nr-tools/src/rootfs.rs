@@ -62,7 +62,9 @@ pub fn main(argv: &[String]) {
         let k = argv[i].as_str();
         let mut next = |i: &mut usize| -> String {
             *i += 1;
-            argv.get(*i).cloned().unwrap_or_else(|| die(format!("{k} needs a value")))
+            argv.get(*i)
+                .cloned()
+                .unwrap_or_else(|| die(format!("{k} needs a value")))
         };
         match k {
             "--out" => out = PathBuf::from(next(&mut i)),
@@ -124,7 +126,11 @@ pub fn main(argv: &[String]) {
         for f in &files {
             let data = fs::read(f).unwrap_or_else(|e| die(format!("{}: {e}", f.display())));
             unpack_deb(&data, &out);
-            let stem = f.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let stem = f
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
             let stem = stem.trim_end_matches(".deb");
             // pkg_version_arch; Debian package names cannot contain '_'
             let mut it = stem.splitn(3, '_');
@@ -132,7 +138,9 @@ pub fn main(argv: &[String]) {
             let version = it.next().unwrap_or("0").to_string();
             installed.push((name, version));
         }
-        finish(out, tar, loader_out, shim, hook, patch_libc, &installed, &arch, &suite);
+        finish(
+            out, tar, loader_out, shim, hook, patch_libc, &installed, &arch, &suite,
+        );
         return;
     }
 
@@ -167,7 +175,10 @@ pub fn main(argv: &[String]) {
     let mut installed: Vec<(String, String)> = Vec::new();
     for p in &want {
         let deb = cache.join(p.filename.rsplit('/').next().unwrap_or("x.deb"));
-        if !fs::metadata(&deb).map(|m| m.len() == p.size).unwrap_or(false) {
+        if !fs::metadata(&deb)
+            .map(|m| m.len() == p.size)
+            .unwrap_or(false)
+        {
             let raw = http_get(&format!("/ubuntu-ports/{}", p.filename))
                 .unwrap_or_else(|| die(format!("download failed: {}", p.filename)));
             write(&deb, "cache", &raw);
@@ -176,148 +187,201 @@ pub fn main(argv: &[String]) {
         unpack_deb(&data, &out);
         installed.push((p.name.clone(), p.version.clone()));
     }
-    println!("unpacked {} packages into {}", installed.len(), out.display());
+    println!(
+        "unpacked {} packages into {}",
+        installed.len(),
+        out.display()
+    );
 
-/// Everything after the packages are on disk: usr-merge links, account files,
-/// the dpkg status database, the libc patch and the loader built from *this*
-/// image's own ld.so, then the tarball.
-#[allow(clippy::too_many_arguments)]
-fn finish(
-    out: PathBuf,
-    tar: Option<PathBuf>,
-    loader_out: Option<PathBuf>,
-    shim: Option<PathBuf>,
-    hook: Option<PathBuf>,
-    patch_libc: bool,
-    installed: &[(String, String)],
-    arch: &str,
-    suite: &str,
-) {
-    // ------------------------------------------------------------- fixups ---
-    // Ubuntu 24.04 is usr-merged: the packages ship /usr/*, the world asks for
-    // /bin, /sbin, /lib.
-    for (link, target) in [("bin", "usr/bin"), ("sbin", "usr/sbin"), ("lib", "usr/lib")] {
-        let p = out.join(link);
-        if !p.exists() {
-            let _ = std::os::unix::fs::symlink(target, &p);
-        }
-    }
-    for d in ["proc", "sys", "dev", "tmp", "run", "var/log", "var/lib/dpkg/info", "var/lib/dpkg/updates", "var/lib/dpkg/parts", "root", "home"] {
-        let _ = fs::create_dir_all(out.join(d));
-    }
-    let _ = fs::set_permissions(out.join("tmp"), std::os::unix::fs::PermissionsExt::from_mode(0o1777));
-
-    for (src, dst) in [("usr/share/base-passwd/passwd.master", "etc/passwd"), ("usr/share/base-passwd/group.master", "etc/group")] {
-        let p = out.join(src);
-        if p.exists() {
-            if let Ok(b) = fs::read(&p) {
-                write(&out.join(dst), dst, &b);
+    /// Everything after the packages are on disk: usr-merge links, account files,
+    /// the dpkg status database, the libc patch and the loader built from *this*
+    /// image's own ld.so, then the tarball.
+    #[allow(clippy::too_many_arguments)]
+    fn finish(
+        out: PathBuf,
+        tar: Option<PathBuf>,
+        loader_out: Option<PathBuf>,
+        shim: Option<PathBuf>,
+        hook: Option<PathBuf>,
+        patch_libc: bool,
+        installed: &[(String, String)],
+        arch: &str,
+        suite: &str,
+    ) {
+        // ------------------------------------------------------------- fixups ---
+        // Ubuntu 24.04 is usr-merged: the packages ship /usr/*, the world asks for
+        // /bin, /sbin, /lib.
+        for (link, target) in [("bin", "usr/bin"), ("sbin", "usr/sbin"), ("lib", "usr/lib")] {
+            let p = out.join(link);
+            if !p.exists() {
+                let _ = std::os::unix::fs::symlink(target, &p);
             }
         }
-    }
-    if !out.join("etc/passwd").exists() {
-        write(&out.join("etc/passwd"), "etc/passwd", b"root:x:0:0:root:/root:/bin/bash\n");
-        write(&out.join("etc/group"), "etc/group", b"root:x:0:\n");
-    }
-    write(&out.join("etc/hostname"), "etc/hostname", b"husk\n");
-    write(&out.join("etc/hosts"), "etc/hosts", b"127.0.0.1 localhost husk\n::1 localhost\n");
-    if !out.join("etc/resolv.conf").exists() {
-        write(&out.join("etc/resolv.conf"), "etc/resolv.conf", b"nameserver 1.1.1.1\nnameserver 8.8.8.8\n");
-    }
-    write(&out.join("etc/nsswitch.conf"), "etc/nsswitch.conf",
-          b"passwd: files\ngroup: files\nshadow: files\nhosts: files dns\n");
-    write(&out.join("etc/apt/sources.list"), "etc/apt/sources.list",
-          format!("deb http://ports.ubuntu.com/ubuntu-ports {suite} main universe\n\
-deb http://ports.ubuntu.com/ubuntu-ports {suite}-updates main universe\n").as_bytes());
+        for d in [
+            "proc",
+            "sys",
+            "dev",
+            "tmp",
+            "run",
+            "var/log",
+            "var/lib/dpkg/info",
+            "var/lib/dpkg/updates",
+            "var/lib/dpkg/parts",
+            "root",
+            "home",
+        ] {
+            let _ = fs::create_dir_all(out.join(d));
+        }
+        let _ = fs::set_permissions(
+            out.join("tmp"),
+            std::os::unix::fs::PermissionsExt::from_mode(0o1777),
+        );
 
-    // dpkg and apt only believe a package is installed if the status database
-    // says so; we did not run maintainer scripts, so we write it ourselves.
-    let mut status = String::new();
-    for (name, version) in installed {
-        status.push_str(&format!(
+        for (src, dst) in [
+            ("usr/share/base-passwd/passwd.master", "etc/passwd"),
+            ("usr/share/base-passwd/group.master", "etc/group"),
+        ] {
+            let p = out.join(src);
+            if p.exists() {
+                if let Ok(b) = fs::read(&p) {
+                    write(&out.join(dst), dst, &b);
+                }
+            }
+        }
+        if !out.join("etc/passwd").exists() {
+            write(
+                &out.join("etc/passwd"),
+                "etc/passwd",
+                b"root:x:0:0:root:/root:/bin/bash\n",
+            );
+            write(&out.join("etc/group"), "etc/group", b"root:x:0:\n");
+        }
+        write(&out.join("etc/hostname"), "etc/hostname", b"husk\n");
+        write(
+            &out.join("etc/hosts"),
+            "etc/hosts",
+            b"127.0.0.1 localhost husk\n::1 localhost\n",
+        );
+        if !out.join("etc/resolv.conf").exists() {
+            write(
+                &out.join("etc/resolv.conf"),
+                "etc/resolv.conf",
+                b"nameserver 1.1.1.1\nnameserver 8.8.8.8\n",
+            );
+        }
+        write(
+            &out.join("etc/nsswitch.conf"),
+            "etc/nsswitch.conf",
+            b"passwd: files\ngroup: files\nshadow: files\nhosts: files dns\n",
+        );
+        write(
+            &out.join("etc/apt/sources.list"),
+            "etc/apt/sources.list",
+            format!(
+                "deb http://ports.ubuntu.com/ubuntu-ports {suite} main universe\n\
+deb http://ports.ubuntu.com/ubuntu-ports {suite}-updates main universe\n"
+            )
+            .as_bytes(),
+        );
+
+        // dpkg and apt only believe a package is installed if the status database
+        // says so; we did not run maintainer scripts, so we write it ourselves.
+        let mut status = String::new();
+        for (name, version) in installed {
+            status.push_str(&format!(
             "Package: {name}\nStatus: install ok installed\nPriority: optional\nSection: misc\n\
 Architecture: {arch}\nVersion: {version}\nDescription: {name} (staged by nr-tools rootfs)\n\n"
         ));
-    }
-    write(&out.join("var/lib/dpkg/status"), "dpkg status", status.as_bytes());
-
-    // ------------------------------------------------------------ libc ---
-    let libc = out.join("usr/lib/aarch64-linux-gnu/libc.so.6");
-    if patch_libc && libc.exists() {
-        let patched = out.join("usr/lib/aarch64-linux-gnu/libc.so.6.husk");
-        let rc = crate::scan_main(&[
-            "patch".to_string(),
-            libc.display().to_string(),
-            patched.display().to_string(),
-        ]);
-        if rc == std::process::ExitCode::SUCCESS {
-            let _ = fs::rename(&patched, &libc);
-            println!("libc: optional syscalls patched in {}", libc.display());
-        } else {
-            die("libc patch refused: the image is not the glibc this runtime expects");
         }
-    } else if patch_libc {
-        die("libc6 missing from the staged tree");
-    }
-
-    // ------------------------------------------------------- loader for it ---
-    // The loader must come from the same glibc build as the libc it runs against,
-    // so the image and the loader it ships are produced together.
-    if let Some(lo) = loader_out {
-        let (Some(shim), Some(hook)) = (shim, hook) else {
-            die("--loader-out needs --shim and --hook");
-        };
-        let orig = out.join("usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1");
-        if !orig.exists() {
-            die("no ld-linux-aarch64.so.1 in the staged tree");
-        }
-        let stage1 = out.join("usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1.nop");
-        let rc = crate::scan_main(&[
-            "patch".to_string(),
-            orig.display().to_string(),
-            stage1.display().to_string(),
-        ]);
-        if rc != std::process::ExitCode::SUCCESS {
-            die("loader patch refused");
-        }
-        crate::embed(
-            shim.to_str().unwrap_or(""),
-            stage1.to_str().unwrap_or(""),
-            hook.to_str().unwrap_or(""),
-            lo.to_str().unwrap_or(""),
+        write(
+            &out.join("var/lib/dpkg/status"),
+            "dpkg status",
+            status.as_bytes(),
         );
-        let _ = fs::remove_file(&stage1);
-        println!("loader: {} (built from this image's own ld.so)", lo.display());
-    }
 
-    // ------------------------------------------------------------- report ---
-    let mut bins = 0;
-    if let Ok(rd) = fs::read_dir(out.join("usr/bin")) {
-        bins = rd.count();
-    }
-    let links_ok = ["bin", "sbin", "lib"].iter().all(|l| out.join(l).exists());
-    println!("staged: {} entries in usr/bin, usr-merge links {}", bins, if links_ok { "ok" } else { "MISSING" });
-
-    if let Some(t) = tar {
-        // App-private storage refuses hard links; every multi-link file becomes a
-        // private copy so the device-side extractor never has to create one.
-        crate::provision::break_hardlinks(&out);
-        let mut child = Command::new("tar")
-            .arg("czf")
-            .arg(&t)
-            .arg("-C")
-            .arg(&out)
-            .arg(".")
-            .stdout(Stdio::null())
-            .spawn()
-            .unwrap_or_else(|e| die(format!("spawn tar: {e}")));
-        let st = child.wait().unwrap_or_else(|e| die(format!("tar: {e}")));
-        if !st.success() {
-            die("tar failed");
+        // ------------------------------------------------------------ libc ---
+        let libc = out.join("usr/lib/aarch64-linux-gnu/libc.so.6");
+        if patch_libc && libc.exists() {
+            let patched = out.join("usr/lib/aarch64-linux-gnu/libc.so.6.husk");
+            let rc = crate::scan_main(&[
+                "patch".to_string(),
+                libc.display().to_string(),
+                patched.display().to_string(),
+            ]);
+            if rc == std::process::ExitCode::SUCCESS {
+                let _ = fs::rename(&patched, &libc);
+                println!("libc: optional syscalls patched in {}", libc.display());
+            } else {
+                die("libc patch refused: the image is not the glibc this runtime expects");
+            }
+        } else if patch_libc {
+            die("libc6 missing from the staged tree");
         }
-        let sz = fs::metadata(&t).map(|m| m.len()).unwrap_or(0);
-        println!("tarball: {} ({:.0} MB)", t.display(), sz as f64 / 1e6);
-    }
-}
 
+        // ------------------------------------------------------- loader for it ---
+        // The loader must come from the same glibc build as the libc it runs against,
+        // so the image and the loader it ships are produced together.
+        if let Some(lo) = loader_out {
+            let (Some(shim), Some(hook)) = (shim, hook) else {
+                die("--loader-out needs --shim and --hook");
+            };
+            let orig = out.join("usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1");
+            if !orig.exists() {
+                die("no ld-linux-aarch64.so.1 in the staged tree");
+            }
+            let stage1 = out.join("usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1.nop");
+            let rc = crate::scan_main(&[
+                "patch".to_string(),
+                orig.display().to_string(),
+                stage1.display().to_string(),
+            ]);
+            if rc != std::process::ExitCode::SUCCESS {
+                die("loader patch refused");
+            }
+            crate::embed(
+                shim.to_str().unwrap_or(""),
+                stage1.to_str().unwrap_or(""),
+                hook.to_str().unwrap_or(""),
+                lo.to_str().unwrap_or(""),
+            );
+            let _ = fs::remove_file(&stage1);
+            println!(
+                "loader: {} (built from this image's own ld.so)",
+                lo.display()
+            );
+        }
+
+        // ------------------------------------------------------------- report ---
+        let mut bins = 0;
+        if let Ok(rd) = fs::read_dir(out.join("usr/bin")) {
+            bins = rd.count();
+        }
+        let links_ok = ["bin", "sbin", "lib"].iter().all(|l| out.join(l).exists());
+        println!(
+            "staged: {} entries in usr/bin, usr-merge links {}",
+            bins,
+            if links_ok { "ok" } else { "MISSING" }
+        );
+
+        if let Some(t) = tar {
+            // App-private storage refuses hard links; every multi-link file becomes a
+            // private copy so the device-side extractor never has to create one.
+            crate::provision::break_hardlinks(&out);
+            let mut child = Command::new("tar")
+                .arg("czf")
+                .arg(&t)
+                .arg("-C")
+                .arg(&out)
+                .arg(".")
+                .stdout(Stdio::null())
+                .spawn()
+                .unwrap_or_else(|e| die(format!("spawn tar: {e}")));
+            let st = child.wait().unwrap_or_else(|e| die(format!("tar: {e}")));
+            if !st.success() {
+                die("tar failed");
+            }
+            let sz = fs::metadata(&t).map(|m| m.len()).unwrap_or(0);
+            println!("tarball: {} ({:.0} MB)", t.display(), sz as f64 / 1e6);
+        }
+    }
 }

@@ -40,7 +40,9 @@ pub unsafe extern "C" fn bcmp(a: *const u8, b: *const u8, n: CSizet) -> CInt {
     let mut i = 0;
     while i < n {
         let (x, y) = (*a.add(i), *b.add(i));
-        if x != y { return x as CInt - y as CInt; }
+        if x != y {
+            return x as CInt - y as CInt;
+        }
         i += 1;
     }
     0
@@ -103,7 +105,9 @@ fn panic(_: &PanicInfo) -> ! {
         core::arch::asm!("svc 0", in("x8") SYS_EXIT_GROUP, in("x0") 101usize,
             lateout("x0") _, options(nostack));
     }
-    loop { core::hint::spin_loop(); }
+    loop {
+        core::hint::spin_loop();
+    }
 }
 
 #[no_mangle]
@@ -114,7 +118,9 @@ unsafe fn c_strlen(p: *const CChar) -> usize {
     // Guest pointers are ABI boundaries, not trusted Rust slices. Cap the scan
     // at PATH_MAX so a missing NUL cannot turn a path call into an unbounded
     // memory walk. A result of PATH_MAX is rejected by abs_guest() below.
-    while n < PATH_MAX && *p.add(n) != 0 { n += 1; }
+    while n < PATH_MAX && *p.add(n) != 0 {
+        n += 1;
+    }
     n
 }
 
@@ -126,12 +132,18 @@ unsafe fn env_lookup(name: &[u8]) -> Option<&'static [u8]> {
     // environ is only set once glibc's start-up has run; before that (the
     // boot hook) the environment is the one the loader was handed.
     let mut e = environ;
-    if e.is_null() { e = boot::envp() as *mut *mut CChar; }
-    if e.is_null() { return None; }
+    if e.is_null() {
+        e = boot::envp() as *mut *mut CChar;
+    }
+    if e.is_null() {
+        return None;
+    }
     let mut i = 0;
     loop {
         let p = *e.add(i);
-        if p.is_null() { return None; }
+        if p.is_null() {
+            return None;
+        }
         let s = bytes(p);
         if s.len() > name.len() && &s[..name.len()] == name && s[name.len()] == b'=' {
             return Some(&s[name.len() + 1..]);
@@ -162,12 +174,23 @@ unsafe fn syscall4(n: usize, a: usize, b: usize, c: usize, d: usize) -> Ssize {
 }
 
 unsafe fn ret_or_errno(r: Ssize) -> CInt {
-    if r < 0 && r > -4096 { *__errno_location() = (-r) as CInt; -1 } else { r as CInt }
+    if r < 0 && r > -4096 {
+        *__errno_location() = (-r) as CInt;
+        -1
+    } else {
+        r as CInt
+    }
 }
 
-unsafe fn set_errno(e: CInt) -> CInt { *__errno_location() = e; -1 }
+unsafe fn set_errno(e: CInt) -> CInt {
+    *__errno_location() = e;
+    -1
+}
 
-unsafe fn set_errno_ptr(e: CInt, p: *mut CChar) -> *mut CChar { *__errno_location() = e; p }
+unsafe fn set_errno_ptr(e: CInt, p: *mut CChar) -> *mut CChar {
+    *__errno_location() = e;
+    p
+}
 
 // ---------------------------------------------------------------------------
 // seccomp SIGSYS catcher.
@@ -202,7 +225,12 @@ const UC_SCAN_FROM: usize = 32;
 const UC_SCAN_TO: usize = 8192;
 
 #[repr(C)]
-struct KSigaction { handler: usize, flags: usize, restorer: usize, mask: u64 }
+struct KSigaction {
+    handler: usize,
+    flags: usize,
+    restorer: usize,
+    mask: u64,
+}
 
 static SIGSYS_MODE: AtomicU8 = AtomicU8::new(0);
 static SIGSYS_HITS: AtomicU8 = AtomicU8::new(0);
@@ -210,14 +238,18 @@ static SIGSYS_HITS: AtomicU8 = AtomicU8::new(0);
 unsafe fn write_all(fd: CInt, mut s: &[u8]) {
     while !s.is_empty() {
         let r = syscall4(SYS_WRITE, fd as usize, s.as_ptr() as usize, s.len(), 0);
-        if r <= 0 { return; }
+        if r <= 0 {
+            return;
+        }
         s = &s[r as usize..];
     }
 }
 
 unsafe fn sigsys_mode() -> u8 {
     let m = SIGSYS_MODE.load(Ordering::Relaxed);
-    if m != 0 { return m; }
+    if m != 0 {
+        return m;
+    }
     let v = match env_lookup(b"NR_SIGSYS") {
         Some(b"enosys") => 2u8,
         _ => 1u8,
@@ -236,7 +268,13 @@ unsafe fn record(line: &[u8]) {
     let mut logged = false;
     if let Some(p) = env_lookup(b"NR_SIGSYS_LOG") {
         // O_WRONLY|O_CREAT|O_APPEND, 0644
-        let fd = syscall4(SYS_OPENAT, AT_FDCWD as usize, p.as_ptr() as usize, (1 | 0o100 | 0o2000) as usize, 0o644);
+        let fd = syscall4(
+            SYS_OPENAT,
+            AT_FDCWD as usize,
+            p.as_ptr() as usize,
+            (1 | 0o100 | 0o2000) as usize,
+            0o644,
+        );
         if fd >= 0 {
             write_all(fd as CInt, line);
             syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
@@ -247,7 +285,13 @@ unsafe fn record(line: &[u8]) {
         // Absolute fallback: the launcher's own private dir. A trap record that
         // depends on env lookup is a record that can be lost.
         const P: &[u8] = b"/data/user/0/com.linuxhub.husk/files/sigsys.log\0";
-        let fd = syscall4(SYS_OPENAT, AT_FDCWD as usize, P.as_ptr() as usize, (1 | 0o100 | 0o2000) as usize, 0o644);
+        let fd = syscall4(
+            SYS_OPENAT,
+            AT_FDCWD as usize,
+            P.as_ptr() as usize,
+            (1 | 0o100 | 0o2000) as usize,
+            0o644,
+        );
         if fd >= 0 {
             write_all(fd as CInt, line);
             syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
@@ -257,7 +301,10 @@ unsafe fn record(line: &[u8]) {
 
 unsafe fn put(buf: &mut [u8], pos: &mut usize, s: &[u8]) {
     for &c in s {
-        if *pos < buf.len() { buf[*pos] = c; *pos += 1; }
+        if *pos < buf.len() {
+            buf[*pos] = c;
+            *pos += 1;
+        }
     }
 }
 
@@ -269,10 +316,18 @@ unsafe fn putnum(buf: &mut [u8], pos: &mut usize, v: i64) {
         d[n] = b'0' + (x % 10) as u8;
         x /= 10;
         n += 1;
-        if x == 0 { break; }
+        if x == 0 {
+            break;
+        }
     }
-    if v < 0 { put(buf, pos, b"-"); }
-    while n > 0 { n -= 1; let c = [d[n]]; put(buf, pos, &c); }
+    if v < 0 {
+        put(buf, pos, b"-");
+    }
+    while n > 0 {
+        n -= 1;
+        let c = [d[n]];
+        put(buf, pos, &c);
+    }
 }
 
 extern "C" fn on_sigsys(_sig: CInt, info: *const u8, uc: *mut u8) {
@@ -348,7 +403,11 @@ extern "C" fn on_sigsys(_sig: CInt, info: *const u8, uc: *mut u8) {
                 q += 8;
             }
         }
-        let ra = if pc_off >= 16 { core::ptr::read_unaligned(uc.add(pc_off - 16) as *const u64) } else { 0 };
+        let ra = if pc_off >= 16 {
+            core::ptr::read_unaligned(uc.add(pc_off - 16) as *const u64)
+        } else {
+            0
+        };
         let mut buf = [0u8; 208];
         let mut k = 0usize;
         put(&mut buf, &mut k, b"sigsys|code=");
@@ -398,7 +457,10 @@ extern "C" fn on_sigsys(_sig: CInt, info: *const u8, uc: *mut u8) {
             // Return -ENOSYS and step over the `svc 0` so libc takes its
             // documented "not implemented, use the fallback" path.
             let pc_now = core::ptr::read_unaligned(uc.add(pc_off) as *const u64);
-            core::ptr::write_unaligned(uc.add(pc_off - SC_PC_TO_REGS0) as *mut u64, (-38i64) as u64);
+            core::ptr::write_unaligned(
+                uc.add(pc_off - SC_PC_TO_REGS0) as *mut u64,
+                (-38i64) as u64,
+            );
             core::ptr::write_unaligned(uc.add(pc_off) as *mut u64, pc_now.wrapping_add(4));
             nr = 0;
             let _ = nr;
@@ -416,15 +478,23 @@ fn put_i64(buf: &mut [u8], mut at: usize, v: i64) -> usize {
     let mut n = 0;
     let mut neg = false;
     let mut x = v;
-    if x < 0 { neg = true; }
-    if x == 0 { tmp[0] = b'0'; n = 1; }
+    if x < 0 {
+        neg = true;
+    }
+    if x == 0 {
+        tmp[0] = b'0';
+        n = 1;
+    }
     while x != 0 {
         let d = (x % 10).abs() as u8;
         tmp[n] = b'0' + d;
         n += 1;
         x /= 10;
     }
-    if neg { tmp[n] = b'-'; n += 1; }
+    if neg {
+        tmp[n] = b'-';
+        n += 1;
+    }
     while n > 0 {
         n -= 1;
         buf[at] = tmp[n];
@@ -441,13 +511,22 @@ unsafe fn install_sigsys() {
         mask: 0,
     };
     // rt_sigaction(SIGSYS, &act, NULL, 8)
-    let ret = syscall4(SYS_RT_SIGACTION, SIGSYS_NUM, &act as *const KSigaction as usize, 0, 8);
+    let ret = syscall4(
+        SYS_RT_SIGACTION,
+        SIGSYS_NUM,
+        &act as *const KSigaction as usize,
+        0,
+        8,
+    );
     {
         // The return value IS the errno (negated). Log it: an "installed" line
         // that lies is worse than no line at all.
         let mut line = [0u8; 64];
         let mut n = 0;
-        for &b in b"nr-init|sigaction|ret=" { line[n] = b; n += 1; }
+        for &b in b"nr-init|sigaction|ret=" {
+            line[n] = b;
+            n += 1;
+        }
         n = put_i64(&mut line, n, ret as i64);
         line[n] = b'\n';
         n += 1;
@@ -466,17 +545,34 @@ unsafe fn install_sigsys() {
         restorer: 0,
         mask: 0,
     };
-    for sig in [11usize, 7, 8, 4] { // SEGV, BUS, FPE, ILL
-        let r = syscall4(SYS_RT_SIGACTION, sig, &segh as *const KSigaction as usize, 0, 8);
-        if r < 0 && sig == 11 { init_note(b"nr-init|segv handler refused\n"); }
+    for sig in [11usize, 7, 8, 4] {
+        // SEGV, BUS, FPE, ILL
+        let r = syscall4(
+            SYS_RT_SIGACTION,
+            sig,
+            &segh as *const KSigaction as usize,
+            0,
+            8,
+        );
+        if r < 0 && sig == 11 {
+            init_note(b"nr-init|segv handler refused\n");
+        }
     }
 }
 
 /// Log-file-only note (plus the program's stderr when NR_DEBUG is on).
 unsafe fn init_note(line: &[u8]) {
-    if dbg_on() { write_all(2, line); }
+    if dbg_on() {
+        write_all(2, line);
+    }
     if let Some(p) = env_lookup(b"NR_SIGSYS_LOG") {
-        let fd = syscall4(SYS_OPENAT, AT_FDCWD as usize, p.as_ptr() as usize, (1 | 0o100 | 0o2000) as usize, 0o644);
+        let fd = syscall4(
+            SYS_OPENAT,
+            AT_FDCWD as usize,
+            p.as_ptr() as usize,
+            (1 | 0o100 | 0o2000) as usize,
+            0o644,
+        );
         if fd >= 0 {
             write_all(fd as CInt, line);
             syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
@@ -527,20 +623,32 @@ extern "C" fn on_segv(sig: CInt, info: *const u8, uc: *mut u8) {
         record(&buf[..k]);
         // Real crash semantics: restore SIG_DFL and let the fault happen again,
         // so a core dump / the platform's own reporting still happens.
-        let dfl = KSigaction { handler: 0, flags: 0, restorer: 0, mask: 0 };
-        syscall4(SYS_RT_SIGACTION, sig as usize, &dfl as *const KSigaction as usize, 0, 8);
+        let dfl = KSigaction {
+            handler: 0,
+            flags: 0,
+            restorer: 0,
+            mask: 0,
+        };
+        syscall4(
+            SYS_RT_SIGACTION,
+            sig as usize,
+            &dfl as *const KSigaction as usize,
+            0,
+            8,
+        );
         let tid = syscall4(SYS_GETTID, 0, 0, 0, 0);
         syscall4(SYS_TGKILL, tid as usize, tid as usize, sig as usize, 0);
         syscall4(SYS_EXIT_GROUP, (128 + sig) as usize, 0, 0, 0);
     }
 }
 
-extern "C" fn nr_init() { unsafe { install_sigsys() } }
+extern "C" fn nr_init() {
+    unsafe { install_sigsys() }
+}
 
 #[used]
 #[link_section = ".init_array"]
 static NR_INIT: extern "C" fn() = nr_init;
-
 
 static DBG_STATE: AtomicU8 = AtomicU8::new(0);
 static DBG_VERBOSE: AtomicU8 = AtomicU8::new(0);
@@ -550,7 +658,9 @@ unsafe fn dbg_on() -> bool {
     match DBG_STATE.load(Ordering::Relaxed) {
         0 => {
             let on = env_lookup(b"NR_DEBUG").is_some();
-            if on && env_lookup(b"NR_DEBUG2").is_some() { DBG_VERBOSE.store(1, Ordering::Relaxed); }
+            if on && env_lookup(b"NR_DEBUG2").is_some() {
+                DBG_VERBOSE.store(1, Ordering::Relaxed);
+            }
             DBG_STATE.store(if on { 2 } else { 1 }, Ordering::Relaxed);
             on
         }
@@ -559,10 +669,14 @@ unsafe fn dbg_on() -> bool {
 }
 
 #[inline]
-unsafe fn verbose_on() -> bool { dbg_on() && DBG_VERBOSE.load(Ordering::Relaxed) == 1 }
+unsafe fn verbose_on() -> bool {
+    dbg_on() && DBG_VERBOSE.load(Ordering::Relaxed) == 1
+}
 
 unsafe fn dbg(parts: &[&[u8]]) {
-    if !dbg_on() { return; }
+    if !dbg_on() {
+        return;
+    }
     const SYS_WRITE: usize = 64;
     for p in parts {
         syscall4(SYS_WRITE, 2, p.as_ptr() as usize, p.len(), 0);
@@ -570,7 +684,9 @@ unsafe fn dbg(parts: &[&[u8]]) {
 }
 
 unsafe fn dbghex(v: u64) {
-    if !dbg_on() { return; }
+    if !dbg_on() {
+        return;
+    }
     let hex = b"0123456789abcdef";
     let mut out = [0u8; 19];
     out[0] = b'0';
@@ -584,7 +700,9 @@ unsafe fn dbghex(v: u64) {
 }
 
 unsafe fn dbgn(parts: &[&[u8]], v: i64) {
-    if !dbg_on() { return; }
+    if !dbg_on() {
+        return;
+    }
     let mut b = [0u8; 24];
     let mut i = 24;
     let mut x = if v < 0 { -v } else { v } as u64;
@@ -592,9 +710,14 @@ unsafe fn dbgn(parts: &[&[u8]], v: i64) {
         i -= 1;
         b[i] = b'0' + (x % 10) as u8;
         x /= 10;
-        if x == 0 { break; }
+        if x == 0 {
+            break;
+        }
     }
-    if v < 0 { i -= 1; b[i] = b'-'; }
+    if v < 0 {
+        i -= 1;
+        b[i] = b'-';
+    }
     dbg(parts);
     dbg(&[&b[i..], b"\n"]);
 }
@@ -604,21 +727,29 @@ const S_IFMT: u32 = 0o170000;
 const S_IFDIR: u32 = 0o040000;
 
 unsafe fn root_identity(fd: CInt) -> Option<(u64, u64)> {
-    if fd < 0 { return None; }
-    if syscall4(SYS_FCNTL, fd as usize, F_GETFD, 0, 0) < 0 { return None; }
+    if fd < 0 {
+        return None;
+    }
+    if syscall4(SYS_FCNTL, fd as usize, F_GETFD, 0, 0) < 0 {
+        return None;
+    }
     let mut st = [0u8; 128];
     if syscall4(SYS_FSTAT, fd as usize, st.as_mut_ptr() as usize, 0, 0) < 0 {
         return None;
     }
     let mode = core::ptr::read_unaligned(st.as_ptr().add(16) as *const u32);
-    if mode & S_IFMT != S_IFDIR { return None; }
+    if mode & S_IFMT != S_IFDIR {
+        return None;
+    }
     let dev = core::ptr::read_unaligned(st.as_ptr() as *const u64);
     let ino = core::ptr::read_unaligned(st.as_ptr().add(8) as *const u64);
     Some((dev, ino))
 }
 
 unsafe fn rootfd_alive(fd: CInt) -> bool {
-    if ROOT_IDENTITY_VALID.load(Ordering::Acquire) == 0 { return false; }
+    if ROOT_IDENTITY_VALID.load(Ordering::Acquire) == 0 {
+        return false;
+    }
     match root_identity(fd) {
         Some((dev, ino)) => dev == ROOT_DEV && ino == ROOT_INO,
         None => false,
@@ -642,12 +773,19 @@ unsafe fn move_root_high(fd: CInt) -> CInt {
 
 unsafe fn rootfd() -> CInt {
     if ROOT_STATE.load(Ordering::Acquire) == 2 {
-        if rootfd_alive(ROOTFD) { return ROOTFD; }
+        if rootfd_alive(ROOTFD) {
+            return ROOTFD;
+        }
         ROOT_IDENTITY_VALID.store(0, Ordering::Release);
         ROOT_STATE.store(0, Ordering::Release);
     }
-    if ROOT_STATE.compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire).is_err() {
-        while ROOT_STATE.load(Ordering::Acquire) != 2 { core::hint::spin_loop(); }
+    if ROOT_STATE
+        .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        while ROOT_STATE.load(Ordering::Acquire) != 2 {
+            core::hint::spin_loop();
+        }
         return ROOTFD;
     }
     if let Some(r) = env_lookup(b"NR_ROOTFS") {
@@ -664,17 +802,36 @@ unsafe fn rootfd() -> CInt {
                     ROOT_IDENTITY_VALID.store(1, Ordering::Release);
                     let mut pl = [0u8; 64];
                     let mut i = 0;
-                    for &c in b"/proc/self/fd/" { pl[i] = c; i += 1; }
+                    for &c in b"/proc/self/fd/" {
+                        pl[i] = c;
+                        i += 1;
+                    }
                     let mut v = ROOTFD as u32;
                     let mut d = [0u8; 10];
                     let mut dn = 0;
-                    if v == 0 { d[0] = b'0'; dn = 1; }
-                    while v > 0 { d[dn] = b'0' + (v % 10) as u8; v /= 10; dn += 1; }
-                    while dn > 0 { dn -= 1; pl[i] = d[dn]; i += 1; }
+                    if v == 0 {
+                        d[0] = b'0';
+                        dn = 1;
+                    }
+                    while v > 0 {
+                        d[dn] = b'0' + (v % 10) as u8;
+                        v /= 10;
+                        dn += 1;
+                    }
+                    while dn > 0 {
+                        dn -= 1;
+                        pl[i] = d[dn];
+                        i += 1;
+                    }
                     pl[i] = 0;
                     let mut ab = [0u8; PATH_MAX];
-                    let rn = syscall4(SYS_READLINKAT, AT_FDCWD as usize, pl.as_ptr() as usize,
-                                      ab.as_mut_ptr() as usize, PATH_MAX);
+                    let rn = syscall4(
+                        SYS_READLINKAT,
+                        AT_FDCWD as usize,
+                        pl.as_ptr() as usize,
+                        ab.as_mut_ptr() as usize,
+                        PATH_MAX,
+                    );
                     if rn > 0 {
                         let n2 = (rn as usize).min(PATH_MAX - 1);
                         ROOT_REAL[..n2].copy_from_slice(&ab[..n2]);
@@ -690,9 +847,17 @@ unsafe fn rootfd() -> CInt {
         let mut buf = [0u8; 160];
         let mut k = 0;
         put(&mut buf, &mut k, b"rootfd env=");
-        put(&mut buf, &mut k, core::slice::from_raw_parts(ROOT_ENV.as_ptr(), ROOT_ENV_LEN));
+        put(
+            &mut buf,
+            &mut k,
+            core::slice::from_raw_parts(ROOT_ENV.as_ptr(), ROOT_ENV_LEN),
+        );
         put(&mut buf, &mut k, b" real=");
-        put(&mut buf, &mut k, core::slice::from_raw_parts(ROOT_REAL.as_ptr(), ROOT_REAL_LEN));
+        put(
+            &mut buf,
+            &mut k,
+            core::slice::from_raw_parts(ROOT_REAL.as_ptr(), ROOT_REAL_LEN),
+        );
         put(&mut buf, &mut k, b" fd=");
         putnum(&mut buf, &mut k, ROOTFD as i64);
         put(&mut buf, &mut k, b"\n");
@@ -703,8 +868,11 @@ unsafe fn rootfd() -> CInt {
 }
 
 unsafe fn guest_root() -> &'static [u8] {
-    if ROOT_REAL_LEN > 0 { core::slice::from_raw_parts(ROOT_REAL.as_ptr(), ROOT_REAL_LEN) }
-    else { core::slice::from_raw_parts(ROOT_ENV.as_ptr(), ROOT_ENV_LEN) }
+    if ROOT_REAL_LEN > 0 {
+        core::slice::from_raw_parts(ROOT_REAL.as_ptr(), ROOT_REAL_LEN)
+    } else {
+        core::slice::from_raw_parts(ROOT_ENV.as_ptr(), ROOT_ENV_LEN)
+    }
 }
 
 /// Start the process at the guest root.
@@ -716,18 +884,26 @@ unsafe fn guest_root() -> &'static [u8] {
 pub unsafe fn set_guest_cwd() {
     let _ = rootfd();
     let g = guest_root();
-    if g.is_empty() { return; }
+    if g.is_empty() {
+        return;
+    }
     // Only when the inherited cwd is *outside* the root: a child that inherited
     // a guest directory from its parent must keep it (ls/find/cat after `cd`).
     let mut real = [0u8; PATH_MAX];
-    let rn = syscall4(SYS_READLINKAT, AT_FDCWD as usize, b"/proc/self/cwd\0".as_ptr() as usize,
-                      real.as_mut_ptr() as usize, PATH_MAX - 1);
+    let rn = syscall4(
+        SYS_READLINKAT,
+        AT_FDCWD as usize,
+        b"/proc/self/cwd\0".as_ptr() as usize,
+        real.as_mut_ptr() as usize,
+        PATH_MAX - 1,
+    );
     if rn > 0 {
         let rl = rn as usize;
-        let inside = rl >= g.len()
-            && &real[..g.len()] == g
-            && (rl == g.len() || real[g.len()] == b'/');
-        if inside { return; }
+        let inside =
+            rl >= g.len() && &real[..g.len()] == g && (rl == g.len() || real[g.len()] == b'/');
+        if inside {
+            return;
+        }
     }
     let mut buf = [0u8; PATH_MAX];
     let n = g.len().min(PATH_MAX - 1);
@@ -742,17 +918,27 @@ unsafe fn cwd() -> &'static [u8] {
     // readlinkat("/proc/self/cwd") and a prefix strip. Cheap enough, and it
     // keeps relative paths correct where a cached value would drift.
     let mut real = [0u8; PATH_MAX];
-    let n = syscall4(SYS_READLINKAT, AT_FDCWD as usize, b"/proc/self/cwd\0".as_ptr() as usize,
-                     real.as_mut_ptr() as usize, PATH_MAX - 1);
+    let n = syscall4(
+        SYS_READLINKAT,
+        AT_FDCWD as usize,
+        b"/proc/self/cwd\0".as_ptr() as usize,
+        real.as_mut_ptr() as usize,
+        PATH_MAX - 1,
+    );
     if n > 0 {
         let _ = rootfd();
         let mut rl = n as usize;
-        while rl > 0 && real[rl - 1] == 0 { rl -= 1; }
+        while rl > 0 && real[rl - 1] == 0 {
+            rl -= 1;
+        }
         let mut gl = 0usize;
         if let Some(g) = guest_path_from_real(&real[..rl], CWD_BUF.as_mut_ptr(), PATH_MAX) {
             gl = g;
         }
-        if gl == 0 { CWD_BUF[0] = b'/'; gl = 1; }
+        if gl == 0 {
+            CWD_BUF[0] = b'/';
+            gl = 1;
+        }
         CWD_LEN = gl;
         CWD_STATE.store(1, Ordering::Release);
     } else if CWD_STATE.load(Ordering::Acquire) == 0 {
@@ -774,34 +960,57 @@ unsafe fn set_cwd(p: &[u8]) {
 unsafe fn normalize(p: &[u8], out: &mut [u8; PATH_MAX]) -> usize {
     let mut n = 0usize;
     out[0] = b'/';
-    for c in p.split(|x| *x == b'/').filter(|c| !c.is_empty() && *c != b".") {
+    for c in p
+        .split(|x| *x == b'/')
+        .filter(|c| !c.is_empty() && *c != b".")
+    {
         if c == b".." {
             n = rc::pop_component(out, n);
             continue;
         }
-        if n + 1 + c.len() >= PATH_MAX { break; }
-        out[n] = b'/'; n += 1;
-        out[n..n + c.len()].copy_from_slice(c); n += c.len();
+        if n + 1 + c.len() >= PATH_MAX {
+            break;
+        }
+        out[n] = b'/';
+        n += 1;
+        out[n..n + c.len()].copy_from_slice(c);
+        n += c.len();
     }
-    if n == 0 { n = 1; out[0] = b'/'; }
+    if n == 0 {
+        n = 1;
+        out[0] = b'/';
+    }
     n
 }
 
 unsafe fn abs_guest(path: *const CChar, out: &mut [u8; PATH_MAX]) -> Option<usize> {
-    if path.is_null() { return None; }
+    if path.is_null() {
+        return None;
+    }
     let s = bytes(path);
-    if s.is_empty() { return None; }
-    if s.len() >= PATH_MAX { return None; }
-    if s[0] == b'/' { out[..s.len()].copy_from_slice(s); return Some(s.len()); }
+    if s.is_empty() {
+        return None;
+    }
+    if s.len() >= PATH_MAX {
+        return None;
+    }
+    if s[0] == b'/' {
+        out[..s.len()].copy_from_slice(s);
+        return Some(s.len());
+    }
     let c = cwd();
     if c.len() == 1 && c[0] == b'/' {
-        if s.len() + 1 >= PATH_MAX { return None; }
+        if s.len() + 1 >= PATH_MAX {
+            return None;
+        }
         out[0] = b'/';
         out[1..1 + s.len()].copy_from_slice(s);
         return Some(1 + s.len());
     }
     let n = c.len() + 1 + s.len();
-    if n >= PATH_MAX { return None; }
+    if n >= PATH_MAX {
+        return None;
+    }
     out[..c.len()].copy_from_slice(c);
     out[c.len()] = b'/';
     out[c.len() + 1..n].copy_from_slice(s);
@@ -822,14 +1031,17 @@ unsafe fn under_root(p: &[u8]) -> bool {
     }
     if ROOT_ENV_LEN > 1 {
         let e = core::slice::from_raw_parts(ROOT_ENV.as_ptr(), ROOT_ENV_LEN);
-        if p.len() > e.len() && &p[..e.len()] == e && p[e.len()] == b'/' { return true; }
+        if p.len() > e.len() && &p[..e.len()] == e && p[e.len()] == b'/' {
+            return true;
+        }
     }
     false
 }
 
 unsafe fn pseudo_path(p: &[u8]) -> bool {
     for root in [b"/dev".as_ref(), b"/proc".as_ref(), b"/sys".as_ref()] {
-        if p == root || (p.len() > root.len() && &p[..root.len()] == root && p[root.len()] == b'/') {
+        if p == root || (p.len() > root.len() && &p[..root.len()] == root && p[root.len()] == b'/')
+        {
             return true;
         }
     }
@@ -841,12 +1053,20 @@ unsafe fn pseudo_path(p: &[u8]) -> bool {
 /// can jump straight back to the host namespace. Ordinary proc queries such as
 /// `/proc/self/status` and `/dev/null` remain passthrough.
 unsafe fn passthrough(p: &[u8]) -> bool {
-    if under_root(p) { return true; }
-    if !pseudo_path(p) { return false; }
+    if under_root(p) {
+        return true;
+    }
+    if !pseudo_path(p) {
+        return false;
+    }
     let is_proc = p == b"/proc" || (p.len() > 5 && &p[..5] == b"/proc" && p[5] == b'/');
     for c in p.split(|x| *x == b'/') {
-        if c == b".." { return false; }
-        if is_proc && (c == b"root" || c == b"cwd") { return false; }
+        if c == b".." {
+            return false;
+        }
+        if is_proc && (c == b"root" || c == b"cwd") {
+            return false;
+        }
     }
     true
 }
@@ -854,20 +1074,43 @@ unsafe fn passthrough(p: &[u8]) -> bool {
 unsafe fn real_path(parent: CInt, name: &[u8], out: &mut [u8; PATH_MAX]) -> Option<usize> {
     let mut pl = [0u8; 64];
     let mut i = 0;
-    for &c in b"/proc/self/fd/" { pl[i] = c; i += 1; }
+    for &c in b"/proc/self/fd/" {
+        pl[i] = c;
+        i += 1;
+    }
     let mut v = parent as u32;
     let mut d = [0u8; 10];
     let mut dn = 0;
-    if v == 0 { d[0] = b'0'; dn = 1; }
-    while v > 0 { d[dn] = b'0' + (v % 10) as u8; v /= 10; dn += 1; }
-    while dn > 0 { dn -= 1; pl[i] = d[dn]; i += 1; }
+    if v == 0 {
+        d[0] = b'0';
+        dn = 1;
+    }
+    while v > 0 {
+        d[dn] = b'0' + (v % 10) as u8;
+        v /= 10;
+        dn += 1;
+    }
+    while dn > 0 {
+        dn -= 1;
+        pl[i] = d[dn];
+        i += 1;
+    }
     pl[i] = 0;
     let mut rp = [0u8; PATH_MAX];
-    let rn = syscall4(SYS_READLINKAT, AT_FDCWD as usize, pl.as_ptr() as usize,
-                      rp.as_mut_ptr() as usize, PATH_MAX);
-    if rn <= 0 { return None; }
+    let rn = syscall4(
+        SYS_READLINKAT,
+        AT_FDCWD as usize,
+        pl.as_ptr() as usize,
+        rp.as_mut_ptr() as usize,
+        PATH_MAX,
+    );
+    if rn <= 0 {
+        return None;
+    }
     let rl = rn as usize;
-    if rl + 1 + name.len() >= PATH_MAX { return None; }
+    if rl + 1 + name.len() >= PATH_MAX {
+        return None;
+    }
     out[..rl].copy_from_slice(&rp[..rl]);
     out[rl] = b'/';
     out[rl + 1..rl + 1 + name.len()].copy_from_slice(name);
@@ -887,36 +1130,63 @@ pub unsafe extern "C" fn open64(path: *const CChar, flags: CInt, mode: CInt) -> 
 
 #[no_mangle]
 pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt) -> CInt {
-    if path.is_null() { return ret_or_errno(syscall4(SYS_OPENAT, dirfd as usize, 0, flags as usize, mode as usize)); }
+    if path.is_null() {
+        return ret_or_errno(syscall4(
+            SYS_OPENAT,
+            dirfd as usize,
+            0,
+            flags as usize,
+            mode as usize,
+        ));
+    }
     let absolute = *path == b'/' as CChar;
     if dirfd != AT_FDCWD && !absolute {
-        if verbose_on() { dbg(&[b"OPENAT fd="]); dbgn(&[], dirfd as i64); dbg(&[b"  name=", bytes(path), b"\n"]); }
+        if verbose_on() {
+            dbg(&[b"OPENAT fd="]);
+            dbgn(&[], dirfd as i64);
+            dbg(&[b"  name=", bytes(path), b"\n"]);
+        }
         let rfd = rootfd();
         if rfd >= 0 {
             let mut gp = [0u8; PATH_MAX];
             match resolve_dirfd_rel(dirfd, bytes(path), &mut gp) {
-                Ok(Some(n)) => return match rc::resolve_open(rfd, &gp[..n], flags, mode) {
-                    Ok(fd) => fd,
-                    Err(e) => set_errno(e),
-                },
+                Ok(Some(n)) => {
+                    return match rc::resolve_open(rfd, &gp[..n], flags, mode) {
+                        Ok(fd) => fd,
+                        Err(e) => set_errno(e),
+                    }
+                }
                 Ok(None) => {}
                 Err(e) => return set_errno(e),
             }
         }
-        return ret_or_errno(syscall4(SYS_OPENAT, dirfd as usize, path as usize, flags as usize, mode as usize));
+        return ret_or_errno(syscall4(
+            SYS_OPENAT,
+            dirfd as usize,
+            path as usize,
+            flags as usize,
+            mode as usize,
+        ));
     }
     if dirfd == AT_FDCWD || absolute {
         let rfd = rootfd();
         if rfd >= 0 {
             let mut gp = [0u8; PATH_MAX];
-            let n = match abs_guest(path, &mut gp) { Some(n) => n, None => PATH_MAX };
+            let n = match abs_guest(path, &mut gp) {
+                Some(n) => n,
+                None => PATH_MAX,
+            };
             // DRM 假节点：先于 passthrough 判断，否则 /dev/* 会直接落到宿主上 ENOENT
             if verbose_on() && n >= 4 && &gp[..4] == b"/dev".as_ref() {
                 dbg(&[b"nrshim open ", &gp[..n], b"\n"]);
             }
             if is_drm_node(&gp[..n]) {
-                if let Some(api) = drm_api() { return drm_api_open(&api); }
-                if !drm_shim_off() { return drm_fake_open(); }
+                if let Some(api) = drm_api() {
+                    return drm_api_open(&api);
+                }
+                if !drm_shim_off() {
+                    return drm_fake_open();
+                }
             }
             if is_drm_dir(&gp[..n]) {
                 if let Some(d) = drm_dir_host() {
@@ -930,42 +1200,83 @@ pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mo
                 }
             }
             if passthrough(&gp[..n]) {
-                return ret_or_errno(syscall4(SYS_OPENAT, AT_FDCWD as usize, gp.as_ptr() as usize, flags as usize, mode as usize));
+                return ret_or_errno(syscall4(
+                    SYS_OPENAT,
+                    AT_FDCWD as usize,
+                    gp.as_ptr() as usize,
+                    flags as usize,
+                    mode as usize,
+                ));
             }
-            if verbose_on() { dbg(&[b"OPEN ", &gp[..n], b" f="]); dbgn(&[], flags as i64); }
+            if verbose_on() {
+                dbg(&[b"OPEN ", &gp[..n], b" f="]);
+                dbgn(&[], flags as i64);
+            }
             return match rc::resolve_open(rfd, &gp[..n], flags, mode) {
                 Ok(fd) => fd,
-                Err(e) => { dbg(&[b"nrshim open ", &gp[..n], b" err "]); dbgn(&[], e as i64); set_errno(e) }
+                Err(e) => {
+                    dbg(&[b"nrshim open ", &gp[..n], b" err "]);
+                    dbgn(&[], e as i64);
+                    set_errno(e)
+                }
             };
         }
     }
     let mut buf = [0u8; PATH_MAX];
-    if abs_guest(path, &mut buf).is_none() { return set_errno(36); }
+    if abs_guest(path, &mut buf).is_none() {
+        return set_errno(36);
+    }
     let bl = {
         let mut i = 0;
-        while i < PATH_MAX && buf[i] != 0 { i += 1; }
+        while i < PATH_MAX && buf[i] != 0 {
+            i += 1;
+        }
         i
     };
     if is_drm_node(&buf[..bl]) {
-        if let Some(api) = drm_api() { return drm_api_open(&api); }
+        if let Some(api) = drm_api() {
+            return drm_api_open(&api);
+        }
         return drm_fake_open();
     }
-    ret_or_errno(syscall4(SYS_OPENAT, dirfd as usize, buf.as_ptr() as usize, flags as usize, mode as usize))
+    ret_or_errno(syscall4(
+        SYS_OPENAT,
+        dirfd as usize,
+        buf.as_ptr() as usize,
+        flags as usize,
+        mode as usize,
+    ))
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn openat64(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt) -> CInt {
+pub unsafe extern "C" fn openat64(
+    dirfd: CInt,
+    path: *const CChar,
+    flags: CInt,
+    mode: CInt,
+) -> CInt {
     openat(dirfd, path, flags, mode)
 }
 
 unsafe fn stat_like(path: *const CChar, st: *mut u8, flags: CInt) -> CInt {
-    if path.is_null() { return set_errno(14); }
+    if path.is_null() {
+        return set_errno(14);
+    }
     let rfd = rootfd();
     if rfd >= 0 {
         let mut gp = [0u8; PATH_MAX];
-        let n = match abs_guest(path, &mut gp) { Some(n) => n, None => PATH_MAX };
+        let n = match abs_guest(path, &mut gp) {
+            Some(n) => n,
+            None => PATH_MAX,
+        };
         if passthrough(&gp[..n]) {
-            return ret_or_errno(syscall4(SYS_NEWFSTATAT, AT_FDCWD as usize, gp.as_ptr() as usize, st as usize, flags as usize));
+            return ret_or_errno(syscall4(
+                SYS_NEWFSTATAT,
+                AT_FDCWD as usize,
+                gp.as_ptr() as usize,
+                st as usize,
+                flags as usize,
+            ));
         }
         return match rc::resolve_fstat(rfd, &gp[..n], st, flags) {
             Ok(()) => 0,
@@ -973,53 +1284,103 @@ unsafe fn stat_like(path: *const CChar, st: *mut u8, flags: CInt) -> CInt {
         };
     }
     let mut gp = [0u8; PATH_MAX];
-    if abs_guest(path, &mut gp).is_none() { return set_errno(36); }
-    ret_or_errno(syscall4(SYS_NEWFSTATAT, AT_FDCWD as usize, gp.as_ptr() as usize, st as usize, flags as usize))
+    if abs_guest(path, &mut gp).is_none() {
+        return set_errno(36);
+    }
+    ret_or_errno(syscall4(
+        SYS_NEWFSTATAT,
+        AT_FDCWD as usize,
+        gp.as_ptr() as usize,
+        st as usize,
+        flags as usize,
+    ))
 }
 
 unsafe fn accessat_nofollow(dirfd: CInt, path: *const CChar, mode: CInt) -> CInt {
-    let fd = syscall4(SYS_OPENAT, dirfd as usize, path as usize,
-                      (O_PATH | O_NOFOLLOW | O_CLOEXEC) as usize, 0);
-    if fd < 0 { return ret_or_errno(fd); }
+    let fd = syscall4(
+        SYS_OPENAT,
+        dirfd as usize,
+        path as usize,
+        (O_PATH | O_NOFOLLOW | O_CLOEXEC) as usize,
+        0,
+    );
+    if fd < 0 {
+        return ret_or_errno(fd);
+    }
     let r = rc::access_fd(fd as CInt, mode, true);
     rc::close(fd as CInt);
-    match r { Ok(()) => 0, Err(e) => set_errno(e) }
+    match r {
+        Ok(()) => 0,
+        Err(e) => set_errno(e),
+    }
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn stat(path: *const CChar, st: *mut u8) -> CInt { stat_like(path, st, 0) }
+pub unsafe extern "C" fn stat(path: *const CChar, st: *mut u8) -> CInt {
+    stat_like(path, st, 0)
+}
 
 #[no_mangle]
-pub unsafe extern "C" fn lstat(path: *const CChar, st: *mut u8) -> CInt { stat_like(path, st, AT_SYMLINK_NOFOLLOW) }
+pub unsafe extern "C" fn lstat(path: *const CChar, st: *mut u8) -> CInt {
+    stat_like(path, st, AT_SYMLINK_NOFOLLOW)
+}
 
 #[no_mangle]
-pub unsafe extern "C" fn fstatat(dirfd: CInt, path: *const CChar, st: *mut u8, flags: CInt) -> CInt {
-    if path.is_null() { return set_errno(14); }
-    if dirfd == AT_FDCWD || (!path.is_null() && *path == b'/' as CChar) { return stat_like(path, st, flags); }
+pub unsafe extern "C" fn fstatat(
+    dirfd: CInt,
+    path: *const CChar,
+    st: *mut u8,
+    flags: CInt,
+) -> CInt {
+    if path.is_null() {
+        return set_errno(14);
+    }
+    if dirfd == AT_FDCWD || (!path.is_null() && *path == b'/' as CChar) {
+        return stat_like(path, st, flags);
+    }
     let rfd = rootfd();
     if rfd >= 0 {
         let mut gp = [0u8; PATH_MAX];
         match resolve_dirfd_rel(dirfd, bytes(path), &mut gp) {
-            Ok(Some(n)) => return match rc::resolve_fstat(rfd, &gp[..n], st, flags) {
-                Ok(()) => 0,
-                Err(e) => set_errno(e),
-            },
+            Ok(Some(n)) => {
+                return match rc::resolve_fstat(rfd, &gp[..n], st, flags) {
+                    Ok(()) => 0,
+                    Err(e) => set_errno(e),
+                }
+            }
             Ok(None) => {}
             Err(e) => return set_errno(e),
         }
     }
-    ret_or_errno(syscall4(SYS_NEWFSTATAT, dirfd as usize, path as usize, st as usize, flags as usize))
+    ret_or_errno(syscall4(
+        SYS_NEWFSTATAT,
+        dirfd as usize,
+        path as usize,
+        st as usize,
+        flags as usize,
+    ))
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn access(path: *const CChar, mode: CInt) -> CInt {
-    if path.is_null() { return set_errno(14); }
+    if path.is_null() {
+        return set_errno(14);
+    }
     let rfd = rootfd();
     if rfd >= 0 {
         let mut gp = [0u8; PATH_MAX];
-        let n = match abs_guest(path, &mut gp) { Some(n) => n, None => PATH_MAX };
+        let n = match abs_guest(path, &mut gp) {
+            Some(n) => n,
+            None => PATH_MAX,
+        };
         if passthrough(&gp[..n]) {
-            return ret_or_errno(syscall4(SYS_FACCESSAT, AT_FDCWD as usize, gp.as_ptr() as usize, mode as usize, 0));
+            return ret_or_errno(syscall4(
+                SYS_FACCESSAT,
+                AT_FDCWD as usize,
+                gp.as_ptr() as usize,
+                mode as usize,
+                0,
+            ));
         }
         return match rc::resolve_access(rfd, &gp[..n], mode, 0) {
             Ok(()) => 0,
@@ -1027,10 +1388,17 @@ pub unsafe extern "C" fn access(path: *const CChar, mode: CInt) -> CInt {
         };
     }
     let mut gp = [0u8; PATH_MAX];
-    if abs_guest(path, &mut gp).is_none() { return set_errno(36); }
-    ret_or_errno(syscall4(SYS_FACCESSAT, AT_FDCWD as usize, gp.as_ptr() as usize, mode as usize, 0))
+    if abs_guest(path, &mut gp).is_none() {
+        return set_errno(36);
+    }
+    ret_or_errno(syscall4(
+        SYS_FACCESSAT,
+        AT_FDCWD as usize,
+        gp.as_ptr() as usize,
+        mode as usize,
+        0,
+    ))
 }
-
 
 // ---------------------------------------------------------------------------
 // Namespace-mutating calls: mkdir/unlink/rename/symlink/link/chmod/chown/
@@ -1046,18 +1414,25 @@ unsafe fn pathop<F>(dirfd: CInt, path: *const CChar, follow: bool, f: F) -> CInt
 where
     F: FnOnce(CInt, *const CChar) -> Ssize,
 {
-    if path.is_null() { return set_errno(14); }
+    if path.is_null() {
+        return set_errno(14);
+    }
     let mut gp = [0u8; PATH_MAX];
     let n = if dirfd != AT_FDCWD && *path != b'/' as CChar {
         let rfd = rootfd();
-        if rfd < 0 { return ret_or_errno(f(dirfd, path)); }
+        if rfd < 0 {
+            return ret_or_errno(f(dirfd, path));
+        }
         match resolve_dirfd_rel(dirfd, bytes(path), &mut gp) {
             Ok(Some(n)) => n,
             Ok(None) => return ret_or_errno(f(dirfd, path)),
             Err(e) => return set_errno(e),
         }
     } else {
-        match abs_guest(path, &mut gp) { Some(n) => n, None => return set_errno(36) }
+        match abs_guest(path, &mut gp) {
+            Some(n) => n,
+            None => return set_errno(36),
+        }
     };
     let rfd = rootfd();
     let mut nb = [0u8; 260];
@@ -1072,7 +1447,11 @@ where
         };
         let parent = match parent {
             Ok(fd) => fd,
-            Err(e) => { dbg(&[b"pathop ", &gp[..n], b" err "]); dbgn(&[], e as i64); return set_errno(e); }
+            Err(e) => {
+                dbg(&[b"pathop ", &gp[..n], b" err "]);
+                dbgn(&[], e as i64);
+                return set_errno(e);
+            }
         };
         let nl = name.iter().position(|c| *c == 0).unwrap_or(0);
         nb[..nl].copy_from_slice(&name[..nl]);
@@ -1085,7 +1464,9 @@ where
         (dirfd, raw.as_ptr() as *const CChar)
     };
     let r = f(fd, p);
-    if own { rc::close(fd); }
+    if own {
+        rc::close(fd);
+    }
     ret_or_errno(r)
 }
 
@@ -1094,8 +1475,12 @@ where
 /// (or `AT_EMPTY_PATH`) instead of re-looking up the final name, which closes
 /// the final-component replacement race on kernels without fchmodat2.
 unsafe fn target_fd(dirfd: CInt, path: *const CChar, follow: bool) -> Result<CInt, CInt> {
-    if path.is_null() { return Err(14); }
-    if *path == 0 { return Err(2); }
+    if path.is_null() {
+        return Err(14);
+    }
+    if *path == 0 {
+        return Err(2);
+    }
     let flags = O_PATH | O_CLOEXEC | if follow { 0 } else { O_NOFOLLOW };
     if dirfd != AT_FDCWD && *path != b'/' as CChar {
         let rfd = rootfd();
@@ -1112,7 +1497,10 @@ unsafe fn target_fd(dirfd: CInt, path: *const CChar, follow: bool) -> Result<CIn
 
     let rfd = rootfd();
     let mut gp = [0u8; PATH_MAX];
-    let n = match abs_guest(path, &mut gp) { Some(n) => n, None => return Err(36) };
+    let n = match abs_guest(path, &mut gp) {
+        Some(n) => n,
+        None => return Err(36),
+    };
     if rfd < 0 || passthrough(&gp[..n]) {
         return rc::openat(AT_FDCWD, &gp[..n], flags, 0);
     }
@@ -1125,24 +1513,40 @@ unsafe fn target_fd(dirfd: CInt, path: *const CChar, follow: bool) -> Result<CIn
 /// rootfs (for example a passthrough /proc or /dev fd) returns None and keeps
 /// the historical raw behavior.
 unsafe fn dirfd_guest_path(dirfd: CInt, rel: &[u8], out: &mut [u8; PATH_MAX]) -> Option<usize> {
-    if rel.is_empty() || rel.len() >= PATH_MAX { return None; }
+    if rel.is_empty() || rel.len() >= PATH_MAX {
+        return None;
+    }
     let mut real = [0u8; PATH_MAX];
-    let rl = match fd_real_path(dirfd, &mut real) { Some(v) => v, None => return None };
+    let rl = match fd_real_path(dirfd, &mut real) {
+        Some(v) => v,
+        None => return None,
+    };
     let root = guest_root();
-    if root.is_empty() || rl < root.len() || &real[..root.len()] != root { return None; }
-    if rl != root.len() && real[root.len()] != b'/' { return None; }
+    if root.is_empty() || rl < root.len() || &real[..root.len()] != root {
+        return None;
+    }
+    if rl != root.len() && real[root.len()] != b'/' {
+        return None;
+    }
 
     let mut raw = [0u8; PATH_MAX];
     let mut n = 1usize;
     raw[0] = b'/';
     if rl > root.len() {
         let suffix = &real[root.len() + 1..rl];
-        if suffix.len() + 1 >= PATH_MAX { return None; }
+        if suffix.len() + 1 >= PATH_MAX {
+            return None;
+        }
         raw[1..1 + suffix.len()].copy_from_slice(suffix);
         n = 1 + suffix.len();
     }
-    if n + 1 + rel.len() >= PATH_MAX { return None; }
-    if n != 1 || raw[0] != b'/' { raw[n] = b'/'; n += 1; }
+    if n + 1 + rel.len() >= PATH_MAX {
+        return None;
+    }
+    if n != 1 || raw[0] != b'/' {
+        raw[n] = b'/';
+        n += 1;
+    }
     raw[n..n + rel.len()].copy_from_slice(rel);
     n += rel.len();
     Some(normalize(&raw[..n], out))
@@ -1152,11 +1556,20 @@ unsafe fn dirfd_guest_path(dirfd: CInt, rel: &[u8], out: &mut [u8; PATH_MAX]) ->
 unsafe fn fd_real_path(fd: CInt, out: &mut [u8; PATH_MAX]) -> Option<usize> {
     let mut pb = [0u8; 32];
     let proc_path = fd_proc_path(fd, &mut pb);
-    let rn = syscall4(SYS_READLINKAT, AT_FDCWD as usize, proc_path.as_ptr() as usize,
-                      out.as_mut_ptr() as usize, PATH_MAX - 1);
-    if rn <= 0 { return None; }
+    let rn = syscall4(
+        SYS_READLINKAT,
+        AT_FDCWD as usize,
+        proc_path.as_ptr() as usize,
+        out.as_mut_ptr() as usize,
+        PATH_MAX - 1,
+    );
+    if rn <= 0 {
+        return None;
+    }
     let mut rl = rn as usize;
-    while rl > 0 && out[rl - 1] == 0 { rl -= 1; }
+    while rl > 0 && out[rl - 1] == 0 {
+        rl -= 1;
+    }
     (rl != 0).then_some(rl)
 }
 
@@ -1165,32 +1578,45 @@ unsafe fn fd_real_path(fd: CInt, out: &mut [u8; PATH_MAX]) -> Option<usize> {
 /// descriptors become a namespace escape via `..` or proc magic links such as
 /// `self/root` and `self/cwd`.
 unsafe fn host_dirfd_safe(dirfd: CInt, rel: &[u8]) -> Option<usize> {
-    if rel.is_empty() || rel.len() >= PATH_MAX { return None; }
+    if rel.is_empty() || rel.len() >= PATH_MAX {
+        return None;
+    }
     let mut real = [0u8; PATH_MAX];
     let rn = fd_real_path(dirfd, &mut real)?;
     let mut root_len = 0usize;
     let mut is_proc = false;
     for root in [b"/proc".as_ref(), b"/dev".as_ref(), b"/sys".as_ref()] {
-        if rn >= root.len() && &real[..root.len()] == root &&
-           (rn == root.len() || real[root.len()] == b'/') {
+        if rn >= root.len()
+            && &real[..root.len()] == root
+            && (rn == root.len() || real[root.len()] == b'/')
+        {
             root_len = root.len();
             is_proc = root == b"/proc".as_ref();
             break;
         }
     }
-    if root_len == 0 { return None; }
+    if root_len == 0 {
+        return None;
+    }
     for c in rel.split(|x| *x == b'/') {
-        if c == b".." || (is_proc && (c == b"root" || c == b"cwd")) { return None; }
+        if c == b".." || (is_proc && (c == b"root" || c == b"cwd")) {
+            return None;
+        }
     }
     Some(root_len)
 }
 
 unsafe fn fd_visible_path(fd: CInt) -> bool {
     let mut real = [0u8; PATH_MAX];
-    let Some(rn) = fd_real_path(fd, &mut real) else { return false };
+    let Some(rn) = fd_real_path(fd, &mut real) else {
+        return false;
+    };
     let root = guest_root();
-    if !root.is_empty() && rn >= root.len() && &real[..root.len()] == root &&
-       (rn == root.len() || real[root.len()] == b'/') {
+    if !root.is_empty()
+        && rn >= root.len()
+        && &real[..root.len()] == root
+        && (rn == root.len() || real[root.len()] == b'/')
+    {
         return true;
     }
     pseudo_path(&real[..rn]) && passthrough(&real[..rn])
@@ -1201,13 +1627,23 @@ unsafe fn fd_visible_path(fd: CInt) -> bool {
 /// use the guest-root resolver. `Ok(None)` means the fd is one of the explicit
 /// host passthrough trees and the relative path was lexically checked. Any
 /// other fd is denied: an inherited host fd must not become a namespace hole.
-unsafe fn resolve_dirfd_rel(dirfd: CInt, rel: &[u8], out: &mut [u8; PATH_MAX])
-    -> Result<Option<usize>, CInt>
-{
-    if rel.is_empty() { return Err(2); }
-    if rel.len() >= PATH_MAX { return Err(36); }
-    if let Some(n) = dirfd_guest_path(dirfd, rel, out) { return Ok(Some(n)); }
-    if host_dirfd_safe(dirfd, rel).is_some() { return Ok(None); }
+unsafe fn resolve_dirfd_rel(
+    dirfd: CInt,
+    rel: &[u8],
+    out: &mut [u8; PATH_MAX],
+) -> Result<Option<usize>, CInt> {
+    if rel.is_empty() {
+        return Err(2);
+    }
+    if rel.len() >= PATH_MAX {
+        return Err(36);
+    }
+    if let Some(n) = dirfd_guest_path(dirfd, rel, out) {
+        return Ok(Some(n));
+    }
+    if host_dirfd_safe(dirfd, rel).is_some() {
+        return Ok(None);
+    }
     Err(13)
 }
 
@@ -1244,7 +1680,13 @@ unsafe fn chmod_target(dirfd: CInt, path: *const CChar, mode: CInt, follow: bool
     };
     let mut pb = [0u8; 32];
     let p = fd_proc_path(fd, &mut pb);
-    let r = syscall4(SYS_FCHMODAT, AT_FDCWD as usize, p.as_ptr() as usize, mode as usize, 0);
+    let r = syscall4(
+        SYS_FCHMODAT,
+        AT_FDCWD as usize,
+        p.as_ptr() as usize,
+        mode as usize,
+        0,
+    );
     rc::close(fd);
     ret_or_errno(r)
 }
@@ -1257,7 +1699,9 @@ unsafe fn chown_target(
     follow: bool,
     raw_flags: CInt,
 ) -> CInt {
-    if path.is_null() { return set_errno(14); }
+    if path.is_null() {
+        return set_errno(14);
+    }
     if *path == 0 && raw_flags & AT_EMPTY_PATH != 0 {
         return ret_or_errno(syscall5(
             SYS_FCHOWNAT,
@@ -1273,7 +1717,9 @@ unsafe fn chown_target(
         Err(e) => return set_errno(e),
     };
     let mut flags = AT_EMPTY_PATH;
-    if !follow { flags |= AT_SYMLINK_NOFOLLOW; }
+    if !follow {
+        flags |= AT_SYMLINK_NOFOLLOW;
+    }
     let r = syscall5(
         SYS_FCHOWNAT,
         fd as usize,
@@ -1293,7 +1739,9 @@ unsafe fn utimens_target(
     follow: bool,
     raw_flags: CInt,
 ) -> CInt {
-    if path.is_null() { return set_errno(14); }
+    if path.is_null() {
+        return set_errno(14);
+    }
     if *path == 0 && raw_flags & AT_EMPTY_PATH != 0 {
         return ret_or_errno(syscall4(
             SYS_UTIMENSAT,
@@ -1309,7 +1757,13 @@ unsafe fn utimens_target(
     };
     let mut pb = [0u8; 32];
     let p = fd_proc_path(fd, &mut pb);
-    let r = syscall4(SYS_UTIMENSAT, AT_FDCWD as usize, p.as_ptr() as usize, times as usize, 0);
+    let r = syscall4(
+        SYS_UTIMENSAT,
+        AT_FDCWD as usize,
+        p.as_ptr() as usize,
+        times as usize,
+        0,
+    );
     rc::close(fd);
     ret_or_errno(r)
 }
@@ -1349,7 +1803,10 @@ unsafe fn one_side(
         return Ok((dirfd, path, false));
     }
     let mut gp = [0u8; PATH_MAX];
-    let n = match abs_guest(path, &mut gp) { Some(n) => n, None => return Err(36) };
+    let n = match abs_guest(path, &mut gp) {
+        Some(n) => n,
+        None => return Err(36),
+    };
     if rfd < 0 || passthrough(&gp[..n]) {
         raw[..n].copy_from_slice(&gp[..n]);
         raw[n] = 0;
@@ -1368,13 +1825,20 @@ unsafe fn one_side(
 }
 
 unsafe fn pathop2<F>(
-    afd: CInt, a: *const CChar, bfd: CInt, b: *const CChar,
-    follow_a: bool, follow_b: bool, f: F,
+    afd: CInt,
+    a: *const CChar,
+    bfd: CInt,
+    b: *const CChar,
+    follow_a: bool,
+    follow_b: bool,
+    f: F,
 ) -> CInt
 where
     F: FnOnce(CInt, *const CChar, CInt, *const CChar) -> Ssize,
 {
-    if a.is_null() || b.is_null() { return set_errno(14); }
+    if a.is_null() || b.is_null() {
+        return set_errno(14);
+    }
     let rfd = rootfd();
     let mut rawa = [0u8; PATH_MAX];
     let mut rawb = [0u8; PATH_MAX];
@@ -1386,62 +1850,129 @@ where
     };
     let (pb, nb, own_b) = match one_side(rfd, bfd, b, follow_b, &mut rawb, &mut nbb) {
         Ok(v) => v,
-        Err(e) => { if own_a { rc::close(pa); } return set_errno(e); }
+        Err(e) => {
+            if own_a {
+                rc::close(pa);
+            }
+            return set_errno(e);
+        }
     };
     let r = f(pa, na, pb, nb);
-    if own_a { rc::close(pa); }
-    if own_b { rc::close(pb); }
+    if own_a {
+        rc::close(pa);
+    }
+    if own_b {
+        rc::close(pb);
+    }
     ret_or_errno(r)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn mkdir(path: *const CChar, mode: CInt) -> CInt {
-    pathop(AT_FDCWD, path, false, |fd, p| syscall4(SYS_MKDIRAT, fd as usize, p as usize, mode as usize, 0))
+    pathop(AT_FDCWD, path, false, |fd, p| {
+        syscall4(SYS_MKDIRAT, fd as usize, p as usize, mode as usize, 0)
+    })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn mkdirat(dirfd: CInt, path: *const CChar, mode: CInt) -> CInt {
-    if verbose_on() { dbg(&[b"MKDIRAT fd="]); dbgn(&[], dirfd as i64); dbg(&[b"  path=", bytes(path), b"\n"]); }
-    pathop(dirfd, path, false, |fd, p| syscall4(SYS_MKDIRAT, fd as usize, p as usize, mode as usize, 0))
+    if verbose_on() {
+        dbg(&[b"MKDIRAT fd="]);
+        dbgn(&[], dirfd as i64);
+        dbg(&[b"  path=", bytes(path), b"\n"]);
+    }
+    pathop(dirfd, path, false, |fd, p| {
+        syscall4(SYS_MKDIRAT, fd as usize, p as usize, mode as usize, 0)
+    })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rmdir(path: *const CChar) -> CInt {
-    pathop(AT_FDCWD, path, false, |fd, p| syscall4(SYS_UNLINKAT, fd as usize, p as usize, 0x200, 0))
+    pathop(AT_FDCWD, path, false, |fd, p| {
+        syscall4(SYS_UNLINKAT, fd as usize, p as usize, 0x200, 0)
+    })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn unlink(path: *const CChar) -> CInt {
-    pathop(AT_FDCWD, path, false, |fd, p| syscall4(SYS_UNLINKAT, fd as usize, p as usize, 0, 0))
+    pathop(AT_FDCWD, path, false, |fd, p| {
+        syscall4(SYS_UNLINKAT, fd as usize, p as usize, 0, 0)
+    })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn unlinkat(dirfd: CInt, path: *const CChar, flags: CInt) -> CInt {
-    pathop(dirfd, path, false, |fd, p| syscall4(SYS_UNLINKAT, fd as usize, p as usize, flags as usize, 0))
+    pathop(dirfd, path, false, |fd, p| {
+        syscall4(SYS_UNLINKAT, fd as usize, p as usize, flags as usize, 0)
+    })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rename(from: *const CChar, to: *const CChar) -> CInt {
-    pathop2(AT_FDCWD, from, AT_FDCWD, to, false, false, |fa, pa, fb, pb| {
-        syscall4(SYS_RENAMEAT, fa as usize, pa as usize, fb as usize, pb as usize)
+    pathop2(
+        AT_FDCWD,
+        from,
+        AT_FDCWD,
+        to,
+        false,
+        false,
+        |fa, pa, fb, pb| {
+            syscall4(
+                SYS_RENAMEAT,
+                fa as usize,
+                pa as usize,
+                fb as usize,
+                pb as usize,
+            )
+        },
+    )
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn renameat(
+    afd: CInt,
+    from: *const CChar,
+    bfd: CInt,
+    to: *const CChar,
+) -> CInt {
+    pathop2(afd, from, bfd, to, false, false, |fa, pa, fb, pb| {
+        syscall4(
+            SYS_RENAMEAT,
+            fa as usize,
+            pa as usize,
+            fb as usize,
+            pb as usize,
+        )
     })
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn renameat(afd: CInt, from: *const CChar, bfd: CInt, to: *const CChar) -> CInt {
+pub unsafe extern "C" fn renameat2(
+    afd: CInt,
+    from: *const CChar,
+    bfd: CInt,
+    to: *const CChar,
+    flags: CInt,
+) -> CInt {
     pathop2(afd, from, bfd, to, false, false, |fa, pa, fb, pb| {
-        syscall4(SYS_RENAMEAT, fa as usize, pa as usize, fb as usize, pb as usize)
-    })
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn renameat2(afd: CInt, from: *const CChar, bfd: CInt, to: *const CChar, flags: CInt) -> CInt {
-    pathop2(afd, from, bfd, to, false, false, |fa, pa, fb, pb| {
-        let r = syscall5(SYS_RENAMEAT2, fa as usize, pa as usize, fb as usize, pb as usize, flags as usize);
+        let r = syscall5(
+            SYS_RENAMEAT2,
+            fa as usize,
+            pa as usize,
+            fb as usize,
+            pb as usize,
+            flags as usize,
+        );
         // renameat() cannot preserve RENAME_NOREPLACE / RENAME_EXCHANGE /
         // RENAME_WHITEOUT. Only use the legacy fallback for flags == 0.
         if r == -38 && flags == 0 {
-            return syscall4(SYS_RENAMEAT, fa as usize, pa as usize, fb as usize, pb as usize);
+            return syscall4(
+                SYS_RENAMEAT,
+                fa as usize,
+                pa as usize,
+                fb as usize,
+                pb as usize,
+            );
         }
         r
     })
@@ -1457,7 +1988,11 @@ pub unsafe extern "C" fn symlink(target: *const CChar, linkpath: *const CChar) -
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn symlinkat(target: *const CChar, dirfd: CInt, linkpath: *const CChar) -> CInt {
+pub unsafe extern "C" fn symlinkat(
+    target: *const CChar,
+    dirfd: CInt,
+    linkpath: *const CChar,
+) -> CInt {
     pathop(dirfd, linkpath, false, |fd, p| {
         syscall4(SYS_SYMLINKAT, target as usize, fd as usize, p as usize, 0)
     })
@@ -1465,20 +2000,47 @@ pub unsafe extern "C" fn symlinkat(target: *const CChar, dirfd: CInt, linkpath: 
 
 #[no_mangle]
 pub unsafe extern "C" fn link(old: *const CChar, new: *const CChar) -> CInt {
-    pathop2(AT_FDCWD, old, AT_FDCWD, new, false, false, |fa, pa, fb, pb| {
-        syscall4(SYS_LINKAT, fa as usize, pa as usize, fb as usize, pb as usize)
-    })
+    pathop2(
+        AT_FDCWD,
+        old,
+        AT_FDCWD,
+        new,
+        false,
+        false,
+        |fa, pa, fb, pb| {
+            syscall4(
+                SYS_LINKAT,
+                fa as usize,
+                pa as usize,
+                fb as usize,
+                pb as usize,
+            )
+        },
+    )
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn linkat(ofd: CInt, old: *const CChar, nfd: CInt, new: *const CChar, flags: CInt) -> CInt {
+pub unsafe extern "C" fn linkat(
+    ofd: CInt,
+    old: *const CChar,
+    nfd: CInt,
+    new: *const CChar,
+    flags: CInt,
+) -> CInt {
     // Resolve the old final symlink through the guest root before the kernel
     // sees AT_SYMLINK_FOLLOW. Passing the flag with an unresolved old name
     // would let an absolute link target resolve against the host root.
     let follow_old = flags & AT_SYMLINK_FOLLOW != 0;
     pathop2(ofd, old, nfd, new, follow_old, false, |fa, pa, fb, pb| {
         // linkat's 5th argument carries flags; keep it in x4 via a small shim.
-        syscall5(SYS_LINKAT, fa as usize, pa as usize, fb as usize, pb as usize, flags as usize)
+        syscall5(
+            SYS_LINKAT,
+            fa as usize,
+            pa as usize,
+            fb as usize,
+            pb as usize,
+            flags as usize,
+        )
     })
 }
 
@@ -1495,7 +2057,12 @@ pub unsafe extern "C" fn chmod(path: *const CChar, mode: CInt) -> CInt {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn fchmodat(dirfd: CInt, path: *const CChar, mode: CInt, flags: CInt) -> CInt {
+pub unsafe extern "C" fn fchmodat(
+    dirfd: CInt,
+    path: *const CChar,
+    mode: CInt,
+    flags: CInt,
+) -> CInt {
     chmod_target(dirfd, path, mode, flags & AT_SYMLINK_NOFOLLOW == 0)
 }
 
@@ -1510,14 +2077,29 @@ pub unsafe extern "C" fn lchown(path: *const CChar, uid: u32, gid: u32) -> CInt 
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn fchownat(dirfd: CInt, path: *const CChar, uid: u32, gid: u32, flags: CInt) -> CInt {
-    chown_target(dirfd, path, uid, gid, flags & AT_SYMLINK_NOFOLLOW == 0, flags)
+pub unsafe extern "C" fn fchownat(
+    dirfd: CInt,
+    path: *const CChar,
+    uid: u32,
+    gid: u32,
+    flags: CInt,
+) -> CInt {
+    chown_target(
+        dirfd,
+        path,
+        uid,
+        gid,
+        flags & AT_SYMLINK_NOFOLLOW == 0,
+        flags,
+    )
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn truncate(path: *const CChar, len: i64) -> CInt {
     let fd = open(path, 1, 0);
-    if fd < 0 { return -1; }
+    if fd < 0 {
+        return -1;
+    }
     const SYS_FTRUNCATE: usize = 46;
     let r = syscall4(SYS_FTRUNCATE, fd as usize, len as usize, 0, 0);
     rc::close(fd);
@@ -1525,7 +2107,12 @@ pub unsafe extern "C" fn truncate(path: *const CChar, len: i64) -> CInt {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn utimensat(dirfd: CInt, path: *const CChar, times: *const u8, flags: CInt) -> CInt {
+pub unsafe extern "C" fn utimensat(
+    dirfd: CInt,
+    path: *const CChar,
+    times: *const u8,
+    flags: CInt,
+) -> CInt {
     utimens_target(dirfd, path, times, flags & AT_SYMLINK_NOFOLLOW == 0, flags)
 }
 
@@ -1534,18 +2121,30 @@ pub unsafe extern "C" fn utimes(path: *const CChar, tv: *const i64) -> CInt {
     // struct timeval[2] -> struct timespec[2]
     let mut ts = [0i64; 4];
     if !tv.is_null() {
-        ts[0] = *tv;              // sec
-        ts[1] = (*tv.add(1)) * 1000;  // usec -> nsec
+        ts[0] = *tv; // sec
+        ts[1] = (*tv.add(1)) * 1000; // usec -> nsec
         ts[2] = *tv.add(2);
         ts[3] = (*tv.add(3)) * 1000;
     }
-    let t = if tv.is_null() { core::ptr::null() } else { ts.as_ptr() };
+    let t = if tv.is_null() {
+        core::ptr::null()
+    } else {
+        ts.as_ptr()
+    };
     utimens_target(AT_FDCWD, path, t as *const u8, true, 0)
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn readlinkat(dirfd: CInt, path: *const CChar, out: *mut CChar, len: CSizet) -> Ssize {
-    if path.is_null() { *__errno_location() = 14; return -1; }
+pub unsafe extern "C" fn readlinkat(
+    dirfd: CInt,
+    path: *const CChar,
+    out: *mut CChar,
+    len: CSizet,
+) -> Ssize {
+    if path.is_null() {
+        *__errno_location() = 14;
+        return -1;
+    }
     // `/proc/self/exe` must name the guest program, not the loader (see EXE_GUEST).
     {
         const WANT: &[u8] = b"/proc/self/exe";
@@ -1554,7 +2153,9 @@ pub unsafe extern "C" fn readlinkat(dirfd: CInt, path: *const CChar, out: *mut C
         while hit && i <= WANT.len() {
             let c = *path.add(i) as u8;
             if i < WANT.len() {
-                if c != WANT[i] { hit = false; }
+                if c != WANT[i] {
+                    hit = false;
+                }
             } else if c != 0 {
                 hit = false;
             }
@@ -1567,10 +2168,20 @@ pub unsafe extern "C" fn readlinkat(dirfd: CInt, path: *const CChar, out: *mut C
         }
     }
     let absolute = *path == b'/' as CChar;
-    if verbose_on() { dbg(&[b"READLINKAT fd="]); dbgn(&[], dirfd as i64); dbg(&[b" p=", bytes(path), b"\n"]); }
+    if verbose_on() {
+        dbg(&[b"READLINKAT fd="]);
+        dbgn(&[], dirfd as i64);
+        dbg(&[b" p=", bytes(path), b"\n"]);
+    }
     let rfd = rootfd();
     if rfd < 0 && dirfd != AT_FDCWD && !absolute {
-        return syscall4(SYS_READLINKAT, dirfd as usize, path as usize, out as usize, len);
+        return syscall4(
+            SYS_READLINKAT,
+            dirfd as usize,
+            path as usize,
+            out as usize,
+            len,
+        );
     }
     let mut gp = [0u8; PATH_MAX];
     if rfd >= 0 && dirfd != AT_FDCWD && !absolute {
@@ -1581,18 +2192,43 @@ pub unsafe extern "C" fn readlinkat(dirfd: CInt, path: *const CChar, out: *mut C
                     Ok(fd) => fd,
                     Err(e) => return set_errno(e) as Ssize,
                 };
-                let r = syscall4(SYS_READLINKAT, parent as usize, name.as_ptr() as usize, out as usize, len);
+                let r = syscall4(
+                    SYS_READLINKAT,
+                    parent as usize,
+                    name.as_ptr() as usize,
+                    out as usize,
+                    len,
+                );
                 rc::close(parent);
-                if verbose_on() { dbg(&[b"  -> "]); dbgn(&[], r as i64); }
+                if verbose_on() {
+                    dbg(&[b"  -> "]);
+                    dbgn(&[], r as i64);
+                }
                 return r;
             }
-            Ok(None) => return syscall4(SYS_READLINKAT, dirfd as usize, path as usize, out as usize, len),
+            Ok(None) => {
+                return syscall4(
+                    SYS_READLINKAT,
+                    dirfd as usize,
+                    path as usize,
+                    out as usize,
+                    len,
+                )
+            }
             Err(e) => return set_errno(e) as Ssize,
         }
     }
     let n = match abs_guest(path, &mut gp) {
         Some(n) if rfd >= 0 && !passthrough(&gp[..n]) => n,
-        Some(_) => return syscall4(SYS_READLINKAT, AT_FDCWD as usize, gp.as_ptr() as usize, out as usize, len),
+        Some(_) => {
+            return syscall4(
+                SYS_READLINKAT,
+                AT_FDCWD as usize,
+                gp.as_ptr() as usize,
+                out as usize,
+                len,
+            )
+        }
         None => return set_errno(36) as Ssize,
     };
     let mut name = [0u8; 256];
@@ -1600,7 +2236,13 @@ pub unsafe extern "C" fn readlinkat(dirfd: CInt, path: *const CChar, out: *mut C
         Ok(fd) => fd,
         Err(e) => return set_errno(e) as Ssize,
     };
-    let r = syscall4(SYS_READLINKAT, parent as usize, name.as_ptr() as usize, out as usize, len);
+    let r = syscall4(
+        SYS_READLINKAT,
+        parent as usize,
+        name.as_ptr() as usize,
+        out as usize,
+        len,
+    );
     rc::close(parent);
     r
 }
@@ -1637,32 +2279,63 @@ pub unsafe extern "C" fn close_range(first: u32, last: u32, flags: CInt) -> CInt
         let r = rfd as u32;
         if first <= r && r <= last {
             if first < r {
-                let rc = syscall4(SYS_CLOSE_RANGE, first as usize, (r - 1) as usize, flags as usize, 0);
-                if rc < 0 { return ret_or_errno(rc); }
+                let rc = syscall4(
+                    SYS_CLOSE_RANGE,
+                    first as usize,
+                    (r - 1) as usize,
+                    flags as usize,
+                    0,
+                );
+                if rc < 0 {
+                    return ret_or_errno(rc);
+                }
             }
             if r < last {
-                let rc = syscall4(SYS_CLOSE_RANGE, (r + 1) as usize, last as usize, flags as usize, 0);
-                if rc < 0 { return ret_or_errno(rc); }
+                let rc = syscall4(
+                    SYS_CLOSE_RANGE,
+                    (r + 1) as usize,
+                    last as usize,
+                    flags as usize,
+                    0,
+                );
+                if rc < 0 {
+                    return ret_or_errno(rc);
+                }
             }
             return 0;
         }
     }
-    ret_or_errno(syscall4(SYS_CLOSE_RANGE, first as usize, last as usize, flags as usize, 0))
+    ret_or_errno(syscall4(
+        SYS_CLOSE_RANGE,
+        first as usize,
+        last as usize,
+        flags as usize,
+        0,
+    ))
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn chdir(path: *const CChar) -> CInt {
-    if path.is_null() { return set_errno(14); }
+    if path.is_null() {
+        return set_errno(14);
+    }
     let rfd = rootfd();
     if rfd < 0 {
         dbg(&[b"chdir NOROOTFS\n"]);
         let mut gp = [0u8; PATH_MAX];
-        if abs_guest(path, &mut gp).is_none() { return set_errno(36); }
+        if abs_guest(path, &mut gp).is_none() {
+            return set_errno(36);
+        }
         return ret_or_errno(syscall4(SYS_CHDIR, gp.as_ptr() as usize, 0, 0, 0));
     }
     let mut gp = [0u8; PATH_MAX];
-    let n = match abs_guest(path, &mut gp) { Some(n) => n, None => return set_errno(36) };
-    if verbose_on() { dbg(&[b"chdir guest=", &gp[..n], b"\n"]); }
+    let n = match abs_guest(path, &mut gp) {
+        Some(n) => n,
+        None => return set_errno(36),
+    };
+    if verbose_on() {
+        dbg(&[b"chdir guest=", &gp[..n], b"\n"]);
+    }
     if passthrough(&gp[..n]) {
         return ret_or_errno(syscall4(SYS_CHDIR, gp.as_ptr() as usize, 0, 0, 0));
     }
@@ -1670,11 +2343,20 @@ pub unsafe extern "C" fn chdir(path: *const CChar) -> CInt {
         Ok(fd) => {
             let r = syscall4(SYS_FCHDIR, fd as usize, 0, 0, 0);
             rc::close(fd);
-            if r < 0 { return ret_or_errno(r); }
+            if r < 0 {
+                return ret_or_errno(r);
+            }
             let mut realnow = [0u8; PATH_MAX];
-            let rn2 = syscall4(SYS_READLINKAT, AT_FDCWD as usize, b"/proc/self/cwd\0".as_ptr() as usize,
-                               realnow.as_mut_ptr() as usize, PATH_MAX - 1);
-            if rn2 > 0 { dbg(&[b"chdir realnow=", &realnow[..rn2 as usize], b"\n"]); }
+            let rn2 = syscall4(
+                SYS_READLINKAT,
+                AT_FDCWD as usize,
+                b"/proc/self/cwd\0".as_ptr() as usize,
+                realnow.as_mut_ptr() as usize,
+                PATH_MAX - 1,
+            );
+            if rn2 > 0 {
+                dbg(&[b"chdir realnow=", &realnow[..rn2 as usize], b"\n"]);
+            }
             let mut canon = [0u8; PATH_MAX];
             let cn = normalize(&gp[..n], &mut canon);
             set_cwd(&canon[..cn]);
@@ -1686,16 +2368,22 @@ pub unsafe extern "C" fn chdir(path: *const CChar) -> CInt {
 
 #[no_mangle]
 pub unsafe extern "C" fn fchdir(fd: CInt) -> CInt {
-    if !fd_visible_path(fd) { return set_errno(13); }
+    if !fd_visible_path(fd) {
+        return set_errno(13);
+    }
     let r = syscall4(SYS_FCHDIR, fd as usize, 0, 0, 0);
-    if r == 0 { CWD_STATE.store(0, Ordering::Release); }
+    if r == 0 {
+        CWD_STATE.store(0, Ordering::Release);
+    }
     ret_or_errno(r)
 }
 
 unsafe fn elf_interp(fd: CInt) -> bool {
     let mut eh = [0u8; 64];
     let r = syscall4(SYS_PREAD64, fd as usize, eh.as_mut_ptr() as usize, 64, 0);
-    if r != 64 || &eh[..4] != b"\x7fELF" { return false; }
+    if r != 64 || &eh[..4] != b"\x7fELF" {
+        return false;
+    }
     let phoff = u64::from_le_bytes(eh[32..40].try_into().unwrap());
     let phentsize = u16::from_le_bytes(eh[54..56].try_into().unwrap()) as u64;
     let phnum = u16::from_le_bytes(eh[56..58].try_into().unwrap()) as u64;
@@ -1703,14 +2391,23 @@ unsafe fn elf_interp(fd: CInt) -> bool {
     let mut i = 0u64;
     while i < phnum && i < 64 {
         let off = phoff + i * phentsize;
-        let r = syscall4(SYS_PREAD64, fd as usize, ph.as_mut_ptr() as usize, 56, off as usize);
-        if r != 56 { return false; }
-        if u32::from_le_bytes(ph[0..4].try_into().unwrap()) == 3 { return true; }
+        let r = syscall4(
+            SYS_PREAD64,
+            fd as usize,
+            ph.as_mut_ptr() as usize,
+            56,
+            off as usize,
+        );
+        if r != 56 {
+            return false;
+        }
+        if u32::from_le_bytes(ph[0..4].try_into().unwrap()) == 3 {
+            return true;
+        }
         i += 1;
     }
     false
 }
-
 
 // ------------------------------------------------------------------ self path
 // The program's own guest path, recorded at exec time. In this model
@@ -1728,12 +2425,32 @@ static mut EXE_GUEST_LEN: usize = 0;
 const SYS_STATX: usize = 291;
 
 #[no_mangle]
-pub unsafe extern "C" fn statx(dirfd: CInt, path: *const CChar, flags: CInt, mask: u32, buf: *mut u8) -> CInt {
+pub unsafe extern "C" fn statx(
+    dirfd: CInt,
+    path: *const CChar,
+    flags: CInt,
+    mask: u32,
+    buf: *mut u8,
+) -> CInt {
     if path.is_null() {
-        return ret_or_errno(syscall5(SYS_STATX, dirfd as usize, 0, flags as usize, mask as usize, buf as usize));
+        return ret_or_errno(syscall5(
+            SYS_STATX,
+            dirfd as usize,
+            0,
+            flags as usize,
+            mask as usize,
+            buf as usize,
+        ));
     }
     if *path == 0 && flags & AT_EMPTY_PATH != 0 {
-        return ret_or_errno(syscall5(SYS_STATX, dirfd as usize, path as usize, flags as usize, mask as usize, buf as usize));
+        return ret_or_errno(syscall5(
+            SYS_STATX,
+            dirfd as usize,
+            path as usize,
+            flags as usize,
+            mask as usize,
+            buf as usize,
+        ));
     }
     let follow = flags & AT_SYMLINK_NOFOLLOW == 0;
     let fd = match target_fd(dirfd, path, follow) {
@@ -1746,8 +2463,14 @@ pub unsafe extern "C" fn statx(dirfd: CInt, path: *const CChar, flags: CInt, mas
     // magic link pins the already-resolved inode; pass zero follow flags so a
     // nofollow symlink remains the symlink itself.
     let pass_flags = flags & !(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH);
-    let r = syscall5(SYS_STATX, AT_FDCWD as usize, p.as_ptr() as usize,
-                     pass_flags as usize, mask as usize, buf as usize);
+    let r = syscall5(
+        SYS_STATX,
+        AT_FDCWD as usize,
+        p.as_ptr() as usize,
+        pass_flags as usize,
+        mask as usize,
+        buf as usize,
+    );
     rc::close(fd);
     ret_or_errno(r)
 }
@@ -1765,12 +2488,16 @@ unsafe fn guest_path_from_real(real: &[u8], out: *mut u8, out_len: usize) -> Opt
             return Some(1);
         }
         let g = &real[root.len()..];
-        if g.len() > out_len { return None; }
+        if g.len() > out_len {
+            return None;
+        }
         core::ptr::copy_nonoverlapping(g.as_ptr(), out, g.len());
         return Some(g.len());
     }
     if real.first() == Some(&b'/') {
-        if real.len() > out_len { return None; }
+        if real.len() > out_len {
+            return None;
+        }
         core::ptr::copy_nonoverlapping(real.as_ptr(), out, real.len());
         return Some(real.len());
     }
@@ -1787,7 +2514,9 @@ pub unsafe extern "C" fn getcwd(buf: *mut CChar, size: CSizet) -> *mut CChar {
         return set_errno_ptr(34, core::ptr::null_mut()); // ERANGE
     }
     let mut rl = (n as usize).min(PATH_MAX - 1);
-    while rl > 0 && real[rl - 1] == 0 { rl -= 1; }
+    while rl > 0 && real[rl - 1] == 0 {
+        rl -= 1;
+    }
     let mut guest = [0u8; PATH_MAX];
     let gl = match guest_path_from_real(&real[..rl], guest.as_mut_ptr(), PATH_MAX) {
         Some(g) => g,
@@ -1795,7 +2524,9 @@ pub unsafe extern "C" fn getcwd(buf: *mut CChar, size: CSizet) -> *mut CChar {
     };
     if buf.is_null() {
         let out = malloc(gl + 1);
-        if out.is_null() { return set_errno_ptr(12, core::ptr::null_mut()); }
+        if out.is_null() {
+            return set_errno_ptr(12, core::ptr::null_mut());
+        }
         core::ptr::copy_nonoverlapping(guest.as_ptr(), out, gl);
         *out.add(gl) = 0;
         return out as *mut CChar;
@@ -1805,7 +2536,13 @@ pub unsafe extern "C" fn getcwd(buf: *mut CChar, size: CSizet) -> *mut CChar {
     }
     core::ptr::copy_nonoverlapping(guest.as_ptr(), buf as *mut u8, gl);
     *(buf as *mut u8).add(gl) = 0;
-    if verbose_on() { dbg(&[b"getcwd->", core::slice::from_raw_parts(buf as *const u8, gl), b"\n"]); }
+    if verbose_on() {
+        dbg(&[
+            b"getcwd->",
+            core::slice::from_raw_parts(buf as *const u8, gl),
+            b"\n",
+        ]);
+    }
     buf
 }
 
@@ -1823,12 +2560,15 @@ pub unsafe extern "C" fn opendir(path: *const CChar) -> *mut u8 {
     // the fd is a directory (ENOTDIR otherwise).
     const O_NONBLOCK: CInt = 0o4000;
     let fd = open(path, O_NONBLOCK | O_CLOEXEC, 0);
-    if fd < 0 { return core::ptr::null_mut(); }
+    if fd < 0 {
+        return core::ptr::null_mut();
+    }
     let d = fdopendir(fd);
-    if d.is_null() { rc::close(fd); }
+    if d.is_null() {
+        rc::close(fd);
+    }
     d
 }
-
 
 // ---------------------------------------------------------------------------
 // Path calls that have no *at() variant (xattr family, statfs) are handled by
@@ -1847,19 +2587,36 @@ const SYS_STATFS: usize = 43;
 
 unsafe fn proc_fd_path(fd: CInt, name: &[u8], out: &mut [u8; PATH_MAX]) -> Option<usize> {
     let mut i = 0usize;
-    for &c in b"/proc/self/fd/" { out[i] = c; i += 1; }
+    for &c in b"/proc/self/fd/" {
+        out[i] = c;
+        i += 1;
+    }
     let mut v = fd as u32;
     let mut d = [0u8; 10];
     let mut dn = 0usize;
-    if v == 0 { d[0] = b'0'; dn = 1; }
-    while v > 0 { d[dn] = b'0' + (v % 10) as u8; v /= 10; dn += 1; }
-    while dn > 0 { dn -= 1; out[i] = d[dn]; i += 1; }
+    if v == 0 {
+        d[0] = b'0';
+        dn = 1;
+    }
+    while v > 0 {
+        d[dn] = b'0' + (v % 10) as u8;
+        v /= 10;
+        dn += 1;
+    }
+    while dn > 0 {
+        dn -= 1;
+        out[i] = d[dn];
+        i += 1;
+    }
     if name.is_empty() || (name.len() == 1 && name[0] == b'.') {
         out[i] = 0;
         return Some(i);
     }
-    if i + 1 + name.len() + 1 > PATH_MAX { return None; }
-    out[i] = b'/'; i += 1;
+    if i + 1 + name.len() + 1 > PATH_MAX {
+        return None;
+    }
+    out[i] = b'/';
+    i += 1;
     out[i..i + name.len()].copy_from_slice(name);
     i += name.len();
     out[i] = 0;
@@ -1871,9 +2628,18 @@ unsafe fn pathonly<F>(path: *const CChar, follow: bool, f: F) -> Ssize
 where
     F: FnOnce(*const CChar) -> Ssize,
 {
-    if path.is_null() { *__errno_location() = 14; return -1; }
+    if path.is_null() {
+        *__errno_location() = 14;
+        return -1;
+    }
     let mut gp = [0u8; PATH_MAX];
-    let n = match abs_guest(path, &mut gp) { Some(n) => n, None => { *__errno_location() = 36; return -1; } };
+    let n = match abs_guest(path, &mut gp) {
+        Some(n) => n,
+        None => {
+            *__errno_location() = 36;
+            return -1;
+        }
+    };
     let rfd = rootfd();
     let mut raw = [0u8; PATH_MAX];
     if rfd >= 0 && !passthrough(&gp[..n]) {
@@ -1885,12 +2651,18 @@ where
         };
         let parent = match parent {
             Ok(fd) => fd,
-            Err(e) => { *__errno_location() = e; return -1; }
+            Err(e) => {
+                *__errno_location() = e;
+                return -1;
+            }
         };
         let nl = name.iter().position(|c| *c == 0).unwrap_or(0);
         let r = match proc_fd_path(parent, &name[..nl], &mut raw) {
             Some(_) => f(raw.as_ptr() as *const CChar),
-            None => { *__errno_location() = 36; -1 }
+            None => {
+                *__errno_location() = 36;
+                -1
+            }
         };
         rc::close(parent);
         return r;
@@ -1901,67 +2673,158 @@ where
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn lgetxattr(path: *const CChar, name: *const CChar, value: *mut u8, size: CSizet) -> Ssize {
-    pathonly(path, false, |p| syscall5(SYS_LGETXATTR, p as usize, name as usize, value as usize, size, 0))
+pub unsafe extern "C" fn lgetxattr(
+    path: *const CChar,
+    name: *const CChar,
+    value: *mut u8,
+    size: CSizet,
+) -> Ssize {
+    pathonly(path, false, |p| {
+        syscall5(
+            SYS_LGETXATTR,
+            p as usize,
+            name as usize,
+            value as usize,
+            size,
+            0,
+        )
+    })
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn getxattr(path: *const CChar, name: *const CChar, value: *mut u8, size: CSizet) -> Ssize {
-    pathonly(path, true, |p| syscall5(SYS_GETXATTR, p as usize, name as usize, value as usize, size, 0))
+pub unsafe extern "C" fn getxattr(
+    path: *const CChar,
+    name: *const CChar,
+    value: *mut u8,
+    size: CSizet,
+) -> Ssize {
+    pathonly(path, true, |p| {
+        syscall5(
+            SYS_GETXATTR,
+            p as usize,
+            name as usize,
+            value as usize,
+            size,
+            0,
+        )
+    })
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn setxattr(path: *const CChar, name: *const CChar, value: *const u8, size: CSizet, flags: CInt) -> CInt {
-    ret_or_errno(pathonly(path, true, |p| syscall5(SYS_SETXATTR, p as usize, name as usize, value as usize, size, flags as usize)))
+pub unsafe extern "C" fn setxattr(
+    path: *const CChar,
+    name: *const CChar,
+    value: *const u8,
+    size: CSizet,
+    flags: CInt,
+) -> CInt {
+    ret_or_errno(pathonly(path, true, |p| {
+        syscall5(
+            SYS_SETXATTR,
+            p as usize,
+            name as usize,
+            value as usize,
+            size,
+            flags as usize,
+        )
+    }))
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn lsetxattr(path: *const CChar, name: *const CChar, value: *const u8, size: CSizet, flags: CInt) -> CInt {
-    ret_or_errno(pathonly(path, false, |p| syscall5(SYS_LSETXATTR, p as usize, name as usize, value as usize, size, flags as usize)))
+pub unsafe extern "C" fn lsetxattr(
+    path: *const CChar,
+    name: *const CChar,
+    value: *const u8,
+    size: CSizet,
+    flags: CInt,
+) -> CInt {
+    ret_or_errno(pathonly(path, false, |p| {
+        syscall5(
+            SYS_LSETXATTR,
+            p as usize,
+            name as usize,
+            value as usize,
+            size,
+            flags as usize,
+        )
+    }))
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn listxattr(path: *const CChar, list: *mut CChar, size: CSizet) -> Ssize {
-    pathonly(path, true, |p| syscall4(SYS_LISTXATTR, p as usize, list as usize, size, 0))
+    pathonly(path, true, |p| {
+        syscall4(SYS_LISTXATTR, p as usize, list as usize, size, 0)
+    })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn llistxattr(path: *const CChar, list: *mut CChar, size: CSizet) -> Ssize {
-    pathonly(path, false, |p| syscall4(SYS_LLISTXATTR, p as usize, list as usize, size, 0))
+    pathonly(path, false, |p| {
+        syscall4(SYS_LLISTXATTR, p as usize, list as usize, size, 0)
+    })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn removexattr(path: *const CChar, name: *const CChar) -> CInt {
-    ret_or_errno(pathonly(path, true, |p| syscall4(SYS_REMOVEXATTR, p as usize, name as usize, 0, 0)))
+    ret_or_errno(pathonly(path, true, |p| {
+        syscall4(SYS_REMOVEXATTR, p as usize, name as usize, 0, 0)
+    }))
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn lremovexattr(path: *const CChar, name: *const CChar) -> CInt {
-    ret_or_errno(pathonly(path, false, |p| syscall4(SYS_LREMOVEXATTR, p as usize, name as usize, 0, 0)))
+    ret_or_errno(pathonly(path, false, |p| {
+        syscall4(SYS_LREMOVEXATTR, p as usize, name as usize, 0, 0)
+    }))
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn statfs(path: *const CChar, buf: *mut u8) -> CInt {
-    ret_or_errno(pathonly(path, true, |p| syscall4(SYS_STATFS, p as usize, buf as usize, 0, 0)))
+    ret_or_errno(pathonly(path, true, |p| {
+        syscall4(SYS_STATFS, p as usize, buf as usize, 0, 0)
+    }))
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn execve(path: *const CChar, argv: *const *const CChar, envp: *const *const CChar) -> CInt {
-    if path.is_null() { return set_errno(14); }
+pub unsafe extern "C" fn execve(
+    path: *const CChar,
+    argv: *const *const CChar,
+    envp: *const *const CChar,
+) -> CInt {
+    if path.is_null() {
+        return set_errno(14);
+    }
     let rfd = rootfd();
     if rfd < 0 {
         let mut gp = [0u8; PATH_MAX];
-        if abs_guest(path, &mut gp).is_none() { return set_errno(36); }
-        return ret_or_errno(syscall4(SYS_EXECVE, gp.as_ptr() as usize, argv as usize, envp as usize, 0));
+        if abs_guest(path, &mut gp).is_none() {
+            return set_errno(36);
+        }
+        return ret_or_errno(syscall4(
+            SYS_EXECVE,
+            gp.as_ptr() as usize,
+            argv as usize,
+            envp as usize,
+            0,
+        ));
     }
     let mut gp = [0u8; PATH_MAX];
-    let n = match abs_guest(path, &mut gp) { Some(n) => n, None => return set_errno(36) };
+    let n = match abs_guest(path, &mut gp) {
+        Some(n) => n,
+        None => return set_errno(36),
+    };
     if n < PATH_MAX {
         EXE_GUEST[..n].copy_from_slice(&gp[..n]);
         EXE_GUEST_LEN = n;
     }
     if pseudo_path(&gp[..n]) && passthrough(&gp[..n]) {
-        return ret_or_errno(syscall4(SYS_EXECVE, gp.as_ptr() as usize, argv as usize, envp as usize, 0));
+        return ret_or_errno(syscall4(
+            SYS_EXECVE,
+            gp.as_ptr() as usize,
+            argv as usize,
+            envp as usize,
+            0,
+        ));
     }
     let mut real = [0u8; PATH_MAX];
     if under_root(&gp[..n]) {
@@ -1983,8 +2846,16 @@ pub unsafe extern "C" fn execve(path: *const CChar, argv: *const *const CChar, e
         rc::close(parent);
     }
 
-    let fd = ret_or_errno(syscall4(SYS_OPENAT, AT_FDCWD as usize, real.as_ptr() as usize, 0, 0));
-    if fd < 0 { return -1; }
+    let fd = ret_or_errno(syscall4(
+        SYS_OPENAT,
+        AT_FDCWD as usize,
+        real.as_ptr() as usize,
+        0,
+        0,
+    ));
+    if fd < 0 {
+        return -1;
+    }
 
     // ---------------------------------------------------- #! scripts ---
     // The kernel resolves a script's interpreter against the *host* root, so a
@@ -1993,7 +2864,13 @@ pub unsafe extern "C" fn execve(path: *const CChar, argv: *const *const CChar, e
     // interpreter inside the guest root, and re-enter the loader with the argv
     // shape the kernel would have produced: [interp, arg?, script, argv[1..]].
     let mut hdr = [0u8; 256];
-    let hn = syscall4(SYS_PREAD64, fd as usize, hdr.as_mut_ptr() as usize, hdr.len(), 0);
+    let hn = syscall4(
+        SYS_PREAD64,
+        fd as usize,
+        hdr.as_mut_ptr() as usize,
+        hdr.len(),
+        0,
+    );
     let mut tgt = real;
     let mut shebang_arg = [0u8; 200];
     let mut shebang_arg_len = 0usize;
@@ -2002,15 +2879,26 @@ pub unsafe extern "C" fn execve(path: *const CChar, argv: *const *const CChar, e
     if hn > 2 && hdr[0] == b'#' && hdr[1] == b'!' {
         let hn = hn as usize;
         let mut i = 2usize;
-        while i < hn && (hdr[i] == b' ' || hdr[i] == b'\t') { i += 1; }
+        while i < hn && (hdr[i] == b' ' || hdr[i] == b'\t') {
+            i += 1;
+        }
         let istart = i;
-        while i < hn && hdr[i] != b' ' && hdr[i] != b'\t' && hdr[i] != b'\n' && hdr[i] != b'\r' { i += 1; }
-        if i == istart { rc::close(fd); return set_errno(ENOEXEC); }
+        while i < hn && hdr[i] != b' ' && hdr[i] != b'\t' && hdr[i] != b'\n' && hdr[i] != b'\r' {
+            i += 1;
+        }
+        if i == istart {
+            rc::close(fd);
+            return set_errno(ENOEXEC);
+        }
         // one optional argument, as the kernel allows
         let mut j = i;
-        while j < hn && (hdr[j] == b' ' || hdr[j] == b'\t') { j += 1; }
+        while j < hn && (hdr[j] == b' ' || hdr[j] == b'\t') {
+            j += 1;
+        }
         let astart = j;
-        while j < hn && hdr[j] != b'\n' && hdr[j] != b'\r' { j += 1; }
+        while j < hn && hdr[j] != b'\n' && hdr[j] != b'\r' {
+            j += 1;
+        }
         if j > astart {
             let l = core::cmp::min(j - astart, shebang_arg.len() - 1);
             shebang_arg[..l].copy_from_slice(&hdr[astart..astart + l]);
@@ -2018,10 +2906,16 @@ pub unsafe extern "C" fn execve(path: *const CChar, argv: *const *const CChar, e
         }
         let mut interp = [0u8; PATH_MAX];
         let l = i - istart;
-        if l >= PATH_MAX { rc::close(fd); return set_errno(36); }
+        if l >= PATH_MAX {
+            rc::close(fd);
+            return set_errno(36);
+        }
         interp[..l].copy_from_slice(&hdr[istart..i]);
         interp[l] = 0;
-        if interp[0] != b'/' { rc::close(fd); return set_errno(ENOEXEC); }
+        if interp[0] != b'/' {
+            rc::close(fd);
+            return set_errno(ENOEXEC);
+        }
         // Two candidates, and that is enough for a usr-merged rootfs:
         //   <root>/usr/bin/x   (what Ubuntu 24.04 actually stores)
         //   <root>/bin/x       (the pre-merge spelling a shebang may still use)
@@ -2031,7 +2925,9 @@ pub unsafe extern "C" fn execve(path: *const CChar, argv: *const *const CChar, e
         let mut found = false;
         for variant in 0..2usize {
             let mut p = [0u8; PATH_MAX];
-            if root.len() + 4 + l + 1 >= PATH_MAX { break; }
+            if root.len() + 4 + l + 1 >= PATH_MAX {
+                break;
+            }
             let mut o = root.len();
             p[..root.len()].copy_from_slice(root);
             if variant == 1 {
@@ -2049,37 +2945,68 @@ pub unsafe extern "C" fn execve(path: *const CChar, argv: *const *const CChar, e
                 break;
             }
         }
-        if !found { rc::close(fd); return set_errno(ENOENT); }
+        if !found {
+            rc::close(fd);
+            return set_errno(ENOENT);
+        }
         is_script = true;
     }
 
     let tfd = if is_script {
-        let f = ret_or_errno(syscall4(SYS_OPENAT, AT_FDCWD as usize, tgt.as_ptr() as usize, 0, 0));
-        if f < 0 { rc::close(fd); return -1; }
+        let f = ret_or_errno(syscall4(
+            SYS_OPENAT,
+            AT_FDCWD as usize,
+            tgt.as_ptr() as usize,
+            0,
+            0,
+        ));
+        if f < 0 {
+            rc::close(fd);
+            return -1;
+        }
         f
     } else {
         fd
     };
     let dynamic = elf_interp(tfd);
     rc::close(tfd);
-    if tfd != fd { rc::close(fd); }
+    if tfd != fd {
+        rc::close(fd);
+    }
 
     if !dynamic {
         if !is_script {
-            return ret_or_errno(syscall4(SYS_EXECVE, tgt.as_ptr() as usize, argv as usize, envp as usize, 0));
+            return ret_or_errno(syscall4(
+                SYS_EXECVE,
+                tgt.as_ptr() as usize,
+                argv as usize,
+                envp as usize,
+                0,
+            ));
         }
         let mut sargs: [*const CChar; 64] = [core::ptr::null(); 64];
         let mut k = 0usize;
-        sargs[k] = tgt.as_ptr() as *const CChar; k += 1;
-        if shebang_arg_len > 0 { sargs[k] = shebang_arg.as_ptr() as *const CChar; k += 1; }
-        sargs[k] = real.as_ptr() as *const CChar; k += 1;
+        sargs[k] = tgt.as_ptr() as *const CChar;
+        k += 1;
+        if shebang_arg_len > 0 {
+            sargs[k] = shebang_arg.as_ptr() as *const CChar;
+            k += 1;
+        }
+        sargs[k] = real.as_ptr() as *const CChar;
+        k += 1;
         let mut i = 1usize;
         while !argv.is_null() && !(*argv.add(i)).is_null() && k < 63 {
             sargs[k] = *argv.add(i);
             k += 1;
             i += 1;
         }
-        return ret_or_errno(syscall4(SYS_EXECVE, tgt.as_ptr() as usize, sargs.as_ptr() as usize, envp as usize, 0));
+        return ret_or_errno(syscall4(
+            SYS_EXECVE,
+            tgt.as_ptr() as usize,
+            sargs.as_ptr() as usize,
+            envp as usize,
+            0,
+        ));
     }
 
     let root = guest_root();
@@ -2094,7 +3021,9 @@ pub unsafe extern "C" fn execve(path: *const CChar, argv: *const *const CChar, e
     let ld_path: &[u8] = match env_lookup(b"NR_LD") {
         Some(p) if !p.is_empty() => p,
         _ => {
-            if root.len() + suf.len() + 1 >= PATH_MAX { return set_errno(36); }
+            if root.len() + suf.len() + 1 >= PATH_MAX {
+                return set_errno(36);
+            }
             ld[..root.len()].copy_from_slice(root);
             ld[root.len()..root.len() + suf.len()].copy_from_slice(suf);
             let ldn = root.len() + suf.len();
@@ -2103,11 +3032,15 @@ pub unsafe extern "C" fn execve(path: *const CChar, argv: *const *const CChar, e
         }
     };
     let ldn = ld_path.len();
-    if ldn == 0 || ldn + 1 >= PATH_MAX { return set_errno(36); }
+    if ldn == 0 || ldn + 1 >= PATH_MAX {
+        return set_errno(36);
+    }
     let mut ld2 = [0u8; PATH_MAX];
     ld2[..ldn].copy_from_slice(ld_path);
     ld2[ldn] = 0;
-    if root.len() + libsuf.len() + 1 >= PATH_MAX { return set_errno(36); }
+    if root.len() + libsuf.len() + 1 >= PATH_MAX {
+        return set_errno(36);
+    }
     lib[..root.len()].copy_from_slice(root);
     lib[root.len()..root.len() + libsuf.len()].copy_from_slice(libsuf);
     let libn = root.len() + libsuf.len();
@@ -2115,16 +3048,22 @@ pub unsafe extern "C" fn execve(path: *const CChar, argv: *const *const CChar, e
 
     let mut args: [*const CChar; 64] = [core::ptr::null(); 64];
     let mut k = 0usize;
-    args[k] = ld2.as_ptr() as *const CChar; k += 1;
-    args[k] = b"--library-path\0".as_ptr() as *const CChar; k += 1;
-    args[k] = lib.as_ptr() as *const CChar; k += 1;
-    args[k] = tgt.as_ptr() as *const CChar; k += 1;
+    args[k] = ld2.as_ptr() as *const CChar;
+    k += 1;
+    args[k] = b"--library-path\0".as_ptr() as *const CChar;
+    k += 1;
+    args[k] = lib.as_ptr() as *const CChar;
+    k += 1;
+    args[k] = tgt.as_ptr() as *const CChar;
+    k += 1;
     if is_script {
         if shebang_arg_len > 0 && k < 62 {
-            args[k] = shebang_arg.as_ptr() as *const CChar; k += 1;
+            args[k] = shebang_arg.as_ptr() as *const CChar;
+            k += 1;
         }
         if k < 62 {
-            args[k] = real.as_ptr() as *const CChar; k += 1;
+            args[k] = real.as_ptr() as *const CChar;
+            k += 1;
         }
     }
     let mut i = 1usize;
@@ -2133,7 +3072,13 @@ pub unsafe extern "C" fn execve(path: *const CChar, argv: *const *const CChar, e
         k += 1;
         i += 1;
     }
-    ret_or_errno(syscall4(SYS_EXECVE, ld2.as_ptr() as usize, args.as_ptr() as usize, envp as usize, 0))
+    ret_or_errno(syscall4(
+        SYS_EXECVE,
+        ld2.as_ptr() as usize,
+        args.as_ptr() as usize,
+        envp as usize,
+        0,
+    ))
 }
 
 // --------------------------------------------------------------- temp names
@@ -2178,12 +3123,16 @@ unsafe fn next_random() -> u32 {
         // No AT_RANDOM in the auxv: fall back to clock + pid, as glibc does.
         let mut ts = [0u64; 2];
         syscall4(SYS_CLOCK_GETTIME, 1, ts.as_mut_ptr() as usize, 0, 0);
-        s = ts[0] ^ (ts[1] << 17) ^ ((syscall4(SYS_GETPID, 0, 0, 0, 0) as u64) << 40)
+        s = ts[0]
+            ^ (ts[1] << 17)
+            ^ ((syscall4(SYS_GETPID, 0, 0, 0, 0) as u64) << 40)
             ^ (&s as *const u64 as u64);
     }
     // splitmix64 finaliser
-    s ^= s >> 30; s = s.wrapping_mul(0xBF58476D1CE4E5B9);
-    s ^= s >> 27; s = s.wrapping_mul(0x94D049BB133111EB);
+    s ^= s >> 30;
+    s = s.wrapping_mul(0xBF58476D1CE4E5B9);
+    s ^= s >> 27;
+    s = s.wrapping_mul(0x94D049BB133111EB);
     s ^= s >> 31;
     s as u32
 }
@@ -2191,13 +3140,19 @@ unsafe fn next_random() -> u32 {
 /// Shared body: fill the six X's in `tmpl` and create the object.
 /// Returns a file descriptor, 0 for a directory, or -1 with errno set.
 unsafe fn gen_tempname(tmpl: *mut CChar, suffixlen: usize, extra: CInt, want_dir: bool) -> CInt {
-    if tmpl.is_null() { return set_errno(EFAULT); }
+    if tmpl.is_null() {
+        return set_errno(EFAULT);
+    }
     let n = c_strlen(tmpl);
-    if n < 6 + suffixlen { return set_errno(EINVAL); }
+    if n < 6 + suffixlen {
+        return set_errno(EINVAL);
+    }
     let xpos = n - 6 - suffixlen;
     let mut i = 0;
     while i < 6 {
-        if *tmpl.add(xpos + i) != b'X' as CChar { return set_errno(EINVAL); }
+        if *tmpl.add(xpos + i) != b'X' as CChar {
+            return set_errno(EINVAL);
+        }
         i += 1;
     }
     let mut attempts = 0;
@@ -2211,15 +3166,21 @@ unsafe fn gen_tempname(tmpl: *mut CChar, suffixlen: usize, extra: CInt, want_dir
             i += 1;
         }
         if want_dir {
-            if mkdirat(AT_FDCWD, tmpl, 0o700) == 0 { return 0; }
+            if mkdirat(AT_FDCWD, tmpl, 0o700) == 0 {
+                return 0;
+            }
         } else {
             let fd = openat(AT_FDCWD, tmpl, extra | O_RDWR | O_CREAT | O_EXCL, 0o600);
-            if fd >= 0 { return fd; }
+            if fd >= 0 {
+                return fd;
+            }
         }
         // Only a name collision is worth another try; anything else (missing
         // directory, read-only mount) is the caller's problem and glibc would
         // have reported it too.
-        if *__errno_location() != EEXIST { return -1; }
+        if *__errno_location() != EEXIST {
+            return -1;
+        }
     }
     set_errno(EEXIST)
 }
@@ -2231,7 +3192,9 @@ pub unsafe extern "C" fn mkstemp(tmpl: *mut CChar) -> CInt {
 
 #[no_mangle]
 pub unsafe extern "C" fn mkstemps(tmpl: *mut CChar, suffixlen: CInt) -> CInt {
-    if suffixlen < 0 { return set_errno(EINVAL); }
+    if suffixlen < 0 {
+        return set_errno(EINVAL);
+    }
     gen_tempname(tmpl, suffixlen as usize, 0, false)
 }
 
@@ -2242,13 +3205,17 @@ pub unsafe extern "C" fn mkostemp(tmpl: *mut CChar, flags: CInt) -> CInt {
 
 #[no_mangle]
 pub unsafe extern "C" fn mkostemps(tmpl: *mut CChar, suffixlen: CInt, flags: CInt) -> CInt {
-    if suffixlen < 0 { return set_errno(EINVAL); }
+    if suffixlen < 0 {
+        return set_errno(EINVAL);
+    }
     gen_tempname(tmpl, suffixlen as usize, flags & !(O_CREAT | O_EXCL), false)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn mkdtemp(tmpl: *mut CChar) -> *mut CChar {
-    if gen_tempname(tmpl, 0, 0, true) < 0 { return core::ptr::null_mut(); }
+    if gen_tempname(tmpl, 0, 0, true) < 0 {
+        return core::ptr::null_mut();
+    }
     tmpl
 }
 
@@ -2263,11 +3230,15 @@ pub unsafe extern "C" fn execv(path: *const CChar, argv: *const *const CChar) ->
 }
 
 unsafe fn env_lookup_list(envp: *const *const CChar, name: &[u8]) -> Option<&'static [u8]> {
-    if envp.is_null() { return None; }
+    if envp.is_null() {
+        return None;
+    }
     let mut i = 0;
     while i < 4096 {
         let e = *envp.add(i);
-        if e.is_null() { return None; }
+        if e.is_null() {
+            return None;
+        }
         let s = bytes(e);
         if s.len() > name.len() && &s[..name.len()] == name && s[name.len()] == b'=' {
             return Some(&s[name.len() + 1..]);
@@ -2278,30 +3249,46 @@ unsafe fn env_lookup_list(envp: *const *const CChar, name: &[u8]) -> Option<&'st
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn execvpe(file: *const CChar, argv: *const *const CChar,
-                                 envp: *const *const CChar) -> CInt {
-    if file.is_null() { return set_errno(EFAULT); }
+pub unsafe extern "C" fn execvpe(
+    file: *const CChar,
+    argv: *const *const CChar,
+    envp: *const *const CChar,
+) -> CInt {
+    if file.is_null() {
+        return set_errno(EFAULT);
+    }
     let f = bytes(file);
-    if f.is_empty() { return set_errno(ENOENT); }
-    if f.contains(&b'/') { return execve(file, argv, envp); }
+    if f.is_empty() {
+        return set_errno(ENOENT);
+    }
+    if f.contains(&b'/') {
+        return execve(file, argv, envp);
+    }
     // execvpe searches the PATH of the environment it is handed, not the
     // caller's; POSIX/_CS_PATH default is /bin:/usr/bin.
     let path: &[u8] = match env_lookup_list(envp, b"PATH") {
         Some(p) => p,
         None => b"/bin:/usr/bin",
     };
-    if dbg_on() { dbg(&[b"execvpe|", f, b"\n"]); }
+    if dbg_on() {
+        dbg(&[b"execvpe|", f, b"\n"]);
+    }
     let mut last = ENOENT;
     let mut buf = [0u8; PATH_MAX];
     for dir in path.split(|c| *c == b':') {
         let d: &[u8] = if dir.is_empty() { b"." } else { dir };
         let n = d.len() + 1 + f.len();
-        if n + 1 >= PATH_MAX { last = 36; continue; }
+        if n + 1 >= PATH_MAX {
+            last = 36;
+            continue;
+        }
         buf[..d.len()].copy_from_slice(d);
         buf[d.len()] = b'/';
         buf[d.len() + 1..n].copy_from_slice(f);
         buf[n] = 0;
-        if execve(buf.as_ptr() as *const CChar, argv, envp) == 0 { return 0; }
+        if execve(buf.as_ptr() as *const CChar, argv, envp) == 0 {
+            return 0;
+        }
         last = *__errno_location();
         // Only a miss or a "not executable here" is worth another prefix; any
         // other failure is authoritative, exactly as glibc treats it.
@@ -2397,8 +3384,7 @@ pub unsafe extern "C" fn connect(sockfd: CInt, addr: *const u8, addrlen: u32) ->
     };
     translated.path[..prefix_len].copy_from_slice(&proc_path[..prefix_len]);
     translated.path[prefix_len] = b'/';
-    translated.path[prefix_len + 1..prefix_len + 1 + name_len]
-        .copy_from_slice(&name[..name_len]);
+    translated.path[prefix_len + 1..prefix_len + 1 + name_len].copy_from_slice(&name[..name_len]);
     let translated_len = 2 + prefix_len + 1 + name_len + 1;
     let r = syscall4(
         SYS_CONNECT,
@@ -2421,7 +3407,6 @@ pub unsafe extern "C" fn connect(sockfd: CInt, addr: *const u8, addrlen: u32) ->
 // A pure-asm trampoline is possible but would have to be exported through
 // rustc's cdylib export list, so it is deliberately left out for now.
 
-
 // ------------------------------------------------------------------- stdio
 // as(1) opens its output with fopen(), not open(): glibc's fopen reaches the
 // kernel through an internal open alias, so the GOT patch cannot see it and the
@@ -2433,7 +3418,9 @@ const O_TRUNC: CInt = 0o1000;
 const O_APPEND: CInt = 0o2000;
 
 unsafe fn stdio_flags(mode: &[u8]) -> Option<CInt> {
-    if mode.is_empty() { return None; }
+    if mode.is_empty() {
+        return None;
+    }
     let mut f: CInt = match mode[0] {
         b'r' => 0,
         b'w' => O_WRONLY | O_CREAT | O_TRUNC,
@@ -2442,7 +3429,9 @@ unsafe fn stdio_flags(mode: &[u8]) -> Option<CInt> {
     };
     for &c in &mode[1..] {
         match c {
-            b'+' => { f = (f & !O_WRONLY) | O_RDWR; }
+            b'+' => {
+                f = (f & !O_WRONLY) | O_RDWR;
+            }
             b'x' => f |= O_EXCL,
             b'e' => f |= O_CLOEXEC,
             b'b' | b'm' | b'c' => {}
@@ -2454,12 +3443,25 @@ unsafe fn stdio_flags(mode: &[u8]) -> Option<CInt> {
 }
 
 unsafe fn fopen_mode(path: *const CChar, mode: *const CChar) -> *mut u8 {
-    if path.is_null() || mode.is_null() { *__errno_location() = EFAULT; return core::ptr::null_mut(); }
-    let flags = match stdio_flags(bytes(mode)) { Some(f) => f, None => { *__errno_location() = EINVAL; return core::ptr::null_mut(); } };
+    if path.is_null() || mode.is_null() {
+        *__errno_location() = EFAULT;
+        return core::ptr::null_mut();
+    }
+    let flags = match stdio_flags(bytes(mode)) {
+        Some(f) => f,
+        None => {
+            *__errno_location() = EINVAL;
+            return core::ptr::null_mut();
+        }
+    };
     let fd = open(path, flags, 0o666);
-    if fd < 0 { return core::ptr::null_mut(); }
+    if fd < 0 {
+        return core::ptr::null_mut();
+    }
     let fp = fdopen(fd, mode);
-    if fp.is_null() { rc::close(fd); }
+    if fp.is_null() {
+        rc::close(fd);
+    }
     fp
 }
 
@@ -2493,9 +3495,14 @@ const ERANGE_NUM: CInt = 34;
 const ENOMEM_NUM: CInt = 12;
 
 unsafe fn realpath_impl(path: *const CChar, out: *mut CChar, out_size: usize) -> *mut CChar {
-    if path.is_null() { return set_errno_ptr(EFAULT, core::ptr::null_mut()); }
+    if path.is_null() {
+        return set_errno_ptr(EFAULT, core::ptr::null_mut());
+    }
     let mut gp = [0u8; PATH_MAX];
-    let n = match abs_guest(path, &mut gp) { Some(n) => n, None => return set_errno_ptr(36, core::ptr::null_mut()) };
+    let n = match abs_guest(path, &mut gp) {
+        Some(n) => n,
+        None => return set_errno_ptr(36, core::ptr::null_mut()),
+    };
     let rfd = rootfd();
     let mut guest = [0u8; PATH_MAX];
     let gl: usize;
@@ -2520,7 +3527,10 @@ unsafe fn realpath_impl(path: *const CChar, out: *mut CChar, out_size: usize) ->
         let mut real = [0u8; PATH_MAX];
         let r = real_path(parent, &name[..nl], &mut real);
         rc::close(parent);
-        let rl = match r { Some(l) => l, None => return set_errno_ptr(ENOENT, core::ptr::null_mut()) };
+        let rl = match r {
+            Some(l) => l,
+            None => return set_errno_ptr(ENOENT, core::ptr::null_mut()),
+        };
         gl = match guest_path_from_real(&real[..rl], guest.as_mut_ptr(), PATH_MAX - 1) {
             Some(l) => l,
             None => return set_errno_ptr(36, core::ptr::null_mut()),
@@ -2528,12 +3538,16 @@ unsafe fn realpath_impl(path: *const CChar, out: *mut CChar, out_size: usize) ->
     }
     if out.is_null() {
         let p = malloc(gl + 1) as *mut CChar;
-        if p.is_null() { return set_errno_ptr(ENOMEM_NUM, core::ptr::null_mut()); }
+        if p.is_null() {
+            return set_errno_ptr(ENOMEM_NUM, core::ptr::null_mut());
+        }
         core::ptr::copy_nonoverlapping(guest.as_ptr(), p as *mut u8, gl);
         *p.add(gl) = 0;
         return p;
     }
-    if out_size != 0 && gl + 1 > out_size { return set_errno_ptr(ERANGE_NUM, core::ptr::null_mut()); }
+    if out_size != 0 && gl + 1 > out_size {
+        return set_errno_ptr(ERANGE_NUM, core::ptr::null_mut());
+    }
     core::ptr::copy_nonoverlapping(guest.as_ptr(), out as *mut u8, gl);
     *out.add(gl) = 0;
     out
@@ -2545,8 +3559,11 @@ pub unsafe extern "C" fn realpath(path: *const CChar, resolved: *mut CChar) -> *
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn __realpath_chk(path: *const CChar, resolved: *mut CChar,
-                                       resolved_size: CSizet) -> *mut CChar {
+pub unsafe extern "C" fn __realpath_chk(
+    path: *const CChar,
+    resolved: *mut CChar,
+    resolved_size: CSizet,
+) -> *mut CChar {
     realpath_impl(path, resolved, resolved_size)
 }
 
@@ -2566,13 +3583,20 @@ const LM_ID_BASE: i64 = 0;
 
 #[no_mangle]
 pub unsafe extern "C" fn dlopen(file: *const CChar, mode: CInt) -> *mut u8 {
-    if file.is_null() { return dlmopen(LM_ID_BASE, file, mode); }
+    if file.is_null() {
+        return dlmopen(LM_ID_BASE, file, mode);
+    }
     let f = bytes(file);
     // A bare soname is a search, not a path: leave that to the loader.
-    if !f.contains(&b'/') { return dlmopen(LM_ID_BASE, file, mode); }
+    if !f.contains(&b'/') {
+        return dlmopen(LM_ID_BASE, file, mode);
+    }
     let rfd = rootfd();
     let mut gp = [0u8; PATH_MAX];
-    let n = match abs_guest(file, &mut gp) { Some(n) => n, None => return core::ptr::null_mut() };
+    let n = match abs_guest(file, &mut gp) {
+        Some(n) => n,
+        None => return core::ptr::null_mut(),
+    };
     let mut real = [0u8; PATH_MAX];
     if rfd < 0 || under_root(&gp[..n]) {
         real[..n].copy_from_slice(&gp[..n]);
@@ -2582,12 +3606,18 @@ pub unsafe extern "C" fn dlopen(file: *const CChar, mode: CInt) -> *mut u8 {
     let mut name = [0u8; 256];
     let parent = match rc::resolve_parent_follow(rfd, &gp[..n], &mut name) {
         Ok(fd) => fd,
-        Err(e) => { *__errno_location() = e; return core::ptr::null_mut(); }
+        Err(e) => {
+            *__errno_location() = e;
+            return core::ptr::null_mut();
+        }
     };
     let nl = name.iter().position(|c| *c == 0).unwrap_or(0);
     let r = real_path(parent, &name[..nl], &mut real);
     rc::close(parent);
-    if r.is_none() { *__errno_location() = ENOENT; return core::ptr::null_mut(); }
+    if r.is_none() {
+        *__errno_location() = ENOENT;
+        return core::ptr::null_mut();
+    }
     dlmopen(LM_ID_BASE, real.as_ptr() as *const CChar, mode)
 }
 
@@ -2625,22 +3655,44 @@ unsafe fn libc_from_k(k: &KSigaction, out: *mut u8) {
 #[no_mangle]
 pub unsafe extern "C" fn sigaction(sig: CInt, act: *const u8, old: *mut u8) -> CInt {
     if sig == SIGSYS_SIGNAL {
-        if !act.is_null() { dbg(&[b"nr-sigaction|SIGSYS ignored\n"]); }
-        if !old.is_null() { core::ptr::write_bytes(old, 0, SIGACTION_SIZEOF); }
+        if !act.is_null() {
+            dbg(&[b"nr-sigaction|SIGSYS ignored\n"]);
+        }
+        if !old.is_null() {
+            core::ptr::write_bytes(old, 0, SIGACTION_SIZEOF);
+        }
         return 0;
     }
-    let mut k = KSigaction { handler: 0, flags: 0, restorer: 0, mask: 0 };
-    let mut ko = KSigaction { handler: 0, flags: 0, restorer: 0, mask: 0 };
+    let mut k = KSigaction {
+        handler: 0,
+        flags: 0,
+        restorer: 0,
+        mask: 0,
+    };
+    let mut ko = KSigaction {
+        handler: 0,
+        flags: 0,
+        restorer: 0,
+        mask: 0,
+    };
     let kp = if act.is_null() {
         0
     } else {
         k_from_libc(act, &mut k);
         &k as *const KSigaction as usize
     };
-    let op = if old.is_null() { 0 } else { &mut ko as *mut KSigaction as usize };
+    let op = if old.is_null() {
+        0
+    } else {
+        &mut ko as *mut KSigaction as usize
+    };
     let r = syscall4(SYS_RT_SIGACTION, sig as usize, kp, op, 8) as CInt;
-    if r < 0 { return set_errno(-r); }
-    if !old.is_null() { libc_from_k(&ko, old); }
+    if r < 0 {
+        return set_errno(-r);
+    }
+    if !old.is_null() {
+        libc_from_k(&ko, old);
+    }
     0
 }
 
@@ -2652,7 +3704,9 @@ pub unsafe extern "C" fn signal(sig: CInt, handler: usize) -> usize {
     let q = act.as_mut_ptr() as *mut u64;
     *q = handler as u64;
     *(act.as_mut_ptr().add(136) as *mut i32) = 0x1000_0000u32 as i32; // SA_RESTART
-    if sigaction(sig, act.as_ptr(), old.as_mut_ptr()) != 0 { return usize::MAX; }
+    if sigaction(sig, act.as_ptr(), old.as_mut_ptr()) != 0 {
+        return usize::MAX;
+    }
     *(old.as_ptr() as *const u64) as usize
 }
 
@@ -2708,7 +3762,9 @@ pub unsafe extern "C" fn kill(pid: CInt, sig: CInt) -> CInt {
         return r;
     }
     let r = syscall4(SYS_KILL_NR, pid as usize, sig as usize, 0, 0) as CInt;
-    if r < 0 { return set_errno(-r); }
+    if r < 0 {
+        return set_errno(-r);
+    }
     r
 }
 
@@ -2718,7 +3774,9 @@ pub unsafe extern "C" fn tkill(tid: CInt, sig: CInt) -> CInt {
         return r;
     }
     let r = syscall4(130, tid as usize, sig as usize, 0, 0) as CInt;
-    if r < 0 { return set_errno(-r); }
+    if r < 0 {
+        return set_errno(-r);
+    }
     r
 }
 
@@ -2728,7 +3786,9 @@ pub unsafe extern "C" fn tgkill(tgid: CInt, tid: CInt, sig: CInt) -> CInt {
         return r;
     }
     let r = syscall4(131, tgid as usize, tid as usize, sig as usize, 0) as CInt;
-    if r < 0 { return set_errno(-r); }
+    if r < 0 {
+        return set_errno(-r);
+    }
     r
 }
 
@@ -2757,12 +3817,23 @@ const SPAWN_SETSIGMASK: i16 = 0x08;
 const SPAWN_SETSID: i16 = 0x80;
 
 unsafe fn apply_sigdefault(set: &[u8; 128]) {
-    let dfl = KSigaction { handler: 0, flags: 0, restorer: 0, mask: 0 };
+    let dfl = KSigaction {
+        handler: 0,
+        flags: 0,
+        restorer: 0,
+        mask: 0,
+    };
     let mut sig = 1usize;
     while sig <= 64 {
         let byte = set[(sig - 1) / 8];
         if byte & (1 << ((sig - 1) % 8)) != 0 {
-            syscall4(SYS_RT_SIGACTION, sig, &dfl as *const KSigaction as usize, 0, 8);
+            syscall4(
+                SYS_RT_SIGACTION,
+                sig,
+                &dfl as *const KSigaction as usize,
+                0,
+                8,
+            );
         }
         sig += 1;
     }
@@ -2771,23 +3842,35 @@ unsafe fn apply_sigdefault(set: &[u8; 128]) {
 /// Returns 0 or an errno value; the caller turns a failure into exit 127.
 unsafe fn spawn_apply_attr(attr: *const u8) -> CInt {
     let mut flags: i16 = 0;
-    if posix_spawnattr_getflags(attr, &mut flags) != 0 { return EINVAL; }
+    if posix_spawnattr_getflags(attr, &mut flags) != 0 {
+        return EINVAL;
+    }
     if flags & SPAWN_SETPGROUP != 0 {
         let mut pg: CInt = 0;
-        if posix_spawnattr_getpgroup(attr, &mut pg) != 0 { return EINVAL; }
-        if syscall4(SYS_SETPGID, 0, pg as usize, 0, 0) != 0 { return *__errno_location(); }
+        if posix_spawnattr_getpgroup(attr, &mut pg) != 0 {
+            return EINVAL;
+        }
+        if syscall4(SYS_SETPGID, 0, pg as usize, 0, 0) != 0 {
+            return *__errno_location();
+        }
     }
     if flags & SPAWN_SETSID != 0 {
-        if syscall4(SYS_SETSID, 0, 0, 0, 0) < 0 { return *__errno_location(); }
+        if syscall4(SYS_SETSID, 0, 0, 0, 0) < 0 {
+            return *__errno_location();
+        }
     }
     if flags & SPAWN_SETSIGDEF != 0 {
         let mut set = [0u8; 128];
-        if posix_spawnattr_getsigdefault(attr, set.as_mut_ptr()) != 0 { return EINVAL; }
+        if posix_spawnattr_getsigdefault(attr, set.as_mut_ptr()) != 0 {
+            return EINVAL;
+        }
         apply_sigdefault(&set);
     }
     if flags & SPAWN_SETSIGMASK != 0 {
         let mut set = [0u8; 128];
-        if posix_spawnattr_getsigmask(attr, set.as_mut_ptr()) != 0 { return EINVAL; }
+        if posix_spawnattr_getsigmask(attr, set.as_mut_ptr()) != 0 {
+            return EINVAL;
+        }
         if syscall4(SYS_RT_SIGPROCMASK, SIG_SETMASK, set.as_ptr() as usize, 0, 8) != 0 {
             return *__errno_location();
         }
@@ -2796,32 +3879,44 @@ unsafe fn spawn_apply_attr(attr: *const u8) -> CInt {
 }
 
 unsafe fn spawn_apply_actions(fa: *const u8) -> CInt {
-    if fa.is_null() { return 0; }
+    if fa.is_null() {
+        return 0;
+    }
     let allocated = core::ptr::read_unaligned(fa as *const i32);
     let used = core::ptr::read_unaligned(fa.add(4) as *const i32);
     let actions = core::ptr::read_unaligned(fa.add(8) as *const *const u8);
-    if used < 0 || allocated < used || used > 256 { return EINVAL; }
-    if used == 0 { return 0; }
-    if actions.is_null() { return EINVAL; }
+    if used < 0 || allocated < used || used > 256 {
+        return EINVAL;
+    }
+    if used == 0 {
+        return 0;
+    }
+    if actions.is_null() {
+        return EINVAL;
+    }
     let mut i = 0usize;
     while i < used as usize {
         let a = actions.add(i * FA_ENTRY);
         let tag = core::ptr::read_unaligned(a as *const i32);
         let fd = core::ptr::read_unaligned(a.add(8) as *const i32);
         match tag {
-            0 => rc::close(fd),                       // close
-            1 => {                                    // dup2
+            0 => rc::close(fd), // close
+            1 => {
+                // dup2
                 let nfd = core::ptr::read_unaligned(a.add(12) as *const i32);
                 if fd != nfd && syscall4(SYS_DUP3, fd as usize, nfd as usize, 0, 0) < 0 {
                     return *__errno_location();
                 }
             }
-            2 => {                                    // open
+            2 => {
+                // open
                 let p = core::ptr::read_unaligned(a.add(16) as *const *const CChar);
                 let oflag = core::ptr::read_unaligned(a.add(24) as *const i32);
                 let mode = core::ptr::read_unaligned(a.add(28) as *const i32);
                 let r = open(p, oflag, mode);
-                if r < 0 { return *__errno_location(); }
+                if r < 0 {
+                    return *__errno_location();
+                }
                 if r != fd {
                     if syscall4(SYS_DUP3, r as usize, fd as usize, 0, 0) < 0 {
                         return *__errno_location();
@@ -2829,12 +3924,18 @@ unsafe fn spawn_apply_actions(fa: *const u8) -> CInt {
                     rc::close(r);
                 }
             }
-            3 => {                                    // chdir
+            3 => {
+                // chdir
                 let p = core::ptr::read_unaligned(a.add(8) as *const *const CChar);
-                if chdir(p) != 0 { return *__errno_location(); }
+                if chdir(p) != 0 {
+                    return *__errno_location();
+                }
             }
-            4 => {                                    // fchdir
-                if fchdir(fd) != 0 { return *__errno_location(); }
+            4 => {
+                // fchdir
+                if fchdir(fd) != 0 {
+                    return *__errno_location();
+                }
             }
             _ => return EINVAL,
         }
@@ -2844,12 +3945,17 @@ unsafe fn spawn_apply_actions(fa: *const u8) -> CInt {
 }
 
 unsafe fn search_guest_path(f: &[u8], out: &mut [u8; PATH_MAX]) -> Option<usize> {
-    let path: &[u8] = match env_lookup(b"PATH") { Some(p) => p, None => b"/bin:/usr/bin" };
+    let path: &[u8] = match env_lookup(b"PATH") {
+        Some(p) => p,
+        None => b"/bin:/usr/bin",
+    };
     let mut buf = [0u8; PATH_MAX];
     for dir in path.split(|c| *c == b':') {
         let d: &[u8] = if dir.is_empty() { b"." } else { dir };
         let n = d.len() + 1 + f.len();
-        if n + 1 >= PATH_MAX { continue; }
+        if n + 1 >= PATH_MAX {
+            continue;
+        }
         buf[..d.len()].copy_from_slice(d);
         buf[d.len()] = b'/';
         buf[d.len() + 1..n].copy_from_slice(f);
@@ -2861,11 +3967,23 @@ unsafe fn search_guest_path(f: &[u8], out: &mut [u8; PATH_MAX]) -> Option<usize>
     None
 }
 
-unsafe fn spawn_common(pid: *mut CInt, path: *const CChar, search: bool,
-                       fa: *const u8, attr: *const u8,
-                       argv: *const *const CChar, envp: *const *const CChar) -> CInt {
-    if pid.is_null() || path.is_null() { return EFAULT; }
-    if dbg_on() { dbg(&[b"spawn|search="]); dbgn(&[], search as i64); dbg(&[b"|", bytes(path), b"\n"]); }
+unsafe fn spawn_common(
+    pid: *mut CInt,
+    path: *const CChar,
+    search: bool,
+    fa: *const u8,
+    attr: *const u8,
+    argv: *const *const CChar,
+    envp: *const *const CChar,
+) -> CInt {
+    if pid.is_null() || path.is_null() {
+        return EFAULT;
+    }
+    if dbg_on() {
+        dbg(&[b"spawn|search="]);
+        dbgn(&[], search as i64);
+        dbg(&[b"|", bytes(path), b"\n"]);
+    }
     let rfd = rootfd();
     let mut gp = [0u8; PATH_MAX];
     let n = if search && !bytes(path).contains(&b'/') {
@@ -2888,13 +4006,21 @@ unsafe fn spawn_common(pid: *mut CInt, path: *const CChar, search: bool,
     pz[n] = 0;
 
     let child = fork();
-    if child < 0 { return *__errno_location(); }
+    if child < 0 {
+        return *__errno_location();
+    }
     if child == 0 {
         // Child: no allocation, no unwinding, no way back.
         let mut e = 0;
-        if !attr.is_null() { e = spawn_apply_attr(attr); }
-        if e == 0 && !fa.is_null() { e = spawn_apply_actions(fa); }
-        if e == 0 { execve(pz.as_ptr() as *const CChar, argv, envp); }
+        if !attr.is_null() {
+            e = spawn_apply_attr(attr);
+        }
+        if e == 0 && !fa.is_null() {
+            e = spawn_apply_actions(fa);
+        }
+        if e == 0 {
+            execve(pz.as_ptr() as *const CChar, argv, envp);
+        }
         syscall4(SYS_EXIT_GROUP, 127, 0, 0, 0);
     }
     *pid = child;
@@ -2902,16 +4028,26 @@ unsafe fn spawn_common(pid: *mut CInt, path: *const CChar, search: bool,
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn posix_spawn(pid: *mut CInt, path: *const CChar, fa: *const u8,
-                                     attr: *const u8, argv: *const *const CChar,
-                                     envp: *const *const CChar) -> CInt {
+pub unsafe extern "C" fn posix_spawn(
+    pid: *mut CInt,
+    path: *const CChar,
+    fa: *const u8,
+    attr: *const u8,
+    argv: *const *const CChar,
+    envp: *const *const CChar,
+) -> CInt {
     spawn_common(pid, path, false, fa, attr, argv, envp)
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn posix_spawnp(pid: *mut CInt, path: *const CChar, fa: *const u8,
-                                      attr: *const u8, argv: *const *const CChar,
-                                      envp: *const *const CChar) -> CInt {
+pub unsafe extern "C" fn posix_spawnp(
+    pid: *mut CInt,
+    path: *const CChar,
+    fa: *const u8,
+    attr: *const u8,
+    argv: *const *const CChar,
+    envp: *const *const CChar,
+) -> CInt {
     spawn_common(pid, path, true, fa, attr, argv, envp)
 }
 
@@ -2922,22 +4058,41 @@ pub unsafe extern "C" fn posix_spawnp(pid: *mut CInt, path: *const CChar, fa: *c
 // its own internal implementations, which no GOT patch can see. as(1) and ls(1)
 // are both built this way, so the wrappers have to be interposed too.
 #[no_mangle]
-pub unsafe extern "C" fn __readlink_chk(path: *const CChar, out: *mut CChar,
-                                        len: CSizet, out_size: CSizet) -> Ssize {
-    let n = if out_size != 0 && len > out_size { out_size } else { len };
+pub unsafe extern "C" fn __readlink_chk(
+    path: *const CChar,
+    out: *mut CChar,
+    len: CSizet,
+    out_size: CSizet,
+) -> Ssize {
+    let n = if out_size != 0 && len > out_size {
+        out_size
+    } else {
+        len
+    };
     readlink(path, out, n)
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn __readlinkat_chk(dirfd: CInt, path: *const CChar, out: *mut CChar,
-                                          len: CSizet, out_size: CSizet) -> Ssize {
-    let n = if out_size != 0 && len > out_size { out_size } else { len };
+pub unsafe extern "C" fn __readlinkat_chk(
+    dirfd: CInt,
+    path: *const CChar,
+    out: *mut CChar,
+    len: CSizet,
+    out_size: CSizet,
+) -> Ssize {
+    let n = if out_size != 0 && len > out_size {
+        out_size
+    } else {
+        len
+    };
     readlinkat(dirfd, path, out, n)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn __open_2(path: *const CChar, flags: CInt) -> CInt {
-    if path.is_null() { return set_errno(EFAULT); }
+    if path.is_null() {
+        return set_errno(EFAULT);
+    }
     open(path, flags, 0)
 }
 
@@ -2948,7 +4103,9 @@ pub unsafe extern "C" fn __open64_2(path: *const CChar, flags: CInt) -> CInt {
 
 #[no_mangle]
 pub unsafe extern "C" fn __openat_2(dirfd: CInt, path: *const CChar, flags: CInt) -> CInt {
-    if path.is_null() { return set_errno(EFAULT); }
+    if path.is_null() {
+        return set_errno(EFAULT);
+    }
     openat(dirfd, path, flags, 0)
 }
 
@@ -2965,13 +4122,22 @@ pub unsafe extern "C" fn __openat64_2(dirfd: CInt, path: *const CChar, flags: CI
 const AT_EACCESS: CInt = 0x200;
 
 #[no_mangle]
-pub unsafe extern "C" fn stat64(path: *const CChar, st: *mut u8) -> CInt { stat(path, st) }
+pub unsafe extern "C" fn stat64(path: *const CChar, st: *mut u8) -> CInt {
+    stat(path, st)
+}
 
 #[no_mangle]
-pub unsafe extern "C" fn lstat64(path: *const CChar, st: *mut u8) -> CInt { lstat(path, st) }
+pub unsafe extern "C" fn lstat64(path: *const CChar, st: *mut u8) -> CInt {
+    lstat(path, st)
+}
 
 #[no_mangle]
-pub unsafe extern "C" fn fstatat64(dirfd: CInt, path: *const CChar, st: *mut u8, flags: CInt) -> CInt {
+pub unsafe extern "C" fn fstatat64(
+    dirfd: CInt,
+    path: *const CChar,
+    st: *mut u8,
+    flags: CInt,
+) -> CInt {
     fstatat(dirfd, path, st, flags)
 }
 
@@ -2981,8 +4147,15 @@ pub unsafe extern "C" fn fstat64(fd: CInt, st: *mut u8) -> CInt {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn faccessat(dirfd: CInt, path: *const CChar, mode: CInt, flags: CInt) -> CInt {
-    if path.is_null() { return set_errno(EFAULT); }
+pub unsafe extern "C" fn faccessat(
+    dirfd: CInt,
+    path: *const CChar,
+    mode: CInt,
+    flags: CInt,
+) -> CInt {
+    if path.is_null() {
+        return set_errno(EFAULT);
+    }
     if *path == 0 && flags & AT_EMPTY_PATH != 0 {
         let nofollow = flags & AT_SYMLINK_NOFOLLOW != 0;
         return match rc::access_fd(dirfd, mode, nofollow) {
@@ -3003,19 +4176,32 @@ pub unsafe extern "C" fn faccessat(dirfd: CInt, path: *const CChar, mode: CInt, 
         if rfd >= 0 {
             let mut gp = [0u8; PATH_MAX];
             match resolve_dirfd_rel(dirfd, bytes(path), &mut gp) {
-                Ok(Some(n)) => return match rc::resolve_access(rfd, &gp[..n], mode, flags) {
-                    Ok(()) => 0,
-                    Err(e) => set_errno(e),
-                },
+                Ok(Some(n)) => {
+                    return match rc::resolve_access(rfd, &gp[..n], mode, flags) {
+                        Ok(()) => 0,
+                        Err(e) => set_errno(e),
+                    }
+                }
                 Ok(None) => {}
                 Err(e) => return set_errno(e),
             }
         }
-        if nofollow { return accessat_nofollow(dirfd, path, mode); }
-        return ret_or_errno(syscall4(SYS_FACCESSAT, dirfd as usize, path as usize, mode as usize, 0));
+        if nofollow {
+            return accessat_nofollow(dirfd, path, mode);
+        }
+        return ret_or_errno(syscall4(
+            SYS_FACCESSAT,
+            dirfd as usize,
+            path as usize,
+            mode as usize,
+            0,
+        ));
     }
     let mut gp = [0u8; PATH_MAX];
-    let n = match abs_guest(path, &mut gp) { Some(n) => n, None => return set_errno(36) };
+    let n = match abs_guest(path, &mut gp) {
+        Some(n) => n,
+        None => return set_errno(36),
+    };
     if rfd >= 0 && !passthrough(&gp[..n]) {
         return match rc::resolve_access(rfd, &gp[..n], mode, flags) {
             Ok(()) => 0,
@@ -3023,8 +4209,16 @@ pub unsafe extern "C" fn faccessat(dirfd: CInt, path: *const CChar, mode: CInt, 
         };
     }
     gp[n] = 0;
-    if nofollow { return accessat_nofollow(AT_FDCWD, gp.as_ptr() as *const CChar, mode); }
-    ret_or_errno(syscall4(SYS_FACCESSAT, AT_FDCWD as usize, gp.as_ptr() as usize, mode as usize, 0))
+    if nofollow {
+        return accessat_nofollow(AT_FDCWD, gp.as_ptr() as *const CChar, mode);
+    }
+    ret_or_errno(syscall4(
+        SYS_FACCESSAT,
+        AT_FDCWD as usize,
+        gp.as_ptr() as usize,
+        mode as usize,
+        0,
+    ))
 }
 
 // make(1) resolves every command it runs with eaccess(3) before spawning it, so
@@ -3090,27 +4284,41 @@ static mut ID_BUSY: AtomicU8 = AtomicU8::new(0);
 static mut ID_RES: [u8; 512] = [0; 512];
 
 unsafe fn id_lock() {
-    while ID_BUSY.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed).is_err() {
+    while ID_BUSY
+        .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
         core::hint::spin_loop();
     }
 }
 
-unsafe fn id_unlock() { ID_BUSY.store(0, Ordering::Release); }
+unsafe fn id_unlock() {
+    ID_BUSY.store(0, Ordering::Release);
+}
 
 unsafe fn slurp(path: &[u8]) -> usize {
     let mut p = [0u8; 64];
-    if path.len() + 1 > p.len() { return 0; }
+    if path.len() + 1 > p.len() {
+        return 0;
+    }
     let mut i = 0;
-    while i < path.len() { p[i] = path[i]; i += 1; }
+    while i < path.len() {
+        p[i] = path[i];
+        i += 1;
+    }
     p[i] = 0;
     let fd = open(p.as_ptr() as *const CChar, O_RDONLY, 0);
-    if fd < 0 { return 0; }
+    if fd < 0 {
+        return 0;
+    }
     let src = core::ptr::addr_of_mut!(ID_SRC) as usize;
     let cap = core::mem::size_of::<[u8; 16384]>();
     let mut n = 0usize;
     while n < cap {
         let r = syscall4(SYS_READ, fd as usize, src + n, cap - n, 0);
-        if r <= 0 { break; }
+        if r <= 0 {
+            break;
+        }
         n += r as usize;
     }
     syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
@@ -3125,7 +4333,10 @@ struct Fields {
 
 unsafe fn fields_of_line(start: usize, end: usize) -> Fields {
     let src = core::ptr::addr_of!(ID_SRC) as *const u8;
-    let mut f = Fields { n: 0, at: [(0, 0); 7] };
+    let mut f = Fields {
+        n: 0,
+        at: [(0, 0); 7],
+    };
     let mut s = start;
     let mut i = start;
     while i <= end && f.n < 7 {
@@ -3142,7 +4353,9 @@ unsafe fn fields_of_line(start: usize, end: usize) -> Fields {
 
 unsafe fn field_bytes(f: &Fields, idx: usize) -> &'static [u8] {
     let src = core::ptr::addr_of!(ID_SRC) as *const u8;
-    if idx >= f.n { return &[]; }
+    if idx >= f.n {
+        return &[];
+    }
     let (s, l) = f.at[idx];
     core::slice::from_raw_parts(src.add(s), l)
 }
@@ -3161,7 +4374,9 @@ unsafe fn field_num(f: &Fields, idx: usize) -> u32 {
 /// Copy `b` plus a NUL into `dst[*used..]`, returning the pointer or null when
 /// it does not fit.
 unsafe fn put_str(dst: usize, cap: usize, used: &mut usize, b: &[u8]) -> *const CChar {
-    if *used + b.len() + 1 > cap { return core::ptr::null(); }
+    if *used + b.len() + 1 > cap {
+        return core::ptr::null();
+    }
     let p = dst + *used;
     let mut i = 0;
     while i < b.len() {
@@ -3183,12 +4398,16 @@ unsafe fn scan(
     cap: usize,
 ) -> Option<Fields> {
     let n = slurp(file);
-    if n == 0 { return None; }
+    if n == 0 {
+        return None;
+    }
     let src = core::ptr::addr_of!(ID_SRC) as *const u8;
     let mut i = 0usize;
     while i < n {
         let mut e = i;
-        while e < n && core::ptr::read_volatile(src.add(e)) != b'\n' { e += 1; }
+        while e < n && core::ptr::read_volatile(src.add(e)) != b'\n' {
+            e += 1;
+        }
         if e > i {
             let f = fields_of_line(i, e);
             let hit = if let Some(num) = want_num {
@@ -3219,15 +4438,18 @@ unsafe fn fill_passwd(f: &Fields, dst: *mut u8, cap: usize, out: *mut Passwd) ->
     if name.is_null() || pass.is_null() || gecos.is_null() || dir.is_null() || shell.is_null() {
         return ERANGE;
     }
-    core::ptr::write_volatile(out, Passwd {
-        pw_name: name,
-        pw_passwd: pass,
-        pw_uid: field_num(f, 2),
-        pw_gid: field_num(f, 3),
-        pw_gecos: gecos,
-        pw_dir: dir,
-        pw_shell: shell,
-    });
+    core::ptr::write_volatile(
+        out,
+        Passwd {
+            pw_name: name,
+            pw_passwd: pass,
+            pw_uid: field_num(f, 2),
+            pw_gid: field_num(f, 3),
+            pw_gecos: gecos,
+            pw_dir: dir,
+            pw_shell: shell,
+        },
+    );
     0
 }
 
@@ -3236,13 +4458,18 @@ unsafe fn fill_group(f: &Fields, dst: *mut u8, cap: usize, out: *mut Group) -> C
     let mut used = 0usize;
     let name = put_str(d, cap, &mut used, field_bytes(f, 0));
     let pass = put_str(d, cap, &mut used, field_bytes(f, 1));
-    if name.is_null() || pass.is_null() { return ERANGE; }
-    core::ptr::write_volatile(out, Group {
-        gr_name: name,
-        gr_passwd: pass,
-        gr_gid: field_num(f, 2),
-        gr_mem: core::ptr::addr_of!(EMPTY_MEMBERS) as *const *const CChar,
-    });
+    if name.is_null() || pass.is_null() {
+        return ERANGE;
+    }
+    core::ptr::write_volatile(
+        out,
+        Group {
+            gr_name: name,
+            gr_passwd: pass,
+            gr_gid: field_num(f, 2),
+            gr_mem: core::ptr::addr_of!(EMPTY_MEMBERS) as *const *const CChar,
+        },
+    );
     0
 }
 
@@ -3254,21 +4481,36 @@ unsafe fn synth_group(gid: u32, dst: *mut u8, cap: usize, out: *mut Group) -> CI
     let mut full = [0u8; 16];
     let mut m = 0usize;
     let mut i = 0;
-    while i < 4 { full[i] = b"husk"[i]; m += 1; i += 1; }
+    while i < 4 {
+        full[i] = b"husk"[i];
+        m += 1;
+        i += 1;
+    }
     i = 0;
-    while i < n { full[m] = nb[i]; m += 1; i += 1; }
+    while i < n {
+        full[m] = nb[i];
+        m += 1;
+        i += 1;
+    }
     let d = dst as usize;
     let mut used = 0usize;
     let name = put_str(d, cap, &mut used, &full[..m]);
-    if name.is_null() { return ERANGE; }
+    if name.is_null() {
+        return ERANGE;
+    }
     let pass = put_str(d, cap, &mut used, b"x");
-    if pass.is_null() { return ERANGE; }
-    core::ptr::write_volatile(out, Group {
-        gr_name: name,
-        gr_passwd: pass,
-        gr_gid: gid,
-        gr_mem: core::ptr::addr_of!(EMPTY_MEMBERS) as *const *const CChar,
-    });
+    if pass.is_null() {
+        return ERANGE;
+    }
+    core::ptr::write_volatile(
+        out,
+        Group {
+            gr_name: name,
+            gr_passwd: pass,
+            gr_gid: gid,
+            gr_mem: core::ptr::addr_of!(EMPTY_MEMBERS) as *const *const CChar,
+        },
+    );
     0
 }
 
@@ -3315,91 +4557,165 @@ unsafe fn gr_lookup(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn getpwuid_r(uid: u32, pwd: *mut Passwd, buf: *mut CChar, buflen: usize,
-                                    result: *mut *mut Passwd) -> CInt {
-    if !result.is_null() { core::ptr::write_volatile(result, core::ptr::null_mut()); }
+pub unsafe extern "C" fn getpwuid_r(
+    uid: u32,
+    pwd: *mut Passwd,
+    buf: *mut CChar,
+    buflen: usize,
+    result: *mut *mut Passwd,
+) -> CInt {
+    if !result.is_null() {
+        core::ptr::write_volatile(result, core::ptr::null_mut());
+    }
     let r = pw_lookup(2, Some(uid), None, buf as *mut u8, buflen, pwd);
-    if r == 0 && !result.is_null() { core::ptr::write_volatile(result, pwd); }
+    if r == 0 && !result.is_null() {
+        core::ptr::write_volatile(result, pwd);
+    }
     r
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn getpwnam_r(name: *const CChar, pwd: *mut Passwd, buf: *mut CChar,
-                                    buflen: usize, result: *mut *mut Passwd) -> CInt {
-    if !result.is_null() { core::ptr::write_volatile(result, core::ptr::null_mut()); }
-    if name.is_null() { return 22; }
+pub unsafe extern "C" fn getpwnam_r(
+    name: *const CChar,
+    pwd: *mut Passwd,
+    buf: *mut CChar,
+    buflen: usize,
+    result: *mut *mut Passwd,
+) -> CInt {
+    if !result.is_null() {
+        core::ptr::write_volatile(result, core::ptr::null_mut());
+    }
+    if name.is_null() {
+        return 22;
+    }
     let r = pw_lookup(0, None, Some(bytes(name)), buf as *mut u8, buflen, pwd);
-    if r == 0 && !result.is_null() { core::ptr::write_volatile(result, pwd); }
+    if r == 0 && !result.is_null() {
+        core::ptr::write_volatile(result, pwd);
+    }
     r
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn getpwuid(uid: u32) -> *mut Passwd {
     static mut RES: Passwd = Passwd {
-        pw_name: core::ptr::null(), pw_passwd: core::ptr::null(), pw_uid: 0, pw_gid: 0,
-        pw_gecos: core::ptr::null(), pw_dir: core::ptr::null(), pw_shell: core::ptr::null(),
+        pw_name: core::ptr::null(),
+        pw_passwd: core::ptr::null(),
+        pw_uid: 0,
+        pw_gid: 0,
+        pw_gecos: core::ptr::null(),
+        pw_dir: core::ptr::null(),
+        pw_shell: core::ptr::null(),
     };
     let out = core::ptr::addr_of_mut!(RES);
     let buf = core::ptr::addr_of_mut!(ID_RES) as *mut u8;
     let cap = core::mem::size_of::<[u8; 512]>();
-    if pw_lookup(2, Some(uid), None, buf, cap, out) == 0 { out } else { core::ptr::null_mut() }
+    if pw_lookup(2, Some(uid), None, buf, cap, out) == 0 {
+        out
+    } else {
+        core::ptr::null_mut()
+    }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn getpwnam(name: *const CChar) -> *mut Passwd {
     static mut RES: Passwd = Passwd {
-        pw_name: core::ptr::null(), pw_passwd: core::ptr::null(), pw_uid: 0, pw_gid: 0,
-        pw_gecos: core::ptr::null(), pw_dir: core::ptr::null(), pw_shell: core::ptr::null(),
+        pw_name: core::ptr::null(),
+        pw_passwd: core::ptr::null(),
+        pw_uid: 0,
+        pw_gid: 0,
+        pw_gecos: core::ptr::null(),
+        pw_dir: core::ptr::null(),
+        pw_shell: core::ptr::null(),
     };
-    if name.is_null() { return core::ptr::null_mut(); }
+    if name.is_null() {
+        return core::ptr::null_mut();
+    }
     let out = core::ptr::addr_of_mut!(RES);
     let buf = core::ptr::addr_of_mut!(ID_RES) as *mut u8;
     let cap = core::mem::size_of::<[u8; 512]>();
-    if pw_lookup(0, None, Some(bytes(name)), buf, cap, out) == 0 { out } else { core::ptr::null_mut() }
+    if pw_lookup(0, None, Some(bytes(name)), buf, cap, out) == 0 {
+        out
+    } else {
+        core::ptr::null_mut()
+    }
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn getgrgid_r(gid: u32, grp: *mut Group, buf: *mut CChar, buflen: usize,
-                                    result: *mut *mut Group) -> CInt {
-    if !result.is_null() { core::ptr::write_volatile(result, core::ptr::null_mut()); }
+pub unsafe extern "C" fn getgrgid_r(
+    gid: u32,
+    grp: *mut Group,
+    buf: *mut CChar,
+    buflen: usize,
+    result: *mut *mut Group,
+) -> CInt {
+    if !result.is_null() {
+        core::ptr::write_volatile(result, core::ptr::null_mut());
+    }
     let r = gr_lookup(2, Some(gid), None, buf as *mut u8, buflen, grp);
-    if r == 0 && !result.is_null() { core::ptr::write_volatile(result, grp); }
+    if r == 0 && !result.is_null() {
+        core::ptr::write_volatile(result, grp);
+    }
     r
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn getgrnam_r(name: *const CChar, grp: *mut Group, buf: *mut CChar,
-                                    buflen: usize, result: *mut *mut Group) -> CInt {
-    if !result.is_null() { core::ptr::write_volatile(result, core::ptr::null_mut()); }
-    if name.is_null() { return 22; }
+pub unsafe extern "C" fn getgrnam_r(
+    name: *const CChar,
+    grp: *mut Group,
+    buf: *mut CChar,
+    buflen: usize,
+    result: *mut *mut Group,
+) -> CInt {
+    if !result.is_null() {
+        core::ptr::write_volatile(result, core::ptr::null_mut());
+    }
+    if name.is_null() {
+        return 22;
+    }
     let r = gr_lookup(0, None, Some(bytes(name)), buf as *mut u8, buflen, grp);
-    if r == 0 && !result.is_null() { core::ptr::write_volatile(result, grp); }
+    if r == 0 && !result.is_null() {
+        core::ptr::write_volatile(result, grp);
+    }
     r
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn getgrgid(gid: u32) -> *mut Group {
     static mut RES: Group = Group {
-        gr_name: core::ptr::null(), gr_passwd: core::ptr::null(), gr_gid: 0,
+        gr_name: core::ptr::null(),
+        gr_passwd: core::ptr::null(),
+        gr_gid: 0,
         gr_mem: core::ptr::null(),
     };
     let out = core::ptr::addr_of_mut!(RES);
     let buf = core::ptr::addr_of_mut!(ID_RES) as *mut u8;
     let cap = core::mem::size_of::<[u8; 512]>();
-    if gr_lookup(2, Some(gid), None, buf, cap, out) == 0 { out } else { core::ptr::null_mut() }
+    if gr_lookup(2, Some(gid), None, buf, cap, out) == 0 {
+        out
+    } else {
+        core::ptr::null_mut()
+    }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn getgrnam(name: *const CChar) -> *mut Group {
     static mut RES: Group = Group {
-        gr_name: core::ptr::null(), gr_passwd: core::ptr::null(), gr_gid: 0,
+        gr_name: core::ptr::null(),
+        gr_passwd: core::ptr::null(),
+        gr_gid: 0,
         gr_mem: core::ptr::null(),
     };
-    if name.is_null() { return core::ptr::null_mut(); }
+    if name.is_null() {
+        return core::ptr::null_mut();
+    }
     let out = core::ptr::addr_of_mut!(RES);
     let buf = core::ptr::addr_of_mut!(ID_RES) as *mut u8;
     let cap = core::mem::size_of::<[u8; 512]>();
-    if gr_lookup(0, None, Some(bytes(name)), buf, cap, out) == 0 { out } else { core::ptr::null_mut() }
+    if gr_lookup(0, None, Some(bytes(name)), buf, cap, out) == 0 {
+        out
+    } else {
+        core::ptr::null_mut()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3450,7 +4766,13 @@ unsafe fn drm_dir_host() -> Option<&'static [u8]> {
     d[rl + suffix.len()] = 0;
     let dl = rl + suffix.len();
     // mkdir（EEXIST 无所谓）
-    syscall4(SYS_MKDIRAT, AT_FDCWD as usize, d.as_ptr() as usize, 0o755, 0);
+    syscall4(
+        SYS_MKDIRAT,
+        AT_FDCWD as usize,
+        d.as_ptr() as usize,
+        0o755,
+        0,
+    );
     // 两个空文件
     for name in [b"renderD128".as_ref(), b"card0".as_ref()] {
         let mut f = [0u8; PATH_MAX];
@@ -3483,7 +4805,6 @@ fn is_drm_node(p: &[u8]) -> bool {
     p == b"/dev/dri/renderD128" || p == b"/dev/dri/card0"
 }
 
-
 /* ---- 与 LD_PRELOAD 层（libhusk-drm.so）的交接 -------------------------------
  *
  * 我们靠 _dl_init 钩子改 GOT，只能覆盖**启动时**已加载的对象；Mesa 运行时
@@ -3498,7 +4819,9 @@ type DrmIsFakeFn = unsafe extern "C" fn(CInt) -> CInt;
 
 unsafe fn drm_api() -> Option<[usize; 4]> {
     let v = env_lookup(b"HUSK_DRM_API")?;
-    if v.len() < 4 || v[0] != b'0' || (v[1] | 0x20) != b'x' { return None; }
+    if v.len() < 4 || v[0] != b'0' || (v[1] | 0x20) != b'x' {
+        return None;
+    }
     let mut p: usize = 0;
     let mut i = 2;
     while i < v.len() {
@@ -3512,7 +4835,9 @@ unsafe fn drm_api() -> Option<[usize; 4]> {
         p = (p << 4) | d as usize;
         i += 1;
     }
-    if p == 0 { return None; }
+    if p == 0 {
+        return None;
+    }
     let t = p as *const usize;
     Some([*t, *t.add(1), *t.add(2), *t.add(3)])
 }
@@ -3532,7 +4857,15 @@ unsafe fn drm_api_ioctl(api: &[usize; 4], fd: CInt, request: u64, arg: *mut u8) 
     f(fd, request, arg)
 }
 
-unsafe fn drm_api_mmap(api: &[usize; 4], addr: *mut u8, len: usize, prot: CInt, flags: CInt, fd: CInt, off: i64) -> *mut u8 {
+unsafe fn drm_api_mmap(
+    api: &[usize; 4],
+    addr: *mut u8,
+    len: usize,
+    prot: CInt,
+    flags: CInt,
+    fd: CInt,
+    off: i64,
+) -> *mut u8 {
     let f: DrmMmapFn = core::mem::transmute(api[2]);
     f(addr, len, prot, flags, fd, off)
 }
@@ -3546,7 +4879,9 @@ unsafe fn drm_shim_off() -> bool {
 unsafe fn is_fake_fd(fd: CInt) -> bool {
     let mut i = 0;
     while i < FAKE_FDS.len() {
-        if FAKE_FDS[i] == fd && fd >= 0 { return true; }
+        if FAKE_FDS[i] == fd && fd >= 0 {
+            return true;
+        }
         i += 1;
     }
     false
@@ -3555,7 +4890,10 @@ unsafe fn is_fake_fd(fd: CInt) -> bool {
 unsafe fn register_fake_fd(fd: CInt) {
     let mut i = 0;
     while i < FAKE_FDS.len() {
-        if FAKE_FDS[i] < 0 { FAKE_FDS[i] = fd; return; }
+        if FAKE_FDS[i] < 0 {
+            FAKE_FDS[i] = fd;
+            return;
+        }
         i += 1;
     }
 }
@@ -3563,7 +4901,9 @@ unsafe fn register_fake_fd(fd: CInt) {
 /// 假节点打开：懒初始化 kbase context，然后给调用方一个真 fd（/dev/null），
 /// 这样 close/poll/dup 都不会炸；对它的 ioctl/mmap 都进我们这里。
 unsafe fn drm_fake_open() -> CInt {
-    if verbose_on() { dbg(&[b"nrshim drm: fake open\n"]); }
+    if verbose_on() {
+        dbg(&[b"nrshim drm: fake open\n"]);
+    }
     if DRM_MALI_FD < 0 {
         let fd = syscall4(
             SYS_OPENAT,
@@ -3582,13 +4922,7 @@ unsafe fn drm_fake_open() -> CInt {
     }
     // 用 memfd：名字可辨识，LD_PRELOAD 那一层靠 /proc/self/fd 也能认出这个 fd
     const SYS_MEMFD_CREATE: usize = 279;
-    let fd = syscall4(
-        SYS_MEMFD_CREATE,
-        b"husk-drm\0".as_ptr() as usize,
-        0,
-        0,
-        0,
-    );
+    let fd = syscall4(SYS_MEMFD_CREATE, b"husk-drm\0".as_ptr() as usize, 0, 0, 0);
     if fd < 0 {
         return set_errno(5);
     }
@@ -3599,10 +4933,16 @@ unsafe fn drm_fake_open() -> CInt {
 #[no_mangle]
 pub unsafe extern "C" fn ioctl(fd: CInt, request: u64, arg: *mut u8) -> CInt {
     if let Some(api) = drm_api() {
-        if drm_api_is_fake(&api, fd) { return drm_api_ioctl(&api, fd, request, arg); }
+        if drm_api_is_fake(&api, fd) {
+            return drm_api_ioctl(&api, fd, request, arg);
+        }
     }
     if is_fake_fd(fd) {
-        if verbose_on() { dbg(&[b"nrshim drm ioctl req="]); dbghex(request); dbg(&[b"\n"]); }
+        if verbose_on() {
+            dbg(&[b"nrshim drm ioctl req="]);
+            dbghex(request);
+            dbg(&[b"\n"]);
+        }
         let r = DRM_CTX.dispatch(
             |f, req, a| syscall4(SYS_IOCTL, f as usize, req as usize, a as usize, 0) as i64,
             request,
@@ -3613,7 +4953,13 @@ pub unsafe extern "C" fn ioctl(fd: CInt, request: u64, arg: *mut u8) -> CInt {
         }
         return 0;
     }
-    ret_or_errno(syscall4(SYS_IOCTL, fd as usize, request as usize, arg as usize, 0))
+    ret_or_errno(syscall4(
+        SYS_IOCTL,
+        fd as usize,
+        request as usize,
+        arg as usize,
+        0,
+    ))
 }
 
 #[no_mangle]
@@ -3626,7 +4972,9 @@ pub unsafe extern "C" fn mmap(
     off: i64,
 ) -> *mut u8 {
     if let Some(api) = drm_api() {
-        if drm_api_is_fake(&api, fd) { return drm_api_mmap(&api, addr, len, prot, flags, fd, off); }
+        if drm_api_is_fake(&api, fd) {
+            return drm_api_mmap(&api, addr, len, prot, flags, fd, off);
+        }
     }
     let r = if is_fake_fd(fd) && DRM_MALI_FD >= 0 {
         // DRM 的 offset 就是 BO 的 GPU VA；kbase 要求 prot == 分配 flags 的低两位。

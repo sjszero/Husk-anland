@@ -22,19 +22,40 @@ use std::process::ExitCode;
 
 // ------------------------------------------------------------------ ELF basics
 
-fn u16le(d: &[u8], o: usize) -> u16 { u16::from_le_bytes([d[o], d[o + 1]]) }
+fn u16le(d: &[u8], o: usize) -> u16 {
+    u16::from_le_bytes([d[o], d[o + 1]])
+}
 fn u32le(d: &[u8], o: usize) -> u32 {
     u32::from_le_bytes([d[o], d[o + 1], d[o + 2], d[o + 3]])
 }
 fn u64le(d: &[u8], o: usize) -> u64 {
-    u64::from_le_bytes([d[o], d[o+1], d[o+2], d[o+3], d[o+4], d[o+5], d[o+6], d[o+7]])
+    u64::from_le_bytes([
+        d[o],
+        d[o + 1],
+        d[o + 2],
+        d[o + 3],
+        d[o + 4],
+        d[o + 5],
+        d[o + 6],
+        d[o + 7],
+    ])
 }
-fn i64le(d: &[u8], o: usize) -> i64 { u64le(d, o) as i64 }
-fn put_u32(d: &mut [u8], o: usize, v: u32) { d[o..o + 4].copy_from_slice(&v.to_le_bytes()) }
-fn put_u64(d: &mut [u8], o: usize, v: u64) { d[o..o + 8].copy_from_slice(&v.to_le_bytes()) }
+fn i64le(d: &[u8], o: usize) -> i64 {
+    u64le(d, o) as i64
+}
+fn put_u32(d: &mut [u8], o: usize, v: u32) {
+    d[o..o + 4].copy_from_slice(&v.to_le_bytes())
+}
+fn put_u64(d: &mut [u8], o: usize, v: u64) {
+    d[o..o + 8].copy_from_slice(&v.to_le_bytes())
+}
 
 fn cstr(d: &[u8], off: usize) -> &[u8] {
-    let end = d[off..].iter().position(|b| *b == 0).map(|n| off + n).unwrap_or(d.len());
+    let end = d[off..]
+        .iter()
+        .position(|b| *b == 0)
+        .map(|n| off + n)
+        .unwrap_or(d.len());
     &d[off..end]
 }
 
@@ -84,7 +105,9 @@ impl Elf {
         let e_phnum = u16le(d, 0x38);
         let e_shentsize = u16le(d, 0x3A);
         let e_shnum = u16le(d, 0x3C);
-        if e_phentsize != 56 { die(format!("{path}: unexpected e_phentsize {e_phentsize}")); }
+        if e_phentsize != 56 {
+            die(format!("{path}: unexpected e_phentsize {e_phentsize}"));
+        }
         let mut phdrs = Vec::with_capacity(e_phnum as usize);
         for i in 0..e_phnum as usize {
             let o = e_phoff as usize + i * 56;
@@ -98,7 +121,15 @@ impl Elf {
                 align: u64le(d, o + 48),
             });
         }
-        Elf { data, e_entry, e_phoff, e_shoff, e_shentsize, e_shnum, phdrs }
+        Elf {
+            data,
+            e_entry,
+            e_phoff,
+            e_shoff,
+            e_shentsize,
+            e_shnum,
+            phdrs,
+        }
     }
 
     fn vaddr_to_off(&self, vaddr: u64) -> usize {
@@ -120,8 +151,14 @@ impl Elf {
 
     fn section(&self, idx: usize) -> (u32, u64, u64, u64, u32, u64) {
         let o = self.e_shoff as usize + idx * self.e_shentsize as usize;
-        (u32le(&self.data, o + 4), u64le(&self.data, o + 16), u64le(&self.data, o + 24),
-         u64le(&self.data, o + 32), u32le(&self.data, o + 40), u64le(&self.data, o + 56))
+        (
+            u32le(&self.data, o + 4),
+            u64le(&self.data, o + 16),
+            u64le(&self.data, o + 24),
+            u64le(&self.data, o + 32),
+            u32le(&self.data, o + 40),
+            u64le(&self.data, o + 56),
+        )
     }
 
     /// Highest GLIBC_x.y named in .gnu.version_d (base version excluded).
@@ -130,7 +167,10 @@ impl Elf {
         let mut verdef = None;
         for i in 0..self.e_shnum as usize {
             let s = self.section(i);
-            if s.0 == SHT_GNU_VERDEF { verdef = Some(s); break; }
+            if s.0 == SHT_GNU_VERDEF {
+                verdef = Some(s);
+                break;
+            }
         }
         let (_, _, vd_off, vd_size, link, _) = verdef?;
         let strtab = self.section(link as usize);
@@ -146,22 +186,31 @@ impl Elf {
             let name = String::from_utf8_lossy(cstr(&self.data, base + name_off)).to_string();
             if let Some(ver) = name.strip_prefix("GLIBC_") {
                 let ok = ver.split('.').count() == 2
-                    && ver.split('.').all(|c| !c.is_empty() && c.chars().all(|ch| ch.is_ascii_digit()));
+                    && ver
+                        .split('.')
+                        .all(|c| !c.is_empty() && c.chars().all(|ch| ch.is_ascii_digit()));
                 if ok && vd_flags & 1 == 0 {
                     let better = match &best {
                         None => true,
                         Some(b) => {
                             let k = |s: &str| -> (u64, u64) {
                                 let mut it = s.split('.');
-                                (it.next().unwrap().parse().unwrap(), it.next().unwrap().parse().unwrap())
+                                (
+                                    it.next().unwrap().parse().unwrap(),
+                                    it.next().unwrap().parse().unwrap(),
+                                )
                             };
                             k(ver) > k(b)
                         }
                     };
-                    if better { best = Some(ver.to_string()); }
+                    if better {
+                        best = Some(ver.to_string());
+                    }
                 }
             }
-            if vd_next == 0 { break; }
+            if vd_next == 0 {
+                break;
+            }
             p += vd_next as u64;
         }
         best
@@ -174,24 +223,39 @@ const SVC: u32 = 0xD400_0001;
 const NOP: u32 = 0xD503_201F;
 
 /// Accelerators we neutralise: the caller provably ignores the result.
-fn patchable(nr: u32) -> bool { nr == 99 }
+fn patchable(nr: u32) -> bool {
+    nr == 99
+}
 /// Accelerators we only locate: their callers inspect the value.
 fn accelerator_name(nr: u32) -> Option<&'static str> {
-    match nr { 99 => Some("set_robust_list"), 293 => Some("rseq"), _ => None }
+    match nr {
+        99 => Some("set_robust_list"),
+        293 => Some("rseq"),
+        _ => None,
+    }
 }
 
 /// movz {x,w}<rd>, #imm -> (imm, true)
 fn movz_imm(insn: u32, rd: u32) -> Option<u32> {
-    if insn & 0xFFE0_001F == 0xD280_0000 | rd { return Some((insn >> 5) & 0xFFFF); }
-    if insn & 0xFFE0_001F == 0x5280_0000 | rd { return Some((insn >> 5) & 0xFFFF); }
+    if insn & 0xFFE0_001F == 0xD280_0000 | rd {
+        return Some((insn >> 5) & 0xFFFF);
+    }
+    if insn & 0xFFE0_001F == 0x5280_0000 | rd {
+        return Some((insn >> 5) & 0xFFFF);
+    }
     None
 }
 
 /// True if this instruction writes x0/w0 and cannot depend on its old value.
 fn writes_x0_only(insn: u32) -> bool {
-    if insn & 0x1F != 0 { return false; }
+    if insn & 0x1F != 0 {
+        return false;
+    }
     let top = insn & 0x7F80_0000;
-    if matches!(top, 0x5280_0000 | 0x1280_0000 | 0x7280_0000 | 0xD280_0000 | 0x9280_0000 | 0xF280_0000) {
+    if matches!(
+        top,
+        0x5280_0000 | 0x1280_0000 | 0x7280_0000 | 0xD280_0000 | 0x9280_0000 | 0xF280_0000
+    ) {
         return true;
     }
     let m = insn & 0x7F00_0000;
@@ -202,10 +266,16 @@ fn writes_x0_only(insn: u32) -> bool {
     if m2 == 0x0B00_0000 || m2 == 0x4B00_0000 {
         return ((insn >> 5) & 0x1F) != 0 && ((insn >> 16) & 0x1F) != 0;
     }
-    if insn & 0x3B00_0000 == 0x3900_0000 { return (insn >> 5) & 0x1F != 0; }
-    if insn & 0x3B20_0C00 == 0x3800_0000 { return (insn >> 5) & 0x1F != 0; }
+    if insn & 0x3B00_0000 == 0x3900_0000 {
+        return (insn >> 5) & 0x1F != 0;
+    }
+    if insn & 0x3B20_0C00 == 0x3800_0000 {
+        return (insn >> 5) & 0x1F != 0;
+    }
     let m3 = insn & 0x7FE0_FFE0;
-    if m3 == 0x2A00_03E0 || m3 == 0xAA00_03E0 { return (insn >> 16) & 0x1F != 0; }
+    if m3 == 0x2A00_03E0 || m3 == 0xAA00_03E0 {
+        return (insn >> 16) & 0x1F != 0;
+    }
     false
 }
 
@@ -214,7 +284,10 @@ fn is_branch(insn: u32) -> bool {
         || insn & 0xFE00_0000 == 0x5400_0000
         || insn & 0x7E00_0000 == 0x3400_0000
         || insn & 0x7E00_0000 == 0x3600_0000
-        || matches!(insn & 0xFFFF_FC1F, 0xD61F_0000 | 0xD63F_0000 | 0xD65F_0000 | 0xD67F_0000)
+        || matches!(
+            insn & 0xFFFF_FC1F,
+            0xD61F_0000 | 0xD63F_0000 | 0xD65F_0000 | 0xD67F_0000
+        )
         || insn == 0xD65F_03C0
 }
 
@@ -238,18 +311,37 @@ fn scan(elf: &Elf) -> Vec<Site> {
                 let mut back = Vec::new();
                 for k in 1..9usize {
                     let po = o as i64 - 4 * k as i64;
-                    if po < 0 { break; }
+                    if po < 0 {
+                        break;
+                    }
                     let prev = u32le(&elf.data, po as usize);
-                    if prev == SVC { break; }
-                    if let Some(imm) = movz_imm(prev, 8) { nr = Some(imm); break; }
-                    if is_branch(prev) { break; }
+                    if prev == SVC {
+                        break;
+                    }
+                    if let Some(imm) = movz_imm(prev, 8) {
+                        nr = Some(imm);
+                        break;
+                    }
+                    if is_branch(prev) {
+                        break;
+                    }
                     back.push(prev);
                 }
                 if let Some(nr) = nr {
                     if let Some(name) = accelerator_name(nr) {
                         let nxt_off = o + 4;
-                        let nxt = if nxt_off + 4 <= elf.data.len() { u32le(&elf.data, nxt_off) } else { 0 };
-                        sites.push(Site { vaddr, nr, name, back, next: nxt });
+                        let nxt = if nxt_off + 4 <= elf.data.len() {
+                            u32le(&elf.data, nxt_off)
+                        } else {
+                            0
+                        };
+                        sites.push(Site {
+                            vaddr,
+                            nr,
+                            name,
+                            back,
+                            next: nxt,
+                        });
                     }
                 }
             }
@@ -259,30 +351,47 @@ fn scan(elf: &Elf) -> Vec<Site> {
     sites
 }
 
-fn hex8(v: u32) -> String { format!("{v:#010x}") }
+fn hex8(v: u32) -> String {
+    format!("{v:#010x}")
+}
 
 pub(crate) fn scan_main(args: &[String]) -> ExitCode {
-    if args.len() < 2 { die("usage: nr-tools scan-syscalls {report|patch} <elf> [out] [--version V] [--expect NAME=COUNT ...]"); }
+    if args.len() < 2 {
+        die("usage: nr-tools scan-syscalls {report|patch} <elf> [out] [--version V] [--expect NAME=COUNT ...]");
+    }
     let mode = args[0].as_str();
     let path = args[1].clone();
     let mut rest: Vec<&str> = args[2..].iter().map(|s| s.as_str()).collect();
     let out = if mode == "patch" {
-        if rest.is_empty() { die("patch needs an output path"); }
+        if rest.is_empty() {
+            die("patch needs an output path");
+        }
         let o = rest[0].to_string();
         rest.remove(0);
         Some(o)
-    } else { None };
+    } else {
+        None
+    };
     let mut want_version: Option<String> = None;
     let mut expect: Vec<(String, i64)> = Vec::new();
     let mut i = 0;
     while i < rest.len() {
         match rest[i] {
-            "--version" => { i += 1; want_version = Some(rest.get(i).expect("--version needs a value").to_string()); }
+            "--version" => {
+                i += 1;
+                want_version = Some(rest.get(i).expect("--version needs a value").to_string());
+            }
             "--expect" => {
                 i += 1;
                 let kv = rest.get(i).expect("--expect needs NAME=COUNT");
-                let (n, c) = kv.split_once('=').unwrap_or_else(|| die(format!("bad --expect {kv}")));
-                expect.push((n.to_string(), c.parse().unwrap_or_else(|_| die(format!("bad count in {kv}")))));
+                let (n, c) = kv
+                    .split_once('=')
+                    .unwrap_or_else(|| die(format!("bad --expect {kv}")));
+                expect.push((
+                    n.to_string(),
+                    c.parse()
+                        .unwrap_or_else(|_| die(format!("bad count in {kv}"))),
+                ));
             }
             other => die(format!("unknown argument {other}")),
         }
@@ -291,14 +400,26 @@ pub(crate) fn scan_main(args: &[String]) -> ExitCode {
 
     let elf = Elf::open(&path);
     let ver = elf.glibc_version();
-    println!("{path}: glibc version from .gnu.version_d = {}",
-             ver.clone().unwrap_or_else(|| "None".to_string()));
+    println!(
+        "{path}: glibc version from .gnu.version_d = {}",
+        ver.clone().unwrap_or_else(|| "None".to_string())
+    );
     let sites = scan(&elf);
     for s in &sites {
         let ignored = writes_x0_only(s.next);
-        println!("  {:#08x}  {}({})  gap={}  next={}  {}",
-                 s.vaddr, s.name, s.nr, s.back.len(), hex8(s.next),
-                 if ignored { "result ignored" } else { "RESULT USED - do not nop" });
+        println!(
+            "  {:#08x}  {}({})  gap={}  next={}  {}",
+            s.vaddr,
+            s.name,
+            s.nr,
+            s.back.len(),
+            hex8(s.next),
+            if ignored {
+                "result ignored"
+            } else {
+                "RESULT USED - do not nop"
+            }
+        );
         for b in s.back.iter().rev() {
             println!("          before {}", hex8(*b));
         }
@@ -307,12 +428,17 @@ pub(crate) fn scan_main(args: &[String]) -> ExitCode {
     if let Some(want) = &want_version {
         let got = ver.clone().unwrap_or_else(|| "None".to_string());
         if &got != want {
-            println!("REFUSING: this image says it is glibc {got}, this build expects {want} - \
-                      the image shape (and therefore the sites) is not the one checked");
+            println!(
+                "REFUSING: this image says it is glibc {got}, this build expects {want} - \
+                      the image shape (and therefore the sites) is not the one checked"
+            );
             return ExitCode::from(1);
         }
     }
-    let bad = sites.iter().filter(|s| patchable(s.nr) && !writes_x0_only(s.next)).count();
+    let bad = sites
+        .iter()
+        .filter(|s| patchable(s.nr) && !writes_x0_only(s.next))
+        .count();
     if bad > 0 {
         println!("REFUSING: {bad} patchable site(s) use the syscall's return value; a nop there would change behaviour");
         return ExitCode::from(1);
@@ -320,15 +446,19 @@ pub(crate) fn scan_main(args: &[String]) -> ExitCode {
     for (name, count) in &expect {
         let got = sites.iter().filter(|s| s.name == name.as_str()).count() as i64;
         if got != *count {
-            println!("REFUSING: {name}: found {got} site(s), expected {count} - \
-                      this is not the glibc build this tool was checked against");
+            println!(
+                "REFUSING: {name}: found {got} site(s), expected {count} - \
+                      this is not the glibc build this tool was checked against"
+            );
             return ExitCode::from(1);
         }
     }
     if let Some(out) = out {
         let mut d = elf.data.clone();
         for s in &sites {
-            if !patchable(s.nr) { continue; }
+            if !patchable(s.nr) {
+                continue;
+            }
             let o = elf.vaddr_to_off(s.vaddr);
             put_u32(&mut d, o, NOP);
         }
@@ -352,40 +482,64 @@ const STT_FUNC: u8 = 2;
 const STT_GNU_IFUNC: u8 = 10;
 
 const MAGIC: u64 = 0x4E52_484B_4F4F_4B31; // "NRHOOK1"
-const DESC: usize = 48;                    // 6 x u64, see init-hook.S
+const DESC: usize = 48; // 6 x u64, see init-hook.S
 
 // Checked against this loader build; a different glibc must be re-checked.
 const EXPECT_LOADER_BUILD: &str = "glibc 2.39 aarch64";
 const LD_START_BL: usize = 0x1AA74; // `bl _dl_init` inside _start
-const LD_DL_INIT: u64 = 0x4BB0;     // its target == _dl_init
-const LD_TEXT_END: u64 = 0x41348;   // end of the loader's last segment (vaddr)
-const F_BASE: u64 = 0x32000;        // where the shim lands inside the loader
+const LD_DL_INIT: u64 = 0x4BB0; // its target == _dl_init
+const LD_TEXT_END: u64 = 0x41348; // end of the loader's last segment (vaddr)
+const F_BASE: u64 = 0x32000; // where the shim lands inside the loader
 const V_BASE: u64 = 0x42000;
 
 /// Deliberately not interposed: our own entry points and compiler glue.
 const NOT_INTERPOSED: [&str; 6] = [
-    "nr_boot", "nr_resolve_name", "nr_get_main_map", "nr_set_main_map",
-    "rust_eh_personality", "bcmp",
+    "nr_boot",
+    "nr_resolve_name",
+    "nr_get_main_map",
+    "nr_set_main_map",
+    "rust_eh_personality",
+    "bcmp",
 ];
 
-fn align(v: u64, a: u64) -> u64 { (v + a - 1) & !(a - 1) }
+fn align(v: u64, a: u64) -> u64 {
+    (v + a - 1) & !(a - 1)
+}
 
 #[allow(dead_code)]
-struct Sec { typ: u32, addr: u64, off: u64, size: u64 }
+struct Sec {
+    typ: u32,
+    addr: u64,
+    off: u64,
+    size: u64,
+}
 
 fn sections(elf: &Elf) -> std::collections::HashMap<Vec<u8>, Sec> {
     let mut out = std::collections::HashMap::new();
     let shstrndx = u16le(&elf.data, 0x3E) as usize;
-    let strtab_off = u64le(&elf.data, elf.e_shoff as usize + shstrndx * elf.e_shentsize as usize + 24);
+    let strtab_off = u64le(
+        &elf.data,
+        elf.e_shoff as usize + shstrndx * elf.e_shentsize as usize + 24,
+    );
     for i in 0..elf.e_shnum as usize {
         let o = elf.e_shoff as usize + i * elf.e_shentsize as usize;
         let name_off = u32le(&elf.data, o) as usize;
         let (typ, addr, off_, size, _link, _) = elf.section(i);
         let name: Vec<u8> = if strtab_off != 0 {
             cstr(&elf.data, strtab_off as usize + name_off).to_vec()
-        } else { Vec::new() };
+        } else {
+            Vec::new()
+        };
         let _ = o;
-        out.insert(name, Sec { typ, addr, off: off_, size });
+        out.insert(
+            name,
+            Sec {
+                typ,
+                addr,
+                off: off_,
+                size,
+            },
+        );
     }
     out
 }
@@ -411,38 +565,69 @@ fn embed(shim_path: &str, loader_path: &str, hook_path: &str, out_path: &str) ->
     let ld = Elf::open(loader_path);
     let mut hook = fs::read(hook_path).unwrap_or_else(|e| die(format!("{hook_path}: {e}")));
     let sec = sections(&shim);
-    let dynsym = sec.get(b".dynsym" as &[u8]).unwrap_or_else(|| die("shim has no .dynsym"));
-    let dynstr = sec.get(b".dynstr" as &[u8]).unwrap_or_else(|| die("shim has no .dynstr"));
+    let dynsym = sec
+        .get(b".dynsym" as &[u8])
+        .unwrap_or_else(|| die("shim has no .dynsym"));
+    let dynstr = sec
+        .get(b".dynstr" as &[u8])
+        .unwrap_or_else(|| die("shim has no .dynstr"));
     let nsyms = (dynsym.size / 24) as usize;
 
     // ------------------------------------------------------------- loader ---
-    if ld.e_entry != 0x1AA40 { die(format!("unexpected loader entry {:#x}", ld.e_entry)); }
-    let l0 = ld.phdrs.iter().find(|p| p.typ == PT_LOAD).unwrap_or_else(|| die("loader has no PT_LOAD"));
-    if !(l0.vaddr == 0 && l0.off == 0) { die("loader LOAD0 not at 0"); }
+    if ld.e_entry != 0x1AA40 {
+        die(format!("unexpected loader entry {:#x}", ld.e_entry));
+    }
+    let l0 = ld
+        .phdrs
+        .iter()
+        .find(|p| p.typ == PT_LOAD)
+        .unwrap_or_else(|| die("loader has no PT_LOAD"));
+    if !(l0.vaddr == 0 && l0.off == 0) {
+        die("loader LOAD0 not at 0");
+    }
     if u32le(&ld.data, LD_START_BL) & 0xFC00_0000 != 0x9400_0000 {
         die(format!("{LD_START_BL:#x} is not a `bl`"));
     }
     let bl = u32le(&ld.data, LD_START_BL);
     let mut imm26 = (bl & 0x03FF_FFFF) as i64;
-    if imm26 & 0x0200_0000 != 0 { imm26 -= 1 << 26; }
+    if imm26 & 0x0200_0000 != 0 {
+        imm26 -= 1 << 26;
+    }
     let bl_target = LD_START_BL as i64 + imm26 * 4;
     if bl_target != LD_DL_INIT as i64 {
-        die(format!("`bl` at {LD_START_BL:#x} targets {bl_target:#x}, expected _dl_init"));
+        die(format!(
+            "`bl` at {LD_START_BL:#x} targets {bl_target:#x}, expected _dl_init"
+        ));
     }
 
-    let notes: Vec<(usize, Phdr)> = ld.phdrs.iter().copied().enumerate()
-        .filter(|(_, p)| p.typ == PT_NOTE).collect();
-    if notes.len() != 1 { die("expected exactly one PT_NOTE to repurpose"); }
+    let notes: Vec<(usize, Phdr)> = ld
+        .phdrs
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(_, p)| p.typ == PT_NOTE)
+        .collect();
+    if notes.len() != 1 {
+        die("expected exactly one PT_NOTE to repurpose");
+    }
     let (note_idx, note) = notes[0];
-    if note.filesz > 0x40 { die("PT_NOTE is larger than expected"); }
+    if note.filesz > 0x40 {
+        die("PT_NOTE is larger than expected");
+    }
 
     // --------------------------------------------------------- shim block ---
     let mut span = 0u64;
     let mut loads = Vec::new();
     for p in &shim.phdrs {
-        if p.typ != PT_LOAD { continue; }
-        if p.off != p.vaddr { die("shim segments are not offset==vaddr"); }
-        if p.off % PAGE != 0 || p.memsz < p.filesz { die("shim segment layout unexpected"); }
+        if p.typ != PT_LOAD {
+            continue;
+        }
+        if p.off != p.vaddr {
+            die("shim segments are not offset==vaddr");
+        }
+        if p.off % PAGE != 0 || p.memsz < p.filesz {
+            die("shim segment layout unexpected");
+        }
         span = span.max(p.vaddr + p.memsz);
         loads.push(*p);
     }
@@ -454,7 +639,10 @@ fn embed(shim_path: &str, loader_path: &str, hook_path: &str, out_path: &str) ->
             .copy_from_slice(&shim.data[s..s + p.filesz as usize]);
     }
 
-    let rw = loads.iter().find(|p| p.flags & 2 != 0).unwrap_or_else(|| die("shim has no writable segment"));
+    let rw = loads
+        .iter()
+        .find(|p| p.flags & 2 != 0)
+        .unwrap_or_else(|| die("shim has no writable segment"));
     let rw_start = rw.vaddr;
     let rw_len = span - rw_start;
 
@@ -475,23 +663,37 @@ fn embed(shim_path: &str, loader_path: &str, hook_path: &str, out_path: &str) ->
             match r_type {
                 0 => {}
                 R_AARCH64_RELATIVE if r_sym == 0 => {
-                    put_u64(&mut image, r_offset as usize, V_BASE.wrapping_add(r_addend as u64));
+                    put_u64(
+                        &mut image,
+                        r_offset as usize,
+                        V_BASE.wrapping_add(r_addend as u64),
+                    );
                     relative_slots.push(r_offset);
                     n_rel += 1;
                 }
                 R_AARCH64_JUMP_SLOT | R_AARCH64_GLOB_DAT if r_sym != 0 => {
                     let s_name = u32le(&shim.data, dynsym.off as usize + r_sym * 24) as u64;
                     let name = cstr(&shim.data, dynstr.off as usize + s_name as usize);
-                    extern_entries.push((V_BASE + dynstr.addr + s_name, name.len() as u32, V_BASE + r_offset));
+                    extern_entries.push((
+                        V_BASE + dynstr.addr + s_name,
+                        name.len() as u32,
+                        V_BASE + r_offset,
+                    ));
                     n_ext += 1;
                 }
                 R_AARCH64_ABS64 => {
-                    put_u64(&mut image, r_offset as usize, V_BASE.wrapping_add(r_addend as u64));
+                    put_u64(
+                        &mut image,
+                        r_offset as usize,
+                        V_BASE.wrapping_add(r_addend as u64),
+                    );
                     relative_slots.push(r_offset);
                     n_other += 1;
                 }
-                other => die(format!("{}[{i}]: unsupported relocation {other}",
-                                     String::from_utf8_lossy(relname))),
+                other => die(format!(
+                    "{}[{i}]: unsupported relocation {other}",
+                    String::from_utf8_lossy(relname)
+                )),
             }
         }
     }
@@ -505,13 +707,25 @@ fn embed(shim_path: &str, loader_path: &str, hook_path: &str, out_path: &str) ->
         let st_shndx = u16le(&shim.data, o + 6);
         let st_value = u64le(&shim.data, o + 8);
         let (bind, typ) = (st_info >> 4, st_info & 0xF);
-        if st_shndx == 0 || (bind != STB_GLOBAL && bind != STB_WEAK) { continue; }
-        if typ != STT_FUNC && typ != STT_GNU_IFUNC { continue; }
+        if st_shndx == 0 || (bind != STB_GLOBAL && bind != STB_WEAK) {
+            continue;
+        }
+        if typ != STT_FUNC && typ != STT_GNU_IFUNC {
+            continue;
+        }
         let name = cstr(&shim.data, dynstr.off as usize + st_name as usize);
-        if NOT_INTERPOSED.iter().any(|n| n.as_bytes() == name) { continue; }
-        interpose_entries.push((V_BASE + dynstr.addr + st_name, name.len() as u32, V_BASE + st_value));
+        if NOT_INTERPOSED.iter().any(|n| n.as_bytes() == name) {
+            continue;
+        }
+        interpose_entries.push((
+            V_BASE + dynstr.addr + st_name,
+            name.len() as u32,
+            V_BASE + st_value,
+        ));
     }
-    if dynstr.addr + dynstr.size > span { die(".dynstr is outside the block"); }
+    if dynstr.addr + dynstr.size > span {
+        die(".dynstr is outside the block");
+    }
 
     // ---------------------------------------------------------- hook + data --
     let hook_off = span;
@@ -533,13 +747,22 @@ fn embed(shim_path: &str, loader_path: &str, hook_path: &str, out_path: &str) ->
     };
     let ext_addr = table(&extern_entries, &mut tables);
     let interp_addr = table(&interpose_entries, &mut tables);
-    let reloc_entries: Vec<(u64, u32, u64)> =
-        relative_slots.iter().map(|off| (0u64, 0u32, V_BASE + off)).collect();
+    let reloc_entries: Vec<(u64, u32, u64)> = relative_slots
+        .iter()
+        .map(|off| (0u64, 0u32, V_BASE + off))
+        .collect();
     let reloc_addr = table(&reloc_entries, &mut tables);
 
     let nr_boot = shim_symbol("nr_boot", &shim, dynsym, dynstr);
     let mut data = Vec::with_capacity(DESC + tables.len());
-    for v in [ext_addr, interp_addr, V_BASE + nr_boot, V_BASE + rw_start, rw_len, reloc_addr] {
+    for v in [
+        ext_addr,
+        interp_addr,
+        V_BASE + nr_boot,
+        V_BASE + rw_start,
+        rw_len,
+        reloc_addr,
+    ] {
         data.extend_from_slice(&v.to_le_bytes());
     }
     data.extend_from_slice(&tables);
@@ -547,7 +770,9 @@ fn embed(shim_path: &str, loader_path: &str, hook_path: &str, out_path: &str) ->
 
     // patch the hook's magic header: {magic, hook vaddr, data vaddr, _dl_init}
     let magic = MAGIC.to_le_bytes();
-    let m = hook.windows(8).position(|w| w == magic)
+    let m = hook
+        .windows(8)
+        .position(|w| w == magic)
         .unwrap_or_else(|| die("hook has no NRHOOK1 header"));
     put_u64(&mut hook, m + 8, V_BASE + hook_off);
     put_u64(&mut hook, m + 16, V_BASE + data_off);
@@ -555,7 +780,9 @@ fn embed(shim_path: &str, loader_path: &str, hook_path: &str, out_path: &str) ->
 
     // --------------------------------------------------------- write it out --
     let mut out = ld.data.clone();
-    if (out.len() as u64) < F_BASE { out.resize(F_BASE as usize, 0); }
+    if (out.len() as u64) < F_BASE {
+        out.resize(F_BASE as usize, 0);
+    }
     out.resize((F_BASE + total) as usize, 0);
     if !out[F_BASE as usize..].iter().all(|b| *b == 0) {
         die("the space we are claiming is not empty");
@@ -579,8 +806,14 @@ fn embed(shim_path: &str, loader_path: &str, hook_path: &str, out_path: &str) ->
     // `bl _dl_init` -> `bl nr_dl_init_hook`
     let target = V_BASE + hook_off;
     let delta = (target as i64 - LD_START_BL as i64) / 4;
-    if delta < -(1 << 25) || delta >= (1 << 25) { die("hook out of branch range"); }
-    put_u32(&mut out, LD_START_BL, 0x9400_0000 | (delta as u32 & 0x03FF_FFFF));
+    if delta < -(1 << 25) || delta >= (1 << 25) {
+        die("hook out of branch range");
+    }
+    put_u32(
+        &mut out,
+        LD_START_BL,
+        0x9400_0000 | (delta as u32 & 0x03FF_FFFF),
+    );
 
     // ---------------------------------------------------------- bss padding ---
     // The kernel zeroes BSS exactly once, at the *largest* PT_LOAD end
@@ -593,7 +826,9 @@ fn embed(shim_path: &str, loader_path: &str, hook_path: &str, out_path: &str) ->
     // the RW segment's last file-backed page.
     // NB this is the *loader's* writable segment, not the shim's: the shim's BSS
     // tail is inside its own image, the loader's is inside the loader's file page.
-    let ld_rw = ld.phdrs.iter()
+    let ld_rw = ld
+        .phdrs
+        .iter()
         .find(|p| p.typ == PT_LOAD && p.flags & 2 != 0)
         .unwrap_or_else(|| die("loader has no writable PT_LOAD"));
     let rw_file_end = ld_rw.off + ld_rw.filesz;
@@ -614,9 +849,13 @@ fn embed(shim_path: &str, loader_path: &str, hook_path: &str, out_path: &str) ->
             put_u64(&mut out, 0x28, new_off as u64);
             eprintln!("bss pad: section headers moved {} -> {}", e_shoff, new_off);
         }
-        for b in out[rw_file_end as usize..rw_page_end as usize].iter_mut() { *b = 0; }
-        eprintln!("bss pad: zeroed file [{}..{}) to keep ld.so's BSS zero",
-                  rw_file_end, rw_page_end);
+        for b in out[rw_file_end as usize..rw_page_end as usize].iter_mut() {
+            *b = 0;
+        }
+        eprintln!(
+            "bss pad: zeroed file [{}..{}) to keep ld.so's BSS zero",
+            rw_file_end, rw_page_end
+        );
     }
 
     fs::write(out_path, &out).unwrap_or_else(|e| die(format!("{out_path}: {e}")));
@@ -656,7 +895,10 @@ fn print_summary(s: &EmbedSummary) {
     o += &format!("  \"loader\": \"{EXPECT_LOADER_BUILD}\",\n");
     o += "  \"shim_loads\": [\n";
     for (i, v) in s.shim_loads.iter().enumerate() {
-        o += &format!("    {v}{}\n", if i + 1 == s.shim_loads.len() { "" } else { "," });
+        o += &format!(
+            "    {v}{}\n",
+            if i + 1 == s.shim_loads.len() { "" } else { "," }
+        );
     }
     o += "  ],\n";
     o += &format!("  \"shim_span\": {},\n", s.shim_span);
@@ -722,14 +964,20 @@ fn check_elf_main(args: &[String]) {
         let e_phoff = u64le(&data, 0x20) as usize;
         let e_phentsize = u16le(&data, 0x36) as usize;
         let e_phnum = u16le(&data, 0x38) as usize;
-        if e_phentsize < 56 { continue; }
+        if e_phentsize < 56 {
+            continue;
+        }
         let mut max_align = 0u64;
         let mut loads = 0usize;
         let mut verdict = vec![true; pages.len()];
         for k in 0..e_phnum {
             let o = e_phoff + k * e_phentsize;
-            if o + 56 > data.len() { break; }
-            if u32le(&data, o) != PT_LOAD { continue; }
+            if o + 56 > data.len() {
+                break;
+            }
+            if u32le(&data, o) != PT_LOAD {
+                continue;
+            }
             loads += 1;
             let off = u64le(&data, o + 8);
             let vaddr = u64le(&data, o + 16);
@@ -741,7 +989,9 @@ fn check_elf_main(args: &[String]) {
                 }
             }
         }
-        if loads == 0 { continue; }
+        if loads == 0 {
+            continue;
+        }
         checked += 1;
         let name = f.display();
         let mut line = format!("{name}  p_align=0x{max_align:x}  loads={loads} ");
@@ -774,7 +1024,9 @@ fn check_elf_main(args: &[String]) {
 /// `page`-sized pages. Used by `embed` for the 16 KiB case.
 fn assert_page_congruent(path: &str, page: u64) {
     let data = fs::read(path).unwrap_or_else(|e| die(format!("{path}: {e}")));
-    if data.len() < 64 || &data[..4] != b"\x7fELF" { die(format!("{path}: not an ELF")); }
+    if data.len() < 64 || &data[..4] != b"\x7fELF" {
+        die(format!("{path}: not an ELF"));
+    }
     let e_phoff = u64le(&data, 0x20) as usize;
     let e_phentsize = u16le(&data, 0x36) as usize;
     let e_phnum = u16le(&data, 0x38) as usize;
@@ -782,8 +1034,12 @@ fn assert_page_congruent(path: &str, page: u64) {
     while i < e_phnum {
         let o = e_phoff + i * e_phentsize;
         i += 1;
-        if o + 56 > data.len() { break; }
-        if u32le(&data, o) != PT_LOAD { continue; }
+        if o + 56 > data.len() {
+            break;
+        }
+        if u32le(&data, o) != PT_LOAD {
+            continue;
+        }
         let off = u64le(&data, o + 8);
         let vaddr = u64le(&data, o + 16);
         let align = u64le(&data, o + 48);
@@ -808,15 +1064,21 @@ fn parse_page(a: &str) -> u64 {
             "4k" | "4K" => 4096,
             "16k" | "16K" => 16384,
             "64k" | "64K" => 65536,
-            _ => a.parse::<u64>().unwrap_or_else(|_| die(format!("bad page size {a}"))),
+            _ => a
+                .parse::<u64>()
+                .unwrap_or_else(|_| die(format!("bad page size {a}"))),
         }
     };
-    if v < 4096 || v & (v - 1) != 0 { die(format!("page size {a} is not a power of two >= 4096")); }
+    if v < 4096 || v & (v - 1) != 0 {
+        die(format!("page size {a} is not a power of two >= 4096"));
+    }
     v
 }
 
 fn walk_elf_candidates(p: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-    let Ok(md) = fs::symlink_metadata(p) else { return };
+    let Ok(md) = fs::symlink_metadata(p) else {
+        return;
+    };
     if md.file_type().is_symlink() {
         // Symlinks in a rootfs are absolute guest paths; the target resolves
         // inside the same tree, so skip and let the real file be visited.
@@ -829,7 +1091,9 @@ fn walk_elf_candidates(p: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
         }
         return;
     }
-    if !md.is_file() { return; }
+    if !md.is_file() {
+        return;
+    }
     // Cheap pre-filter: ELF magic in the first four bytes.
     if let Ok(mut f) = fs::File::open(p) {
         use std::io::Read;
@@ -848,13 +1112,28 @@ fn main() -> ExitCode {
     };
     match cmd.as_str() {
         "scan-syscalls" => scan_main(&args[1..]),
-        "check-elf" => { check_elf_main(&args[1..]); ExitCode::SUCCESS }
-        "provision" => { provision::main(&args[1..]); ExitCode::SUCCESS }
-        "rootfs" => { rootfs::main(&args[1..]); ExitCode::SUCCESS }
+        "check-elf" => {
+            check_elf_main(&args[1..]);
+            ExitCode::SUCCESS
+        }
+        "provision" => {
+            provision::main(&args[1..]);
+            ExitCode::SUCCESS
+        }
+        "rootfs" => {
+            rootfs::main(&args[1..]);
+            ExitCode::SUCCESS
+        }
         "embed" => {
-            if args.len() < 5 { die("usage: nr-tools embed <shim.so> <loader.orig> <hook.bin> <out.so>"); }
-            if V_BASE < align(LD_TEXT_END, PAGE) { die("shim would overlap the loader's own segments"); }
-            if F_BASE % PAGE != V_BASE % PAGE { die("offset/vaddr must be congruent"); }
+            if args.len() < 5 {
+                die("usage: nr-tools embed <shim.so> <loader.orig> <hook.bin> <out.so>");
+            }
+            if V_BASE < align(LD_TEXT_END, PAGE) {
+                die("shim would overlap the loader's own segments");
+            }
+            if F_BASE % PAGE != V_BASE % PAGE {
+                die("offset/vaddr must be congruent");
+            }
             let s = embed(&args[1], &args[2], &args[3], &args[4]);
             // The output must be loadable on a 16 KiB-page kernel, not just on
             // the 4 KiB page of the build machine: every PT_LOAD has to satisfy

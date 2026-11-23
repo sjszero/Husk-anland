@@ -14,6 +14,7 @@ use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 const SOL_SOCKET: c_int = 1;
 const SCM_RIGHTS: c_int = 1;
@@ -312,12 +313,26 @@ struct AhbMeta {
     cookies: [u32; 9],
     count: usize,
     frames: usize,
+    plane_count: usize,
+    planes: [PlaneMeta; 4],
+    plane_fnv: [u64; 4],
+    plane_bytes: [usize; 4],
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct PlaneMeta {
+    offset: u64,
+    row_stride: u32,
+    pixel_stride: u32,
 }
 
 fn parse_meta(text: &str) -> Result<AhbMeta, String> {
     let mut lines = text.lines();
     let magic = lines.next();
-    if magic != Some("HUSK-AHB-1") && magic != Some("HUSK-AHB-2") {
+    if magic != Some("HUSK-AHB-1")
+        && magic != Some("HUSK-AHB-2")
+        && magic != Some("HUSK-VIDEO-AHB-1")
+    {
         return Err("bad magic".to_string());
     }
     let mut width = None;
@@ -328,6 +343,12 @@ fn parse_meta(text: &str) -> Result<AhbMeta, String> {
     let mut cookies = None;
     let mut count = 1usize;
     let mut frames = 1usize;
+    let mut plane_count = 0usize;
+    let mut planes = [PlaneMeta::default(); 4];
+    let mut luma_fnv = 0u64;
+    let mut luma_bytes = 0usize;
+    let mut plane_fnv = [0u64; 4];
+    let mut plane_bytes = [0usize; 4];
     for line in lines {
         let Some((key, value)) = line.split_once('=') else {
             continue;
@@ -352,8 +373,35 @@ fn parse_meta(text: &str) -> Result<AhbMeta, String> {
             }
             "count" => count = value.parse().unwrap_or(1),
             "frames" => frames = value.parse().unwrap_or(1),
+            "plane_count" => plane_count = value.parse().unwrap_or(0),
+            "luma_fnv" => luma_fnv = value.parse().unwrap_or(0),
+            "luma_bytes" => luma_bytes = value.parse().unwrap_or(0),
             _ => {}
         }
+        if let Some(rest) = key.strip_prefix("plane") {
+            if let Some((index, field)) = rest.split_once('_') {
+                if let Ok(index) = index.parse::<usize>() {
+                    if index < planes.len() {
+                        match field {
+                            "offset" => planes[index].offset = value.parse().unwrap_or(0),
+                            "row_stride" => planes[index].row_stride = value.parse().unwrap_or(0),
+                            "pixel_stride" => {
+                                planes[index].pixel_stride = value.parse().unwrap_or(0)
+                            }
+                            "fnv" => plane_fnv[index] = value.parse().unwrap_or(0),
+                            "bytes" => plane_bytes[index] = value.parse().unwrap_or(0),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if plane_fnv[0] == 0 {
+        plane_fnv[0] = luma_fnv;
+    }
+    if plane_bytes[0] == 0 {
+        plane_bytes[0] = luma_bytes;
     }
     Ok(AhbMeta {
         width: width.ok_or_else(|| "missing width".to_string())?,
@@ -364,6 +412,10 @@ fn parse_meta(text: &str) -> Result<AhbMeta, String> {
         cookies: cookies.ok_or_else(|| "missing cookies".to_string())?,
         count: count.clamp(1, 8),
         frames: frames.clamp(1, 100_000),
+        plane_count: plane_count.clamp(0, 4),
+        planes,
+        plane_fnv,
+        plane_bytes,
     })
 }
 
@@ -2234,6 +2286,7 @@ const VK_STRUCTURE_TYPE_MEMORY_BARRIER: u32 = 46;
 const VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2: u32 = 1_000_146_001;
 const VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_EXPLICIT_CREATE_INFO_EXT: u32 = 1_000_158_004;
 const VK_FORMAT_R8G8B8A8_UNORM: u32 = 37;
+const VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM: u32 = 1_000_156_002;
 const VK_IMAGE_TYPE_2D: u32 = 1;
 const VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT: u32 = 1_000_158_000;
 const VK_IMAGE_USAGE_TRANSFER_SRC_BIT: u32 = 1;
@@ -2242,6 +2295,9 @@ const VK_IMAGE_LAYOUT_UNDEFINED: u32 = 0;
 const VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL: u32 = 6;
 const VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL: u32 = 7;
 const VK_IMAGE_ASPECT_COLOR_BIT: u32 = 1;
+const VK_IMAGE_ASPECT_PLANE_0_BIT: u32 = 0x10;
+const VK_IMAGE_ASPECT_PLANE_1_BIT: u32 = 0x20;
+const VK_IMAGE_ASPECT_PLANE_2_BIT: u32 = 0x40;
 const VK_QUEUE_FAMILY_IGNORED: u32 = u32::MAX;
 const VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT: u32 = 1;
 const VK_PIPELINE_STAGE_TRANSFER_BIT: u32 = 1 << 12;
@@ -2353,6 +2409,14 @@ struct VkMemoryBarrier {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct VkFormatProperties {
+    linear_tiling_features: u32,
+    optimal_tiling_features: u32,
+    buffer_features: u32,
+}
+
+#[repr(C)]
 union VkClearColorValue {
     float32: [f32; 4],
     uint32: [u32; 4],
@@ -2432,6 +2496,30 @@ fn cmsg_align(n: usize) -> usize {
     (n + a - 1) & !(a - 1)
 }
 
+fn fnv1a(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for &byte in bytes {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+unsafe fn hash_plane_rows(data: *const u8, row_stride: usize, width: usize, height: usize) -> u64 {
+    if data.is_null() || width == 0 || height == 0 || row_stride < width {
+        return 0;
+    }
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for row in 0..height {
+        let bytes = core::slice::from_raw_parts(data.add(row * row_stride), width);
+        for &byte in bytes {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    hash
+}
+
 unsafe fn recv_handle_fds(stream: &UnixStream) -> Result<Vec<c_int>, String> {
     let mut data = [0u8; 512];
     let mut control = [0u8; 512];
@@ -2489,7 +2577,30 @@ unsafe fn recv_handle_fds(stream: &UnixStream) -> Result<Vec<c_int>, String> {
 }
 
 unsafe fn receive_handle(path: &str) -> Result<(AhbMeta, Vec<Vec<c_int>>, UnixStream), String> {
-    let mut stream = UnixStream::connect(path).map_err(|e| format!("connect {path}: {e}"))?;
+    let deadline = Instant::now() + Duration::from_secs(90);
+    let mut retries = 0u32;
+    let mut stream = loop {
+        match UnixStream::connect(path) {
+            Ok(stream) => break stream,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+                ) && Instant::now() < deadline =>
+            {
+                retries += 1;
+                if retries == 1 || retries % 20 == 0 {
+                    line(
+                        "dmabuf",
+                        "socket_wait",
+                        format!("retry={retries}|{path}|{error}"),
+                    );
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(error) => return Err(format!("connect {path}: {error}")),
+        }
+    };
     line("dmabuf", "socket", format!("PASS|{path}"));
 
     let mut frame_len = [0u8; 4];
@@ -3309,6 +3420,789 @@ pub unsafe fn run(
     r == VK_SUCCESS && gpu_ok && linear_ok && image_ok && handoff_ok
 }
 
+/// Import the real MediaCodec YV12 AHB into PanVK as a three-plane external
+/// image. The metadata offsets come from `AHardwareBuffer_lockPlanes`, not from
+/// guessed vendor layout. This probe intentionally does not modify the frame.
+pub unsafe fn run_video(
+    lib: *mut c_void,
+    physical: VkPhysicalDevice,
+    device: VkDevice,
+    queue: VkQueue,
+    family_index: u32,
+    path: &str,
+) -> bool {
+    let (meta, handles, mut stream) = match receive_handle(path) {
+        Ok(value) => value,
+        Err(error) => {
+            line("video-ahb", "FAIL", format!("receive: {error}"));
+            return false;
+        }
+    };
+    let fds = match handles.into_iter().next() {
+        Some(fds) => fds,
+        None => {
+            line("video-ahb", "FAIL", "no native handle");
+            return false;
+        }
+    };
+    let Some(fd) = find_dmabuf(&fds) else {
+        line("video-ahb", "FAIL", "no dma-buf fd in native handle");
+        for &fd in &fds {
+            close(fd);
+        }
+        return false;
+    };
+    let dmabuf_size = lseek(fd, 0, 2);
+    line(
+        "video-ahb",
+        "layout",
+        format!(
+            "size={}x{} stride={} format={:#x} dmabuf_size={} planes={}",
+            meta.width, meta.height, meta.stride, meta.format, dmabuf_size, meta.plane_count
+        ),
+    );
+    for index in 0..meta.plane_count {
+        let plane = meta.planes[index];
+        line(
+            "video-ahb",
+            "plane",
+            format!(
+                "index={index} offset={} row_stride={} pixel_stride={}",
+                plane.offset, plane.row_stride, plane.pixel_stride
+            ),
+        );
+    }
+
+    let get_format_properties: unsafe extern "C" fn(
+        VkPhysicalDevice,
+        u32,
+        *mut VkFormatProperties,
+    ) = match symbol(lib, "vkGetPhysicalDeviceFormatProperties") {
+        Some(function) => function,
+        None => {
+            line(
+                "video-ahb",
+                "FAIL",
+                "vkGetPhysicalDeviceFormatProperties missing",
+            );
+            for &fd in &fds {
+                close(fd);
+            }
+            return false;
+        }
+    };
+    let mut format_properties = VkFormatProperties::default();
+    get_format_properties(
+        physical,
+        VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM,
+        &mut format_properties,
+    );
+    line(
+        "video-ahb",
+        "format_properties",
+        format!(
+            "format=G8_B8_R8_3PLANE_420_UNORM linear={:#x} optimal={:#x} buffer={:#x}",
+            format_properties.linear_tiling_features,
+            format_properties.optimal_tiling_features,
+            format_properties.buffer_features
+        ),
+    );
+
+    if meta.width == 0
+        || meta.height == 0
+        || meta.plane_count != 3
+        || meta.planes[0].pixel_stride != 1
+        || meta.planes[1].pixel_stride != 1
+        || meta.planes[2].pixel_stride != 1
+    {
+        line("video-ahb", "FAIL", "unsupported YUV plane layout");
+        for &fd in &fds {
+            close(fd);
+        }
+        return false;
+    }
+
+    let chroma_width = meta.width.div_ceil(2);
+    let chroma_height = meta.height.div_ceil(2);
+    let plane_layouts = [
+        VkSubresourceLayout {
+            offset: meta.planes[0].offset,
+            size: meta.planes[0].row_stride as u64 * meta.height as u64,
+            row_pitch: meta.planes[0].row_stride as u64,
+            array_pitch: 0,
+            depth_pitch: 0,
+        },
+        VkSubresourceLayout {
+            offset: meta.planes[1].offset,
+            size: meta.planes[1].row_stride as u64 * chroma_height as u64,
+            row_pitch: meta.planes[1].row_stride as u64,
+            array_pitch: 0,
+            depth_pitch: 0,
+        },
+        VkSubresourceLayout {
+            offset: meta.planes[2].offset,
+            size: meta.planes[2].row_stride as u64 * chroma_height as u64,
+            row_pitch: meta.planes[2].row_stride as u64,
+            array_pitch: 0,
+            depth_pitch: 0,
+        },
+    ];
+    let _ = chroma_width;
+
+    let Some(create_image): Option<FnCreateImage> = symbol(lib, "vkCreateImage") else {
+        line("video-ahb", "FAIL", "vkCreateImage missing");
+        for &fd in &fds {
+            close(fd);
+        }
+        return false;
+    };
+    let Some(destroy_image): Option<FnDestroyImage> = symbol(lib, "vkDestroyImage") else {
+        line("video-ahb", "FAIL", "vkDestroyImage missing");
+        for &fd in &fds {
+            close(fd);
+        }
+        return false;
+    };
+    let Some(get_image_requirements): Option<FnGetImageRequirements2> =
+        symbol(lib, "vkGetImageMemoryRequirements2")
+    else {
+        line("video-ahb", "FAIL", "vkGetImageMemoryRequirements2 missing");
+        for &fd in &fds {
+            close(fd);
+        }
+        return false;
+    };
+    let Some(allocate_memory): Option<FnAllocateMemory> = symbol(lib, "vkAllocateMemory") else {
+        line("video-ahb", "FAIL", "vkAllocateMemory missing");
+        for &fd in &fds {
+            close(fd);
+        }
+        return false;
+    };
+    let Some(free_memory): Option<FnFreeMemory> = symbol(lib, "vkFreeMemory") else {
+        line("video-ahb", "FAIL", "vkFreeMemory missing");
+        for &fd in &fds {
+            close(fd);
+        }
+        return false;
+    };
+    let Some(bind_image): Option<FnBindImageMemory> = symbol(lib, "vkBindImageMemory") else {
+        line("video-ahb", "FAIL", "vkBindImageMemory missing");
+        for &fd in &fds {
+            close(fd);
+        }
+        return false;
+    };
+    let Some(get_memory_props): Option<FnGetPhysicalDeviceMemoryProperties> =
+        symbol(lib, "vkGetPhysicalDeviceMemoryProperties")
+    else {
+        line(
+            "video-ahb",
+            "FAIL",
+            "vkGetPhysicalDeviceMemoryProperties missing",
+        );
+        for &fd in &fds {
+            close(fd);
+        }
+        return false;
+    };
+
+    let external = VkExternalMemoryImageCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+        p_next: ptr::null(),
+        handle_types: VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+    };
+    let explicit = VkImageDrmFormatModifierExplicitCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_EXPLICIT_CREATE_INFO_EXT,
+        p_next: &external as *const _ as *const c_void,
+        drm_format_modifier: DRM_FORMAT_MOD_LINEAR,
+        drm_format_modifier_plane_count: plane_layouts.len() as u32,
+        p_plane_layouts: plane_layouts.as_ptr(),
+    };
+    let image_info = VkImageCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        p_next: &explicit as *const _ as *const c_void,
+        flags: 0,
+        image_type: VK_IMAGE_TYPE_2D,
+        format: VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM,
+        extent: VkExtent3D {
+            width: meta.width,
+            height: meta.height,
+            depth: 1,
+        },
+        mip_levels: 1,
+        array_layers: 1,
+        samples: 1,
+        tiling: VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT,
+        usage: VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        sharing_mode: VK_SHARING_MODE_EXCLUSIVE,
+        queue_family_index_count: 0,
+        p_queue_family_indices: ptr::null(),
+        initial_layout: VK_IMAGE_LAYOUT_UNDEFINED,
+    };
+    let mut image: VkImage = ptr::null_mut();
+    let create_result = create_image(device, &image_info, ptr::null(), &mut image);
+    line(
+        "video-ahb",
+        "image_create",
+        format!(
+            "{}|format=G8_B8_R8_3PLANE_420_UNORM|{}x{}|modifier=LINEAR|planes=3",
+            api_result(create_result),
+            meta.width,
+            meta.height
+        ),
+    );
+    if create_result != VK_SUCCESS {
+        for &fd in &fds {
+            close(fd);
+        }
+        return false;
+    }
+
+    let requirements_info = VkImageMemoryRequirementsInfo2 {
+        s_type: VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2,
+        p_next: ptr::null(),
+        image,
+    };
+    let mut requirements = VkMemoryRequirements2 {
+        s_type: VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2,
+        p_next: ptr::null_mut(),
+        requirements: VkMemoryRequirements::default(),
+    };
+    get_image_requirements(device, &requirements_info, &mut requirements);
+    let required = requirements.requirements;
+    line(
+        "video-ahb",
+        "requirements",
+        format!(
+            "size={} alignment={} memory_bits={:#x}",
+            required.size, required.alignment, required.memory_type_bits
+        ),
+    );
+    let mut memory_properties: VkPhysicalDeviceMemoryProperties = std::mem::zeroed();
+    get_memory_props(physical, &mut memory_properties);
+    let Some(memory_type_index) = choose_memory_type(&memory_properties, required.memory_type_bits)
+    else {
+        line("video-ahb", "FAIL", "no importable memory type");
+        destroy_image(device, image, ptr::null());
+        for &fd in &fds {
+            close(fd);
+        }
+        return false;
+    };
+
+    let mut import = VkImportMemoryFdInfo {
+        s_type: VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
+        p_next: ptr::null(),
+        handle_type: VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+        fd: dup(fd),
+    };
+    if import.fd < 0 {
+        line("video-ahb", "FAIL", "dup dma-buf");
+        destroy_image(device, image, ptr::null());
+        for &fd in &fds {
+            close(fd);
+        }
+        return false;
+    }
+    let allocation = VkMemoryAllocateInfo {
+        s_type: VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        p_next: &mut import as *mut _ as *const c_void,
+        allocation_size: required.size,
+        memory_type_index,
+    };
+    let mut image_memory: VkDeviceMemory = ptr::null_mut();
+    let import_result = allocate_memory(device, &allocation, ptr::null(), &mut image_memory);
+    close(import.fd);
+    line(
+        "video-ahb",
+        "image_import",
+        format!(
+            "{}|type={} size={} fd={}",
+            api_result(import_result),
+            memory_type_index,
+            required.size,
+            fd
+        ),
+    );
+    if import_result != VK_SUCCESS {
+        destroy_image(device, image, ptr::null());
+        for &fd in &fds {
+            close(fd);
+        }
+        return false;
+    }
+    let bind_result = bind_image(device, image, image_memory, 0);
+    line("video-ahb", "image_bind", api_result(bind_result));
+    let bind_ok = bind_result == VK_SUCCESS;
+    let mut cpu_ok = false;
+    let mut gpu_ok = false;
+
+    if bind_ok {
+        let luma_bytes =
+            meta.plane_bytes[0].min(meta.planes[0].row_stride as usize * meta.height as usize);
+        let luma_map_bytes = meta.planes[0].row_stride as usize
+            * meta.height.saturating_sub(1) as usize
+            + meta.width as usize;
+        let mmap_bytes = luma_map_bytes
+            .max(luma_bytes)
+            .min(meta.planes[0].row_stride as usize * meta.height as usize);
+        let cpu_map = mmap(ptr::null_mut(), mmap_bytes, PROT_READ, MAP_SHARED, fd, 0);
+        if cpu_map as isize == -1 {
+            line(
+                "video-ahb",
+                "cpu_luma",
+                format!("FAIL|mmap: {}", std::io::Error::last_os_error()),
+            );
+        } else {
+            let hash = hash_plane_rows(
+                cpu_map as *const u8,
+                meta.planes[0].row_stride as usize,
+                meta.width as usize,
+                meta.height as usize,
+            );
+            cpu_ok = hash != 0 && hash == meta.plane_fnv[0];
+            line(
+                "video-ahb",
+                "cpu_luma",
+                format!(
+                    "{}|fnv={hash:#x}|expected={:#x}|bytes={luma_bytes}",
+                    if cpu_ok { "PASS" } else { "FAIL" },
+                    meta.plane_fnv[0]
+                ),
+            );
+            munmap(cpu_map, mmap_bytes);
+        }
+        gpu_ok = true;
+        for plane in 0..meta.plane_count.min(3) {
+            gpu_ok &= probe_plane_with_gpu(
+                lib,
+                physical,
+                device,
+                queue,
+                family_index,
+                image,
+                &meta,
+                plane,
+            );
+        }
+    }
+    let ok = bind_ok && cpu_ok && gpu_ok;
+    free_memory(device, image_memory, ptr::null());
+    destroy_image(device, image, ptr::null());
+    for &fd in &fds {
+        close(fd);
+    }
+    let handoff = ok && stream.write_all(b"D").is_ok();
+    line(
+        "video-ahb",
+        "display_handoff",
+        if handoff { "PASS" } else { "FAIL" },
+    );
+    line("video-ahb", "teardown", "image/memory/native fds released");
+    ok && handoff
+}
+
+unsafe fn probe_plane_with_gpu(
+    lib: *mut c_void,
+    physical: VkPhysicalDevice,
+    device: VkDevice,
+    queue: VkQueue,
+    family_index: u32,
+    image: VkImage,
+    meta: &AhbMeta,
+    plane_index: usize,
+) -> bool {
+    let label = match plane_index {
+        0 => "gpu_luma",
+        1 => "gpu_plane1",
+        2 => "gpu_plane2",
+        _ => return false,
+    };
+    let width = if plane_index == 0 {
+        meta.width as usize
+    } else {
+        (meta.width as usize).div_ceil(2)
+    };
+    let height = if plane_index == 0 {
+        meta.height as usize
+    } else {
+        (meta.height as usize).div_ceil(2)
+    };
+    let plane_bytes = meta.plane_bytes[plane_index];
+    let expected_fnv = meta.plane_fnv[plane_index];
+    let aspect_mask = match plane_index {
+        0 => VK_IMAGE_ASPECT_PLANE_0_BIT,
+        1 => VK_IMAGE_ASPECT_PLANE_1_BIT,
+        2 => VK_IMAGE_ASPECT_PLANE_2_BIT,
+        _ => return false,
+    };
+    if plane_bytes == 0 || expected_fnv == 0 || width == 0 || height == 0 {
+        line(
+            "video-ahb",
+            label,
+            format!("SKIP|plane={plane_index}|missing metadata"),
+        );
+        return false;
+    }
+
+    let create_buffer: FnCreateBuffer = match symbol(lib, "vkCreateBuffer") {
+        Some(function) => function,
+        None => {
+            line("video-ahb", label, "FAIL|vkCreateBuffer missing");
+            return false;
+        }
+    };
+    let destroy_buffer: FnDestroyBuffer = match symbol(lib, "vkDestroyBuffer") {
+        Some(function) => function,
+        None => {
+            line("video-ahb", label, "FAIL|vkDestroyBuffer missing");
+            return false;
+        }
+    };
+    let get_buffer_requirements: FnGetBufferMemoryRequirements =
+        match symbol(lib, "vkGetBufferMemoryRequirements") {
+            Some(function) => function,
+            None => {
+                line(
+                    "video-ahb",
+                    label,
+                    "FAIL|vkGetBufferMemoryRequirements missing",
+                );
+                return false;
+            }
+        };
+    let allocate_memory: FnAllocateMemory = match symbol(lib, "vkAllocateMemory") {
+        Some(function) => function,
+        None => {
+            line("video-ahb", label, "FAIL|vkAllocateMemory missing");
+            return false;
+        }
+    };
+    let free_memory: FnFreeMemory = match symbol(lib, "vkFreeMemory") {
+        Some(function) => function,
+        None => {
+            line("video-ahb", label, "FAIL|vkFreeMemory missing");
+            return false;
+        }
+    };
+    let bind_buffer_memory: FnBindBufferMemory = match symbol(lib, "vkBindBufferMemory") {
+        Some(function) => function,
+        None => {
+            line("video-ahb", label, "FAIL|vkBindBufferMemory missing");
+            return false;
+        }
+    };
+    let map_memory: FnMapMemory = match symbol(lib, "vkMapMemory") {
+        Some(function) => function,
+        None => {
+            line("video-ahb", label, "FAIL|vkMapMemory missing");
+            return false;
+        }
+    };
+    let unmap_memory: FnUnmapMemory = match symbol(lib, "vkUnmapMemory") {
+        Some(function) => function,
+        None => {
+            line("video-ahb", label, "FAIL|vkUnmapMemory missing");
+            return false;
+        }
+    };
+    let get_memory_props: FnGetPhysicalDeviceMemoryProperties =
+        match symbol(lib, "vkGetPhysicalDeviceMemoryProperties") {
+            Some(function) => function,
+            None => return false,
+        };
+    let create_pool: FnCreateCommandPool = match symbol(lib, "vkCreateCommandPool") {
+        Some(function) => function,
+        None => return false,
+    };
+    let destroy_pool: FnDestroyCommandPool = match symbol(lib, "vkDestroyCommandPool") {
+        Some(function) => function,
+        None => return false,
+    };
+    let allocate_commands: FnAllocateCommandBuffers = match symbol(lib, "vkAllocateCommandBuffers")
+    {
+        Some(function) => function,
+        None => return false,
+    };
+    let begin_command: FnBeginCommandBuffer = match symbol(lib, "vkBeginCommandBuffer") {
+        Some(function) => function,
+        None => return false,
+    };
+    let end_command: FnEndCommandBuffer = match symbol(lib, "vkEndCommandBuffer") {
+        Some(function) => function,
+        None => return false,
+    };
+    let pipeline_barrier: FnCmdPipelineBarrier = match symbol(lib, "vkCmdPipelineBarrier") {
+        Some(function) => function,
+        None => return false,
+    };
+    let copy_image_to_buffer: FnCmdCopyImageToBuffer = match symbol(lib, "vkCmdCopyImageToBuffer") {
+        Some(function) => function,
+        None => return false,
+    };
+    let create_fence: FnCreateFence = match symbol(lib, "vkCreateFence") {
+        Some(function) => function,
+        None => return false,
+    };
+    let destroy_fence: FnDestroyFence = match symbol(lib, "vkDestroyFence") {
+        Some(function) => function,
+        None => return false,
+    };
+    let queue_submit: FnQueueSubmit = match symbol(lib, "vkQueueSubmit") {
+        Some(function) => function,
+        None => return false,
+    };
+    let wait_fences: FnWaitForFences = match symbol(lib, "vkWaitForFences") {
+        Some(function) => function,
+        None => return false,
+    };
+
+    let buffer_info = VkBufferCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        p_next: ptr::null(),
+        flags: 0,
+        size: plane_bytes as u64,
+        usage: VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        sharing_mode: VK_SHARING_MODE_EXCLUSIVE,
+        queue_family_index_count: 0,
+        p_queue_family_indices: ptr::null(),
+    };
+    let mut readback: VkBuffer = ptr::null_mut();
+    let r = create_buffer(device, &buffer_info, ptr::null(), &mut readback);
+    if r != VK_SUCCESS {
+        line("video-ahb", label, format!("FAIL|create buffer {r}"));
+        return false;
+    }
+    let mut requirements = VkMemoryRequirements::default();
+    get_buffer_requirements(device, readback, &mut requirements);
+    let mut memory_properties: VkPhysicalDeviceMemoryProperties = std::mem::zeroed();
+    get_memory_props(physical, &mut memory_properties);
+    let Some(memory_type_index) =
+        choose_memory_type(&memory_properties, requirements.memory_type_bits)
+    else {
+        line("video-ahb", label, "FAIL|no host memory type");
+        destroy_buffer(device, readback, ptr::null());
+        return false;
+    };
+    let allocation = VkMemoryAllocateInfo {
+        s_type: VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        p_next: ptr::null(),
+        allocation_size: requirements.size,
+        memory_type_index,
+    };
+    let mut readback_memory: VkDeviceMemory = ptr::null_mut();
+    let r = allocate_memory(device, &allocation, ptr::null(), &mut readback_memory);
+    if r != VK_SUCCESS {
+        line("video-ahb", label, format!("FAIL|allocate {r}"));
+        destroy_buffer(device, readback, ptr::null());
+        return false;
+    }
+    let r = bind_buffer_memory(device, readback, readback_memory, 0);
+    if r != VK_SUCCESS {
+        line("video-ahb", label, format!("FAIL|bind {r}"));
+        free_memory(device, readback_memory, ptr::null());
+        destroy_buffer(device, readback, ptr::null());
+        return false;
+    }
+
+    let pool_info = VkCommandPoolCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        p_next: ptr::null(),
+        flags: 0,
+        queue_family_index: family_index,
+    };
+    let mut pool: VkCommandPool = ptr::null_mut();
+    let r = create_pool(device, &pool_info, ptr::null(), &mut pool);
+    if r != VK_SUCCESS {
+        line("video-ahb", label, format!("FAIL|command pool {r}"));
+        free_memory(device, readback_memory, ptr::null());
+        destroy_buffer(device, readback, ptr::null());
+        return false;
+    }
+    let command_info = VkCommandBufferAllocateInfo {
+        s_type: VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        p_next: ptr::null(),
+        command_pool: pool,
+        level: VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        command_buffer_count: 1,
+    };
+    let mut command: VkCommandBuffer = ptr::null_mut();
+    let r = allocate_commands(device, &command_info, &mut command);
+    if r != VK_SUCCESS {
+        line("video-ahb", label, format!("FAIL|command buffer {r}"));
+        destroy_pool(device, pool, ptr::null());
+        free_memory(device, readback_memory, ptr::null());
+        destroy_buffer(device, readback, ptr::null());
+        return false;
+    }
+    let begin_info = VkCommandBufferBeginInfo {
+        s_type: VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        p_next: ptr::null(),
+        flags: VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        p_inheritance_info: ptr::null(),
+    };
+    if begin_command(command, &begin_info) != VK_SUCCESS {
+        line("video-ahb", label, "FAIL|begin command");
+        destroy_pool(device, pool, ptr::null());
+        free_memory(device, readback_memory, ptr::null());
+        destroy_buffer(device, readback, ptr::null());
+        return false;
+    }
+    let barrier = VkImageMemoryBarrier {
+        s_type: VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        p_next: ptr::null(),
+        src_access_mask: 0,
+        dst_access_mask: VK_ACCESS_TRANSFER_READ_BIT,
+        old_layout: VK_IMAGE_LAYOUT_UNDEFINED,
+        new_layout: VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        src_queue_family_index: VK_QUEUE_FAMILY_IGNORED,
+        dst_queue_family_index: VK_QUEUE_FAMILY_IGNORED,
+        image,
+        subresource_range: VkImageSubresourceRange {
+            aspect_mask,
+            base_mip_level: 0,
+            level_count: 1,
+            base_array_layer: 0,
+            layer_count: 1,
+        },
+    };
+    pipeline_barrier(
+        command,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0,
+        0,
+        ptr::null(),
+        0,
+        ptr::null(),
+        1,
+        &barrier,
+    );
+    let region = VkBufferImageCopy {
+        buffer_offset: 0,
+        buffer_row_length: 0,
+        buffer_image_height: 0,
+        image_subresource: VkImageSubresourceLayers {
+            aspect_mask,
+            mip_level: 0,
+            base_array_layer: 0,
+            layer_count: 1,
+        },
+        image_offset: VkOffset3D::default(),
+        image_extent: VkExtent3D {
+            width: width as u32,
+            height: height as u32,
+            depth: 1,
+        },
+    };
+    copy_image_to_buffer(
+        command,
+        image,
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        readback,
+        1,
+        &region,
+    );
+    let host_barrier = VkMemoryBarrier {
+        s_type: VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+        p_next: ptr::null(),
+        src_access_mask: VK_ACCESS_TRANSFER_WRITE_BIT,
+        dst_access_mask: VK_ACCESS_HOST_READ_BIT,
+    };
+    pipeline_barrier(
+        command,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_PIPELINE_STAGE_HOST_BIT,
+        0,
+        1,
+        &host_barrier as *const _ as *const c_void,
+        0,
+        ptr::null(),
+        0,
+        ptr::null(),
+    );
+    if end_command(command) != VK_SUCCESS {
+        line("video-ahb", label, "FAIL|end command");
+        destroy_pool(device, pool, ptr::null());
+        free_memory(device, readback_memory, ptr::null());
+        destroy_buffer(device, readback, ptr::null());
+        return false;
+    }
+
+    let fence_info = VkFenceCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        p_next: ptr::null(),
+        flags: 0,
+    };
+    let mut fence: VkFence = ptr::null_mut();
+    let r = create_fence(device, &fence_info, ptr::null(), &mut fence);
+    if r != VK_SUCCESS {
+        line("video-ahb", label, format!("FAIL|fence {r}"));
+        destroy_pool(device, pool, ptr::null());
+        free_memory(device, readback_memory, ptr::null());
+        destroy_buffer(device, readback, ptr::null());
+        return false;
+    }
+    let submit = VkSubmitInfo {
+        s_type: VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        p_next: ptr::null(),
+        wait_semaphore_count: 0,
+        p_wait_semaphores: ptr::null(),
+        p_wait_dst_stage_mask: ptr::null(),
+        command_buffer_count: 1,
+        p_command_buffers: &command,
+        signal_semaphore_count: 0,
+        p_signal_semaphores: ptr::null(),
+    };
+    let r = queue_submit(queue, 1, &submit, fence);
+    let wait_rc = if r == VK_SUCCESS {
+        wait_fences(device, 1, &fence, 1, 2_000_000_000)
+    } else {
+        r
+    };
+    let mut hash = 0u64;
+    let mut mapped = ptr::null_mut();
+    if wait_rc == VK_SUCCESS {
+        let r = map_memory(
+            device,
+            readback_memory,
+            0,
+            requirements.size,
+            0,
+            &mut mapped,
+        );
+        if r == VK_SUCCESS && !mapped.is_null() {
+            let bytes = core::slice::from_raw_parts(mapped as *const u8, plane_bytes);
+            hash = fnv1a(bytes);
+            unmap_memory(device, readback_memory);
+        } else {
+            line("video-ahb", label, format!("FAIL|map {r}"));
+        }
+    } else {
+        line(
+            "video-ahb",
+            label,
+            format!("FAIL|submit/wait submit={r} wait={wait_rc}"),
+        );
+    }
+    destroy_fence(device, fence, ptr::null());
+    destroy_pool(device, pool, ptr::null());
+    free_memory(device, readback_memory, ptr::null());
+    destroy_buffer(device, readback, ptr::null());
+
+    let ok = hash != 0 && hash == expected_fnv;
+    line(
+        "video-ahb",
+        label,
+        format!(
+            "{}|plane={plane_index}|fnv={hash:#x}|expected={expected_fnv:#x}|bytes={plane_bytes}|size={width}x{height}",
+            if ok { "PASS" } else { "FAIL" },
+        ),
+    );
+    ok
+}
+
 pub fn socket_arg() -> Option<String> {
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -3316,6 +4210,19 @@ pub fn socket_arg() -> Option<String> {
             return args.next();
         }
         if let Some(path) = arg.strip_prefix("--ahb-socket=") {
+            return Some(path.to_string());
+        }
+    }
+    None
+}
+
+pub fn video_socket_arg() -> Option<String> {
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--video-ahb-socket" {
+            return args.next();
+        }
+        if let Some(path) = arg.strip_prefix("--video-ahb-socket=") {
             return Some(path.to_string());
         }
     }

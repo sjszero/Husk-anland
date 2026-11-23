@@ -1612,7 +1612,9 @@ unsafe fn run() -> i32 {
     line("symbols", "PASS", "core entrypoints resolved");
 
     let ahb_socket = dmabuf::socket_arg();
-    let instance_ext_names = if ahb_socket.is_some() {
+    let video_ahb_socket = dmabuf::video_socket_arg();
+    let image_external_mode = ahb_socket.is_some() || video_ahb_socket.is_some();
+    let instance_ext_names = if image_external_mode {
         vec![
             CString::new("VK_KHR_external_memory_capabilities").unwrap(),
             CString::new("VK_KHR_external_fence_capabilities").unwrap(),
@@ -1730,7 +1732,7 @@ unsafe fn run() -> i32 {
 
     let priority: f32 = 1.0;
     let mut device_ext_names = Vec::new();
-    if ahb_socket.is_some() {
+    if image_external_mode {
         device_ext_names.extend([
             CString::new("VK_KHR_external_memory").unwrap(),
             CString::new("VK_KHR_external_memory_fd").unwrap(),
@@ -1738,7 +1740,7 @@ unsafe fn run() -> i32 {
             CString::new("VK_EXT_image_drm_format_modifier").unwrap(),
         ]);
     }
-    if fence_probe || ahb_socket.is_some() {
+    if fence_probe || image_external_mode {
         device_ext_names.extend([
             CString::new("VK_KHR_external_fence").unwrap(),
             CString::new("VK_KHR_external_fence_fd").unwrap(),
@@ -1891,25 +1893,28 @@ unsafe fn run() -> i32 {
     }
 
     let compute_ok = map_ok
-        && submit_compute(
-            lib,
-            device,
-            queue,
-            family_index,
-            buffer,
-            memory,
-            if fence_probe {
-                FenceMode::ProbeExport
-            } else {
-                FenceMode::Wait
-            },
-        );
-    let graphics_ok = fence_probe
+        && (video_ahb_socket.is_some()
+            || submit_compute(
+                lib,
+                device,
+                queue,
+                family_index,
+                buffer,
+                memory,
+                if fence_probe {
+                    FenceMode::ProbeExport
+                } else {
+                    FenceMode::Wait
+                },
+            ));
+    let graphics_ok = video_ahb_socket.is_some()
+        || fence_probe
         || (compute_ok && graphics::run_graphics(lib, dev, device, queue, family_index));
     let dmabuf_ok = fence_probe
-        || match ahb_socket.as_deref() {
-            Some(path) => dmabuf::run(lib, dev, device, queue, family_index, path),
-            None => true,
+        || match (video_ahb_socket.as_deref(), ahb_socket.as_deref()) {
+            (Some(path), _) => dmabuf::run_video(lib, dev, device, queue, family_index, path),
+            (None, Some(path)) => dmabuf::run(lib, dev, device, queue, family_index, path),
+            (None, None) => true,
         };
 
     free_memory(device, memory, ptr::null());

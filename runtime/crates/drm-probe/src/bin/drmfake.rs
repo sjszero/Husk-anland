@@ -11,8 +11,14 @@ use std::os::fd::AsRawFd;
 
 extern "C" {
     fn ioctl(fd: i32, request: u64, ...) -> i32;
-    fn mmap(addr: *mut core::ffi::c_void, len: usize, prot: i32, flags: i32, fd: i32, off: i64)
-        -> *mut core::ffi::c_void;
+    fn mmap(
+        addr: *mut core::ffi::c_void,
+        len: usize,
+        prot: i32,
+        flags: i32,
+        fd: i32,
+        off: i64,
+    ) -> *mut core::ffi::c_void;
     fn __errno_location() -> *mut i32;
 }
 
@@ -35,15 +41,30 @@ fn line(n: &str, v: &str, d: impl AsRef<str>) {
 }
 
 fn main() {
-    let f = match OpenOptions::new().read(true).write(true).open("/dev/dri/renderD128") {
+    let f = match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/dri/renderD128")
+    {
         Ok(f) => f,
         Err(e) => {
-            line("open", "FAIL", format!("/dev/dri/renderD128 errno={}", e.raw_os_error().unwrap_or(0)));
+            line(
+                "open",
+                "FAIL",
+                format!(
+                    "/dev/dri/renderD128 errno={}",
+                    e.raw_os_error().unwrap_or(0)
+                ),
+            );
             return;
         }
     };
     let fd = f.as_raw_fd();
-    line("open", "PASS", format!("/dev/dri/renderD128 fd={fd}（宿主上不存在这个节点）"));
+    line(
+        "open",
+        "PASS",
+        format!("/dev/dri/renderD128 fd={fd}（宿主上不存在这个节点）"),
+    );
 
     // GET_PARAM(0)=GPU_PROD_ID, (7)=JS_PRESENT
     for (n, name) in [(0u32, "GPU_PROD_ID"), (7, "JS_PRESENT")] {
@@ -55,7 +76,11 @@ fn main() {
         line(
             &format!("param{name}"),
             if r == 0 { "PASS" } else { "FAIL" },
-            format!("{:#x} (errno={})", u64::from_le_bytes(v), if r < 0 { errno() } else { 0 }),
+            format!(
+                "{:#x} (errno={})",
+                u64::from_le_bytes(v),
+                if r < 0 { errno() } else { 0 }
+            ),
         );
     }
 
@@ -71,7 +96,11 @@ fn main() {
     let mut o = [0u8; 8];
     o.copy_from_slice(&cb[16..24]);
     let va = u64::from_le_bytes(o);
-    line("create_bo", "PASS", format!("handle={handle} offset={va:#x}"));
+    line(
+        "create_bo",
+        "PASS",
+        format!("handle={handle} offset={va:#x}"),
+    );
 
     // MMAP_BO(handle) → offset
     let mut mb = [0u8; 16];
@@ -106,7 +135,11 @@ fn main() {
             }
         }
     }
-    line("mmap", if ok { "PASS" } else { "FAIL" }, format!("va={off:#x} 写读一致"));
+    line(
+        "mmap",
+        if ok { "PASS" } else { "FAIL" },
+        format!("va={off:#x} 写读一致"),
+    );
 
     // GET_BO_OFFSET 一致性
     let mut gb = [0u8; 16];
@@ -120,5 +153,9 @@ fn main() {
         if r == 0 && g == off { "PASS" } else { "FAIL" },
         format!("{g:#x}"),
     );
-    line("verdict", "PASS", "假 renderD128 上的 DRM 语义已生效（interpose 通了）");
+    line(
+        "verdict",
+        "PASS",
+        "假 renderD128 上的 DRM 语义已生效（interpose 通了）",
+    );
 }

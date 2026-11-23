@@ -98,7 +98,8 @@ fn main() {
         type Initialize = unsafe extern "C" fn(Ptr, *mut CInt, *mut CInt) -> CInt;
         type QueryString = unsafe extern "C" fn(Ptr, CInt) -> *const u8;
         type BindApi = unsafe extern "C" fn(u32) -> CInt;
-        type ChooseConfig = unsafe extern "C" fn(Ptr, *const CInt, *mut Ptr, CInt, *mut CInt) -> CInt;
+        type ChooseConfig =
+            unsafe extern "C" fn(Ptr, *const CInt, *mut Ptr, CInt, *mut CInt) -> CInt;
         type CreateContext = unsafe extern "C" fn(Ptr, Ptr, Ptr, *const CInt) -> Ptr;
         type MakeCurrent = unsafe extern "C" fn(Ptr, Ptr, Ptr, Ptr) -> CInt;
         type GetError = unsafe extern "C" fn() -> CInt;
@@ -127,7 +128,11 @@ fn main() {
             let f = gpa(name.as_ptr());
             if !f.is_null() {
                 let gpd: GetPlatformDisplay = core::mem::transmute(f);
-                let pd = gpd(EGL_PLATFORM_SURFACELESS_MESA, core::ptr::null_mut(), core::ptr::null());
+                let pd = gpd(
+                    EGL_PLATFORM_SURFACELESS_MESA,
+                    core::ptr::null_mut(),
+                    core::ptr::null(),
+                );
                 line(
                     "get_platform_display",
                     if pd.is_null() { "FAIL" } else { "PASS" },
@@ -141,7 +146,10 @@ fn main() {
         const EGL_PLATFORM_GBM_KHR: u32 = 0x31D7;
         let no_gbm = std::env::var_os("GL_PROBE_NO_GBM").is_some();
         if !no_gbm {
-            let f = std::fs::OpenOptions::new().read(true).write(true).open("/dev/dri/renderD128");
+            let f = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open("/dev/dri/renderD128");
             match f {
                 Ok(file) => {
                     use std::os::fd::AsRawFd;
@@ -177,7 +185,11 @@ fn main() {
                     // 让 fd 活着到进程结束
                     core::mem::forget(file);
                 }
-                Err(e) => line("open_render", "FAIL", format!("errno={}", e.raw_os_error().unwrap_or(0))),
+                Err(e) => line(
+                    "open_render",
+                    "FAIL",
+                    format!("errno={}", e.raw_os_error().unwrap_or(0)),
+                ),
             }
         }
 
@@ -194,7 +206,11 @@ fn main() {
                 let ok = qd(8, devs.as_mut_ptr(), &mut cnt);
                 line(
                     "query_devices",
-                    if ok == EGL_TRUE && cnt > 0 { "PASS" } else { "FAIL" },
+                    if ok == EGL_TRUE && cnt > 0 {
+                        "PASS"
+                    } else {
+                        "FAIL"
+                    },
                     format!("n={cnt}"),
                 );
                 if ok == EGL_TRUE && cnt > 0 {
@@ -215,7 +231,11 @@ fn main() {
         }
         if dpy.is_null() {
             dpy = get_display(EGL_DEFAULT_DISPLAY);
-            line("get_display", if dpy.is_null() { "FAIL" } else { "PASS" }, format!("{dpy:p}"));
+            line(
+                "get_display",
+                if dpy.is_null() { "FAIL" } else { "PASS" },
+                format!("{dpy:p}"),
+            );
         }
         if dpy.is_null() {
             if let Some(ge) = get_error {
@@ -243,11 +263,23 @@ fn main() {
             line(name, "INFO", cstr(s));
         }
         let ext = cstr(query_string(dpy, EGL_EXTENSIONS));
-        line("EGL_EXTENSIONS", "INFO", format!("{} 项", ext.split(' ').count()));
+        line(
+            "EGL_EXTENSIONS",
+            "INFO",
+            format!("{} 项", ext.split(' ').count()),
+        );
 
         // GLES2 上下文，不需要 surface（surfaceless）
         if let Some(bind) = get_fn!(egl, "eglBindAPI", BindApi) {
-            line("bind_api", if bind(EGL_OPENGL_ES_API) == EGL_TRUE { "PASS" } else { "FAIL" }, "ES");
+            line(
+                "bind_api",
+                if bind(EGL_OPENGL_ES_API) == EGL_TRUE {
+                    "PASS"
+                } else {
+                    "FAIL"
+                },
+                "ES",
+            );
         }
         let choose = match get_fn!(egl, "eglChooseConfig", ChooseConfig) {
             Some(f) => f,
@@ -263,16 +295,24 @@ fn main() {
         };
 
         let attribs: [CInt; 7] = [
-            EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
-            EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-            EGL_NONE, 0, 0,
+            EGL_SURFACE_TYPE,
+            EGL_PBUFFER_BIT,
+            EGL_RENDERABLE_TYPE,
+            EGL_OPENGL_ES2_BIT,
+            EGL_NONE,
+            0,
+            0,
         ];
         let mut cfg: Ptr = core::ptr::null_mut();
         let mut n: CInt = 0;
         let ok = choose(dpy, attribs.as_ptr(), &mut cfg, 1, &mut n);
         line(
             "choose_config",
-            if ok == EGL_TRUE && n > 0 { "PASS" } else { "FAIL" },
+            if ok == EGL_TRUE && n > 0 {
+                "PASS"
+            } else {
+                "FAIL"
+            },
             format!("n={n}"),
         );
         if ok != EGL_TRUE || n == 0 {
@@ -284,7 +324,11 @@ fn main() {
 
         let ctx_attribs: [CInt; 3] = [EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE];
         let ctx = create_ctx(dpy, cfg, EGL_NO_CONTEXT, ctx_attribs.as_ptr());
-        line("create_context", if ctx.is_null() { "FAIL" } else { "PASS" }, format!("{ctx:p}"));
+        line(
+            "create_context",
+            if ctx.is_null() { "FAIL" } else { "PASS" },
+            format!("{ctx:p}"),
+        );
         if ctx.is_null() {
             if let Some(ge) = get_error {
                 line("egl_error", "INFO", format!("{:#x}", ge()));

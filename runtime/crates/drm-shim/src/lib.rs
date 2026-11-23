@@ -32,18 +32,29 @@ pub const KBASE_MEM_FREE: u64 = ioc(_IOC_WRITE, 0x80, 7, 8);
 const DRM_CMD: u64 = 0x40;
 pub const DRM_IOCTL_PANFROST_SUBMIT: u64 = ioc(_IOC_WRITE, b'd' as u64, DRM_CMD + 0x00, 48);
 pub const DRM_IOCTL_PANFROST_WAIT_BO: u64 = ioc(_IOC_WRITE, b'd' as u64, DRM_CMD + 0x01, 16);
-pub const DRM_IOCTL_PANFROST_CREATE_BO: u64 = ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x02, 24);
-pub const DRM_IOCTL_PANFROST_MMAP_BO: u64 = ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x03, 16);
-pub const DRM_IOCTL_PANFROST_GET_PARAM: u64 = ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x04, 16);
-pub const DRM_IOCTL_PANFROST_GET_BO_OFFSET: u64 = ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x05, 16);
+pub const DRM_IOCTL_PANFROST_CREATE_BO: u64 =
+    ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x02, 24);
+pub const DRM_IOCTL_PANFROST_MMAP_BO: u64 =
+    ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x03, 16);
+pub const DRM_IOCTL_PANFROST_GET_PARAM: u64 =
+    ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x04, 16);
+pub const DRM_IOCTL_PANFROST_GET_BO_OFFSET: u64 =
+    ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x05, 16);
 pub const DRM_IOCTL_PANFROST_PERFCNT_ENABLE: u64 = ioc(_IOC_WRITE, b'd' as u64, DRM_CMD + 0x06, 8);
-pub const DRM_IOCTL_PANFROST_PERFCNT_DUMP: u64 = ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x07, 16);
-pub const DRM_IOCTL_PANFROST_MADVISE: u64 = ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x08, 16);
-pub const DRM_IOCTL_PANFROST_SET_LABEL_BO: u64 = ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x09, 24);
-pub const DRM_IOCTL_PANFROST_JM_CTX_CREATE: u64 = ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x0a, 16);
-pub const DRM_IOCTL_PANFROST_JM_CTX_DESTROY: u64 = ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x0b, 8);
-pub const DRM_IOCTL_PANFROST_SYNC_BO: u64 = ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x0c, 24);
-pub const DRM_IOCTL_PANFROST_QUERY_BO_INFO: u64 = ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x0d, 24);
+pub const DRM_IOCTL_PANFROST_PERFCNT_DUMP: u64 =
+    ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x07, 16);
+pub const DRM_IOCTL_PANFROST_MADVISE: u64 =
+    ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x08, 16);
+pub const DRM_IOCTL_PANFROST_SET_LABEL_BO: u64 =
+    ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x09, 24);
+pub const DRM_IOCTL_PANFROST_JM_CTX_CREATE: u64 =
+    ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x0a, 16);
+pub const DRM_IOCTL_PANFROST_JM_CTX_DESTROY: u64 =
+    ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x0b, 8);
+pub const DRM_IOCTL_PANFROST_SYNC_BO: u64 =
+    ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x0c, 24);
+pub const DRM_IOCTL_PANFROST_QUERY_BO_INFO: u64 =
+    ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, DRM_CMD + 0x0d, 24);
 
 // ---------- DRM 核心（libdrm 的 drmGetVersion / drmGetCap 会问这些）----------
 pub const DRM_IOCTL_VERSION: u64 = ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, 0x00, 64);
@@ -97,7 +108,11 @@ pub struct Props {
 
 impl Props {
     pub const fn new() -> Self {
-        Props { ids: [0; MAX_PROPS], vals: [0; MAX_PROPS], n: 0 }
+        Props {
+            ids: [0; MAX_PROPS],
+            vals: [0; MAX_PROPS],
+            n: 0,
+        }
     }
     pub fn len(&self) -> usize {
         self.n
@@ -147,7 +162,12 @@ impl DrmCtx {
         DrmCtx {
             kfd: -1,
             props: Props::new(),
-            bos: [Bo { handle: 0, va: 0, bytes: 0, kbase_flags: 0 }; MAX_BOS],
+            bos: [Bo {
+                handle: 0,
+                va: 0,
+                bytes: 0,
+                kbase_flags: 0,
+            }; MAX_BOS],
             n_bos: 0,
             next_handle: 1,
             ready: false,
@@ -287,7 +307,8 @@ impl DrmCtx {
         match request {
             DRM_IOCTL_PANFROST_CREATE_BO => {
                 let size = u32::from_le_bytes([*arg, *arg.add(1), *arg.add(2), *arg.add(3)]) as u64;
-                let dflags = u32::from_le_bytes([*arg.add(4), *arg.add(5), *arg.add(6), *arg.add(7)]);
+                let dflags =
+                    u32::from_le_bytes([*arg.add(4), *arg.add(5), *arg.add(6), *arg.add(7)]);
                 let pages = if size == 0 { 1 } else { (size + 4095) / 4096 };
                 let mut kb = 0xf; // CPU 可映射、非缓存
                 if dflags & PANFROST_BO_COHERENT != 0 {
@@ -302,7 +323,12 @@ impl DrmCtx {
                 }
                 let handle = self.next_handle;
                 self.next_handle += 1;
-                self.bos[self.n_bos] = Bo { handle, va, bytes: pages * 4096, kbase_flags: kb };
+                self.bos[self.n_bos] = Bo {
+                    handle,
+                    va,
+                    bytes: pages * 4096,
+                    kbase_flags: kb,
+                };
                 self.n_bos += 1;
                 core::ptr::copy_nonoverlapping(handle.to_le_bytes().as_ptr(), arg.add(8), 4);
                 core::ptr::copy_nonoverlapping(0u32.to_le_bytes().as_ptr(), arg.add(12), 4);
@@ -334,7 +360,8 @@ impl DrmCtx {
                 let mut jc = [0u8; 8];
                 jc.copy_from_slice(core::slice::from_raw_parts(arg, 8));
                 let jc = u64::from_le_bytes(jc);
-                let req = u32::from_le_bytes([*arg.add(36), *arg.add(37), *arg.add(38), *arg.add(39)]);
+                let req =
+                    u32::from_le_bytes([*arg.add(36), *arg.add(37), *arg.add(38), *arg.add(39)]);
                 let core_req: u32 = if req & 1 != 0 { 0x1 } else { 0x2 };
                 let atom = build_atom(jc, core_req);
                 let mut js: [u64; 3] = [atom.as_ptr() as u64, 1, 72];
@@ -360,10 +387,18 @@ impl DrmCtx {
                     let user_len = rd_u64(len_off) as usize;
                     let user_ptr = rd_u64(ptr_off) as *mut u8;
                     if !user_ptr.is_null() && user_len > 0 {
-                        let n = if user_len < data.len() { user_len } else { data.len() };
+                        let n = if user_len < data.len() {
+                            user_len
+                        } else {
+                            data.len()
+                        };
                         core::ptr::copy_nonoverlapping(data.as_ptr(), user_ptr, n);
                     }
-                    core::ptr::copy_nonoverlapping((data.len() as u64).to_le_bytes().as_ptr(), arg.add(len_off), 8);
+                    core::ptr::copy_nonoverlapping(
+                        (data.len() as u64).to_le_bytes().as_ptr(),
+                        arg.add(len_off),
+                        8,
+                    );
                 };
                 put(16, 24, DRV_NAME);
                 put(32, 40, DRV_DATE);
@@ -384,7 +419,11 @@ impl DrmCtx {
             | DRM_IOCTL_PANFROST_WAIT_BO => 0,
             DRM_IOCTL_PANFROST_QUERY_BO_INFO => {
                 let handle = u32::from_le_bytes([*arg, *arg.add(1), *arg.add(2), *arg.add(3)]);
-                if self.bo(handle).is_some() { 0 } else { -22 }
+                if self.bo(handle).is_some() {
+                    0
+                } else {
+                    -22
+                }
             }
             _ => -38, // -ENOSYS
         }
