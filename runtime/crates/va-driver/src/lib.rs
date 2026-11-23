@@ -597,12 +597,17 @@ unsafe extern "C" fn create_buffer(
     if !data.is_null() && bytes > 0 {
         core::ptr::copy_nonoverlapping(data.cast::<u8>(), payload.as_mut_ptr(), bytes);
     }
-    if std::env::var_os("HUSK_VA_DUMP").is_some()
+    // Guest-side writes to the shared run directory are not reliable, so the
+    // picture parameter buffer is dumped on stdout when tracing. It is 672
+    // bytes, which fits in one log line.
+    if std::env::var_os("HUSK_VA_TRACE").is_some()
         && type_ == VABufferType_VAPictureParameterBufferType
     {
-        if let Err(error) = std::fs::write("/tmp/husk-pp.bin", &payload) {
-            eprintln!("HUSK_VA_DUMP_FAILED {error}");
+        let mut hex = String::with_capacity(payload.len() * 2);
+        for byte in &payload {
+            hex.push_str(&format!("{byte:02x}"));
         }
+        eprintln!("HUSK_VA_PP bytes={} hex={hex}", payload.len());
     }
     if std::env::var_os("HUSK_VA_TRACE").is_some() {
         let prefix = payload
@@ -611,7 +616,8 @@ unsafe extern "C" fn create_buffer(
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
         eprintln!(
-            "HUSK_VA_BUFFER context={context} type={type_} size={size} elements={num_elements} bytes={bytes} prefix={prefix}"
+            "HUSK_VA_BUFFER context={context} type={type_} size={size} elements={num_elements} bytes={bytes} data_null={} prefix={prefix}",
+            data.is_null()
         );
     }
     let Some(rc) = with_state(ctx, |state| {
@@ -677,6 +683,13 @@ unsafe extern "C" fn map_buffer(
         let Some(info) = state.buffers.get_mut(&buffer) else {
             return VA_STATUS_ERROR_INVALID_BUFFER as VAStatus;
         };
+        if std::env::var_os("HUSK_VA_TRACE").is_some() {
+            eprintln!(
+                "HUSK_VA_MAP_BUFFER id={buffer} type={} bytes={}",
+                info.type_,
+                info.data.len()
+            );
+        }
         *out = info.data.as_mut_ptr().cast();
         VA_STATUS_SUCCESS as VAStatus
     }) else {
@@ -686,6 +699,23 @@ unsafe extern "C" fn map_buffer(
 }
 
 unsafe extern "C" fn unmap_buffer(ctx: VADriverContextP, buffer: VABufferID) -> VAStatus {
+    if std::env::var_os("HUSK_VA_TRACE").is_some() {
+        let _ = with_state(ctx, |state| {
+            if let Some(info) = state.buffers.get(&buffer) {
+                let prefix = info
+                    .data
+                    .iter()
+                    .take(24)
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>();
+                eprintln!(
+                    "HUSK_VA_UNMAP id={buffer} type={} bytes={} prefix={prefix}",
+                    info.type_,
+                    info.data.len()
+                );
+            }
+        });
+    }
     let Some(found) = with_state(ctx, |state| state.buffers.contains_key(&buffer)) else {
         return VA_STATUS_ERROR_INVALID_CONTEXT as VAStatus;
     };
@@ -926,6 +956,19 @@ unsafe extern "C" fn end_picture(ctx: VADriverContextP, context: VAContextID) ->
 
         if picture_params.is_none() {
             picture_params = state.picture_params.get(&context).cloned();
+        }
+        if trace {
+            static DUMPED: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+            if !DUMPED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                if let Some(data) = picture_params.as_ref() {
+                    let mut hex = String::with_capacity(data.len() * 2);
+                    for byte in data {
+                        hex.push_str(&format!("{byte:02x}"));
+                    }
+                    eprintln!("HUSK_VA_PP_AT_END bytes={} hex={hex}", data.len());
+                }
+            }
         }
         if trace {
             eprintln!(

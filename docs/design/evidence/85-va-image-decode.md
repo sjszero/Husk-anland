@@ -122,3 +122,28 @@ run-as com.linuxhub.husk sh -c "cd /data/data/com.linuxhub.husk/files && \
 - 只测了 H.264 Baseline 1080p 的一个 10 帧片段；没有 10 分钟长稳、没有 HEVC/VP9/AV1、
   没有 Chromium `<video>`、没有 AV 同步、没有硬解 vs 软解 CPU 对比。
 - 显示路径没接：本证据止步于 `fakesink`，没有上屏。
+
+## 追加（同日）：合成 CSD 为什么会读到 0
+
+后来在 `create_buffer` / `end_picture` / `map_buffer` / `unmap_buffer` 四个点上打了 trace，
+把 672 字节的 picture parameter buffer 原样打出来，结论比"偏移写错了"更具体：
+
+```text
+HUSK_VA_BUFFER context=1 type=0 size=672 elements=1 bytes=672 data_null=true  prefix=0000...
+HUSK_VA_MAP_BUFFER id=1 type=0 bytes=672        # 客户端映射后自己写
+HUSK_VA_UNMAP id=1 type=0 bytes=672 prefix=010000000000000008000000000000000000000000000000
+```
+
+- **FACT**：`vaCreateBuffer` 传进来的 `data` 是 `NULL`（`data_null=true`），参数是客户端在
+  `vaMapBuffer` 之后自己写进去的。
+- **FACT**：`vaUnmapBuffer` 时刻 buffer 里**已经有真实数据**（首字节 `01 00 00 00` 等），
+  不是空的。
+- **FACT**：但第一次 `vaEndPicture` 里读到的是全 0。
+
+也就是说问题在**时序/取值点**，不在"这台机器不给参数"：我们第一次读的时候客户端还没写，
+之后写了我们又从 `state.picture_params`（create 时存的那份 0）拿了备份。
+下一步很明确：`end_picture` 只用 `state.buffers[id].data`（映射后那份），并确认
+gst-vaapi 的 map→写→render→end 顺序；`vaBufferSetNumElements` 会导致重建也要检查。
+`HUSK_VA_PP_AT_END` / `HUSK_VA_UNMAP` 两条 trace 保留在代码里，下一轮直接对照。
+
+在这条修好之前，VA 路径要跑就得带 `HUSK_VA_SPS/HUSK_VA_PPS`（测试钩子），不能用合成 CSD。
