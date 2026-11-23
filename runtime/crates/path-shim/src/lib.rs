@@ -77,6 +77,7 @@ const SYS_MKDIRAT: usize = 34;
 const SYS_UNLINKAT: usize = 35;
 const SYS_SYMLINKAT: usize = 36;
 const SYS_LINKAT: usize = 37;
+const SYS_MKNODAT: usize = 33;
 const SYS_RENAMEAT: usize = 38;
 const SYS_RENAMEAT2: usize = 276;
 const SYS_FCHMODAT: usize = 53;
@@ -1166,6 +1167,246 @@ pub unsafe extern "C" fn __open64_nocancel(path: *const CChar, flags: CInt, mode
     openat(AT_FDCWD, path, flags, mode)
 }
 
+
+// --------------------------------------------------------------- virtual files
+//
+// A mount table belongs to the *namespace*, not to the machine: a container
+// publishes its own. We cannot mount, so what we publish is a description of the
+// namespace we did build - the one rootfs directory, and the kernel file systems
+// the guest really does see through this shim. Nothing here is a guess about the
+// host, and nothing is a placeholder: the filesystem type is read back from
+// statfs, the root path is the one we were started with.
+
+const SYS_MEMFD_CREATE: usize = 279;
+const SYS_LSEEK: usize = 62;
+const F_SETFD: usize = 2;
+const FD_CLOEXEC: usize = 1;
+const O_ACCMODE_BITS: CInt = 0o3;
+const MFD_CLOEXEC: usize = 1;
+
+#[inline]
+unsafe fn rd8u(p: *const u8) -> u64 {
+    let mut v = 0u64;
+    let mut i = 0;
+    while i < 8 {
+        v |= (core::ptr::read_volatile(p.add(i)) as u64) << (8 * i);
+        i += 1;
+    }
+    v
+}
+
+#[inline]
+unsafe fn rd4u(p: *const u8) -> u32 {
+    let mut v = 0u32;
+    let mut i = 0;
+    while i < 4 {
+        v |= (core::ptr::read_volatile(p.add(i)) as u32) << (8 * i);
+        i += 1;
+    }
+    v
+}
+
+static mut VTEXT: [u8; 4096] = [0; 4096];
+
+unsafe fn vt_put(at: &mut usize, s: &[u8]) {
+    let room = VTEXT.len() - *at;
+    let n = if s.len() < room { s.len() } else { room };
+    if n == 0 {
+        return;
+    }
+    core::ptr::copy_nonoverlapping(s.as_ptr(), VTEXT.as_mut_ptr().add(*at), n);
+    *at += n;
+}
+
+unsafe fn vt_num(at: &mut usize, mut v: u64) {
+    let mut d = [0u8; 20];
+    let mut i = 20;
+    loop {
+        i -= 1;
+        d[i] = b'0' + (v % 10) as u8;
+        v /= 10;
+        if v == 0 {
+            break;
+        }
+    }
+    vt_put(at, &d[i..]);
+}
+
+/// Filesystem type of the rootfs, read from the kernel - never assumed.
+unsafe fn root_fstype() -> &'static [u8] {
+    let rfd = rootfd();
+    if rfd < 0 {
+        return b"unknown";
+    }
+    let mut pb = [0u8; 32];
+    let pp = fd_proc_path(rfd, &mut pb);
+    let mut st = [0u8; 128];
+    if syscall4(SYS_STATFS, pp.as_ptr() as usize, st.as_ptr() as usize, 0, 0) != 0 {
+        return b"unknown";
+    }
+    match rd8u(st.as_ptr()) {
+        0xEF53 => b"ext4",
+        0xF2F52010 => b"f2fs",
+        0x58465342 => b"xfs",
+        0x9123683E => b"btrfs",
+        0x01021994 => b"tmpfs",
+        _ => b"unknown",
+    }
+}
+
+unsafe fn virt_mount_text(info: bool) -> usize {
+    let mut at = 0usize;
+    let fs = root_fstype();
+    let root = core::slice::from_raw_parts(ROOT_ENV.as_ptr(), ROOT_ENV_LEN);
+    if info {
+        vt_put(&mut at, b"20 1 0:30 / / rw,relatime - ");
+        vt_put(&mut at, fs);
+        vt_put(&mut at, b" ");
+        vt_put(&mut at, root);
+        vt_put(&mut at, b" rw\n");
+        vt_put(&mut at, b"21 20 0:5 / /proc rw,nosuid,nodev,noexec,relatime - proc proc rw\n");
+        vt_put(&mut at, b"22 20 0:6 / /sys rw,nosuid,nodev,noexec,relatime - sysfs sysfs rw\n");
+        vt_put(&mut at, b"23 20 0:7 / /dev rw,nosuid,relatime - devtmpfs devtmpfs rw\n");
+        vt_put(&mut at, b"24 23 0:8 / /dev/pts rw,nosuid,noexec,relatime - devpts devpts rw\n");
+        vt_put(&mut at, b"25 23 0:9 / /dev/shm rw,nosuid,nodev - tmpfs tmpfs rw\n");
+    } else {
+        vt_put(&mut at, root);
+        vt_put(&mut at, b" / ");
+        vt_put(&mut at, fs);
+        vt_put(&mut at, b" rw,relatime 0 0\n");
+        vt_put(&mut at, b"proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0\n");
+        vt_put(&mut at, b"sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0\n");
+        vt_put(&mut at, b"devtmpfs /dev devtmpfs rw,nosuid,relatime 0 0\n");
+        vt_put(&mut at, b"devpts /dev/pts devpts rw,nosuid,noexec,relatime 0 0\n");
+        vt_put(&mut at, b"tmpfs /dev/shm tmpfs rw,nosuid,nodev 0 0\n");
+    }
+    at
+}
+
+/// Serve a file the namespace owns but the kernel cannot give us.
+unsafe fn virt_open(p: &[u8], flags: CInt) -> Option<CInt> {
+    let info = if p == b"/proc/mounts" || p == b"/proc/self/mounts" {
+        false
+    } else if p == b"/proc/mountinfo" || p == b"/proc/self/mountinfo" {
+        true
+    } else {
+        return None;
+    };
+    if flags & O_ACCMODE_BITS != 0 {
+        return Some(set_errno(13));
+    }
+    let n = virt_mount_text(info);
+    static VNAME: [u8; 10] = *b"husk-virt\0";
+    let fd = syscall4(
+        SYS_MEMFD_CREATE,
+        VNAME.as_ptr() as usize,
+        0usize,
+        0,
+        0,
+    );
+    if fd < 0 {
+        return Some(set_errno(5));
+    }
+    let fd = fd as CInt;
+    // flags = 0 above: this kernel rejects MFD_CLOEXEC with EINVAL (measured), so
+    // the close-on-exec bit is set the other way round.
+    syscall4(SYS_FCNTL, fd as usize, F_SETFD, FD_CLOEXEC, 0);
+    let mut off = 0usize;
+    while off < n {
+        let w = syscall4(
+            SYS_WRITE,
+            fd as usize,
+            VTEXT.as_ptr().add(off) as usize,
+            n - off,
+            0,
+        );
+        if w <= 0 {
+            rc::close(fd);
+            return Some(set_errno(5));
+        }
+        off += w as usize;
+    }
+    syscall4(SYS_LSEEK, fd as usize, 0, 0, 0);
+    Some(fd)
+}
+
+// ------------------------------------------------------------- hard links
+//
+// Android refuses link(2) inside app data even between files the app owns
+// (SELinux, measured: EACCES with no shim involved). tar and dpkg do use hard
+// links, so the fallback is a byte copy plus the source mode. It is not a link -
+// link count and shared inode are lost - and it is reported once per process so
+// nobody mistakes it for the real thing.
+static mut LINK_COPY_NOTICED: u32 = 0;
+
+unsafe fn copy_file(
+    ffd: CInt,
+    from: *const CChar,
+    tfd: CInt,
+    to: *const CChar,
+) -> Ssize {
+    const O_WRONLY: CInt = 0o1;
+    const O_CREAT: CInt = 0o100;
+    const O_EXCL: CInt = 0o200;
+    let src = syscall4(SYS_OPENAT, ffd as usize, from as usize, 0, 0);
+    if src < 0 {
+        return -1;
+    }
+    let src = src as CInt;
+    let mut st = [0u8; 128];
+    let mut mode = 0o644u32;
+    if syscall4(SYS_FSTAT, src as usize, st.as_ptr() as usize, 0, 0) == 0 {
+        mode = rd4u(st.as_ptr().add(16)) & 0o7777;
+    }
+    let dst = syscall4(
+        SYS_OPENAT,
+        tfd as usize,
+        to as usize,
+        (O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC) as usize,
+        mode as usize,
+    );
+    if dst < 0 {
+        rc::close(src);
+        return -1;
+    }
+    let dst = dst as CInt;
+    let mut buf = [0u8; 65536];
+    loop {
+        let n = syscall4(SYS_READ, src as usize, buf.as_ptr() as usize, buf.len(), 0);
+        if n < 0 {
+            break;
+        }
+        if n == 0 {
+            rc::close(src);
+            rc::close(dst);
+            if LINK_COPY_NOTICED == 0 {
+                LINK_COPY_NOTICED = 1;
+                dbg(&[b"nrshim: hard link emulated by copy (kernel denies link in app data)\n"]);
+            }
+            return 0;
+        }
+        let mut off = 0usize;
+        while off < n as usize {
+            let w = syscall4(
+                SYS_WRITE,
+                dst as usize,
+                buf.as_ptr().add(off) as usize,
+                n as usize - off,
+                0,
+            );
+            if w <= 0 {
+                rc::close(src);
+                rc::close(dst);
+                return -1;
+            }
+            off += w as usize;
+        }
+    }
+    rc::close(src);
+    rc::close(dst);
+    -1
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt) -> CInt {
     if path.is_null() {
@@ -1217,6 +1458,9 @@ pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mo
             // DRM 假节点：先于 passthrough 判断，否则 /dev/* 会直接落到宿主上 ENOENT
             if verbose_on() && n >= 4 && &gp[..4] == b"/dev".as_ref() {
                 dbg(&[b"nrshim open ", &gp[..n], b"\n"]);
+            }
+            if let Some(fd) = virt_open(&gp[..n], flags) {
+                return fd;
             }
             let mut sysbuf = [0u8; PATH_MAX];
             if let Some(sn) = v4l2_sys_host(&gp[..n], &mut sysbuf) {
@@ -1995,6 +2239,41 @@ pub unsafe extern "C" fn unlinkat(dirfd: CInt, path: *const CChar, flags: CInt) 
     })
 }
 
+// mknod(2) had no translation at all, so `mkfifo /tmp/x` asked the kernel for
+// the *host* "/tmp/x" and came back ENOENT. FIFOs are ordinary tooling (daemons
+// that use mkfifo + a reader, tar extraction of pipes); char/block nodes are not
+// creatable without CAP_MKNOD, which is a separate wall.
+#[no_mangle]
+pub unsafe extern "C" fn mknodat(dirfd: CInt, path: *const CChar, mode: CInt, dev: u64) -> CInt {
+    pathop(dirfd, path, false, |fd, p| {
+        syscall5(
+            SYS_MKNODAT,
+            fd as usize,
+            p as usize,
+            mode as usize,
+            dev as usize,
+            0,
+        )
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mknod(path: *const CChar, mode: CInt, dev: u64) -> CInt {
+    mknodat(AT_FDCWD, path, mode, dev)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mkfifo(path: *const CChar, mode: CInt) -> CInt {
+    const S_IFIFO: CInt = 0o010000;
+    mknodat(AT_FDCWD, path, mode | S_IFIFO, 0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mkfifoat(dirfd: CInt, path: *const CChar, mode: CInt) -> CInt {
+    const S_IFIFO: CInt = 0o010000;
+    mknodat(dirfd, path, mode | S_IFIFO, 0)
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn rename(from: *const CChar, to: *const CChar) -> CInt {
     pathop2(
@@ -2121,14 +2400,23 @@ pub unsafe extern "C" fn linkat(
     let follow_old = flags & AT_SYMLINK_FOLLOW != 0;
     pathop2(ofd, old, nfd, new, follow_old, false, |fa, pa, fb, pb| {
         // linkat's 5th argument carries flags; keep it in x4 via a small shim.
-        syscall5(
+        let r = syscall5(
             SYS_LINKAT,
             fa as usize,
             pa as usize,
             fb as usize,
             pb as usize,
             flags as usize,
-        )
+        );
+        if r >= 0 {
+            return r;
+        }
+        // Raw syscalls return -errno; errno itself is only written by the
+        // wrappers, so the decision has to be made on the return value.
+        if r == -13 || r == -1 {
+            return copy_file(fa, pa, fb, pb);
+        }
+        r
     })
 }
 

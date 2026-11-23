@@ -1,0 +1,11 @@
+# Accounts the Ubuntu rootfs is missing but its own service configuration
+# expects. A container image ships these; ours does not, so the deploy step adds
+# them. Without them `dbus-daemon --system` refuses to start with
+# "Could not get UID and GID for username messagebus".
+#
+# name:uid:gid:group_also
+messagebus:102:102:1
+pulse:103:103:1
+whoopsie:104:104:1
+geoclue:105:105:1
+netdev::111:0
