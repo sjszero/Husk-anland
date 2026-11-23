@@ -2676,6 +2676,7 @@ unsafe fn connect_video(path: &str) -> Result<UnixStream, String> {
 
 unsafe fn receive_handle_from_stream(
     stream: &mut UnixStream,
+    verbose: bool,
 ) -> Result<(AhbMeta, Vec<Vec<c_int>>), String> {
     let mut frame_len = [0u8; 4];
     stream
@@ -2696,14 +2697,22 @@ unsafe fn receive_handle_from_stream(
     // AHB metadata and a second handle group, but does not change framing.
     let has_handle_flag =
         meta_text.starts_with("HUSK-VIDEO-AHB-2") || meta_text.starts_with("HUSK-VIDEO-AHB-3");
-    line(
-        "dmabuf",
-        "meta",
-        format!(
-            "PASS|{}x{} stride={} format={} usage={:#x} count={} frames={}",
-            meta.width, meta.height, meta.stride, meta.format, meta.usage, meta.count, meta.frames
-        ),
-    );
+    if verbose {
+        line(
+            "dmabuf",
+            "meta",
+            format!(
+                "PASS|{}x{} stride={} format={} usage={:#x} count={} frames={}",
+                meta.width,
+                meta.height,
+                meta.stride,
+                meta.format,
+                meta.usage,
+                meta.count,
+                meta.frames
+            ),
+        );
+    }
 
     let mut handle_flag = b'N';
     if has_handle_flag {
@@ -2725,22 +2734,24 @@ unsafe fn receive_handle_from_stream(
             handles.push(fds);
         }
     }
-    line(
-        "dmabuf",
-        "handoff",
-        format!(
-            "{}|key={:016x}|handles={}",
-            if handle_flag == b'N' { "NEW" } else { "REUSE" },
-            meta.buffer_key,
-            handles.len()
-        ),
-    );
+    if verbose {
+        line(
+            "dmabuf",
+            "handoff",
+            format!(
+                "{}|key={:016x}|handles={}",
+                if handle_flag == b'N' { "NEW" } else { "REUSE" },
+                meta.buffer_key,
+                handles.len()
+            ),
+        );
+    }
     Ok((meta, handles))
 }
 
 unsafe fn receive_handle(path: &str) -> Result<(AhbMeta, Vec<Vec<c_int>>, UnixStream), String> {
     let mut stream = connect_video(path)?;
-    let (meta, handles) = receive_handle_from_stream(&mut stream)?;
+    let (meta, handles) = receive_handle_from_stream(&mut stream, true)?;
     Ok((meta, handles, stream))
 }
 
@@ -3822,6 +3833,8 @@ unsafe fn run_video_core(
     meta: AhbMeta,
     handles: Vec<Vec<c_int>>,
     ring: &mut VideoRing,
+    verify: bool,
+    verbose: bool,
 ) -> bool {
     let mut handle_groups = handles.into_iter();
     let fds = handle_groups.next().unwrap_or_default();
@@ -3875,15 +3888,17 @@ unsafe fn run_video_core(
             }
             close_handles();
             ring.reuses = ring.reuses.saturating_add(1);
-            line(
-                "video-ahb",
-                "ring_reuse",
-                format!(
-                    "slot={index}|key={:016x}|slots={}",
-                    ring.slots[index].key,
-                    ring.slots.len()
-                ),
-            );
+            if verbose {
+                line(
+                    "video-ahb",
+                    "ring_reuse",
+                    format!(
+                        "slot={index}|key={:016x}|slots={}",
+                        ring.slots[index].key,
+                        ring.slots.len()
+                    ),
+                );
+            }
             index
         }
         None => {
@@ -4020,24 +4035,26 @@ unsafe fn run_video_core(
     let fd = slot.dmabuf_fd;
     let image = slot.image;
     let dmabuf_size = lseek(fd, 0, 2);
-    line(
-        "video-ahb",
-        "layout",
-        format!(
-            "slot={slot_index}|size={}x{} stride={} format={:#x} dmabuf_size={} planes={}",
-            meta.width, meta.height, meta.stride, meta.format, dmabuf_size, meta.plane_count
-        ),
-    );
-    for index in 0..meta.plane_count {
-        let plane = meta.planes[index];
+    if verbose {
         line(
             "video-ahb",
-            "plane",
+            "layout",
             format!(
-                "index={index} offset={} row_stride={} pixel_stride={}",
-                plane.offset, plane.row_stride, plane.pixel_stride
+                "slot={slot_index}|size={}x{} stride={} format={:#x} dmabuf_size={} planes={}",
+                meta.width, meta.height, meta.stride, meta.format, dmabuf_size, meta.plane_count
             ),
         );
+        for index in 0..meta.plane_count {
+            let plane = meta.planes[index];
+            line(
+                "video-ahb",
+                "plane",
+                format!(
+                    "index={index} offset={} row_stride={} pixel_stride={}",
+                    plane.offset, plane.row_stride, plane.pixel_stride
+                ),
+            );
+        }
     }
 
     let yuv_ok = if meta.format != AHB_FORMAT_YV12 || meta.plane_count < 3 {
@@ -4051,7 +4068,7 @@ unsafe fn run_video_core(
         );
         true
     } else if let Some(converter) = slot.converter.as_mut() {
-        converter.convert()
+        converter.convert(verify)
     } else {
         line(
             "yuv_conv",
@@ -4061,100 +4078,107 @@ unsafe fn run_video_core(
         true
     };
 
-    let get_format_properties: unsafe extern "C" fn(
-        VkPhysicalDevice,
-        u32,
-        *mut VkFormatProperties,
-    ) = match symbol(lib, "vkGetPhysicalDeviceFormatProperties") {
-        Some(function) => function,
-        None => {
-            line(
-                "video-ahb",
-                "FAIL",
-                "vkGetPhysicalDeviceFormatProperties missing",
-            );
-            return false;
-        }
-    };
-    let mut format_properties = VkFormatProperties::default();
-    get_format_properties(
-        physical,
-        VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM,
-        &mut format_properties,
-    );
-    line(
-        "video-ahb",
-        "format_properties",
-        format!(
-            "format=G8_B8_R8_3PLANE_420_UNORM linear={:#x} optimal={:#x} buffer={:#x}",
-            format_properties.linear_tiling_features,
-            format_properties.optimal_tiling_features,
-            format_properties.buffer_features
-        ),
-    );
-
-    let luma_bytes =
-        meta.plane_bytes[0].min(meta.planes[0].row_stride as usize * meta.height as usize);
-    let luma_map_bytes = meta.planes[0].row_stride as usize
-        * meta.height.saturating_sub(1) as usize
-        + meta.width as usize;
-    let mmap_bytes = luma_map_bytes
-        .max(luma_bytes)
-        .min(meta.planes[0].row_stride as usize * meta.height as usize);
-    let cpu_map = mmap(ptr::null_mut(), mmap_bytes, PROT_READ, MAP_SHARED, fd, 0);
-    let cpu_ok = if cpu_map as isize == -1 {
+    let cpu_ok = if verify {
+        let get_format_properties: unsafe extern "C" fn(
+            VkPhysicalDevice,
+            u32,
+            *mut VkFormatProperties,
+        ) = match symbol(lib, "vkGetPhysicalDeviceFormatProperties") {
+            Some(function) => function,
+            None => {
+                line(
+                    "video-ahb",
+                    "FAIL",
+                    "vkGetPhysicalDeviceFormatProperties missing",
+                );
+                return false;
+            }
+        };
+        let mut format_properties = VkFormatProperties::default();
+        get_format_properties(
+            physical,
+            VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM,
+            &mut format_properties,
+        );
         line(
             "video-ahb",
-            "cpu_luma",
-            format!("FAIL|mmap: {}", std::io::Error::last_os_error()),
-        );
-        false
-    } else {
-        let hash = hash_plane_rows(
-            cpu_map as *const u8,
-            meta.planes[0].row_stride as usize,
-            meta.width as usize,
-            meta.height as usize,
-        );
-        let ok = hash != 0 && hash == meta.plane_fnv[0];
-        line(
-            "video-ahb",
-            "cpu_luma",
+            "format_properties",
             format!(
-                "{}|slot={slot_index}|fnv={hash:#x}|expected={:#x}|bytes={luma_bytes}",
-                if ok { "PASS" } else { "FAIL" },
-                meta.plane_fnv[0]
+                "format=G8_B8_R8_3PLANE_420_UNORM linear={:#x} optimal={:#x} buffer={:#x}",
+                format_properties.linear_tiling_features,
+                format_properties.optimal_tiling_features,
+                format_properties.buffer_features
             ),
         );
-        munmap(cpu_map, mmap_bytes);
-        ok
+        let luma_bytes =
+            meta.plane_bytes[0].min(meta.planes[0].row_stride as usize * meta.height as usize);
+        let luma_map_bytes = meta.planes[0].row_stride as usize
+            * meta.height.saturating_sub(1) as usize
+            + meta.width as usize;
+        let mmap_bytes = luma_map_bytes
+            .max(luma_bytes)
+            .min(meta.planes[0].row_stride as usize * meta.height as usize);
+        let cpu_map = mmap(ptr::null_mut(), mmap_bytes, PROT_READ, MAP_SHARED, fd, 0);
+        if cpu_map as isize == -1 {
+            line(
+                "video-ahb",
+                "cpu_luma",
+                format!("FAIL|mmap: {}", std::io::Error::last_os_error()),
+            );
+            false
+        } else {
+            let hash = hash_plane_rows(
+                cpu_map as *const u8,
+                meta.planes[0].row_stride as usize,
+                meta.width as usize,
+                meta.height as usize,
+            );
+            let ok = hash != 0 && hash == meta.plane_fnv[0];
+            line(
+                "video-ahb",
+                "cpu_luma",
+                format!(
+                    "{}|slot={slot_index}|fnv={hash:#x}|expected={:#x}|bytes={luma_bytes}",
+                    if ok { "PASS" } else { "FAIL" },
+                    meta.plane_fnv[0]
+                ),
+            );
+            munmap(cpu_map, mmap_bytes);
+            ok
+        }
+    } else {
+        true
     };
 
     let mut gpu_ok = true;
-    for plane in 0..meta.plane_count.min(3) {
-        gpu_ok &= probe_plane_with_gpu(
-            lib,
-            physical,
-            device,
-            queue,
-            family_index,
-            image,
-            &meta,
-            plane,
-        );
+    if verify {
+        for plane in 0..meta.plane_count.min(3) {
+            gpu_ok &= probe_plane_with_gpu(
+                lib,
+                physical,
+                device,
+                queue,
+                family_index,
+                image,
+                &meta,
+                plane,
+            );
+        }
     }
     let ok = cpu_ok && gpu_ok && yuv_ok;
-    line(
-        "video-ahb",
-        "ring_frame",
-        format!(
-            "{}|slot={slot_index}|key={:016x}|imports={}|reuses={}",
-            if ok { "PASS" } else { "FAIL" },
-            slot.key,
-            imports,
-            reuses
-        ),
-    );
+    if verify || !ok {
+        line(
+            "video-ahb",
+            "ring_frame",
+            format!(
+                "{}|slot={slot_index}|key={:016x}|imports={}|reuses={}|verify={verify}|cpu={cpu_ok}|gpu={gpu_ok}|yuv={yuv_ok}",
+                if ok { "PASS" } else { "FAIL" },
+                slot.key,
+                imports,
+                reuses
+            ),
+        );
+    }
     ok
 }
 
@@ -4168,6 +4192,8 @@ unsafe fn run_video_on_stream(
     handles: Vec<Vec<c_int>>,
     ring: &mut VideoRing,
     stream: &mut UnixStream,
+    verify: bool,
+    verbose: bool,
 ) -> bool {
     let ok = run_video_core(
         lib,
@@ -4178,14 +4204,18 @@ unsafe fn run_video_on_stream(
         meta,
         handles,
         ring,
+        verify,
+        verbose,
     );
     let ack = if ok { b'D' } else { b'F' };
     let handoff = stream.write_all(&[ack]).is_ok();
-    line(
-        "video-ahb",
-        "display_handoff",
-        if ok && handoff { "PASS" } else { "FAIL" },
-    );
+    if verbose || !ok || !handoff {
+        line(
+            "video-ahb",
+            "display_handoff",
+            if ok && handoff { "PASS" } else { "FAIL" },
+        );
+    }
     ok && handoff
 }
 
@@ -4216,6 +4246,8 @@ pub unsafe fn run_video(
         handles,
         &mut ring,
         &mut stream,
+        true,
+        true,
     );
     teardown_video_ring(device, &mut ring);
     ok
@@ -4232,6 +4264,7 @@ pub unsafe fn run_video_many(
     family_index: u32,
     path: &str,
     frames: usize,
+    verify_every: usize,
 ) -> bool {
     if frames == 0 {
         line("video-ahb", "SUMMARY", "FAIL|frames=0");
@@ -4251,9 +4284,16 @@ pub unsafe fn run_video_many(
     );
     let mut ring = VideoRing::new();
     let mut completed = 0usize;
+    let verify_every = verify_every.max(1);
+    let trace = std::env::var_os("HUSK_VIDEO_TRACE").is_some();
+    let mut slow_frames = 0usize;
+    let mut max_frame_ms = 0u128;
+    let started = std::time::Instant::now();
     for index in 0..frames {
-        let started = std::time::Instant::now();
-        let (meta, handles) = match receive_handle_from_stream(&mut stream) {
+        let frame_started = std::time::Instant::now();
+        let verify = index < 6 || index.is_multiple_of(verify_every);
+        let verbose = trace || index < 6 || (index + 1).is_multiple_of(30) || index + 1 == frames;
+        let (meta, handles) = match receive_handle_from_stream(&mut stream, verbose) {
             Ok(value) => value,
             Err(error) => {
                 line(
@@ -4264,6 +4304,8 @@ pub unsafe fn run_video_many(
                 break;
             }
         };
+        let receive_ms = frame_started.elapsed().as_millis();
+        let work_started = std::time::Instant::now();
         let ok = run_video_on_stream(
             lib,
             physical,
@@ -4274,17 +4316,26 @@ pub unsafe fn run_video_many(
             handles,
             &mut ring,
             &mut stream,
+            verify,
+            verbose,
         );
-        line(
-            "video-ahb",
-            "frame_summary",
-            format!(
-                "{}|index={}|elapsed_ms={}",
-                if ok { "PASS" } else { "FAIL" },
-                index,
-                started.elapsed().as_millis()
-            ),
-        );
+        let work_ms = work_started.elapsed().as_millis();
+        let total_ms = receive_ms.saturating_add(work_ms);
+        max_frame_ms = max_frame_ms.max(total_ms);
+        if total_ms > 33 {
+            slow_frames = slow_frames.saturating_add(1);
+        }
+        if trace || !ok || index < 3 || (index + 1).is_multiple_of(30) || index + 1 == frames {
+            line(
+                "video-ahb",
+                "frame_summary",
+                format!(
+                    "{}|index={}|elapsed_ms={total_ms}|receive_ms={receive_ms}|work_ms={work_ms}",
+                    if ok { "PASS" } else { "FAIL" },
+                    index,
+                ),
+            );
+        }
         if !ok {
             break;
         }
@@ -4305,6 +4356,20 @@ pub unsafe fn run_video_many(
         "video-ahb",
         "STREAM",
         format!("CLOSED|completed={completed}/{frames}"),
+    );
+    let elapsed = started.elapsed();
+    let fps = if elapsed.is_zero() {
+        0.0
+    } else {
+        completed as f64 / elapsed.as_secs_f64()
+    };
+    line(
+        "video-ahb",
+        "THROUGHPUT",
+        format!(
+            "completed={completed}|elapsed_ms={}|fps={fps:.2}|verify_every={verify_every}|slow_gt_33ms={slow_frames}|max_frame_ms={max_frame_ms}",
+            elapsed.as_millis(),
+        ),
     );
     let ok = completed == frames;
     line(
@@ -4751,6 +4816,19 @@ pub fn video_frames_arg() -> Option<usize> {
             return args.next().and_then(|value| value.parse().ok());
         }
         if let Some(value) = arg.strip_prefix("--video-ahb-frames=") {
+            return value.parse().ok();
+        }
+    }
+    None
+}
+
+pub fn video_verify_every_arg() -> Option<usize> {
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--video-verify-every" {
+            return args.next().and_then(|value| value.parse().ok());
+        }
+        if let Some(value) = arg.strip_prefix("--video-verify-every=") {
             return value.parse().ok();
         }
     }

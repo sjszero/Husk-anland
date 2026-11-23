@@ -157,10 +157,12 @@ fn release_job(
     }
     inflight.fetch_sub(1, Ordering::AcqRel);
     notify_done(done);
-    crate::log(&format!(
-        "video|ahb-ring|RELEASE|index={}|slot={}",
-        job.index, job.slot
-    ));
+    if job.index <= 3 || job.index.is_multiple_of(30) {
+        crate::log(&format!(
+            "video|ahb-ring|RELEASE|index={}|slot={}",
+            job.index, job.slot
+        ));
+    }
 }
 
 fn marker_present(files: &Path) -> bool {
@@ -254,6 +256,8 @@ fn worker(
     let mut sent_keys = HashSet::new();
     let mut handle_count = 0u64;
     let mut reuse_count = 0u64;
+    let mut presented_count = 0u64;
+    let mut present_fail_count = 0u64;
     let outcome = (|| -> Result<(), String> {
         let (listener, mut stream) = accept_client(&files, &stop)?;
         let path = files.join("rootfs-full/run/husk/video-ahb.sock");
@@ -310,15 +314,17 @@ fn worker(
                 reuse_count = reuse_count.saturating_add(1);
                 0
             };
-            crate::log(&format!(
-                "video|ahb-ring|FRAME|index={}|key={:016x}|output_key={:016x}|handle={}|send_rc={send_rc}|bytes={}|socket={}",
-                job.index,
-                job.buffer_key,
-                job.output_key,
-                if new_key { "NEW" } else { "REUSE" },
-                job.meta.len(),
-                stream.as_raw_fd()
-            ));
+            if job.index <= 3 || job.index.is_multiple_of(30) || send_rc != 0 {
+                crate::log(&format!(
+                    "video|ahb-ring|FRAME|index={}|key={:016x}|output_key={:016x}|handle={}|send_rc={send_rc}|bytes={}|socket={}",
+                    job.index,
+                    job.buffer_key,
+                    job.output_key,
+                    if new_key { "NEW" } else { "REUSE" },
+                    job.meta.len(),
+                    stream.as_raw_fd()
+                ));
+            }
             if send_rc != 0 {
                 release_job(&api, job, &inflight, &done);
                 return Err(format!("send native handle rc={send_rc}"));
@@ -344,17 +350,27 @@ fn worker(
                     )
                 };
                 if presented {
-                    crate::log(&format!(
-                        "video|ahb-ring|PRESENT|index={}|output_key={:016x}|size={}x{}",
-                        job.index, job.output_key, job.output_desc.width, job.output_desc.height
-                    ));
+                    presented_count = presented_count.saturating_add(1);
+                    if job.index <= 3 || job.index.is_multiple_of(30) {
+                        crate::log(&format!(
+                            "video|ahb-ring|PRESENT|index={}|output_key={:016x}|size={}x{}",
+                            job.index,
+                            job.output_key,
+                            job.output_desc.width,
+                            job.output_desc.height
+                        ));
+                    }
+                } else {
+                    present_fail_count = present_fail_count.saturating_add(1);
                 }
             }
-            crate::log(&format!(
-                "video|ahb-ring|ACK|index={}|byte=0x{ack:02x}|ok={ok}|elapsed_ms={}",
-                job.index,
-                started.elapsed().as_millis()
-            ));
+            if job.index <= 3 || job.index.is_multiple_of(30) || !ok {
+                crate::log(&format!(
+                    "video|ahb-ring|ACK|index={}|byte=0x{ack:02x}|ok={ok}|elapsed_ms={}",
+                    job.index,
+                    started.elapsed().as_millis()
+                ));
+            }
             release_job(&api, job, &inflight, &done);
             if !ok {
                 return Err(format!("guest rejected frame with 0x{ack:02x}"));
@@ -374,10 +390,10 @@ fn worker(
     notify_done(&done);
     match outcome {
         Ok(()) => crate::log(&format!(
-            "video|ahb-ring|SUMMARY|PASS|sent={send_count}|completed={completed}|handles={handle_count}|reuses={reuse_count}"
+            "video|ahb-ring|SUMMARY|PASS|sent={send_count}|completed={completed}|presented={presented_count}|present_fail={present_fail_count}|handles={handle_count}|reuses={reuse_count}"
         )),
         Err(error) => crate::log(&format!(
-            "video|ahb-ring|SUMMARY|FAIL|sent={send_count}|completed={completed}|{error}"
+            "video|ahb-ring|SUMMARY|FAIL|sent={send_count}|completed={completed}|presented={presented_count}|present_fail={present_fail_count}|handles={handle_count}|reuses={reuse_count}|{error}"
         )),
     }
 }

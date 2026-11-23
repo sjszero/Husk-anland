@@ -1615,6 +1615,7 @@ unsafe fn run() -> i32 {
     let ahb_socket = dmabuf::socket_arg();
     let video_ahb_socket = dmabuf::video_socket_arg();
     let video_ahb_frames = dmabuf::video_frames_arg().unwrap_or(1);
+    let video_verify_every = dmabuf::video_verify_every_arg().unwrap_or(1);
     let image_external_mode = ahb_socket.is_some() || video_ahb_socket.is_some();
     let instance_ext_names = if image_external_mode {
         vec![
@@ -1922,6 +1923,7 @@ unsafe fn run() -> i32 {
                 family_index,
                 path,
                 video_ahb_frames,
+                video_verify_every,
             ),
             (None, Some(path)) => dmabuf::run(lib, dev, device, queue, family_index, path),
             (None, None) => true,

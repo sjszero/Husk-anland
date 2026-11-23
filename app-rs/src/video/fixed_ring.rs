@@ -13,7 +13,7 @@ use std::collections::VecDeque;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 
-const FIXED_SLOTS: usize = 3;
+const FIXED_SLOTS: usize = 6;
 const AHB_FORMAT_YV12: u32 = 0x3231_5659;
 const AHB_FORMAT_R8G8B8A8_UNORM: u32 = 1;
 const AHB_USAGE_CPU_READ_OFTEN: u64 = 1 << 1;
@@ -59,6 +59,8 @@ pub(super) struct FixedRing {
     free: VecDeque<usize>,
     release_tx: Sender<usize>,
     released_rx: Receiver<usize>,
+    trace: bool,
+    verify_every: usize,
     pub width: u32,
     pub height: u32,
     source_stride: usize,
@@ -70,6 +72,12 @@ impl FixedRing {
     pub(super) unsafe fn new(width: u32, height: u32, files: &Path) -> Result<Self, String> {
         let api = ImageApi::load()?;
         let (release_tx, released_rx) = mpsc::channel();
+        let trace = files.join("video-trace").exists();
+        let verify_every = std::fs::read_to_string(files.join("video-verify-every"))
+            .ok()
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .unwrap_or(30)
+            .max(1);
         let mut slots: Vec<Slot> = Vec::with_capacity(FIXED_SLOTS);
         let requested = AhbDesc {
             width,
@@ -249,6 +257,8 @@ impl FixedRing {
             free: (0..FIXED_SLOTS).collect(),
             release_tx,
             released_rx,
+            trace,
+            verify_every,
             width,
             height,
             source_stride: width as usize,
@@ -262,6 +272,9 @@ impl FixedRing {
     }
 
     pub(super) fn acquire(&mut self) -> Option<usize> {
+        let started = std::time::Instant::now();
+        let mut release_wait = Duration::ZERO;
+        let mut present_wait = Duration::ZERO;
         loop {
             while let Ok(slot) = self.released_rx.try_recv() {
                 if !self.free.contains(&slot) {
@@ -270,6 +283,7 @@ impl FixedRing {
             }
             if let Some(slot) = self.free.pop_front() {
                 let output_buffer = self.slots[slot].output_buffer;
+                let check_started = std::time::Instant::now();
                 if !super::present::wait_available(
                     &self.files,
                     output_buffer.cast(),
@@ -277,15 +291,29 @@ impl FixedRing {
                 ) {
                     return None;
                 }
+                present_wait = present_wait.saturating_add(check_started.elapsed());
+                if self.trace {
+                    crate::log(&format!(
+                        "video|fixed-ring|trace|acquire|PASS|slot={slot}|elapsed_ms={}|release_wait_ms={}|present_wait_ms={}",
+                        started.elapsed().as_millis(),
+                        release_wait.as_millis(),
+                        present_wait.as_millis()
+                    ));
+                }
                 return Some(slot);
             }
+            let wait_started = std::time::Instant::now();
             match self.released_rx.recv_timeout(Duration::from_millis(100)) {
                 Ok(slot) => {
+                    release_wait = release_wait.saturating_add(wait_started.elapsed());
                     if !self.free.contains(&slot) {
                         self.free.push_back(slot);
                     }
                 }
-                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    release_wait = release_wait.saturating_add(wait_started.elapsed());
+                    continue;
+                }
                 Err(mpsc::RecvTimeoutError::Disconnected) => return None,
             }
         }
@@ -331,6 +359,7 @@ impl FixedRing {
         source: *const u8,
         source_size: usize,
         pts_us: i64,
+        hash_planes: bool,
     ) -> Result<FixedFrame, String> {
         let slot = &self.slots[slot_index];
         let width = self.width as usize;
@@ -418,12 +447,14 @@ impl FixedRing {
                 (chroma_width, chroma_height)
             };
             bytes[index] = plane_width.saturating_mul(plane_height);
-            hashes[index] = hash_plane_rows(
-                plane.data as *const u8,
-                plane.row_stride as usize,
-                plane_width,
-                plane_height,
-            );
+            if hash_planes {
+                hashes[index] = hash_plane_rows(
+                    plane.data as *const u8,
+                    plane.row_stride as usize,
+                    plane_width,
+                    plane_height,
+                );
+            }
         }
         let unlock_rc = (self.api.ahb_unlock)(slot.buffer, core::ptr::null_mut());
         if unlock_rc != 0 {
@@ -488,6 +519,7 @@ pub(super) unsafe fn drain_outputs(
     ring: &mut FixedRing,
     tag: &str,
 ) -> Result<bool, String> {
+    let drain_started = std::time::Instant::now();
     loop {
         let mut info = BufferInfo::default();
         let index = (api.dequeue_output)(codec, &mut info, timeout_us);
@@ -546,6 +578,7 @@ pub(super) unsafe fn drain_outputs(
                     output_ptr.add(offset),
                     output_size - offset,
                     info.presentation_time_us,
+                    stats.0 <= 6 || (stats.0 - 1).is_multiple_of(ring.verify_every as u64),
                 ) {
                     Ok(frame) => frame,
                     Err(error) => {
@@ -589,6 +622,16 @@ pub(super) unsafe fn drain_outputs(
                         &format!(
                             "video|{tag}|fixed-frame|n={}|slot={slot}|key={:016x}|pts={}",
                             stats.0, frame.buffer_key, info.presentation_time_us
+                        ),
+                    );
+                }
+                if files.join("video-trace").exists() {
+                    result(
+                        files,
+                        &format!(
+                            "video|{tag}|trace|frame|n={}|drain_elapsed_ms={}",
+                            stats.0,
+                            drain_started.elapsed().as_millis()
                         ),
                     );
                 }

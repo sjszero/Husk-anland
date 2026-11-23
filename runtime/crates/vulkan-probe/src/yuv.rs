@@ -391,6 +391,7 @@ pub(crate) struct Converter {
     slot: usize,
     frames: u64,
     passes: u64,
+    verified: u64,
     failures: u64,
 }
 
@@ -914,28 +915,33 @@ impl Converter {
             slot,
             frames: 0,
             passes: 0,
+            verified: 0,
             failures: 0,
         })
     }
 
-    pub(crate) unsafe fn convert(&mut self) -> bool {
-        let expected = match cpu_expected(
-            self.input_fd,
-            self.width,
-            self.height,
-            self.offsets,
-            self.strides,
-        ) {
-            Ok(value) => value,
-            Err(error) => {
-                self.failures = self.failures.saturating_add(1);
-                line(
-                    "yuv_conv",
-                    "FAIL",
-                    format!("slot={}|cpu_reference|{error}", self.slot),
-                );
-                return false;
+    pub(crate) unsafe fn convert(&mut self, verify: bool) -> bool {
+        let expected = if verify {
+            match cpu_expected(
+                self.input_fd,
+                self.width,
+                self.height,
+                self.offsets,
+                self.strides,
+            ) {
+                Ok(value) => Some(value),
+                Err(error) => {
+                    self.failures = self.failures.saturating_add(1);
+                    line(
+                        "yuv_conv",
+                        "FAIL",
+                        format!("slot={}|cpu_reference|{error}", self.slot),
+                    );
+                    return false;
+                }
             }
+        } else {
+            None
         };
 
         if (self.fns.reset_pool)(self.device, self.cleanup.command_pool, 0) != VK_SUCCESS {
@@ -994,7 +1000,7 @@ impl Converter {
         );
         (self.fns.dispatch)(
             self.command,
-            self.width.div_ceil(8),
+            self.width.div_ceil(64),
             self.height.div_ceil(8),
             1,
         );
@@ -1032,6 +1038,12 @@ impl Converter {
             return self.fail("fence timeout");
         }
 
+        self.frames = self.frames.saturating_add(1);
+        let Some(expected) = expected else {
+            self.passes = self.passes.saturating_add(1);
+            return true;
+        };
+
         let len = match usize::try_from(self.output_bytes) {
             Ok(value) => value,
             Err(_) => return self.fail("output mapping too large"),
@@ -1067,9 +1079,9 @@ impl Converter {
         }
         munmap(mapped, len);
 
-        self.frames = self.frames.saturating_add(1);
         if matched == expected.len() {
             self.passes = self.passes.saturating_add(1);
+            self.verified = self.verified.saturating_add(1);
         } else {
             self.failures = self.failures.saturating_add(1);
         }
@@ -1099,8 +1111,8 @@ impl Converter {
 
     pub(crate) fn summary(&self) -> String {
         format!(
-            "slot={}|frames={}|passes={}|failures={}",
-            self.slot, self.frames, self.passes, self.failures
+            "slot={}|frames={}|passes={}|verified={}|failures={}",
+            self.slot, self.frames, self.passes, self.verified, self.failures
         )
     }
 }
