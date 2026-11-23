@@ -100,3 +100,9 @@ msgget
 msgsnd
 msgrcv
 msgctl
+socket
+getsockname
+send
+sendto
+sendmsg
+recvmsg

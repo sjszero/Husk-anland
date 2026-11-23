@@ -38,6 +38,9 @@ files/nrfull/root/            # real rootfs: glibc 2.39, bash, coreutils, grep, 
 | `04-path-reliability.sh` | fd stability, overlength paths, final-symlink containment, optional Rust `faccessat` and relative-dirfd probes | run inside the guest with the current embedded loader |
 | `02-bench.sh` + `bench.c` | per-call cost of the path layer, compiled and timed in the guest | `EXTRA=bench.c WAIT=90 ./run-guest.sh 02-bench.sh` |
 | `accept-gcc-make.sh` | gcc -> cc1 -> as -> collect2 -> ld.bfd, then `make -j4` / no-op / clean | `WAIT=60 ./run-guest.sh accept-gcc-make.sh` |
+| `05-mount-audit.sh` | mount/tmpfs/read-only audit: 8 findings from an external review, 11 checks | `sh gexec.sh rootfs-full usr/bin/bash tmp/05-mount-audit.sh` |
+| `06-posix-mqueue.py` `07-sysv-shm.py` `08-sysv-sem-msg.py` | POSIX mqueue, SysV shm, SysV sem/msg | `sh gexec.sh rootfs-full usr/bin/python3 tmp/0N-*.py` |
+| `09-network-surface.sh` | netlink surface: `ip`/`hostname -I`/`/proc/net/*`/`getent` answer, writes are refused with EPERM/EOPNOTSUPP | `sh gexec.sh rootfs-full usr/bin/bash tmp/09.sh` |
 | `provision-toolchain.sh` | host-side: resolve, unpack and push the Ubuntu gcc/make toolchain (skips libc6 on purpose). Thin wrapper over `nr-tools provision` (Rust), the only implementation | `./provision-toolchain.sh` |
 
 `run-guest.sh` environment knobs: `DEV=` device id, `ENV=K=V,K2=V2` extra environment

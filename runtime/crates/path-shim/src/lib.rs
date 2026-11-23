@@ -9,7 +9,7 @@
 mod boot;
 
 use core::panic::PanicInfo;
-use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicUsize, Ordering};
 use runtime_core as rc;
 
 type CChar = i8;
@@ -2774,24 +2774,59 @@ unsafe fn synth_net_dev(at: &mut usize) -> bool {
     vt_put(
         at,
         b"Inter-|   Receive                                                |  Transmit\n \
-face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n",
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n",
     );
-    let mut i = 0;
-    let mut buf = [0u8; 32];
-    while let Some(n) = netif(i, &mut buf) {
-        vt_put(at, if n == 2 { b"    lo: " } else { b"        " });
-        if n != 2 {
-            vt_put(at, &buf[..n]);
-            vt_put(at, b": ");
-        }
-        vt_put(
-            at,
-            b"0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n",
-        );
-        i += 1;
-        if i > 16 {
+    // Built from the same table netlink answers with, so /proc/net/dev and
+    // `ip addr` cannot disagree about which interfaces exist.
+    let mut ifs = [IfEnt::empty(); 8];
+    let n = nl_interfaces(&mut ifs);
+    for e in ifs.iter().take(n) {
+        vt_put(at, b"  ");
+        vt_put(at, &e.name[..e.name_len]);
+        vt_put(at, b": 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n");
+    }
+    true
+}
+
+/// Eight upper-case hex digits, the form /proc/net/route uses.
+unsafe fn vt_hex8(at: &mut usize, v: u32) {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut out = [0u8; 8];
+    let mut i = 8;
+    let mut x = v;
+    loop {
+        i -= 1;
+        out[i] = HEX[(x & 15) as usize];
+        x >>= 4;
+        if i == 0 {
             break;
         }
+    }
+    vt_put(at, &out);
+}
+
+/// /proc/net/route: the connected routes of every interface that has one.
+/// Static routes and a default gateway are not visible in this domain, so they
+/// are absent rather than invented.
+unsafe fn synth_net_route(at: &mut usize) -> bool {
+    vt_put(
+        at,
+        b"Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n",
+    );
+    let mut ifs = [IfEnt::empty(); 8];
+    let n = nl_interfaces(&mut ifs);
+    for e in ifs.iter().take(n) {
+        if !e.have_ip {
+            continue;
+        }
+        vt_put(at, &e.name[..e.name_len]);
+        vt_put(at, b"\t");
+        // /proc/net/route prints the address bytes as a little-endian number,
+        // so 192.168.1.0/24 shows up as C0A80100 / FFFFFF00.
+        vt_hex8(at, (e.ip & e.mask).swap_bytes());
+        vt_put(at, b"\t00000000\t0001\t0\t0\t0\t");
+        vt_hex8(at, e.mask.swap_bytes());
+        vt_put(at, b"\t0\t0\t0\n");
     }
     true
 }
@@ -2846,10 +2881,9 @@ nodev\tbpf\nnodev\tfusectl\nnodev\tramfs\n\text4\n\tf2fs\n",
         return Some(at);
     }
     if p == b"/proc/net/route" {
-        vt_put(
-            &mut at,
-            b"Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n",
-        );
+        if !synth_net_route(&mut at) {
+            return None;
+        }
         return Some(at);
     }
     if p == b"/proc/net/tcp" || p == b"/proc/net/udp" || p == b"/proc/net/tcp6" || p == b"/proc/net/udp6" {
@@ -4643,6 +4677,9 @@ pub unsafe extern "C" fn close(fd: CInt) -> CInt {
     if fd >= 0 && v4l2_is_fake(fd) {
         v4l2_forget(fd);
     }
+    if fd >= 0 && nl_is_fake(fd) {
+        nl_forget(fd);
+    }
     ret_or_errno(syscall4(SYS_CLOSE, fd as usize, 0, 0, 0))
 }
 
@@ -5990,6 +6027,11 @@ pub unsafe extern "C" fn connect(sockfd: CInt, addr: *const u8, addrlen: u32) ->
 // Same exclusions as connect: abstract, unnamed and non-AF_UNIX pass through.
 #[no_mangle]
 pub unsafe extern "C" fn bind(sockfd: CInt, addr: *const u8, addrlen: u32) -> CInt {
+    // A netlink socket we handed out ourselves: the address is bookkeeping the
+    // caller asked for, and there is no kernel object behind it to bind.
+    if nl_is_fake(sockfd) {
+        return 0;
+    }
     let raw_bind = || {
         ret_or_errno(syscall4(
             SYS_BIND,
@@ -9623,4 +9665,898 @@ unsafe fn msg_count(id: i32) -> usize {
     }
     rc::close(dfd);
     count
+}
+
+// ------------------------------------------------- AF_NETLINK emulation ---
+//
+// `socket(AF_NETLINK, ...)` succeeds here, but `bind` and `sendmsg` on it come
+// back EACCES: SELinux refuses netlink_route_socket to `untrusted_app`. That is
+// a limit on the socket, not on the information — the interface list and the
+// addresses come back from the SIOCGIF* ioctls, which is exactly why `ifconfig`
+// already works while `ip addr` and `ip route` die on their first message.
+//
+// So the socket is replaced by a datagram socketpair: the caller keeps one end,
+// we keep the other, and every request is answered by writing a complete
+// netlink dump into it. recvmsg / poll / close stay native, so a client that
+// polls or reads with a timeout sees ordinary socket behaviour.
+//
+// Answered: RTM_GETLINK, RTM_GETADDR, RTM_GETROUTE (NETLINK_ROUTE).
+// NETLINK_SOCK_DIAG gets an empty dump, so `ss` prints a table instead of
+// dying; connection enumeration needs /proc/net/*, which this domain cannot
+// read (see docs/design/network.md).
+
+const AF_NETLINK_DOM: CInt = 16;
+const AF_UNIX_DOM: usize = 1;
+const SOCK_DGRAM_KIND: usize = 2;
+const SYS_SOCKET_NR: usize = 198;
+const SYS_SOCKETPAIR_NR: usize = 199;
+const SYS_SENDTO_NR: usize = 206;
+const SYS_SENDMSG_NR: usize = 211;
+const SYS_RECVMSG_NR: usize = 212;
+
+const NL_ROUTE_PROTO: CInt = 0;
+const NL_SOCK_DIAG_PROTO: CInt = 4;
+const NL_MAX: usize = 16;
+
+#[derive(Clone, Copy)]
+struct NlSlot {
+    client: CInt,
+    peer: CInt,
+    proto: CInt,
+    seq: u32,
+    ack: u8,
+}
+
+static mut NL_SLOTS: [NlSlot; NL_MAX] = [NlSlot {
+    client: -1,
+    peer: -1,
+    proto: -1,
+    seq: 0,
+    ack: 0,
+}; NL_MAX];
+static NL_LOCKW: AtomicU8 = AtomicU8::new(0);
+/// Number of live fake netlink sockets. Zero on every ordinary program, which
+/// keeps `send`/`sendto`/`sendmsg` at a single relaxed load for the vast
+/// majority of traffic.
+static NL_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+unsafe fn nl_lock() {
+    while NL_LOCKW
+        .compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        core::hint::spin_loop();
+    }
+}
+
+unsafe fn nl_unlock() {
+    NL_LOCKW.store(0, Ordering::Release);
+}
+
+unsafe fn nl_slot(fd: CInt) -> Option<usize> {
+    for i in 0..NL_MAX {
+        if NL_SLOTS[i].client == fd && fd >= 0 {
+            return Some(i);
+        }
+    }
+    None
+}
+
+unsafe fn nl_is_fake(fd: CInt) -> bool {
+    if NL_COUNT.load(Ordering::Relaxed) == 0 {
+        return false;
+    }
+    if nl_slot(fd).is_none() {
+        return false;
+    }
+    // A slot outlives a close() that happened inside libc (that path does not
+    // come through our close()), and the descriptor number is then free for any
+    // later socket. Treat it as ours only while it still answers as one of our
+    // AF_UNIX datagram ends; otherwise drop the stale slot. Without this, a
+    // recycled descriptor gets netlink answers on a UDP socket and glibc's
+    // getaddrinfo sees a source address of family AF_NETLINK.
+    let mut addr = [0u8; 128];
+    let mut alen: u32 = 128;
+    let r = syscall4(
+        204, // getsockname
+        fd as usize,
+        addr.as_mut_ptr() as usize,
+        core::ptr::addr_of_mut!(alen) as usize,
+        0,
+    );
+    if r < 0 {
+        nl_forget(fd);
+        return false;
+    }
+    let fam = core::ptr::read_unaligned(addr.as_ptr() as *const u16);
+    if fam != AF_UNIX_DOM as u16 {
+        nl_forget(fd);
+        return false;
+    }
+    true
+}
+
+unsafe fn nl_install(client: CInt, peer: CInt, proto: CInt) -> bool {
+    nl_lock();
+    let mut ok = false;
+    for i in 0..NL_MAX {
+        if NL_SLOTS[i].client < 0 {
+            NL_SLOTS[i] = NlSlot {
+                client,
+                peer,
+                proto,
+                seq: 0,
+                ack: 0,
+            };
+            NL_COUNT.store(NL_COUNT.load(Ordering::Relaxed) + 1, Ordering::Relaxed);
+            ok = true;
+            break;
+        }
+    }
+    nl_unlock();
+    ok
+}
+
+unsafe fn nl_forget(fd: CInt) {
+    nl_lock();
+    for i in 0..NL_MAX {
+        if NL_SLOTS[i].client == fd {
+            NL_SLOTS[i] = NlSlot {
+                client: -1,
+                peer: -1,
+                proto: -1,
+                seq: 0,
+                ack: 0,
+            };
+            let c = NL_COUNT.load(Ordering::Relaxed);
+            NL_COUNT.store(c.saturating_sub(1), Ordering::Relaxed);
+            break;
+        }
+    }
+    nl_unlock();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn socket(domain: CInt, typ: CInt, proto: CInt) -> CInt {
+    if domain == AF_NETLINK_DOM && env_lookup(b"NR_NL_OFF").is_none() {
+        if verbose_on() {
+            dbg(&[b"nl socket af_netlink proto="]);
+            dbgn(&[], proto as i64);
+        }
+        let mut fds = [0 as CInt; 2];
+        let kind = SOCK_DGRAM_KIND | (typ as usize & 0o2000000); // keep SOCK_CLOEXEC
+        // socketpair(domain, type, protocol, sv): the array goes in x3.
+        let r = syscall4(
+            SYS_SOCKETPAIR_NR,
+            AF_UNIX_DOM,
+            kind,
+            0,
+            fds.as_mut_ptr() as usize,
+        );
+        if r < 0 {
+            return ret_or_errno(r);
+        }
+        // The client end never blocks: once a dump has been consumed there is
+        // simply nothing more, which netlink clients already handle as EAGAIN.
+        syscall4(SYS_FCNTL, fds[0] as usize, 4 /* F_SETFL */, 0o4000, 0);
+        if !nl_install(fds[0], fds[1], proto) {
+            syscall4(SYS_CLOSE, fds[0] as usize, 0, 0, 0);
+            syscall4(SYS_CLOSE, fds[1] as usize, 0, 0, 0);
+            return set_errno(23); // ENFILE
+        }
+        return fds[0];
+    }
+    ret_or_errno(syscall4(
+        SYS_SOCKET_NR,
+        domain as usize,
+        typ as usize,
+        proto as usize,
+        0,
+    ))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn getsockname(fd: CInt, addr: *mut u8, len: *mut u32) -> CInt {
+    if nl_is_fake(fd) {
+        if addr.is_null() || len.is_null() {
+            return set_errno(14);
+        }
+        *len = 12;
+        core::ptr::write_bytes(addr, 0, 12);
+        core::ptr::write_unaligned(addr as *mut u16, AF_NETLINK_DOM as u16);
+        core::ptr::write_unaligned(addr.add(4) as *mut u32, syscall4(172, 0, 0, 0, 0) as u32);
+        return 0;
+    }
+    ret_or_errno(syscall5(
+        204, // getsockname
+        fd as usize,
+        addr as usize,
+        len as usize,
+        0,
+        0,
+    ))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sendto(
+    fd: CInt,
+    buf: usize,
+    len: usize,
+    flags: CInt,
+    addr: usize,
+    addrlen: u32,
+) -> Ssize {
+    if nl_is_fake(fd) {
+        return nl_handle(fd, buf as *const u8, len);
+    }
+    ret_or_errno(syscall6(
+        SYS_SENDTO_NR,
+        fd as usize,
+        buf,
+        len,
+        flags as usize,
+        addr,
+        addrlen as usize,
+    )) as Ssize
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn send(fd: CInt, buf: usize, len: usize, flags: CInt) -> Ssize {
+    if nl_is_fake(fd) {
+        return nl_handle(fd, buf as *const u8, len);
+    }
+    ret_or_errno(syscall4(SYS_SENDTO_NR, fd as usize, buf, len, flags as usize)) as Ssize
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sendmsg(fd: CInt, msg: *const u8, flags: CInt) -> Ssize {
+    if nl_is_fake(fd) && !msg.is_null() {
+        // struct msghdr (arm64): name 0, namelen 8, iov 16, iovlen 24.
+        let iov = core::ptr::read_unaligned(msg.add(16) as *const usize);
+        let iovlen = core::ptr::read_unaligned(msg.add(24) as *const usize);
+        let mut tmp = [0u8; 1024];
+        let mut at = 0usize;
+        for i in 0..iovlen.min(8) {
+            let base = core::ptr::read_unaligned((iov + i * 16) as *const usize);
+            let len = core::ptr::read_unaligned((iov + i * 16 + 8) as *const usize);
+            if base == 0 || len == 0 {
+                continue;
+            }
+            let n = len.min(tmp.len() - at);
+            core::ptr::copy_nonoverlapping(base as *const u8, tmp.as_mut_ptr().add(at), n);
+            at += n;
+            if at == tmp.len() {
+                break;
+            }
+        }
+        return nl_handle(fd, tmp.as_ptr(), at);
+    }
+    ret_or_errno(syscall4(SYS_SENDMSG_NR, fd as usize, msg as usize, flags as usize, 0)) as Ssize
+}
+
+/// iproute2 refuses a datagram whose sender address is missing ("Sender
+/// address length == 0"), and a *connected* socketpair never reports one, so
+/// the reply is dressed as if it had come from the kernel.
+#[no_mangle]
+/// iproute2 refuses a datagram whose sender address is missing ("Sender
+/// address length == 0"), and a *connected* socketpair never reports one, so
+/// the reply is dressed as if it had come from the kernel.
+unsafe fn dress_name(msg: *mut u8) {
+    if msg.is_null() {
+        return;
+    }
+    let name = core::ptr::read_unaligned(msg as *const usize);
+    let namelen = msg.add(8) as *mut u32;
+    // A connected socketpair reports no sender address at all (namelen 0), and
+    // a netlink client refuses such a datagram. Every client that talks to
+    // netlink passes a sockaddr_nl here, so fill it unconditionally.
+    if name != 0 {
+        core::ptr::write_bytes(name as *mut u8, 0, 12);
+        core::ptr::write_unaligned(name as *mut u16, AF_NETLINK_DOM as u16);
+        *namelen = 12;
+    }
+}
+
+/// A dump that already ran dry answers with NLMSG_DONE carrying the sequence
+/// number of the request, so a client stuck in a read loop stops instead of
+/// spinning on EAGAIN.
+unsafe fn nl_empty_done(fd: CInt, msg: *mut u8) -> Ssize {
+    if msg.is_null() {
+        return -11;
+    }
+    let iov = core::ptr::read_unaligned(msg.add(16) as *const usize);
+    if iov == 0 {
+        return -11;
+    }
+    let base = core::ptr::read_unaligned(iov as *const usize) as *mut u8;
+    let blen = core::ptr::read_unaligned((iov + 8) as *const usize);
+    if base.is_null() {
+        return -11;
+    }
+    if blen < 20 {
+        // The peek pass (iov_len 0, MSG_PEEK|MSG_TRUNC) only wants the size.
+        return 20;
+    }
+    let (seq, typ, flags) = match nl_slot(fd) {
+        Some(i) => {
+            let t = if NL_SLOTS[i].ack != 0 {
+                NLMSG_ERROR
+            } else {
+                NLMSG_DONE
+            };
+            (NL_SLOTS[i].seq, t, if t == NLMSG_DONE { NLM_F_MULTI } else { 0 })
+        }
+        None => (0, NLMSG_DONE, NLM_F_MULTI),
+    };
+    dbg(&[b"nl read past the end of a dump, type="]);
+    dbgn(&[], typ as i64);
+    core::ptr::write_bytes(base, 0, 20);
+    core::ptr::write_unaligned(base as *mut u32, 20u32);
+    core::ptr::write_unaligned(base.add(4) as *mut u16, typ);
+    core::ptr::write_unaligned(base.add(6) as *mut u16, flags);
+    core::ptr::write_unaligned(base.add(8) as *mut u32, seq);
+    core::ptr::write_unaligned(base.add(12) as *mut u32, nl_pid());
+    core::ptr::write_unaligned(base.add(16) as *mut u32, 0u32); // error 0
+    20
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn recvmsg(fd: CInt, msg: *mut u8, flags: CInt) -> Ssize {
+    let fake = nl_is_fake(fd);
+    let mut r = syscall4(SYS_RECVMSG_NR, fd as usize, msg as usize, flags as usize, 0);
+    if fake {
+        dress_name(msg);
+        if r == -11 {
+            // iproute2's __rtnl_recvmsg() loops on EAGAIN without a bound, so
+            // an empty queue must look like "the dump is over", not like
+            // "nothing yet".
+            r = nl_empty_done(fd, msg);
+        }
+    }
+    // glibc's wrappers hand callers -1 and errno, never a negative raw value.
+    if r < 0 && r > -4096 {
+        *__errno_location() = (-r) as CInt;
+        return -1;
+    }
+    r
+}
+
+// --------------------------------------------------------------- if_*index ---
+//
+// glibc's own if_nametoindex(3) and if_indextoname(3) go through an internal
+// netlink socket that this SELinux domain cannot bind, so they fail with EACCES
+// even though the kernel answers SIOCGIFINDEX / SIOCGIFNAME for us. The two
+// exported names are answered here instead, which covers every caller that
+// links against them; a libc-internal caller (there is none in path we use)
+// would need a different mechanism and is listed as a known gap.
+
+const SIOCGIFINDEX_REQ: usize = 0x8933;
+const SIOCGIFNAME_REQ: usize = 0x8910;
+
+/// One AF_INET dgram socket for the ioctl, or -1.
+unsafe fn ifprobe_sock() -> CInt {
+    let fd = syscall4(SYS_SOCKET_NR, 2 /* AF_INET */, SOCK_DGRAM_KIND, 0, 0) as CInt;
+    fd
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn if_nametoindex(name: *const u8) -> u32 {
+    if name.is_null() {
+        return set_errno(22) as u32;
+    }
+    let sock = ifprobe_sock();
+    if sock < 0 {
+        return 0;
+    }
+    let mut req = [0u8; 40];
+    let mut i = 0usize;
+    while i < 15 {
+        let c = *name.add(i);
+        if c == 0 {
+            break;
+        }
+        req[i] = c;
+        i += 1;
+    }
+    let r = syscall4(SYS_IOCTL_NR, sock as usize, SIOCGIFINDEX_REQ, req.as_mut_ptr() as usize, 0);
+    syscall4(SYS_CLOSE, sock as usize, 0, 0, 0);
+    if r < 0 {
+        *__errno_location() = 19; // ENODEV
+        return 0;
+    }
+    u32::from_ne_bytes([req[16], req[17], req[18], req[19]])
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn if_indextoname(index: u32, buf: *mut u8) -> *mut u8 {
+    if buf.is_null() {
+        return core::ptr::null_mut();
+    }
+    let sock = ifprobe_sock();
+    if sock < 0 {
+        return core::ptr::null_mut();
+    }
+    let mut req = [0u8; 40];
+    req[16..20].copy_from_slice(&index.to_ne_bytes());
+    let r = syscall4(SYS_IOCTL_NR, sock as usize, SIOCGIFNAME_REQ, req.as_mut_ptr() as usize, 0);
+    syscall4(SYS_CLOSE, sock as usize, 0, 0, 0);
+    if r < 0 {
+        *__errno_location() = 19; // ENODEV
+        return core::ptr::null_mut();
+    }
+    core::ptr::copy_nonoverlapping(req.as_ptr(), buf, 16);
+    buf
+}
+
+// ------------------------------------------------------------- the request
+
+const RTM_NEWLINK: u16 = 16;
+const RTM_NEWADDR: u16 = 20;
+const RTM_NEWROUTE: u16 = 24;
+const RTM_GETLINK: u16 = 18;
+const RTM_GETADDR: u16 = 22;
+const RTM_GETROUTE: u16 = 26;
+const NLMSG_ERROR: u16 = 2;
+const NLMSG_DONE: u16 = 3;
+const NLM_F_MULTI: u16 = 2;
+
+const IFLA_ADDRESS: u16 = 1;
+const IFLA_IFNAME: u16 = 3;
+const IFLA_MTU: u16 = 4;
+const IFLA_TXQLEN: u16 = 13;
+const IFLA_OPERSTATE: u16 = 16;
+
+const IFA_ADDRESS: u16 = 1;
+const IFA_LOCAL: u16 = 2;
+const IFA_LABEL: u16 = 3;
+const IFA_BROADCAST: u16 = 4;
+
+const RTA_DST: u16 = 1;
+const RTA_OIF: u16 = 4;
+const RTA_PREFSRC: u16 = 7;
+
+const RT_TABLE_MAIN: u8 = 254;
+const RTPROT_KERNEL: u8 = 2;
+const RT_SCOPE_LINK: u8 = 253;
+const RT_SCOPE_HOST: u8 = 254;
+const RTN_UNICAST: u8 = 1;
+const ARPHRD_ETHER: u16 = 1;
+const ARPHRD_LOOPBACK: u16 = 772;
+
+#[derive(Clone, Copy)]
+struct IfEnt {
+    name: [u8; 16],
+    name_len: usize,
+    index: i32,
+    flags: u32,
+    mtu: i32,
+    hwtype: u16,
+    hwaddr: [u8; 6],
+    ip: u32,
+    mask: u32,
+    have_ip: bool,
+}
+
+impl IfEnt {
+    const fn empty() -> Self {
+        IfEnt {
+            name: [0; 16],
+            name_len: 0,
+            index: 0,
+            flags: 0,
+            mtu: 1500,
+            hwtype: ARPHRD_ETHER,
+            hwaddr: [0; 6],
+            ip: 0,
+            mask: 0,
+            have_ip: false,
+        }
+    }
+}
+
+const SYS_IOCTL_NR: usize = 29;
+const SIOCGIFCONF: usize = 0x8912;
+const SIOCGIFFLAGS: usize = 0x8913;
+const SIOCGIFNETMASK: usize = 0x891b;
+const SIOCGIFMTU: usize = 0x8921;
+const SIOCGIFHWADDR: usize = 0x8927;
+const SIOCGIFINDEX: usize = 0x8933;
+
+/// One `ifreq` buffer, `name` at 0 and the union at 16.
+unsafe fn if_ioctl(sock: CInt, name: &[u8], req: usize, out: &mut [u8; 40]) -> bool {
+    core::ptr::write_bytes(out.as_mut_ptr(), 0, 40);
+    let n = name.len().min(15);
+    out[..n].copy_from_slice(&name[..n]);
+    let r = syscall4(
+        SYS_IOCTL_NR,
+        sock as usize,
+        req,
+        out.as_mut_ptr() as usize,
+        0,
+    );
+    r >= 0
+}
+
+/// Interface table from the kernel, through the ioctls this domain is allowed
+/// to use. Returns how many entries were filled.
+unsafe fn nl_interfaces(out: &mut [IfEnt; 8]) -> usize {
+    let mut n = 0usize;
+    let sock = syscall4(SYS_SOCKET_NR, 2 /* AF_INET */, SOCK_DGRAM_KIND, 0, 0) as CInt;
+    if sock < 0 {
+        return 0;
+    }
+    let mut list = [0u8; 2048];
+    let mut ifc = [0u8; 16];
+    core::ptr::write_unaligned(ifc.as_mut_ptr() as *mut i32, list.len() as i32);
+    core::ptr::write_unaligned(ifc.as_mut_ptr().add(8) as *mut u64, list.as_ptr() as u64);
+    let r = syscall4(
+        SYS_IOCTL_NR,
+        sock as usize,
+        SIOCGIFCONF,
+        ifc.as_mut_ptr() as usize,
+        0,
+    );
+    if r < 0 {
+        syscall4(SYS_CLOSE, sock as usize, 0, 0, 0);
+        return 0;
+    }
+    let used = (core::ptr::read_unaligned(ifc.as_ptr() as *const i32) as usize).min(list.len());
+    let mut off = 0usize;
+    while off + 40 <= used && n < out.len() {
+        let raw = &list[off..off + 40];
+        let mut e = IfEnt::empty();
+        let nm = &raw[..16];
+        e.name_len = nm.iter().position(|c| *c == 0).unwrap_or(16);
+        e.name = [0; 16];
+        e.name[..e.name_len].copy_from_slice(&nm[..e.name_len]);
+        let fam = u16::from_ne_bytes([raw[16], raw[17]]);
+        if e.name_len > 0 {
+            let name = &e.name[..e.name_len];
+            let mut buf = [0u8; 40];
+            if if_ioctl(sock, name, SIOCGIFFLAGS, &mut buf) {
+                e.flags = u16::from_ne_bytes([buf[16], buf[17]]) as u32;
+            }
+            if if_ioctl(sock, name, SIOCGIFINDEX, &mut buf) {
+                e.index = i32::from_ne_bytes([buf[16], buf[17], buf[18], buf[19]]);
+            }
+            if if_ioctl(sock, name, SIOCGIFMTU, &mut buf) {
+                e.mtu = i32::from_ne_bytes([buf[16], buf[17], buf[18], buf[19]]);
+            }
+            if if_ioctl(sock, name, SIOCGIFHWADDR, &mut buf) {
+                let ht = u16::from_ne_bytes([buf[16], buf[17]]);
+                if ht != 0 {
+                    e.hwtype = ht;
+                    e.hwaddr.copy_from_slice(&buf[18..24]);
+                }
+            } else if name == b"lo" {
+                // SIOCGIFHWADDR is refused in this domain; the type is still
+                // known, and saying "ether" for the loopback is just wrong.
+                e.hwtype = ARPHRD_LOOPBACK;
+            }
+            if if_ioctl(sock, name, SIOCGIFNETMASK, &mut buf) {
+                // sin_addr is in network order; keep the host value so prefix
+                // arithmetic (leading_zeros, &) means what it looks like.
+                e.mask = u32::from_be_bytes([buf[20], buf[21], buf[22], buf[23]]);
+            }
+            if fam == 2 {
+                e.ip = u32::from_be_bytes([raw[20], raw[21], raw[22], raw[23]]);
+                e.have_ip = true;
+            }
+            out[n] = e;
+            n += 1;
+        }
+        off += 40;
+    }
+    syscall4(SYS_CLOSE, sock as usize, 0, 0, 0);
+    n
+}
+
+unsafe fn nl_room(buf: &[u8], at: usize, need: usize) -> bool {
+    at + need <= buf.len()
+}
+
+unsafe fn nl_push(buf: &mut [u8], at: &mut usize, data: &[u8]) {
+    if nl_room(buf, *at, data.len()) {
+        buf[*at..*at + data.len()].copy_from_slice(data);
+        *at += data.len();
+    }
+}
+
+unsafe fn nl_push_u32(buf: &mut [u8], at: &mut usize, v: u32) {
+    let b = v.to_ne_bytes();
+    nl_push(buf, at, &b);
+}
+
+unsafe fn nl_push_u16(buf: &mut [u8], at: &mut usize, v: u16) {
+    let b = v.to_ne_bytes();
+    nl_push(buf, at, &b);
+}
+
+/// Opens a netlink message at `at`, returns the offset of its length field.
+unsafe fn nl_begin(buf: &mut [u8], at: &mut usize, typ: u16, flags: u16, seq: u32) -> usize {
+    let hdr = *at;
+    nl_push_u32(buf, at, 0); // len, fixed up later
+    nl_push_u16(buf, at, typ);
+    nl_push_u16(buf, at, flags);
+    nl_push_u32(buf, at, seq);
+    // The port id in a reply is the requester's, and iproute2 drops every
+    // message whose nlmsg_pid is not the value it got back from getsockname()
+    // on its own socket. That is our pid, which is what getsockname() reports
+    // for the socket this shim hands out.
+    nl_push_u32(buf, at, nl_pid());
+    hdr
+}
+
+/// Our own port id, as seen by getsockname(). Cached: one getpid per process.
+static NL_PID: AtomicI32 = AtomicI32::new(0);
+
+unsafe fn nl_pid() -> u32 {
+    let mut p = NL_PID.load(Ordering::Relaxed);
+    if p == 0 {
+        p = syscall4(172 /* getpid */, 0, 0, 0, 0) as i32;
+        NL_PID.store(p, Ordering::Relaxed);
+    }
+    p as u32
+}
+
+unsafe fn nl_attr(buf: &mut [u8], at: &mut usize, typ: u16, data: &[u8]) {
+    let len = 4 + data.len();
+    nl_push_u16(buf, at, len as u16);
+    nl_push_u16(buf, at, typ);
+    nl_push(buf, at, data);
+    while *at % 4 != 0 {
+        nl_push(buf, at, &[0u8]);
+    }
+}
+
+unsafe fn nl_close_msg(buf: &mut [u8], hdr: usize, end: usize) {
+    let len = (end - hdr) as u32;
+    core::ptr::write_unaligned(buf.as_mut_ptr().add(hdr) as *mut u32, len);
+}
+
+unsafe fn nl_put_link(buf: &mut [u8], at: &mut usize, e: &IfEnt, seq: u32) {
+    let hdr = nl_begin(buf, at, RTM_NEWLINK, NLM_F_MULTI, seq);
+    nl_push(buf, at, &[0u8, 0]); // family AF_UNSPEC, pad
+    nl_push_u16(buf, at, e.hwtype);
+    nl_push_u32(buf, at, e.index as u32);
+    nl_push_u32(buf, at, e.flags);
+    nl_push_u32(buf, at, 0); // change
+    nl_attr(buf, at, IFLA_ADDRESS, &e.hwaddr);
+    nl_attr(buf, at, IFLA_IFNAME, &e.name[..e.name_len + 1]);
+    let mtu = (e.mtu.max(0) as u32).to_ne_bytes();
+    nl_attr(buf, at, IFLA_MTU, &mtu);
+    nl_attr(buf, at, IFLA_TXQLEN, &1000u32.to_ne_bytes());
+    nl_attr(buf, at, IFLA_OPERSTATE, &[if e.flags & 1 != 0 { 6 } else { 0 }]);
+    nl_close_msg(buf, hdr, *at);
+}
+
+unsafe fn nl_put_addr(buf: &mut [u8], at: &mut usize, e: &IfEnt, seq: u32) {
+    let hdr = nl_begin(buf, at, RTM_NEWADDR, NLM_F_MULTI, seq);
+    let prefix = if e.mask == 0 { 0 } else { (!e.mask).leading_zeros() as u8 };
+    let scope = if e.ip & 0xff == 127 { RT_SCOPE_HOST } else { RT_SCOPE_LINK };
+    nl_push(buf, at, &[2u8, prefix, 0, scope]); // AF_INET
+    nl_push_u32(buf, at, e.index as u32);
+    nl_attr(buf, at, IFA_ADDRESS, &e.ip.to_be_bytes());
+    nl_attr(buf, at, IFA_LOCAL, &e.ip.to_be_bytes());
+    nl_attr(buf, at, IFA_LABEL, &e.name[..e.name_len + 1]);
+    nl_close_msg(buf, hdr, *at);
+}
+
+unsafe fn nl_put_route(
+    buf: &mut [u8],
+    at: &mut usize,
+    dst: u32,
+    prefix: u8,
+    scope: u8,
+    ifindex: i32,
+    src: u32,
+    seq: u32,
+) {
+    let hdr = nl_begin(buf, at, RTM_NEWROUTE, NLM_F_MULTI, seq);
+    nl_push(buf, at, &[2u8, prefix, 0, 0]); // family, dst_len, src_len, tos
+    nl_push(buf, at, &[RT_TABLE_MAIN, RTPROT_KERNEL, scope, RTN_UNICAST]);
+    nl_push_u32(buf, at, 0); // flags
+    nl_attr(buf, at, RTA_DST, &dst.to_be_bytes());
+    nl_attr(buf, at, RTA_OIF, &(ifindex as u32).to_ne_bytes());
+    if src != 0 {
+        nl_attr(buf, at, RTA_PREFSRC, &src.to_be_bytes());
+    }
+    nl_close_msg(buf, hdr, *at);
+}
+
+unsafe fn nl_done(buf: &mut [u8], at: &mut usize, seq: u32) {
+    let hdr = nl_begin(buf, at, NLMSG_DONE, NLM_F_MULTI, seq);
+    nl_push_u32(buf, at, 0); // error
+    nl_close_msg(buf, hdr, *at);
+}
+
+/// NLMSG_ERROR carrying an errno (0 = the ACK every netlink talk ends with).
+/// The payload is a full struct nlmsgerr: the errno plus the request header the
+/// kernel echoes back. iproute2 rejects a shorter one as "ERROR truncated".
+unsafe fn nl_ack(buf: &mut [u8], at: &mut usize, seq: u32, err: i32) {
+    let hdr = nl_begin(buf, at, NLMSG_ERROR, 0, seq);
+    nl_push_u32(buf, at, err as u32);
+    for _ in 0..16 {
+        nl_push(buf, at, &[0u8]);
+    }
+    nl_close_msg(buf, hdr, *at);
+}
+
+/// rtnetlink allocates four verbs per object class - NEW, DEL, GET, SET - so
+/// anything from RTM_NEWLINK (16) upward whose low two bits are not `10` is a
+/// mutation, not a query. Message numbers are per protocol, hence the caller
+/// checks the slot's proto first.
+fn nl_route_is_modify(t: u16) -> bool {
+    t >= 16 && (t & 3) != 2
+}
+
+/// Turns one request into one complete reply datagram and hands it to the peer
+/// end. Returns the request length, so the caller sees a normal short write.
+unsafe fn nl_handle(fd: CInt, req: *const u8, len: usize) -> Ssize {
+    let idx = match nl_slot(fd) {
+        Some(i) => i,
+        None => return set_errno(22) as Ssize,
+    };
+    let peer = NL_SLOTS[idx].peer;
+    let mut out = [0u8; 8192];
+    let mut at = 0usize;
+    let mut off = 0usize;
+    while off + 16 <= len {
+        let mlen = core::ptr::read_unaligned(req.add(off) as *const u32) as usize;
+        let mtype = core::ptr::read_unaligned(req.add(off + 4) as *const u16);
+        let mflags = core::ptr::read_unaligned(req.add(off + 6) as *const u16);
+        let seq = core::ptr::read_unaligned(req.add(off + 8) as *const u32);
+        if mlen < 16 || off + mlen > len {
+            break;
+        }
+        NL_SLOTS[idx].seq = seq;
+        if verbose_on() {
+            dbg(&[b"nl req type="]);
+            dbgn(&[b" flags="], mtype as i64);
+            dbgn(&[], mflags as i64);
+        }
+        let dump = mflags & 0x300 == 0x300; // NLM_F_ROOT | NLM_F_MATCH
+        let ack = mflags & 0x4 != 0; // NLM_F_ACK
+        NL_SLOTS[idx].ack = ack as u8;
+        let mark = at;
+        let mut handled = true;
+        let mut ifs = [IfEnt::empty(); 8];
+        let nif = nl_interfaces(&mut ifs);
+        match mtype {
+            RTM_GETLINK => {
+                // ifi_index 0 means "not specified": `ip link show lo` sends a
+                // zero index plus IFLA_IFNAME, and answering "no such device"
+                // for index 0 is exactly what iproute2 reads as a missing link.
+                let named = i32::from_ne_bytes([
+                    req.add(off + 20).read(),
+                    req.add(off + 21).read(),
+                    req.add(off + 22).read(),
+                    req.add(off + 23).read(),
+                ]);
+                let want = if dump || mlen < 24 || named <= 0 { -1 } else { named };
+                // `ip link show lo` names the interface in IFLA_IFNAME instead
+                // of using its index, so the name has to be read out as well.
+                let mut want_name = [0u8; 16];
+                let mut want_nlen = 0usize;
+                if !dump {
+                    let mut a = off + 32; // nlmsghdr + ifinfomsg
+                    while a + 4 <= off + mlen {
+                        let alen =
+                            core::ptr::read_unaligned(req.add(a) as *const u16) as usize;
+                        let atyp =
+                            core::ptr::read_unaligned(req.add(a + 2) as *const u16);
+                        if alen < 4 || a + alen > off + mlen {
+                            break;
+                        }
+                        if atyp == IFLA_IFNAME {
+                            let p = req.add(a + 4);
+                            let mut k = 0usize;
+                            while k < 16 && k + 4 <= alen {
+                                let c = *p.add(k);
+                                if c == 0 {
+                                    break;
+                                }
+                                want_name[k] = c;
+                                k += 1;
+                            }
+                            want_nlen = k;
+                        }
+                        a += (alen + 3) & !3;
+                    }
+                }
+                for i in 0..nif {
+                    if want >= 0 && ifs[i].index != want {
+                        continue;
+                    }
+                    if want_nlen > 0 && &ifs[i].name[..want_nlen] != &want_name[..want_nlen] {
+                        continue;
+                    }
+                    nl_put_link(&mut out, &mut at, &ifs[i], seq);
+                }
+            }
+            RTM_GETADDR => {
+                for i in 0..nif {
+                    if ifs[i].have_ip {
+                        nl_put_addr(&mut out, &mut at, &ifs[i], seq);
+                    }
+                }
+            }
+            RTM_GETROUTE => {
+                // `ip route get <dst>` is a single-shot RTM_GETROUTE that expects
+                // one best-match route. That is a FIB lookup we cannot perform,
+                // and answering with the first table entry would be a confident
+                // wrong answer, so say plainly that it is not supported.
+                if !dump {
+                    handled = false;
+                    nl_ack(&mut out, &mut at, seq, -95 /* EOPNOTSUPP */);
+                    off += (mlen + 3) & !3;
+                    continue;
+                }
+                for i in 0..nif {
+                    if !ifs[i].have_ip {
+                        continue;
+                    }
+                    let prefix = if ifs[i].mask == 0 {
+                        0
+                    } else {
+                        (!ifs[i].mask).leading_zeros() as u8
+                    };
+                    let net = ifs[i].ip & ifs[i].mask;
+                    let scope = if ifs[i].ip & 0xff == 127 { RT_SCOPE_HOST } else { RT_SCOPE_LINK };
+                    nl_put_route(
+                        &mut out,
+                        &mut at,
+                        net,
+                        prefix,
+                        scope,
+                        ifs[i].index,
+                        ifs[i].ip,
+                        seq,
+                    );
+                }
+            }
+            _ => {
+                // Everything else is either a verb that would change the host's
+                // networking (impossible from untrusted_app) or a read we do
+                // not synthesise. Neither may be answered with a bare "ok":
+                // silent success is how `ip addr add` looked like it worked
+                // while nothing changed.
+                let err = if NL_SLOTS[idx].proto == NL_ROUTE_PROTO
+                    && nl_route_is_modify(mtype)
+                {
+                    -1 // EPERM - we cannot touch the host's networking
+                } else {
+                    -95 // EOPNOTSUPP - a read surface we do not provide
+                };
+                handled = false;
+                nl_ack(&mut out, &mut at, seq, err);
+            }
+        }
+        if !handled {
+            off += (mlen + 3) & !3;
+            continue;
+        }
+        if dump {
+            nl_done(&mut out, &mut at, seq);
+        } else if ack {
+            // Without the dump flag the caller sent rtnl_talk(.., NULL): it does
+            // not read data messages at all, it waits for NLMSG_ERROR with
+            // error 0 and prints "Unexpected reply!!!" at anything else.
+            nl_ack(&mut out, &mut at, seq, 0);
+        } else if at == mark {
+            // Nothing to say: no such interface.
+            nl_ack(&mut out, &mut at, seq, -19 /* ENODEV */);
+        }
+        off += (mlen + 3) & !3;
+    }
+    if at == 0 {
+        nl_done(&mut out, &mut at, 0);
+    }
+    // Both ends of a socketpair are connected, so a plain write is the whole
+    // story; sendto() without a destination is EDESTADDRREQ on some paths.
+    let w = syscall4(SYS_WRITE, peer as usize, out.as_ptr() as usize, at, 0);
+    if w < 0 {
+        return ret_or_errno(w) as Ssize;
+    }
+    len as Ssize
 }
