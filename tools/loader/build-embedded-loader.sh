@@ -27,7 +27,13 @@ SHIM_STRIP=${SHIM_STRIP:-symbols}
 LOADER=${LOADER:-ld-noble2404-ld.so}
 
 cd "$ROOT/runtime"
-RUSTFLAGS="-C link-arg=-z -C link-arg=max-page-size=4096 \
+# max-page-size is 64 KiB on purpose: the kernel maps each PT_LOAD from
+# ALIGN_DOWN(p_vaddr, page) with that segment's own permissions, so two segments
+# that are only 4 KiB apart share a page on a 16K kernel - and the later one wins.
+# Measured 2026-11-23: with max-page-size=4096 the shim's RW segment started at
+# 0x28000, the kernel remapped the page holding the tail of .text as RW, and the
+# call to the function at 0x26000 died with SEGV_ACCERR inside nr_boot.
+RUSTFLAGS="-C link-arg=-z -C link-arg=max-page-size=0x10000 \
            -C link-arg=-z -C link-arg=separate-loadable-segments" \
 CARGO_PROFILE_RELEASE_OPT_LEVEL=z \
 CARGO_PROFILE_RELEASE_LTO=fat \

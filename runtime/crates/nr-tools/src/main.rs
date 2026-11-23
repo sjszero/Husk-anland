@@ -500,7 +500,7 @@ const EXPECT_LOADER_BUILD: &str = "glibc 2.39 aarch64";
 const LD_START_BL: usize = 0x1AA74; // `bl _dl_init` inside _start
 const LD_DL_INIT: u64 = 0x4BB0; // its target == _dl_init
 const LD_TEXT_END: u64 = 0x41348; // end of the loader's last segment (vaddr)
-const F_BASE: u64 = 0x32000; // where the shim lands inside the loader
+const F_BASE: u64 = 0x40000; // where the shim lands inside the loader (64K-aligned)
 /// Start of the shim's segment, and the reason it is not `F_BASE + SEG_ALIGN`:
 ///
 /// the kernel maps every PT_LOAD from `ALIGN_DOWN(p_vaddr, page)` to
@@ -515,7 +515,7 @@ const F_BASE: u64 = 0x32000; // where the shim lands inside the loader
 ///
 /// So the shim must live at least one 64 KiB page above the loader's last
 /// segment, while staying congruent with F_BASE modulo SEG_ALIGN.
-const V_BASE: u64 = 0x52000;
+const V_BASE: u64 = 0x90000;
 /// Alignment declared for the shim's segment: the largest page size we support.
 /// `(V_BASE - F_BASE) % SEG_ALIGN == 0` keeps p_offset == p_vaddr (mod SEG_ALIGN),
 /// and `V_BASE >= ALIGN(LD_TEXT_END, SEG_ALIGN)` keeps the shim out of the
@@ -656,13 +656,13 @@ fn embed(shim_path: &str, loader_path: &str, hook_path: &str, out_path: &str) ->
         if p.off != p.vaddr {
             die("shim segments are not offset==vaddr");
         }
-        if p.off % PAGE != 0 || p.memsz < p.filesz {
+        if p.off % SEG_ALIGN != 0 || p.memsz < p.filesz {
             die("shim segment layout unexpected");
         }
         span = span.max(p.vaddr + p.memsz);
         loads.push(*p);
     }
-    span = align(span, PAGE);
+    span = align(span, SEG_ALIGN);
     let mut image = vec![0u8; span as usize];
     for p in &loads {
         let s = p.off as usize;
@@ -1209,6 +1209,7 @@ fn main() -> ExitCode {
             // p_offset == p_vaddr (mod 0x4000). Checked on the file that was
             // actually written, not on the in-memory copy.
             assert_page_congruent(&args[4], 0x4000);
+            assert_page_congruent(&args[4], 0x10000);
             print_summary(&s);
             ExitCode::SUCCESS
         }
