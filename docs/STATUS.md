@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 09:48）
+# 当前状态（2026-11-23 10:05）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -27,8 +27,10 @@ dma-buf 可由 guest 写入、由 PanVK 当作 LINEAR 2D image 清屏，app 回�
 evidence 74 进一步把真实 MediaCodec 解码 AHB 的三平面 YUV 数据导入 guest PanVK：
 Y、plane1、plane2 的 GPU 回读 FNV-1a 均与 app 侧哈希一致。evidence 75 又把这条路径从
 单帧诊断推进到 **150/150 帧一帧一连接交接**：每帧重新建立 socket，guest 完成三平面 GPU
-校验并 ACK，native-handle fd 在下一帧前释放。它仍不是持久 AHB ring，也还没有 YUV→RGB
-或完整播放路径。
+校验并 ACK，native-handle fd 在下一帧前释放。evidence 76 进一步把整个解码会话改成
+**一条持久 Unix socket + 最多 3 个在途 AImage 的有界背压**：app 收到 guest ACK 才释放
+AImage，并在 CLOSE 时先排空在途帧再停止 worker，150/150 帧全部送达。它仍不是预分配的
+3-slot AHB import ring，也还没有 YUV→RGB 或完整播放路径。
 音频侧已跑通最小闭环：guest 枚举 7 个 Android 输出设备、读写 `STREAM_MUSIC`
 音量，并把 3 秒 PCM16 经独立 Unix socket 交给 app 内 AAudio（evidence 60）；但低延迟请求被
 vendor policy 拒绝、平台返回 `perf=NONE`；evidence 62 又打通 PulseAudio `module-pipe-sink` →
@@ -47,7 +49,7 @@ PT_LOAD 的映射边界。`chmod`/`chown`/`utimensat`/`statx` 现在固定最终
 恶意 ELF 注入、GOT 失败注入、rootfd 并发 close/reopen、
 SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不能写成已完成。
 
-## 视频与 AHB 回导最新（evidence 67 / 69 / 70 / 71 / 72 / 73 / 74 / 75，2026-11-23）
+## 视频与 AHB 回导最新（evidence 67 / 69 / 70 / 71 / 72 / 73 / 74 / 75 / 76，2026-11-23）
 
 - **FACT**：app 进程内纯 Rust 探针已真实选中 `c2.mtk.avc.decoder` 和
   `c2.mtk.hevc.decoder`；1920x1080@30、各 150/150 帧、EOS、codec 正常释放。
@@ -93,10 +95,17 @@ SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不�
   `gpu_luma / gpu_plane1 / gpu_plane2` 各 150/150 PASS，最终 `SUMMARY PASS|completed=150/150`。
   最后一帧 app/guest 哈希一致：Y `0x2de7f38d259a6e33`、plane1 `0x5d1b68abc3eda0d0`、
   plane2 `0xc3b0fee494cf5024`；解码端 150 samples / 9,821,765 bytes / 25,944 ms / `RESULT PASS`。
+- **FACT（evidence 76，2026-11-23）**：同一真实 AVC 解码链已改为**单连接持久交接**。
+  app 计数 `FRAME=150 / ACK=150 / RELEASE=150 / FAIL=0`，`SESSION START/STOP` 各 1；
+  guest `STREAM CONNECTED/CLOSED` 各 1，`frame_summary`、`gpu_luma`、`gpu_plane1`、
+  `gpu_plane2` 各 150/150 PASS，最终 `SUMMARY PASS|completed=150/150`。这修复了上一版
+  CLOSE 时排空不足导致的 147/150，尾部 3 帧已完整 ACK/RELEASE。完整日志与哈希见
+  [`evidence/76-video-ahb-persistent-stream.md`](design/evidence/76-video-ahb-persistent-stream.md)。
 - **FACT（边界）**：v1 只覆盖单条 AVC 轨与精确 MTK decoder 名。
-- **FACT（仍缺）**：evidence 75 是每帧重新连接的一次性交接，不是持久多 slot AHB ring；
-  YUV→RGB GPU sampling/render、guest 侧 GL/X11/Wayland WSI、HEVC/VP9/AV1 bridge、
-  GStreamer/VA-API、Chromium `<video>`、AV 同步、10 分钟播放、丢帧与硬软解对比均未完成。
+- **FACT（仍缺）**：evidence 76 只是单连接持久交接，不是预分配 3-slot AHB import ring；
+  guest 仍每帧创建/导入/销毁 Vulkan image/memory。YUV→RGB GPU sampling/render、
+  guest 侧 GL/X11/Wayland WSI、HEVC/VP9/AV1 bridge、GStreamer/VA-API、Chromium
+  `<video>`、AV 同步、10 分钟播放、丢帧与硬软解对比均未完成。
   测试使用 `HUSK_VIDEO_REALTIME=0`，日志里的 `present|ok=false` 是探针模式预期结果。
 - **FACT（新可靠性缺陷）**：一次息屏状态下的重启动发生在 `eglCreateWindowSurface` 内，
   abort message 为 `FORTIFY: pthread_mutex_lock called on a destroyed mutex`。点亮后重跑通过；
@@ -111,6 +120,7 @@ SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不�
 - AHB 回导与 PanVK GPU 写回证据：[`evidence/73-ahb-kbase-sticky-panvk.md`](design/evidence/73-ahb-kbase-sticky-panvk.md)。
 - 真实 MediaCodec 三平面 AHB GPU 校验证据：[`evidence/74-media-codec-yuv-ahb-panvk.md`](design/evidence/74-media-codec-yuv-ahb-panvk.md)。
 - 逐帧三平面 AHB 交接证据：[`evidence/75-media-codec-yuv-ahb-per-frame.md`](design/evidence/75-media-codec-yuv-ahb-per-frame.md)。
+- 单连接持久 AHB 交接证据：[`evidence/76-video-ahb-persistent-stream.md`](design/evidence/76-video-ahb-persistent-stream.md)。
 - 生命周期证据：[`evidence/68-screen-off-surface-lifecycle.md`](design/evidence/68-screen-off-surface-lifecycle.md)。
 
 ## acquire fence 当前实验（PanVK → SurfaceControl 已通过，WSI 未完成）

@@ -286,8 +286,10 @@ eglinfo 报 Mali-G77；音频出声并有延迟数字；H.264/HEVC 硬解、AV �
    GBM / Wayland / X11、WSI 和窗口生命周期。音频从 evidence 60 的 probe 继续做持续流、
    PulseAudio relay、标准播放器和 610 秒长稳已通过（evidence 63）；真实 MediaCodec 硬解、
    guest 压缩帧通道和三平面 YUV AHB GPU 校验已通过（evidence 67 / 69 / 74），并完成 150 帧
-   一帧一连接交接（evidence 75）；下一步做持久 AHB ring、YUV→RGB、VA-API/GStreamer/Chromium、
-   AV 同步和 10 分钟门禁，视频仍不能跳过 MediaCodec 硬解验收。
+   逐帧交接（evidence 75）。evidence 76 已把整场会话收敛为单连接、最多 3 个在途 AImage 的
+   有界背压，并在 CLOSE 前排空尾部帧，150/150 全部 ACK/RELEASE；下一步做预分配 3-slot
+   AHB import ring、YUV→RGB、VA-API/GStreamer/Chromium、AV 同步和 10 分钟门禁，视频仍不能
+   跳过 MediaCodec 硬解验收。
 6. 先以显式 `NR_LD=$(cat files/libdir)/libld.so` 跑回归；`files/gexec2.sh` 默认的
    `files/libld39.so` 是旧 loader，不能用来验证当前 App。
 7. 最后做 2.0 proot 替换与补丁清除。

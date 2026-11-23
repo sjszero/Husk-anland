@@ -399,6 +399,7 @@ impl<'a> Session<'a> {
 
     unsafe fn close(&mut self) -> String {
         super::present::finish_session();
+        super::ebridge::shutdown();
         let mut stopped = 0;
         let mut deleted = 0;
         if !self.codec.is_null() {
@@ -427,6 +428,7 @@ impl<'a> Session<'a> {
 
 impl Drop for Session<'_> {
     fn drop(&mut self) {
+        super::ebridge::shutdown();
         if !self.codec.is_null() {
             unsafe {
                 if self.codec_started {

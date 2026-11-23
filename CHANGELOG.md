@@ -1,5 +1,22 @@
 # 变更记录
 
+## 2026-11-23 — 单连接持久 AHB 交接 150/150
+
+- **evidence 76**：app 与 guest 把 evidence 75 的“每帧重连”改成整场解码会话只建立一条
+  Unix socket。app 最多保留 3 个在途 `AImage` / AHB，guest 完成 PanVK 三平面校验并 ACK
+  后才释放对应 `AImage`，形成有界背压。
+- app 计数 `FRAME=150 / ACK=150 / RELEASE=150 / FAIL=0`，`SESSION START/STOP` 各 1；
+  guest `STREAM CONNECTED/CLOSED` 各 1，`frame_summary`、`gpu_luma`、`gpu_plane1`、
+  `gpu_plane2` 各 150/150 PASS，最终 `SUMMARY PASS|completed=150/150`。
+- 修复了上一版 `CLOSE` 时提前停止 worker 导致尾部三帧丢失的 147/150 缺陷：
+  `shutdown()` 现在先等待在途帧完成 ACK/RELEASE，最多 30 秒后再停止 worker。
+- `libhuskapp.so` sha256 `4e1017b661c1045de5eae643f2e9aa2bdf7b7241bdd601ccfe154555354d93c1`；
+  `vulkan-probe` sha256 `f005d26e038130cd6e9f75d177eaae141e81004d57a65e7267fb818611a9042f`；
+  debug APK sha256 `56addd9dad897c9674134f0087bcc0eb74c05a71f1c08a8d36780a260eac543b`。
+- **边界**：这还不是预分配 3-slot AHB import ring；guest 仍每帧创建、导入、销毁 Vulkan
+  image/memory。YUV→RGB、guest WSI、VA-API/GStreamer/Chromium、HEVC/VP9/AV1、AV 同步和
+  10 分钟视频门禁仍未完成；本证据使用 `HUSK_VIDEO_REALTIME=0`，不是实时播放验收。
+
 ## 2026-11-23 — 真实 MediaCodec 三平面 YUV AHB 逐帧交接 150/150
 
 - **evidence 75**：app 与 guest 把 evidence 74 的单帧诊断推进到 **150/150 帧一帧一连接

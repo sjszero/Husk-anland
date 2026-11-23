@@ -206,6 +206,7 @@ struct Api {
     format_set_buffer: FnFormatSetBuffer,
 }
 
+#[derive(Clone, Copy)]
 struct ImageApi {
     _media_handle: *mut c_void,
     _android_handle: *mut c_void,
@@ -695,27 +696,35 @@ unsafe fn consume_image(sink: &mut ImageSink, files: &Path, tag: &str) -> Result
             "AHardwareBuffer has no dmabuf-native-handle: native={native:p} fds={num_fds} fd={first_fd}"
         ));
     }
-    if tag == "bridge" {
-        if let Some((planes, lock_rc, plane_hashes, plane_bytes, _)) = layout.as_ref() {
-            ebridge::export_if_enabled(
-                files,
-                &sink.api,
-                buffer,
-                &desc,
-                planes,
-                *lock_rc,
-                timestamp_ns,
-                plane_hashes,
-                plane_bytes,
-            );
-        }
-    }
     let presented = if tag == "bridge" {
         present::present_if_enabled(files, buffer, desc.width, desc.height)
     } else {
         false
     };
-    (sink.api.image_delete)(image);
+    let queued = if tag == "bridge" {
+        if let Some((planes, lock_rc, plane_hashes, plane_bytes, _)) = layout.as_ref() {
+            ebridge::export_if_enabled(
+                files,
+                &sink.api,
+                image,
+                buffer,
+                &desc,
+                planes,
+                *lock_rc,
+                sink.seen,
+                timestamp_ns,
+                plane_hashes,
+                plane_bytes,
+            )
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    if !queued {
+        (sink.api.image_delete)(image);
+    }
     if sink.seen <= 3 || sink.seen % 30 == 0 {
         result(
             files,
@@ -1043,6 +1052,7 @@ unsafe fn probe_file(files: &Path, relative: &str, surface_mode: bool) -> Result
         result(files, &format!("video|probe|delete-codec|rc={rc}"));
     }
     if let Some(active) = sink.take() {
+        ebridge::shutdown();
         (active.api.reader_delete)(active.reader);
         result(files, "video|probe|delete-image-reader");
     }

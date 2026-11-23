@@ -2576,12 +2576,15 @@ unsafe fn recv_handle_fds(stream: &UnixStream) -> Result<Vec<c_int>, String> {
     Ok(fds)
 }
 
-unsafe fn receive_handle(path: &str) -> Result<(AhbMeta, Vec<Vec<c_int>>, UnixStream), String> {
+unsafe fn connect_video(path: &str) -> Result<UnixStream, String> {
     let deadline = Instant::now() + Duration::from_secs(90);
     let mut retries = 0u32;
-    let mut stream = loop {
+    loop {
         match UnixStream::connect(path) {
-            Ok(stream) => break stream,
+            Ok(stream) => {
+                line("dmabuf", "socket", format!("PASS|{path}"));
+                return Ok(stream);
+            }
             Err(error)
                 if matches!(
                     error.kind(),
@@ -2600,9 +2603,12 @@ unsafe fn receive_handle(path: &str) -> Result<(AhbMeta, Vec<Vec<c_int>>, UnixSt
             }
             Err(error) => return Err(format!("connect {path}: {error}")),
         }
-    };
-    line("dmabuf", "socket", format!("PASS|{path}"));
+    }
+}
 
+unsafe fn receive_handle_from_stream(
+    stream: &mut UnixStream,
+) -> Result<(AhbMeta, Vec<Vec<c_int>>), String> {
     let mut frame_len = [0u8; 4];
     stream
         .read_exact(&mut frame_len)
@@ -2628,10 +2634,16 @@ unsafe fn receive_handle(path: &str) -> Result<(AhbMeta, Vec<Vec<c_int>>, UnixSt
 
     let mut handles = Vec::with_capacity(meta.count);
     for slot in 0..meta.count {
-        let fds = recv_handle_fds(&stream)
+        let fds = recv_handle_fds(stream)
             .map_err(|e| format!("receive handle {slot}/{}: {e}", meta.count))?;
         handles.push(fds);
     }
+    Ok((meta, handles))
+}
+
+unsafe fn receive_handle(path: &str) -> Result<(AhbMeta, Vec<Vec<c_int>>, UnixStream), String> {
+    let mut stream = connect_video(path)?;
+    let (meta, handles) = receive_handle_from_stream(&mut stream)?;
     Ok((meta, handles, stream))
 }
 
@@ -3420,31 +3432,18 @@ pub unsafe fn run(
     r == VK_SUCCESS && gpu_ok && linear_ok && image_ok && handoff_ok
 }
 
-/// Import the real MediaCodec YV12 AHB into PanVK as a three-plane external
-/// image. The metadata offsets come from `AHardwareBuffer_lockPlanes`, not from
-/// guessed vendor layout. This probe intentionally does not modify the frame.
-pub unsafe fn run_video(
+/// Import and verify one already-received MediaCodec YV12 AHB. The metadata
+/// offsets come from `AHardwareBuffer_lockPlanes`, not from a guessed vendor
+/// layout. The caller owns the stream and sends the per-frame acknowledgement.
+unsafe fn run_video_core(
     lib: *mut c_void,
     physical: VkPhysicalDevice,
     device: VkDevice,
     queue: VkQueue,
     family_index: u32,
-    path: &str,
+    meta: AhbMeta,
+    fds: Vec<c_int>,
 ) -> bool {
-    let (meta, handles, mut stream) = match receive_handle(path) {
-        Ok(value) => value,
-        Err(error) => {
-            line("video-ahb", "FAIL", format!("receive: {error}"));
-            return false;
-        }
-    };
-    let fds = match handles.into_iter().next() {
-        Some(fds) => fds,
-        None => {
-            line("video-ahb", "FAIL", "no native handle");
-            return false;
-        }
-    };
     let Some(fd) = find_dmabuf(&fds) else {
         line("video-ahb", "FAIL", "no dma-buf fd in native handle");
         for &fd in &fds {
@@ -3793,19 +3792,70 @@ pub unsafe fn run_video(
     for &fd in &fds {
         close(fd);
     }
-    let handoff = ok && stream.write_all(b"D").is_ok();
+    line("video-ahb", "teardown", "image/memory/native fds released");
+    ok
+}
+
+unsafe fn run_video_on_stream(
+    lib: *mut c_void,
+    physical: VkPhysicalDevice,
+    device: VkDevice,
+    queue: VkQueue,
+    family_index: u32,
+    meta: AhbMeta,
+    handles: Vec<Vec<c_int>>,
+    stream: &mut UnixStream,
+) -> bool {
+    let fds = match handles.into_iter().next() {
+        Some(fds) => fds,
+        None => {
+            line("video-ahb", "FAIL", "no native handle");
+            let _ = stream.write_all(b"F");
+            return false;
+        }
+    };
+    let ok = run_video_core(lib, physical, device, queue, family_index, meta, fds);
+    let ack = if ok { b'D' } else { b'F' };
+    let handoff = stream.write_all(&[ack]).is_ok();
     line(
         "video-ahb",
         "display_handoff",
-        if handoff { "PASS" } else { "FAIL" },
+        if ok && handoff { "PASS" } else { "FAIL" },
     );
-    line("video-ahb", "teardown", "image/memory/native fds released");
     ok && handoff
 }
 
-/// Receive and verify a bounded sequence of one-shot AHB handoffs. This is the
-/// per-frame stepping stone toward the final persistent ring: every frame gets
-/// a fresh connection so all native-handle fds are closed before the next frame.
+/// Receive and verify one AHB over a fresh one-shot connection.
+pub unsafe fn run_video(
+    lib: *mut c_void,
+    physical: VkPhysicalDevice,
+    device: VkDevice,
+    queue: VkQueue,
+    family_index: u32,
+    path: &str,
+) -> bool {
+    let (meta, handles, mut stream) = match receive_handle(path) {
+        Ok(value) => value,
+        Err(error) => {
+            line("video-ahb", "FAIL", format!("receive: {error}"));
+            return false;
+        }
+    };
+    run_video_on_stream(
+        lib,
+        physical,
+        device,
+        queue,
+        family_index,
+        meta,
+        handles,
+        &mut stream,
+    )
+}
+
+/// Receive and verify a bounded sequence over one persistent connection. The
+/// app keeps the same socket open and only reuses an AHB after this side sends
+/// the per-frame `D` acknowledgement.
 pub unsafe fn run_video_many(
     lib: *mut c_void,
     physical: VkPhysicalDevice,
@@ -3819,10 +3869,42 @@ pub unsafe fn run_video_many(
         line("video-ahb", "SUMMARY", "FAIL|frames=0");
         return false;
     }
+    let mut stream = match connect_video(path) {
+        Ok(stream) => stream,
+        Err(error) => {
+            line("video-ahb", "FAIL", format!("persistent connect: {error}"));
+            return false;
+        }
+    };
+    line(
+        "video-ahb",
+        "STREAM",
+        format!("CONNECTED|path={path}|frames={frames}"),
+    );
     let mut completed = 0usize;
     for index in 0..frames {
         let started = std::time::Instant::now();
-        let ok = run_video(lib, physical, device, queue, family_index, path);
+        let (meta, handles) = match receive_handle_from_stream(&mut stream) {
+            Ok(value) => value,
+            Err(error) => {
+                line(
+                    "video-ahb",
+                    "frame_summary",
+                    format!("FAIL|index={index}|receive={error}"),
+                );
+                break;
+            }
+        };
+        let ok = run_video_on_stream(
+            lib,
+            physical,
+            device,
+            queue,
+            family_index,
+            meta,
+            handles,
+            &mut stream,
+        );
         line(
             "video-ahb",
             "frame_summary",
@@ -3838,6 +3920,11 @@ pub unsafe fn run_video_many(
         }
         completed += 1;
     }
+    line(
+        "video-ahb",
+        "STREAM",
+        format!("CLOSED|completed={completed}/{frames}"),
+    );
     let ok = completed == frames;
     line(
         "video-ahb",
