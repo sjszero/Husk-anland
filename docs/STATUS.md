@@ -4,6 +4,36 @@
 > 运行域 `untrusted_app`，无 root、无 Shizuku。
 > 只写**已上机验证**的结论；未验证写 UNKNOWN。每条的原始输出在 `docs/design/evidence/`。
 
+## 接手须知（冷启动只读这一节 + 本文件的表）
+
+**设备**：`adb` serial `UKHMMB8PYTGECMNV`（RMX3357），应用 `com.linuxhub.husk`，
+rootfs 在 `files/rootfs-full`，loader 在 `files/libld*.so`（当前 `files/libld3.so`）。
+
+**启动契约（两个变量必须同时设，缺一个就"看起来像 shim 坏了"）**：
+
+```sh
+NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径>   <loader> --library-path <rootfs>/lib/aarch64-linux-gnu:<rootfs>/usr/lib/aarch64-linux-gnu   usr/bin/bash -c '...'          # 程序路径必须相对
+```
+
+**构建 loader**：`NDK=<ndk>/bin OUT=/tmp/x sh tools/loader/build-embedded-loader.sh`
+（产物覆盖 `tools/loader/ld-embedded.so`，`nr-tools embed` 自带页对齐断言）。
+
+**16K/64K 真内核环境**（QEMU，别重建）：`/tmp/k16`（`Image.rpi5` + `root/` 的 initramfs 源），
+命令见 `docs/design/evidence/125`。一次启动 8–15 秒。
+
+**仓库布局**：`runtime/crates/{path-shim,nr-tools,runtime-core}`（Rust）、`tools/loader/*.S`（裸汇编，仅入口与 hook）、
+`tools/device-tests/*.sh`、`docs/design/`（设计 + `evidence/` 原始记录）。
+
+**当前开口（按优先级）**：
+1. 64K 内核同样跑一遍端到端（16K 已全绿，evidence 125）；
+2. P2：`ls -l` 在我们的 loader 下多一行 stderr `<argv0>: <path>`（原厂 loader 没有），用 `strace -f -e trace=%file` 定性；
+3. 非 Mali GPU 家族适配层（Adreno kgsl/Turnip、通用 DRM）——无设备，只能写适配器 + UNKNOWN；
+4. 传感器 / GPS / USB / 蓝牙 / NFC / 指纹——未开始（先读 `husk-notes/prior-art/sensor-gps-*.md`、`platform-peripherals-*.md`）；
+5. 2.0 集成：用 Husk 替掉 proot，逐项删 proot 专用补丁（对照 `artifacts/rollback/LinuxHub-Myth-Prometheus.apk`）。
+
+**参考笔记不进仓库**：`/Users/l/Documents/Codex/2026-08-10/husk-notes/prior-art/`（必读 `references.md`）。
+**推 GitHub 走代理**：`HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 git -c http.proxy=http://127.0.0.1:7897 push origin main`
+
 ## 一句话
 
 运行时核心（loader + path-shim + exec/PTY/信号/生命周期）、服务器表面（`/proc`、`/dev`、
