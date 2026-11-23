@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 10:05）
+# 当前状态（2026-11-23 10:35）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -29,8 +29,10 @@ Y、plane1、plane2 的 GPU 回读 FNV-1a 均与 app 侧哈希一致。evidence 
 单帧诊断推进到 **150/150 帧一帧一连接交接**：每帧重新建立 socket，guest 完成三平面 GPU
 校验并 ACK，native-handle fd 在下一帧前释放。evidence 76 进一步把整个解码会话改成
 **一条持久 Unix socket + 最多 3 个在途 AImage 的有界背压**：app 收到 guest ACK 才释放
-AImage，并在 CLOSE 时先排空在途帧再停止 worker，150/150 帧全部送达。它仍不是预分配的
-3-slot AHB import ring，也还没有 YUV→RGB 或完整播放路径。
+AImage，并在 CLOSE 时先排空在途帧再停止 worker，150/150 帧全部送达。evidence 77 已把
+MediaCodec 的 ByteBuffer 输出改为应用预分配的 **3 个固定 YV12 AHB**，真机完成
+**150/150 帧、3 次 import、147 次 reuse**；但这条路径仍是 CPU I420→YV12 拷贝，
+还没有 YUV→RGB、guest WSI 或完整播放路径。
 音频侧已跑通最小闭环：guest 枚举 7 个 Android 输出设备、读写 `STREAM_MUSIC`
 音量，并把 3 秒 PCM16 经独立 Unix socket 交给 app 内 AAudio（evidence 60）；但低延迟请求被
 vendor policy 拒绝、平台返回 `perf=NONE`；evidence 62 又打通 PulseAudio `module-pipe-sink` →
@@ -101,9 +103,17 @@ SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不�
   `gpu_plane2` 各 150/150 PASS，最终 `SUMMARY PASS|completed=150/150`。这修复了上一版
   CLOSE 时排空不足导致的 147/150，尾部 3 帧已完整 ACK/RELEASE。完整日志与哈希见
   [`evidence/76-video-ahb-persistent-stream.md`](design/evidence/76-video-ahb-persistent-stream.md)。
+- **FACT（evidence 77，2026-11-23）**：真实 `c2.mtk.avc.decoder` 的 1920×1080@30
+  输出已改为 **3 个应用预分配 YV12 AHardwareBuffer** 的固定 ring。app 计数
+  `sent=150 / completed=150 / handles=3 / reuses=147`；guest 计数
+  `ring_summary|slots=3|imports=3|reuses=147`，最终 `SUMMARY|PASS|completed=150/150`。
+  `frame_summary`、`gpu_luma`、`gpu_plane1`、`gpu_plane2` 和 `ring_frame` 各 150/150 PASS，
+  三平面 CPU/GPU FNV-1a 一致。该证据解决了 ImageReader 每帧生成新 dma-buf、无法稳定复用
+  Vulkan import ring 的问题；完整日志与哈希见
+  [`evidence/77-video-fixed-ring.md`](design/evidence/77-video-fixed-ring.md)。
 - **FACT（边界）**：v1 只覆盖单条 AVC 轨与精确 MTK decoder 名。
-- **FACT（仍缺）**：evidence 76 只是单连接持久交接，不是预分配 3-slot AHB import ring；
-  guest 仍每帧创建/导入/销毁 Vulkan image/memory。YUV→RGB GPU sampling/render、
+- **FACT（仍缺）**：evidence 77 的固定 ring 仍是 CPU I420→YV12 拷贝，不是 decoder→GPU
+  零拷贝；guest WSI/swapchain、YUV→RGB GPU sampling/render、
   guest 侧 GL/X11/Wayland WSI、HEVC/VP9/AV1 bridge、GStreamer/VA-API、Chromium
   `<video>`、AV 同步、10 分钟播放、丢帧与硬软解对比均未完成。
   测试使用 `HUSK_VIDEO_REALTIME=0`，日志里的 `present|ok=false` 是探针模式预期结果。
@@ -121,6 +131,7 @@ SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不�
 - 真实 MediaCodec 三平面 AHB GPU 校验证据：[`evidence/74-media-codec-yuv-ahb-panvk.md`](design/evidence/74-media-codec-yuv-ahb-panvk.md)。
 - 逐帧三平面 AHB 交接证据：[`evidence/75-media-codec-yuv-ahb-per-frame.md`](design/evidence/75-media-codec-yuv-ahb-per-frame.md)。
 - 单连接持久 AHB 交接证据：[`evidence/76-video-ahb-persistent-stream.md`](design/evidence/76-video-ahb-persistent-stream.md)。
+- 固定三槽 AHB ring 证据：[`evidence/77-video-fixed-ring.md`](design/evidence/77-video-fixed-ring.md)。
 - 生命周期证据：[`evidence/68-screen-off-surface-lifecycle.md`](design/evidence/68-screen-off-surface-lifecycle.md)。
 
 ## acquire fence 当前实验（PanVK → SurfaceControl 已通过，WSI 未完成）
@@ -345,6 +356,7 @@ SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不�
 | guest 直连视频硬解 | **不可行，已关闭**（`/dev/video*` = `0660 media:system` 相机节点；厂商解码 .so 带 bionic DT_NEEDED） | 39 |
 | 本机硬解器与容量 | `c2.mtk.{avc,hevc,vp9,av1}.decoder`；1080p 自报 avc 113–248 / hevc 125–276 fps（未实测） | 39 |
 | 视频路径（设计定稿） | guest 内 Rust VA-API 后端驱动 `husk` → 通道 → app 侧 AMediaCodec；Chromium 与 GStreamer 共用一份后端，不改不重编 | 39 / goals v11 |
+| 视频固定 AHB ring | **通过**：3 个应用预分配 YV12 AHB，AVC 150/150 帧、`imports=3`、`reuses=147`；仍是 CPU I420→YV12 拷贝 | 77 |
 | 内核 kbase 版本（自报） | `K:r32p1-00bet5(GPL)`，与厂商 `libGLES_mali.so` 同代 | 40 |
 | atom 结构 | 两套：64 B `base_jd_atom_v2`（atom_number@0x28/core_req@0x2c）或 72 B `base_jd_atom`（jc@0x08/atom_number@0x30/core_req@0x34）；stride 必须与结构一致 | 40 / 57 |
 | timeline fd（`STREAM_CREATE`） | **不能当完成通道**：任何被接受的 submit 都让它 POLLIN，`read()` 返回 EINVAL | 40 |

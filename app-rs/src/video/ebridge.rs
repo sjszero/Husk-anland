@@ -11,6 +11,7 @@
 //! backpressure and is the stepping stone to the persistent multi-slot ring.
 
 use super::*;
+use std::collections::HashSet;
 use std::io::{Read, Write};
 use std::net::Shutdown;
 use std::os::fd::AsRawFd;
@@ -31,7 +32,11 @@ static SESSION: OnceLock<Mutex<Option<Session>>> = OnceLock::new();
 
 struct FrameJob {
     index: u64,
+    buffer_key: u64,
     image: usize,
+    slot: usize,
+    release: Option<Sender<usize>>,
+
     buffer: usize,
     meta: String,
 }
@@ -66,6 +71,8 @@ pub(super) fn enabled(files: &Path) -> bool {
 
 fn metadata(
     index: u64,
+    buffer_key: u64,
+    dma_key: u64,
     desc: &AhbDesc,
     planes: &AhbPlanes,
     timestamp_ns: i64,
@@ -85,7 +92,7 @@ fn metadata(
     }
 
     let mut text = format!(
-        "HUSK-VIDEO-AHB-1\nframe_index={index}\nwidth={}\nheight={}\nstride={}\nformat={}\nusage=0x{:x}\ntimestamp_ns={timestamp_ns}\nplane_count={count}\nluma_fnv={}\nluma_bytes={}\ncookies=0,0,0,0,0,0,0,0,0\n",
+        "HUSK-VIDEO-AHB-2\nframe_index={index}\nbuffer_key={buffer_key:016x}\ndmabuf_key={dma_key:016x}\nwidth={}\nheight={}\nstride={}\nformat={}\nusage=0x{:x}\ntimestamp_ns={timestamp_ns}\nplane_count={count}\nluma_fnv={}\nluma_bytes={}\ncookies=0,0,0,0,0,0,0,0,0\n",
         desc.width,
         desc.height,
         desc.stride,
@@ -122,12 +129,20 @@ fn release_job(
     inflight: &AtomicUsize,
     done: &(Mutex<usize>, Condvar),
 ) {
-    unsafe {
-        (api.image_delete)(job.image as *mut Image);
+    if job.image != 0 {
+        unsafe {
+            (api.image_delete)(job.image as *mut Image);
+        }
+    }
+    if let Some(release) = &job.release {
+        let _ = release.send(job.slot);
     }
     inflight.fetch_sub(1, Ordering::AcqRel);
     notify_done(done);
-    crate::log(&format!("video|ahb-ring|RELEASE|index={}", job.index));
+    crate::log(&format!(
+        "video|ahb-ring|RELEASE|index={}|slot={}",
+        job.index, job.slot
+    ));
 }
 
 fn marker_present(files: &Path) -> bool {
@@ -218,6 +233,9 @@ fn worker(
 ) {
     let mut completed = 0u64;
     let mut send_count = 0u64;
+    let mut sent_keys = HashSet::new();
+    let mut handle_count = 0u64;
+    let mut reuse_count = 0u64;
     let outcome = (|| -> Result<(), String> {
         let (listener, mut stream) = accept_client(&files, &stop)?;
         let path = files.join("rootfs-full/run/husk/video-ahb.sock");
@@ -247,11 +265,24 @@ fn worker(
                 release_job(&api, job, &inflight, &done);
                 return Err(format!("send metadata: {error}"));
             }
-            let send_rc =
-                unsafe { (api.ahb_send_to_socket)(job.buffer as *const Ahb, stream.as_raw_fd()) };
+            let new_key = sent_keys.insert(job.buffer_key);
+            let handle_flag = if new_key { b'N' } else { b'R' };
+            if let Err(error) = stream.write_all(&[handle_flag]) {
+                release_job(&api, job, &inflight, &done);
+                return Err(format!("send handle flag: {error}"));
+            }
+            let send_rc = if new_key {
+                handle_count = handle_count.saturating_add(1);
+                unsafe { (api.ahb_send_to_socket)(job.buffer as *const Ahb, stream.as_raw_fd()) }
+            } else {
+                reuse_count = reuse_count.saturating_add(1);
+                0
+            };
             crate::log(&format!(
-                "video|ahb-ring|FRAME|index={}|bytes={}|send_rc={send_rc}|socket={}",
+                "video|ahb-ring|FRAME|index={}|key={:016x}|handle={}|send_rc={send_rc}|bytes={}|socket={}",
                 job.index,
+                job.buffer_key,
+                if new_key { "NEW" } else { "REUSE" },
                 job.meta.len(),
                 stream.as_raw_fd()
             ));
@@ -294,7 +325,7 @@ fn worker(
     notify_done(&done);
     match outcome {
         Ok(()) => crate::log(&format!(
-            "video|ahb-ring|SUMMARY|PASS|sent={send_count}|completed={completed}"
+            "video|ahb-ring|SUMMARY|PASS|sent={send_count}|completed={completed}|handles={handle_count}|reuses={reuse_count}"
         )),
         Err(error) => crate::log(&format!(
             "video|ahb-ring|SUMMARY|FAIL|sent={send_count}|completed={completed}|{error}"
@@ -423,6 +454,8 @@ pub(super) unsafe fn export_if_enabled(
     desc: &AhbDesc,
     planes: &AhbPlanes,
     lock_rc: c_int,
+    buffer_key: u64,
+    dma_key: u64,
     frame_index: u64,
     timestamp_ns: i64,
     plane_hashes: &[u64; 4],
@@ -438,11 +471,19 @@ pub(super) unsafe fn export_if_enabled(
         ));
         return false;
     }
+    if buffer_key == 0 {
+        crate::log(&format!(
+            "video|ahb-ring|FAIL|frame={frame_index}|missing stable dma-buf key"
+        ));
+        return false;
+    }
     if !ensure_session(files, api) {
         return false;
     }
     let meta = metadata(
         frame_index,
+        buffer_key,
+        dma_key,
         desc,
         planes,
         timestamp_ns,
@@ -465,7 +506,89 @@ pub(super) unsafe fn export_if_enabled(
     session.inflight.fetch_add(1, Ordering::AcqRel);
     let job = FrameJob {
         index: frame_index,
+        buffer_key,
         image: image as usize,
+        slot: 0,
+        release: None,
+        buffer: buffer as usize,
+        meta,
+    };
+    if session.tx.send(job).is_err() {
+        session.inflight.fetch_sub(1, Ordering::AcqRel);
+        notify_done(&session.done);
+        return false;
+    }
+    true
+}
+
+/// Queue one frame backed by an application-owned, fixed AHardwareBuffer.
+/// Unlike `export_if_enabled`, there is no `AImage` to release: the caller
+/// keeps the AHB alive and gets its slot back through `release` after the
+/// guest acknowledges the frame.
+#[allow(clippy::too_many_arguments)]
+pub(super) unsafe fn export_fixed_if_enabled(
+    files: &Path,
+    api: &ImageApi,
+    buffer: *mut Ahb,
+    desc: &AhbDesc,
+    planes: &AhbPlanes,
+    buffer_key: u64,
+    dma_key: u64,
+    frame_index: u64,
+    timestamp_ns: i64,
+    plane_hashes: &[u64; 4],
+    plane_bytes: &[usize; 4],
+    slot: usize,
+    release: Sender<usize>,
+) -> bool {
+    if !enabled(files) {
+        return false;
+    }
+    if planes.plane_count == 0 {
+        crate::log(&format!(
+            "video|ahb-ring|FAIL|frame={frame_index}|fixed layout has no planes"
+        ));
+        return false;
+    }
+    if buffer_key == 0 {
+        crate::log(&format!(
+            "video|ahb-ring|FAIL|frame={frame_index}|missing stable AHB key"
+        ));
+        return false;
+    }
+    if !ensure_session(files, api) {
+        return false;
+    }
+    let meta = metadata(
+        frame_index,
+        buffer_key,
+        dma_key,
+        desc,
+        planes,
+        timestamp_ns,
+        plane_hashes,
+        plane_bytes,
+    );
+    let mut active = session_slot().lock().expect("session mutex");
+    let Some(session) = active.as_mut() else {
+        return false;
+    };
+    if session.failed.load(Ordering::Acquire) {
+        return false;
+    }
+    if !wait_for_capacity(session, Duration::from_secs(30)) {
+        crate::log(&format!(
+            "video|ahb-ring|FAIL|frame={frame_index}|capacity timeout"
+        ));
+        return false;
+    }
+    session.inflight.fetch_add(1, Ordering::AcqRel);
+    let job = FrameJob {
+        index: frame_index,
+        buffer_key,
+        image: 0,
+        slot,
+        release: Some(release),
         buffer: buffer as usize,
         meta,
     };

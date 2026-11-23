@@ -10,6 +10,7 @@ use super::*;
 use core::ffi::{c_int, c_uint, c_void};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::AsRawFd;
+use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -305,6 +306,8 @@ extern "C" {
 
 #[derive(Debug)]
 struct AhbMeta {
+    buffer_key: u64,
+    dmabuf_key: u64,
     width: u32,
     height: u32,
     stride: u32,
@@ -332,10 +335,13 @@ fn parse_meta(text: &str) -> Result<AhbMeta, String> {
     if magic != Some("HUSK-AHB-1")
         && magic != Some("HUSK-AHB-2")
         && magic != Some("HUSK-VIDEO-AHB-1")
+        && magic != Some("HUSK-VIDEO-AHB-2")
     {
         return Err("bad magic".to_string());
     }
     let mut width = None;
+    let mut buffer_key = 0u64;
+    let mut dmabuf_key = 0u64;
     let mut height = None;
     let mut stride = None;
     let mut format = None;
@@ -354,6 +360,20 @@ fn parse_meta(text: &str) -> Result<AhbMeta, String> {
             continue;
         };
         match key {
+            "buffer_key" => {
+                buffer_key = value
+                    .strip_prefix("0x")
+                    .and_then(|v| u64::from_str_radix(v, 16).ok())
+                    .or_else(|| u64::from_str_radix(value, 16).ok())
+                    .unwrap_or(0)
+            }
+            "dmabuf_key" => {
+                dmabuf_key = value
+                    .strip_prefix("0x")
+                    .and_then(|v| u64::from_str_radix(v, 16).ok())
+                    .or_else(|| u64::from_str_radix(value, 16).ok())
+                    .unwrap_or(0)
+            }
             "width" => width = value.parse().ok(),
             "height" => height = value.parse().ok(),
             "stride" => stride = value.parse().ok(),
@@ -404,6 +424,8 @@ fn parse_meta(text: &str) -> Result<AhbMeta, String> {
         plane_bytes[0] = luma_bytes;
     }
     Ok(AhbMeta {
+        buffer_key,
+        dmabuf_key,
         width: width.ok_or_else(|| "missing width".to_string())?,
         height: height.ok_or_else(|| "missing height".to_string())?,
         stride: stride.ok_or_else(|| "missing stride".to_string())?,
@@ -2623,6 +2645,7 @@ unsafe fn receive_handle_from_stream(
         .map_err(|e| format!("read meta: {e}"))?;
     let meta_text = core::str::from_utf8(&meta_buf).map_err(|e| format!("meta utf8: {e}"))?;
     let meta = parse_meta(meta_text).map_err(|e| format!("meta: {e}"))?;
+    let v2 = meta_text.starts_with("HUSK-VIDEO-AHB-2");
     line(
         "dmabuf",
         "meta",
@@ -2632,12 +2655,36 @@ unsafe fn receive_handle_from_stream(
         ),
     );
 
-    let mut handles = Vec::with_capacity(meta.count);
-    for slot in 0..meta.count {
-        let fds = recv_handle_fds(stream)
-            .map_err(|e| format!("receive handle {slot}/{}: {e}", meta.count))?;
-        handles.push(fds);
+    let mut handle_flag = b'N';
+    if v2 {
+        let mut flag = [0u8; 1];
+        stream
+            .read_exact(&mut flag)
+            .map_err(|e| format!("read handle flag: {e}"))?;
+        handle_flag = flag[0];
+        if handle_flag != b'N' && handle_flag != b'R' {
+            return Err(format!("bad handle flag 0x{:02x}", handle_flag));
+        }
     }
+    let mut handles = Vec::new();
+    if handle_flag == b'N' {
+        handles.reserve(meta.count);
+        for slot in 0..meta.count {
+            let fds = recv_handle_fds(stream)
+                .map_err(|e| format!("receive handle {slot}/{}: {e}", meta.count))?;
+            handles.push(fds);
+        }
+    }
+    line(
+        "dmabuf",
+        "handoff",
+        format!(
+            "{}|key={:016x}|handles={}",
+            if handle_flag == b'N' { "NEW" } else { "REUSE" },
+            meta.buffer_key,
+            handles.len()
+        ),
+    );
     Ok((meta, handles))
 }
 
@@ -2663,6 +2710,19 @@ unsafe fn find_dmabuf(fds: &[c_int]) -> Option<c_int> {
         }
     }
     None
+}
+
+fn dmabuf_key(fd: c_int) -> Option<u64> {
+    let meta = std::fs::metadata(format!("/proc/self/fd/{fd}")).ok()?;
+    let mut bytes = [0u8; 16];
+    bytes[..8].copy_from_slice(&meta.dev().to_le_bytes());
+    bytes[8..].copy_from_slice(&meta.ino().to_le_bytes());
+    let mut key = 0xcbf2_9ce4_8422_2325u64;
+    for byte in bytes {
+        key ^= byte as u64;
+        key = key.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    Some(key)
 }
 
 fn ring_log_every() -> usize {
@@ -3432,96 +3492,66 @@ pub unsafe fn run(
     r == VK_SUCCESS && gpu_ok && linear_ok && image_ok && handoff_ok
 }
 
-/// Import and verify one already-received MediaCodec YV12 AHB. The metadata
-/// offsets come from `AHardwareBuffer_lockPlanes`, not from a guessed vendor
-/// layout. The caller owns the stream and sends the per-frame acknowledgement.
-unsafe fn run_video_core(
+// The MTK producer pool is four buffers; the app still limits handoff to
+// three in-flight AImages for backpressure. Cache all four imports so a
+// repeated producer buffer never forces a Vulkan image/memory recreation.
+const VIDEO_SLOT_LIMIT: usize = 16;
+
+struct VideoSlot {
+    key: u64,
+    image: VkImage,
+    image_memory: VkDeviceMemory,
+    dmabuf_fd: c_int,
+    destroy_image: FnDestroyImage,
+    free_memory: FnFreeMemory,
+}
+
+struct VideoRing {
+    slots: Vec<VideoSlot>,
+    imports: u64,
+    reuses: u64,
+}
+
+impl VideoRing {
+    fn new() -> Self {
+        Self {
+            slots: Vec::with_capacity(VIDEO_SLOT_LIMIT),
+            imports: 0,
+            reuses: 0,
+        }
+    }
+
+    fn find(&self, key: u64) -> Option<usize> {
+        self.slots.iter().position(|slot| slot.key == key)
+    }
+}
+
+unsafe fn create_video_slot(
     lib: *mut c_void,
     physical: VkPhysicalDevice,
     device: VkDevice,
-    queue: VkQueue,
-    family_index: u32,
-    meta: AhbMeta,
-    fds: Vec<c_int>,
-) -> bool {
-    let Some(fd) = find_dmabuf(&fds) else {
-        line("video-ahb", "FAIL", "no dma-buf fd in native handle");
-        for &fd in &fds {
-            close(fd);
-        }
-        return false;
-    };
-    let dmabuf_size = lseek(fd, 0, 2);
-    line(
-        "video-ahb",
-        "layout",
-        format!(
-            "size={}x{} stride={} format={:#x} dmabuf_size={} planes={}",
-            meta.width, meta.height, meta.stride, meta.format, dmabuf_size, meta.plane_count
-        ),
-    );
-    for index in 0..meta.plane_count {
-        let plane = meta.planes[index];
-        line(
-            "video-ahb",
-            "plane",
-            format!(
-                "index={index} offset={} row_stride={} pixel_stride={}",
-                plane.offset, plane.row_stride, plane.pixel_stride
-            ),
-        );
-    }
+    meta: &AhbMeta,
+    fd: c_int,
+    key: u64,
+    slot_index: usize,
+) -> Result<VideoSlot, String> {
+    let create_image: FnCreateImage =
+        symbol(lib, "vkCreateImage").ok_or_else(|| "vkCreateImage missing".to_string())?;
+    let destroy_image: FnDestroyImage =
+        symbol(lib, "vkDestroyImage").ok_or_else(|| "vkDestroyImage missing".to_string())?;
+    let get_image_requirements: FnGetImageRequirements2 =
+        symbol(lib, "vkGetImageMemoryRequirements2")
+            .ok_or_else(|| "vkGetImageMemoryRequirements2 missing".to_string())?;
+    let allocate_memory: FnAllocateMemory =
+        symbol(lib, "vkAllocateMemory").ok_or_else(|| "vkAllocateMemory missing".to_string())?;
+    let free_memory: FnFreeMemory =
+        symbol(lib, "vkFreeMemory").ok_or_else(|| "vkFreeMemory missing".to_string())?;
+    let bind_image: FnBindImageMemory =
+        symbol(lib, "vkBindImageMemory").ok_or_else(|| "vkBindImageMemory missing".to_string())?;
+    let get_memory_props: FnGetPhysicalDeviceMemoryProperties =
+        symbol(lib, "vkGetPhysicalDeviceMemoryProperties")
+            .ok_or_else(|| "vkGetPhysicalDeviceMemoryProperties missing".to_string())?;
 
-    let get_format_properties: unsafe extern "C" fn(
-        VkPhysicalDevice,
-        u32,
-        *mut VkFormatProperties,
-    ) = match symbol(lib, "vkGetPhysicalDeviceFormatProperties") {
-        Some(function) => function,
-        None => {
-            line(
-                "video-ahb",
-                "FAIL",
-                "vkGetPhysicalDeviceFormatProperties missing",
-            );
-            for &fd in &fds {
-                close(fd);
-            }
-            return false;
-        }
-    };
-    let mut format_properties = VkFormatProperties::default();
-    get_format_properties(
-        physical,
-        VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM,
-        &mut format_properties,
-    );
-    line(
-        "video-ahb",
-        "format_properties",
-        format!(
-            "format=G8_B8_R8_3PLANE_420_UNORM linear={:#x} optimal={:#x} buffer={:#x}",
-            format_properties.linear_tiling_features,
-            format_properties.optimal_tiling_features,
-            format_properties.buffer_features
-        ),
-    );
-
-    if meta.width == 0
-        || meta.height == 0
-        || meta.plane_count != 3
-        || meta.planes[0].pixel_stride != 1
-        || meta.planes[1].pixel_stride != 1
-        || meta.planes[2].pixel_stride != 1
-    {
-        line("video-ahb", "FAIL", "unsupported YUV plane layout");
-        for &fd in &fds {
-            close(fd);
-        }
-        return false;
-    }
-
-    let chroma_width = meta.width.div_ceil(2);
     let chroma_height = meta.height.div_ceil(2);
     let plane_layouts = [
         VkSubresourceLayout {
@@ -3546,66 +3576,6 @@ unsafe fn run_video_core(
             depth_pitch: 0,
         },
     ];
-    let _ = chroma_width;
-
-    let Some(create_image): Option<FnCreateImage> = symbol(lib, "vkCreateImage") else {
-        line("video-ahb", "FAIL", "vkCreateImage missing");
-        for &fd in &fds {
-            close(fd);
-        }
-        return false;
-    };
-    let Some(destroy_image): Option<FnDestroyImage> = symbol(lib, "vkDestroyImage") else {
-        line("video-ahb", "FAIL", "vkDestroyImage missing");
-        for &fd in &fds {
-            close(fd);
-        }
-        return false;
-    };
-    let Some(get_image_requirements): Option<FnGetImageRequirements2> =
-        symbol(lib, "vkGetImageMemoryRequirements2")
-    else {
-        line("video-ahb", "FAIL", "vkGetImageMemoryRequirements2 missing");
-        for &fd in &fds {
-            close(fd);
-        }
-        return false;
-    };
-    let Some(allocate_memory): Option<FnAllocateMemory> = symbol(lib, "vkAllocateMemory") else {
-        line("video-ahb", "FAIL", "vkAllocateMemory missing");
-        for &fd in &fds {
-            close(fd);
-        }
-        return false;
-    };
-    let Some(free_memory): Option<FnFreeMemory> = symbol(lib, "vkFreeMemory") else {
-        line("video-ahb", "FAIL", "vkFreeMemory missing");
-        for &fd in &fds {
-            close(fd);
-        }
-        return false;
-    };
-    let Some(bind_image): Option<FnBindImageMemory> = symbol(lib, "vkBindImageMemory") else {
-        line("video-ahb", "FAIL", "vkBindImageMemory missing");
-        for &fd in &fds {
-            close(fd);
-        }
-        return false;
-    };
-    let Some(get_memory_props): Option<FnGetPhysicalDeviceMemoryProperties> =
-        symbol(lib, "vkGetPhysicalDeviceMemoryProperties")
-    else {
-        line(
-            "video-ahb",
-            "FAIL",
-            "vkGetPhysicalDeviceMemoryProperties missing",
-        );
-        for &fd in &fds {
-            close(fd);
-        }
-        return false;
-    };
-
     let external = VkExternalMemoryImageCreateInfo {
         s_type: VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
         p_next: ptr::null(),
@@ -3643,19 +3613,16 @@ unsafe fn run_video_core(
     let create_result = create_image(device, &image_info, ptr::null(), &mut image);
     line(
         "video-ahb",
-        "image_create",
+        "ring_import_image",
         format!(
-            "{}|format=G8_B8_R8_3PLANE_420_UNORM|{}x{}|modifier=LINEAR|planes=3",
+            "slot={slot_index}|key={key:016x}|{}|{}x{}",
             api_result(create_result),
             meta.width,
             meta.height
         ),
     );
     if create_result != VK_SUCCESS {
-        for &fd in &fds {
-            close(fd);
-        }
-        return false;
+        return Err(format!("vkCreateImage {create_result}"));
     }
 
     let requirements_info = VkImageMemoryRequirementsInfo2 {
@@ -3670,26 +3637,19 @@ unsafe fn run_video_core(
     };
     get_image_requirements(device, &requirements_info, &mut requirements);
     let required = requirements.requirements;
-    line(
-        "video-ahb",
-        "requirements",
-        format!(
-            "size={} alignment={} memory_bits={:#x}",
-            required.size, required.alignment, required.memory_type_bits
-        ),
-    );
     let mut memory_properties: VkPhysicalDeviceMemoryProperties = std::mem::zeroed();
     get_memory_props(physical, &mut memory_properties);
     let Some(memory_type_index) = choose_memory_type(&memory_properties, required.memory_type_bits)
     else {
-        line("video-ahb", "FAIL", "no importable memory type");
         destroy_image(device, image, ptr::null());
-        for &fd in &fds {
-            close(fd);
-        }
-        return false;
+        return Err("no importable memory type".into());
     };
 
+    let held_fd = dup(fd);
+    if held_fd < 0 {
+        destroy_image(device, image, ptr::null());
+        return Err("dup held dma-buf".into());
+    }
     let mut import = VkImportMemoryFdInfo {
         s_type: VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
         p_next: ptr::null(),
@@ -3697,12 +3657,9 @@ unsafe fn run_video_core(
         fd: dup(fd),
     };
     if import.fd < 0 {
-        line("video-ahb", "FAIL", "dup dma-buf");
+        close(held_fd);
         destroy_image(device, image, ptr::null());
-        for &fd in &fds {
-            close(fd);
-        }
-        return false;
+        return Err("dup import dma-buf".into());
     }
     let allocation = VkMemoryAllocateInfo {
         s_type: VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
@@ -3715,84 +3672,314 @@ unsafe fn run_video_core(
     close(import.fd);
     line(
         "video-ahb",
-        "image_import",
+        "ring_import_memory",
         format!(
-            "{}|type={} size={} fd={}",
+            "slot={slot_index}|key={key:016x}|{}|type={memory_type_index}|size={}",
             api_result(import_result),
-            memory_type_index,
-            required.size,
-            fd
+            required.size
         ),
     );
     if import_result != VK_SUCCESS {
+        close(held_fd);
         destroy_image(device, image, ptr::null());
+        return Err(format!("vkAllocateMemory {import_result}"));
+    }
+    let bind_result = bind_image(device, image, image_memory, 0);
+    if bind_result != VK_SUCCESS {
+        close(held_fd);
+        free_memory(device, image_memory, ptr::null());
+        destroy_image(device, image, ptr::null());
+        return Err(format!("vkBindImageMemory {bind_result}"));
+    }
+    Ok(VideoSlot {
+        key,
+        image,
+        image_memory,
+        dmabuf_fd: held_fd,
+        destroy_image,
+        free_memory,
+    })
+}
+
+unsafe fn destroy_video_slot(device: VkDevice, slot: VideoSlot) {
+    close(slot.dmabuf_fd);
+    (slot.free_memory)(device, slot.image_memory, ptr::null());
+    (slot.destroy_image)(device, slot.image, ptr::null());
+}
+
+unsafe fn teardown_video_ring(device: VkDevice, ring: &mut VideoRing) {
+    while let Some(slot) = ring.slots.pop() {
+        let key = slot.key;
+        destroy_video_slot(device, slot);
+        line("video-ahb", "ring_drop", format!("key={key:016x}"));
+    }
+}
+
+/// Import and verify one already-received MediaCodec YV12 AHB. The metadata
+/// offsets come from `AHardwareBuffer_lockPlanes`, not from a guessed vendor
+/// layout. The caller owns the stream and sends the per-frame acknowledgement.
+unsafe fn run_video_core(
+    lib: *mut c_void,
+    physical: VkPhysicalDevice,
+    device: VkDevice,
+    queue: VkQueue,
+    family_index: u32,
+    meta: AhbMeta,
+    fds: Vec<c_int>,
+    ring: &mut VideoRing,
+) -> bool {
+    if meta.width == 0
+        || meta.height == 0
+        || meta.plane_count != 3
+        || meta.planes[0].pixel_stride != 1
+        || meta.planes[1].pixel_stride != 1
+        || meta.planes[2].pixel_stride != 1
+    {
+        line("video-ahb", "FAIL", "unsupported YUV plane layout");
         for &fd in &fds {
             close(fd);
         }
         return false;
     }
-    let bind_result = bind_image(device, image, image_memory, 0);
-    line("video-ahb", "image_bind", api_result(bind_result));
-    let bind_ok = bind_result == VK_SUCCESS;
-    let mut cpu_ok = false;
-    let mut gpu_ok = false;
 
-    if bind_ok {
-        let luma_bytes =
-            meta.plane_bytes[0].min(meta.planes[0].row_stride as usize * meta.height as usize);
-        let luma_map_bytes = meta.planes[0].row_stride as usize
-            * meta.height.saturating_sub(1) as usize
-            + meta.width as usize;
-        let mmap_bytes = luma_map_bytes
-            .max(luma_bytes)
-            .min(meta.planes[0].row_stride as usize * meta.height as usize);
-        let cpu_map = mmap(ptr::null_mut(), mmap_bytes, PROT_READ, MAP_SHARED, fd, 0);
-        if cpu_map as isize == -1 {
+    let observed_dma_key = find_dmabuf(&fds).and_then(dmabuf_key);
+    let slot_key = if meta.buffer_key != 0 {
+        meta.buffer_key
+    } else {
+        observed_dma_key.unwrap_or(0)
+    };
+    if slot_key == 0 {
+        line("video-ahb", "FAIL", "no stable AHB/dma-buf slot key");
+        for &fd in &fds {
+            close(fd);
+        }
+        return false;
+    }
+    let slot_index = match ring.find(slot_key) {
+        Some(index) => {
+            if let Some(key) = observed_dma_key {
+                if meta.dmabuf_key != 0 && key != meta.dmabuf_key {
+                    line(
+                        "video-ahb",
+                        "FAIL",
+                        format!(
+                            "reuse dma-buf key mismatch|expected={:016x}|actual={key:016x}",
+                            meta.dmabuf_key
+                        ),
+                    );
+                    for &fd in &fds {
+                        close(fd);
+                    }
+                    return false;
+                }
+            }
+            for &fd in &fds {
+                close(fd);
+            }
+            ring.reuses = ring.reuses.saturating_add(1);
             line(
                 "video-ahb",
-                "cpu_luma",
-                format!("FAIL|mmap: {}", std::io::Error::last_os_error()),
-            );
-        } else {
-            let hash = hash_plane_rows(
-                cpu_map as *const u8,
-                meta.planes[0].row_stride as usize,
-                meta.width as usize,
-                meta.height as usize,
-            );
-            cpu_ok = hash != 0 && hash == meta.plane_fnv[0];
-            line(
-                "video-ahb",
-                "cpu_luma",
+                "ring_reuse",
                 format!(
-                    "{}|fnv={hash:#x}|expected={:#x}|bytes={luma_bytes}",
-                    if cpu_ok { "PASS" } else { "FAIL" },
-                    meta.plane_fnv[0]
+                    "slot={index}|key={:016x}|slots={}",
+                    ring.slots[index].key,
+                    ring.slots.len()
                 ),
             );
-            munmap(cpu_map, mmap_bytes);
+            index
         }
-        gpu_ok = true;
-        for plane in 0..meta.plane_count.min(3) {
-            gpu_ok &= probe_plane_with_gpu(
-                lib,
-                physical,
-                device,
-                queue,
-                family_index,
-                image,
-                &meta,
-                plane,
+        None => {
+            let Some(fd) = find_dmabuf(&fds) else {
+                line("video-ahb", "FAIL", "no dma-buf fd in native handle");
+                for &fd in &fds {
+                    close(fd);
+                }
+                return false;
+            };
+            let actual_dma_key = dmabuf_key(fd).unwrap_or(0);
+            if actual_dma_key == 0 {
+                line("video-ahb", "FAIL", "no stable dma-buf key");
+                for &fd in &fds {
+                    close(fd);
+                }
+                return false;
+            }
+            if meta.dmabuf_key != 0 && actual_dma_key != meta.dmabuf_key {
+                line(
+                    "video-ahb",
+                    "FAIL",
+                    format!(
+                        "metadata dmabuf_key mismatch|expected={:016x}|actual={actual_dma_key:016x}",
+                        meta.dmabuf_key
+                    ),
+                );
+                for &fd in &fds {
+                    close(fd);
+                }
+                return false;
+            }
+            if ring.slots.len() >= VIDEO_SLOT_LIMIT {
+                line(
+                    "video-ahb",
+                    "ring_full",
+                    format!("slots={}|key={slot_key:016x}", ring.slots.len()),
+                );
+                for &fd in &fds {
+                    close(fd);
+                }
+                return false;
+            }
+            let index = ring.slots.len();
+            match create_video_slot(lib, physical, device, &meta, fd, slot_key, index) {
+                Ok(slot) => {
+                    ring.slots.push(slot);
+                    ring.imports = ring.imports.saturating_add(1);
+                    line(
+                        "video-ahb",
+                        "ring_import",
+                        format!(
+                            "slot={index}|key={slot_key:016x}|dmabuf={actual_dma_key:016x}|slots={}",
+                            ring.slots.len()
+                        ),
+                    );
+                }
+                Err(error) => {
+                    line(
+                        "video-ahb",
+                        "ring_import_fail",
+                        format!("slot={index}|key={slot_key:016x}|{error}"),
+                    );
+                    for &fd in &fds {
+                        close(fd);
+                    }
+                    return false;
+                }
+            }
+            for &fd in &fds {
+                close(fd);
+            }
+            index
+        }
+    };
+
+    let slot = &ring.slots[slot_index];
+    let fd = slot.dmabuf_fd;
+    let image = slot.image;
+    let dmabuf_size = lseek(fd, 0, 2);
+    line(
+        "video-ahb",
+        "layout",
+        format!(
+            "slot={slot_index}|size={}x{} stride={} format={:#x} dmabuf_size={} planes={}",
+            meta.width, meta.height, meta.stride, meta.format, dmabuf_size, meta.plane_count
+        ),
+    );
+    for index in 0..meta.plane_count {
+        let plane = meta.planes[index];
+        line(
+            "video-ahb",
+            "plane",
+            format!(
+                "index={index} offset={} row_stride={} pixel_stride={}",
+                plane.offset, plane.row_stride, plane.pixel_stride
+            ),
+        );
+    }
+
+    let get_format_properties: unsafe extern "C" fn(
+        VkPhysicalDevice,
+        u32,
+        *mut VkFormatProperties,
+    ) = match symbol(lib, "vkGetPhysicalDeviceFormatProperties") {
+        Some(function) => function,
+        None => {
+            line(
+                "video-ahb",
+                "FAIL",
+                "vkGetPhysicalDeviceFormatProperties missing",
             );
+            return false;
         }
+    };
+    let mut format_properties = VkFormatProperties::default();
+    get_format_properties(
+        physical,
+        VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM,
+        &mut format_properties,
+    );
+    line(
+        "video-ahb",
+        "format_properties",
+        format!(
+            "format=G8_B8_R8_3PLANE_420_UNORM linear={:#x} optimal={:#x} buffer={:#x}",
+            format_properties.linear_tiling_features,
+            format_properties.optimal_tiling_features,
+            format_properties.buffer_features
+        ),
+    );
+
+    let luma_bytes =
+        meta.plane_bytes[0].min(meta.planes[0].row_stride as usize * meta.height as usize);
+    let luma_map_bytes = meta.planes[0].row_stride as usize
+        * meta.height.saturating_sub(1) as usize
+        + meta.width as usize;
+    let mmap_bytes = luma_map_bytes
+        .max(luma_bytes)
+        .min(meta.planes[0].row_stride as usize * meta.height as usize);
+    let cpu_map = mmap(ptr::null_mut(), mmap_bytes, PROT_READ, MAP_SHARED, fd, 0);
+    let cpu_ok = if cpu_map as isize == -1 {
+        line(
+            "video-ahb",
+            "cpu_luma",
+            format!("FAIL|mmap: {}", std::io::Error::last_os_error()),
+        );
+        false
+    } else {
+        let hash = hash_plane_rows(
+            cpu_map as *const u8,
+            meta.planes[0].row_stride as usize,
+            meta.width as usize,
+            meta.height as usize,
+        );
+        let ok = hash != 0 && hash == meta.plane_fnv[0];
+        line(
+            "video-ahb",
+            "cpu_luma",
+            format!(
+                "{}|slot={slot_index}|fnv={hash:#x}|expected={:#x}|bytes={luma_bytes}",
+                if ok { "PASS" } else { "FAIL" },
+                meta.plane_fnv[0]
+            ),
+        );
+        munmap(cpu_map, mmap_bytes);
+        ok
+    };
+
+    let mut gpu_ok = true;
+    for plane in 0..meta.plane_count.min(3) {
+        gpu_ok &= probe_plane_with_gpu(
+            lib,
+            physical,
+            device,
+            queue,
+            family_index,
+            image,
+            &meta,
+            plane,
+        );
     }
-    let ok = bind_ok && cpu_ok && gpu_ok;
-    free_memory(device, image_memory, ptr::null());
-    destroy_image(device, image, ptr::null());
-    for &fd in &fds {
-        close(fd);
-    }
-    line("video-ahb", "teardown", "image/memory/native fds released");
+    let ok = cpu_ok && gpu_ok;
+    line(
+        "video-ahb",
+        "ring_frame",
+        format!(
+            "{}|slot={slot_index}|key={:016x}|imports={}|reuses={}",
+            if ok { "PASS" } else { "FAIL" },
+            slot.key,
+            ring.imports,
+            ring.reuses
+        ),
+    );
     ok
 }
 
@@ -3804,17 +3991,11 @@ unsafe fn run_video_on_stream(
     family_index: u32,
     meta: AhbMeta,
     handles: Vec<Vec<c_int>>,
+    ring: &mut VideoRing,
     stream: &mut UnixStream,
 ) -> bool {
-    let fds = match handles.into_iter().next() {
-        Some(fds) => fds,
-        None => {
-            line("video-ahb", "FAIL", "no native handle");
-            let _ = stream.write_all(b"F");
-            return false;
-        }
-    };
-    let ok = run_video_core(lib, physical, device, queue, family_index, meta, fds);
+    let fds = handles.into_iter().next().unwrap_or_default();
+    let ok = run_video_core(lib, physical, device, queue, family_index, meta, fds, ring);
     let ack = if ok { b'D' } else { b'F' };
     let handoff = stream.write_all(&[ack]).is_ok();
     line(
@@ -3841,7 +4022,8 @@ pub unsafe fn run_video(
             return false;
         }
     };
-    run_video_on_stream(
+    let mut ring = VideoRing::new();
+    let ok = run_video_on_stream(
         lib,
         physical,
         device,
@@ -3849,8 +4031,11 @@ pub unsafe fn run_video(
         family_index,
         meta,
         handles,
+        &mut ring,
         &mut stream,
-    )
+    );
+    teardown_video_ring(device, &mut ring);
+    ok
 }
 
 /// Receive and verify a bounded sequence over one persistent connection. The
@@ -3881,6 +4066,7 @@ pub unsafe fn run_video_many(
         "STREAM",
         format!("CONNECTED|path={path}|frames={frames}"),
     );
+    let mut ring = VideoRing::new();
     let mut completed = 0usize;
     for index in 0..frames {
         let started = std::time::Instant::now();
@@ -3903,6 +4089,7 @@ pub unsafe fn run_video_many(
             family_index,
             meta,
             handles,
+            &mut ring,
             &mut stream,
         );
         line(
@@ -3920,6 +4107,17 @@ pub unsafe fn run_video_many(
         }
         completed += 1;
     }
+    line(
+        "video-ahb",
+        "ring_summary",
+        format!(
+            "slots={}|imports={}|reuses={}",
+            ring.slots.len(),
+            ring.imports,
+            ring.reuses
+        ),
+    );
+    teardown_video_ring(device, &mut ring);
     line(
         "video-ahb",
         "STREAM",

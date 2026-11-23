@@ -24,11 +24,13 @@ use core::ffi::{c_char, c_int, c_void};
 
 mod bridge;
 mod ebridge;
+mod fixed_ring;
 mod present;
 use std::ffi::{CStr, CString};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::os::fd::AsRawFd;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -43,6 +45,10 @@ const DEFAULT_PROBE_FILE: &str = "video-probe.mp4";
 const INPUT_TIMEOUT_US: i64 = 2_000_000;
 const EOS_TIMEOUT: Duration = Duration::from_secs(15);
 const AIMAGE_FORMAT_PRIVATE: i32 = 0x22;
+// MTK's decoder needs four ImageReader buffers even though the handoff keeps
+// at most three decoded AImages in flight. A smaller producer pool fails with
+// AImageReader_acquireNextImage rc=-30002 (MAX_IMAGES) on frame 4.
+const IMAGE_READER_MAX_IMAGES: i32 = 4;
 const AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE: u64 = 1 << 8;
 const AHARDWAREBUFFER_USAGE_CPU_READ_RARELY: u64 = 1 << 0;
 
@@ -112,6 +118,7 @@ type FnGetInputBuffer = unsafe extern "C" fn(*mut Codec, usize, *mut usize) -> *
 type FnDequeueInput = unsafe extern "C" fn(*mut Codec, i64) -> isize;
 type FnQueueInput = unsafe extern "C" fn(*mut Codec, usize, i64, usize, u64, u32) -> c_int;
 type FnDequeueOutput = unsafe extern "C" fn(*mut Codec, *mut BufferInfo, i64) -> isize;
+type FnGetOutputBuffer = unsafe extern "C" fn(*mut Codec, usize, *mut usize) -> *mut u8;
 type FnReleaseOutput = unsafe extern "C" fn(*mut Codec, usize, bool) -> c_int;
 type FnGetOutputFormat = unsafe extern "C" fn(*mut Codec) -> *mut Format;
 type FnGetName = unsafe extern "C" fn(*mut Codec, *mut *mut c_char) -> c_int;
@@ -153,12 +160,15 @@ type FnImageGetNumberOfPlanes = unsafe extern "C" fn(*const Image, *mut i32) -> 
 type FnImageGetPlaneData = unsafe extern "C" fn(*const Image, i32, *mut *mut u8, *mut i32) -> c_int;
 type FnImageGetPlaneRowStride = unsafe extern "C" fn(*const Image, i32, *mut i32) -> c_int;
 type FnImageGetPlanePixelStride = unsafe extern "C" fn(*const Image, i32, *mut i32) -> c_int;
+type FnAhbAllocate = unsafe extern "C" fn(*const AhbDesc, *mut *mut Ahb) -> c_int;
+type FnAhbRelease = unsafe extern "C" fn(*mut Ahb);
 type FnAhbDescribe = unsafe extern "C" fn(*const Ahb, *mut AhbDesc);
 type FnAhbNativeHandle = unsafe extern "C" fn(*const Ahb) -> *const c_void;
 type FnAhbLockPlanes =
     unsafe extern "C" fn(*mut Ahb, u64, i32, *const c_void, *mut AhbPlanes) -> c_int;
 type FnAhbUnlock = unsafe extern "C" fn(*mut Ahb, *mut i32) -> c_int;
 type FnAhbSendToSocket = unsafe extern "C" fn(*const Ahb, c_int) -> c_int;
+type FnAhbGetId = unsafe extern "C" fn(*const Ahb, *mut u64) -> c_int;
 
 unsafe extern "C" {
     fn dlopen(filename: *const c_char, flags: c_int) -> *mut c_void;
@@ -178,6 +188,7 @@ struct Api {
     dequeue_input: FnDequeueInput,
     queue_input: FnQueueInput,
     dequeue_output: FnDequeueOutput,
+    get_output_buffer: FnGetOutputBuffer,
     release_output: FnReleaseOutput,
     get_output_format: FnGetOutputFormat,
     get_name: FnGetName,
@@ -221,11 +232,14 @@ struct ImageApi {
     image_get_plane_data: FnImageGetPlaneData,
     image_get_plane_row_stride: FnImageGetPlaneRowStride,
     image_get_plane_pixel_stride: FnImageGetPlanePixelStride,
+    ahb_allocate: FnAhbAllocate,
+    ahb_release: FnAhbRelease,
     ahb_describe: FnAhbDescribe,
     ahb_native_handle: FnAhbNativeHandle,
     ahb_lock_planes: FnAhbLockPlanes,
     ahb_unlock: FnAhbUnlock,
     ahb_send_to_socket: FnAhbSendToSocket,
+    ahb_get_id: Option<FnAhbGetId>,
 }
 
 struct ImageSink {
@@ -252,6 +266,7 @@ impl Api {
             dequeue_input: symbol(handle, c"AMediaCodec_dequeueInputBuffer")?,
             queue_input: symbol(handle, c"AMediaCodec_queueInputBuffer")?,
             dequeue_output: symbol(handle, c"AMediaCodec_dequeueOutputBuffer")?,
+            get_output_buffer: symbol(handle, c"AMediaCodec_getOutputBuffer")?,
             release_output: symbol(handle, c"AMediaCodec_releaseOutputBuffer")?,
             get_output_format: symbol(handle, c"AMediaCodec_getOutputFormat")?,
             get_name: symbol(handle, c"AMediaCodec_getName")?,
@@ -312,11 +327,14 @@ impl ImageApi {
             image_get_plane_data: symbol(media_handle, c"AImage_getPlaneData")?,
             image_get_plane_row_stride: symbol(media_handle, c"AImage_getPlaneRowStride")?,
             image_get_plane_pixel_stride: symbol(media_handle, c"AImage_getPlanePixelStride")?,
+            ahb_allocate: symbol(android_handle, c"AHardwareBuffer_allocate")?,
+            ahb_release: symbol(android_handle, c"AHardwareBuffer_release")?,
             ahb_describe: symbol(android_handle, c"AHardwareBuffer_describe")?,
             ahb_native_handle: symbol(android_handle, c"AHardwareBuffer_getNativeHandle")?,
             ahb_lock_planes: symbol(android_handle, c"AHardwareBuffer_lockPlanes")?,
             ahb_unlock: symbol(android_handle, c"AHardwareBuffer_unlock")?,
             ahb_send_to_socket: symbol(android_handle, c"AHardwareBuffer_sendHandleToUnixSocket")?,
+            ahb_get_id: symbol(android_handle, c"AHardwareBuffer_getId").ok(),
         })
     }
 
@@ -327,7 +345,7 @@ impl ImageApi {
             height,
             AIMAGE_FORMAT_PRIVATE,
             AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE,
-            4,
+            IMAGE_READER_MAX_IMAGES,
             &mut reader,
         );
         if rc != AMEDIA_OK || reader.is_null() {
@@ -352,11 +370,14 @@ impl ImageApi {
                 image_get_plane_data: self.image_get_plane_data,
                 image_get_plane_row_stride: self.image_get_plane_row_stride,
                 image_get_plane_pixel_stride: self.image_get_plane_pixel_stride,
+                ahb_allocate: self.ahb_allocate,
+                ahb_release: self.ahb_release,
                 ahb_describe: self.ahb_describe,
                 ahb_native_handle: self.ahb_native_handle,
                 ahb_lock_planes: self.ahb_lock_planes,
                 ahb_unlock: self.ahb_unlock,
                 ahb_send_to_socket: self.ahb_send_to_socket,
+                ahb_get_id: self.ahb_get_id,
             },
         })
     }
@@ -621,6 +642,36 @@ unsafe fn native_handle_summary(native: *const c_void) -> String {
     )
 }
 
+unsafe fn dmabuf_key_from_native(native: *const c_void) -> Option<u64> {
+    if native.is_null() {
+        return None;
+    }
+    let words = native as *const i32;
+    let num_fds = words.add(1).read_unaligned().clamp(0, 32);
+    for index in 0..num_fds as usize {
+        let fd = words.add(3 + index).read_unaligned();
+        if fd < 0 {
+            continue;
+        }
+        let target = std::fs::read_link(format!("/proc/self/fd/{fd}")).ok()?;
+        let target = target.to_string_lossy();
+        if !target.contains("dmabuf") && !target.contains("dma-buf") {
+            continue;
+        }
+        let meta = std::fs::metadata(format!("/proc/self/fd/{fd}")).ok()?;
+        let mut bytes = [0u8; 16];
+        bytes[..8].copy_from_slice(&meta.dev().to_le_bytes());
+        bytes[8..].copy_from_slice(&meta.ino().to_le_bytes());
+        let mut key = 0xcbf2_9ce4_8422_2325u64;
+        for byte in bytes {
+            key ^= byte as u64;
+            key = key.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        return Some(key);
+    }
+    None
+}
+
 unsafe fn consume_image(sink: &mut ImageSink, files: &Path, tag: &str) -> Result<(), String> {
     let mut image = core::ptr::null_mut();
     let rc = (sink.api.reader_acquire_next)(sink.reader, &mut image);
@@ -645,7 +696,7 @@ unsafe fn consume_image(sink: &mut ImageSink, files: &Path, tag: &str) -> Result
     let mut desc = AhbDesc::default();
     (sink.api.ahb_describe)(buffer, &mut desc);
     let native = (sink.api.ahb_native_handle)(buffer);
-    let should_log_layout = sink.seen == 1 || sink.seen % 30 == 0;
+    let should_log_layout = sink.seen <= 16 || sink.seen % 30 == 0;
     let want_layout = should_log_layout || ebridge::enabled(files);
     let layout = want_layout.then(|| ahb_layout_summary(&sink.api, image, buffer, &desc));
     let native_summary = should_log_layout.then(|| native_handle_summary(native));
@@ -696,6 +747,31 @@ unsafe fn consume_image(sink: &mut ImageSink, files: &Path, tag: &str) -> Result
             "AHardwareBuffer has no dmabuf-native-handle: native={native:p} fds={num_fds} fd={first_fd}"
         ));
     }
+    let dma_key = dmabuf_key_from_native(native).unwrap_or(0);
+    let mut ahb_id = 0u64;
+    let ahb_id_rc = sink
+        .api
+        .ahb_get_id
+        .map(|get_id| get_id(buffer, &mut ahb_id))
+        .unwrap_or(-1);
+    let buffer_key = if ahb_id_rc == 0 && ahb_id != 0 {
+        ahb_id
+    } else {
+        dma_key
+    };
+    if should_log_layout {
+        result(
+            files,
+            &format!(
+                "video|{tag}|identity|n={}|ahb_id_rc={ahb_id_rc}|ahb_id={ahb_id:016x}|dma_key={dma_key:016x}|selected={buffer_key:016x}",
+                sink.seen
+            ),
+        );
+    }
+    if buffer_key == 0 {
+        (sink.api.image_delete)(image);
+        return Err("AHardwareBuffer has no stable identity key".into());
+    }
     let presented = if tag == "bridge" {
         present::present_if_enabled(files, buffer, desc.width, desc.height)
     } else {
@@ -711,6 +787,8 @@ unsafe fn consume_image(sink: &mut ImageSink, files: &Path, tag: &str) -> Result
                 &desc,
                 planes,
                 *lock_rc,
+                buffer_key,
+                dma_key,
                 sink.seen,
                 timestamp_ns,
                 plane_hashes,

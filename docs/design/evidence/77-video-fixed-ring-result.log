@@ -1,0 +1,46 @@
+video|bridge|API|libmediandk.so
+video|bridge|LISTEN|/data/user/0/com.linuxhub.husk/files/rootfs-full/run/husk/video.sock
+video|bridge|client|connected|fd=132
+video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+video|bridge|EOS_OK frames=13 images=12 output_bytes=12
+video|bridge|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=13 output_bytes=12 images_last=12 stop_rc=0 delete_rc=0
+video|bridge|client|disconnected
+video|bridge|API|libmediandk.so
+video|bridge|LISTEN|/data/user/0/com.linuxhub.husk/files/rootfs-full/run/husk/video.sock
+video|bridge|client|connected|fd=117
+video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+video|bridge|EOS_OK frames=13 images=12 output_bytes=12
+video|bridge|client|write|Broken pipe (os error 32)
+video|bridge|disconnect|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=13 output_bytes=12 images_last=12 stop_rc=0 delete_rc=0
+video|bridge|client|disconnected
+video|bridge|API|libmediandk.so
+video|bridge|LISTEN|/data/user/0/com.linuxhub.husk/files/rootfs-full/run/husk/video.sock
+video|bridge|API|libmediandk.so
+video|bridge|LISTEN|/data/user/0/com.linuxhub.husk/files/rootfs-full/run/husk/video.sock
+video|bridge|client|connected|fd=117
+video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+video|bridge|output|fixed-bytebuffer-yv12-ring
+video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+video|bridge|EOS_OK frames=13 images=13 output_bytes=37324800
+video|bridge|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=13 output_bytes=37324800 images_last=13 stop_rc=0 delete_rc=0
+video|bridge|client|disconnected
+video|bridge|API|libmediandk.so
+video|bridge|LISTEN|/data/user/0/com.linuxhub.husk/files/rootfs-full/run/husk/video.sock
+video|bridge|client|connected|fd=132
+video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+video|bridge|output|fixed-bytebuffer-yv12-ring
+video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+video|bridge|EOS_OK frames=151 images=151 output_bytes=466560000
+video|bridge|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=151 output_bytes=466560000 images_last=151 stop_rc=0 delete_rc=0
+video|bridge|client|disconnected
+video|bridge|API|libmediandk.so
+video|bridge|LISTEN|/data/user/0/com.linuxhub.husk/files/rootfs-full/run/husk/video.sock
+video|bridge|client|connected|fd=132
+video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+video|bridge|output|fixed-bytebuffer-yv12-ring
+video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+video|bridge|EOS_OK frames=151 images=151 output_bytes=466560000
+video|bridge|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=151 output_bytes=466560000 images_last=151 stop_rc=0 delete_rc=0
+video|bridge|client|disconnected

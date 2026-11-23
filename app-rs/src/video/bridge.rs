@@ -99,6 +99,7 @@ struct Session<'a> {
     codec: *mut Codec,
     codec_started: bool,
     sink: Option<ImageSink>,
+    fixed: Option<fixed_ring::FixedRing>,
     ring: MappedRing,
     next_seq: u64,
     stats: (u64, u64),
@@ -158,6 +159,8 @@ impl<'a> Session<'a> {
         let mut cleanup_codec = true;
         let mut cleanup_started = false;
         let mut sink: Option<ImageSink> = None;
+        let mut fixed: Option<fixed_ring::FixedRing> = None;
+        let fixed_mode = files.join("video-fixed").exists();
         let outcome = (|| -> Result<(), String> {
             let actual = codec_name(api, codec);
             sequence_log(
@@ -171,17 +174,28 @@ impl<'a> Session<'a> {
             }
 
             let image_api = ImageApi::load()?;
-            let active = image_api.new_sink(width as i32, height as i32)?;
-            let mut window = core::ptr::null_mut();
-            let rc = (active.api.reader_get_window)(active.reader, &mut window);
-            if rc != AMEDIA_OK || window.is_null() {
-                (active.api.reader_delete)(active.reader);
-                return Err(format!("AImageReader_getWindow rc={rc} window={window:p}"));
-            }
+            let mut active: Option<ImageSink> = None;
+            let output_surface = if fixed_mode {
+                sequence_log(files, "video|bridge|output|fixed-bytebuffer-yv12-ring");
+                fixed = Some(fixed_ring::FixedRing::new(width, height, files)?);
+                core::ptr::null_mut()
+            } else {
+                let reader = image_api.new_sink(width as i32, height as i32)?;
+                let mut window = core::ptr::null_mut();
+                let rc = (reader.api.reader_get_window)(reader.reader, &mut window);
+                if rc != AMEDIA_OK || window.is_null() {
+                    (reader.api.reader_delete)(reader.reader);
+                    return Err(format!("AImageReader_getWindow rc={rc} window={window:p}"));
+                }
+                active = Some(reader);
+                window
+            };
 
             let format = (api.format_new)();
             if format.is_null() {
-                (active.api.reader_delete)(active.reader);
+                if let Some(reader) = active.take() {
+                    (reader.api.reader_delete)(reader.reader);
+                }
                 return Err("AMediaFormat_new failed".into());
             }
             let mime_z = CString::new(mime.as_str()).map_err(|e| format!("mime: {e}"))?;
@@ -202,19 +216,23 @@ impl<'a> Session<'a> {
                 csd1.as_ptr() as *const c_void,
                 csd1.len(),
             );
-            let rc = (api.configure)(codec, format, window, core::ptr::null_mut(), 0);
+            let rc = (api.configure)(codec, format, output_surface, core::ptr::null_mut(), 0);
             let _ = (api.format_delete)(format);
             if rc != AMEDIA_OK {
-                (active.api.reader_delete)(active.reader);
+                if let Some(reader) = active.take() {
+                    (reader.api.reader_delete)(reader.reader);
+                }
                 return Err(format!("configure rc={rc}"));
             }
             let rc = (api.start)(codec);
             if rc != AMEDIA_OK {
-                (active.api.reader_delete)(active.reader);
+                if let Some(reader) = active.take() {
+                    (reader.api.reader_delete)(reader.reader);
+                }
                 return Err(format!("start rc={rc}"));
             }
             cleanup_started = true;
-            sink = Some(active);
+            sink = active;
             cleanup_codec = false;
             Ok(())
         })();
@@ -236,6 +254,7 @@ impl<'a> Session<'a> {
                 codec,
                 codec_started: true,
                 sink,
+                fixed,
                 ring,
                 next_seq: 1,
                 stats: (0, 0),
@@ -246,6 +265,30 @@ impl<'a> Session<'a> {
             },
             ring_fd,
         ))
+    }
+
+    unsafe fn drain(&mut self, files: &Path, timeout_us: i64) -> Result<bool, String> {
+        if let Some(fixed) = self.fixed.as_mut() {
+            fixed_ring::drain_outputs(
+                self.api,
+                self.codec,
+                files,
+                timeout_us,
+                &mut self.stats,
+                fixed,
+                "bridge",
+            )
+        } else {
+            drain_outputs(
+                self.api,
+                self.codec,
+                files,
+                timeout_us,
+                &mut self.stats,
+                &mut self.sink,
+                "bridge",
+            )
+        }
     }
 
     unsafe fn feed(&mut self, files: &Path, line: &str) -> Result<String, String> {
@@ -282,15 +325,7 @@ impl<'a> Session<'a> {
             if index != INFO_TRY_AGAIN_LATER {
                 return Err(format!("dequeueInputBuffer seq={seq} rc={index}"));
             }
-            let _ = drain_outputs(
-                self.api,
-                self.codec,
-                files,
-                0,
-                &mut self.stats,
-                &mut self.sink,
-                "bridge",
-            )?;
+            let _ = self.drain(files, 0)?;
             if started.elapsed() >= INPUT_WAIT {
                 return Err(format!("input buffer timeout seq={seq}"));
             }
@@ -321,16 +356,16 @@ impl<'a> Session<'a> {
             .map_err(|e| format!("ring commit seq={seq}: {e}"))?;
         self.next_seq += 1;
 
-        let _ = drain_outputs(
-            self.api,
-            self.codec,
-            files,
-            0,
-            &mut self.stats,
-            &mut self.sink,
-            "bridge",
-        )?;
-        let images = self.sink.as_ref().map(|s| s.seen).unwrap_or(0);
+        let _ = self.drain(files, 0)?;
+        let images = self
+            .sink
+            .as_ref()
+            .map(|s| s.seen)
+            .unwrap_or(if self.fixed.is_some() {
+                self.stats.0
+            } else {
+                0
+            });
         Ok(format!(
             "SAMPLE_OK seq={seq} frames={} images={images}",
             self.stats.0
@@ -346,15 +381,7 @@ impl<'a> Session<'a> {
             if index != INFO_TRY_AGAIN_LATER {
                 return Err(format!("dequeueInputBuffer(EOS) rc={index}"));
             }
-            let _ = drain_outputs(
-                self.api,
-                self.codec,
-                files,
-                0,
-                &mut self.stats,
-                &mut self.sink,
-                "bridge",
-            )?;
+            let _ = self.drain(files, 0)?;
         };
         let rc = (self.api.queue_input)(
             self.codec,
@@ -369,22 +396,22 @@ impl<'a> Session<'a> {
         }
         let deadline = Instant::now() + EOS_WAIT;
         loop {
-            if drain_outputs(
-                self.api,
-                self.codec,
-                files,
-                100_000,
-                &mut self.stats,
-                &mut self.sink,
-                "bridge",
-            )? {
+            if self.drain(files, 100_000)? {
                 break;
             }
             if Instant::now() >= deadline {
                 return Err("decoder did not signal output EOS".into());
             }
         }
-        let images = self.sink.as_ref().map(|s| s.seen).unwrap_or(0);
+        let images = self
+            .sink
+            .as_ref()
+            .map(|s| s.seen)
+            .unwrap_or(if self.fixed.is_some() {
+                self.stats.0
+            } else {
+                0
+            });
         if self.stats.0 == 0 || images == 0 {
             return Err(format!(
                 "EOS with no decoded output: frames={} images={images}",
@@ -410,7 +437,15 @@ impl<'a> Session<'a> {
             self.codec = core::ptr::null_mut();
             self.codec_started = false;
         }
-        let images = self.sink.as_ref().map(|sink| sink.seen).unwrap_or(0);
+        let images = self
+            .sink
+            .as_ref()
+            .map(|sink| sink.seen)
+            .unwrap_or(if self.fixed.is_some() {
+                self.stats.0
+            } else {
+                0
+            });
         if let Some(sink) = self.sink.take() {
             (sink.api.reader_delete)(sink.reader);
         }
