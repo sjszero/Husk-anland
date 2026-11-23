@@ -19,7 +19,7 @@
 |---|---|---|
 | loader + path-shim | 零 ptrace，路径一次改写完成；dlopen 进来的库也覆盖 | 27 / 100 |
 | exec / PTY / 信号 / 生命周期 | 600 秒长稳、零僵尸、无重启风暴；旋转与 Surface 重建不重启会话 | 32 / 72 |
-| 页大小 | rootfs 2987 个 ELF + loader + 我们全部产物在 4K/16K/64K 静态体检全绿（含 `p_align % 页` 规则）；16K/64K 实机 UNKNOWN | 30, 122 |
+| 页大小 | rootfs 2987 个 ELF + loader + 我们全部产物在 4K/16K/64K 静态体检全绿（含 `p_align % 页` 规则）；**真 16K 内核（QEMU + RPi5 16K kernel）上原厂 glibc 全通，我们的 loader 修掉两个真 Bug（段重叠、mprotect 对齐）后仍有一处 shim 窗口写保护未解**；16K/64K 真机仍 UNKNOWN | 30, 122, 124 |
 | GPU | PanVK 列举 Mali-G77、compute、离屏 graphics、Zink surfaceless | 46 / 47 |
 | 显示 | AHB → dma-buf → SurfaceControl；3-buffer ring + 真实 SYNC_FD；10,000 帧 / 665 秒 | 53–59 / 73 |
 | 视频 | H.264 1080p30 连续 600 秒，dropped=0；VA-API 解码出真实帧 | 74–80 / 85–87 |
@@ -57,8 +57,9 @@
 
 ## 下一步（按环境完整性口径排序）
 
-1. **F：16K/64K 实机**——本机只有 4 KiB；`nr-tools check-elf` 已能静态体检，
-   需要一台 16K 设备把 `mmap`/`mprotect`/动态库加载跑一遍，没机器就写 UNKNOWN。
+1. **F：16K/64K 实机**——本机只有 4 KiB；`nr-tools check-elf` 已能静态体检。
+   已用 QEMU + Raspberry Pi 5 的 16K 内核搭出真 16K 环境（evidence 124）：原厂 glibc 全通，
+   我们自己的 loader 还有一处 shim 可写窗口的 `SEGV_ACCERR` 待定位；修完再谈 16K 真机。
 2. **F：GPU 家族适配器**——本机只验了 Mali(kbase)。Adreno(kgsl + Turnip) 与通用 DRM
    按 `docs/design/device-adapters.md` 的表结构补适配器，没设备的一律 UNKNOWN。
 3. **2.0 集成**：替换 proot 运行时，逐项删除 proot 专用补丁（用 artifacts/rollback 里的
