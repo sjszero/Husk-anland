@@ -155,9 +155,14 @@ const SYS_SETGID: usize = 144;
 // aarch64/asm-generic has no __NR_seteuid or __NR_setegid; glibc implements
 // both on top of setresuid/setresgid with -1 for the parts it keeps.
 const SYS_SETGROUPS: usize = 159;
+const SYS_GETGROUPS: usize = 158;
 const SYS_SETRESUID: usize = 147;
 const SYS_SETRESGID: usize = 149;
 const SYS_GETGID: usize = 176;
+const SYS_SETREUID: usize = 145;
+const SYS_SETREGID: usize = 143;
+const SYS_GETRESUID: usize = 148;
+const SYS_GETRESGID: usize = 150;
 const SYS_RENAMEAT: usize = 38;
 const SYS_RENAMEAT2: usize = 276;
 const SYS_FCHMOD: usize = 52;
@@ -4311,10 +4316,54 @@ unsafe fn log_id(name: &[u8], v: i64) {
     }
 }
 
+/// The identity fiction is not fixed at 0. A container session *is* a user, and
+/// every tool that shows one (`su`, `login`, `setpriv`, PAM modules, shells
+/// printing `$UID`) expresses that by calling setuid(). Pretending to be root
+/// forever means `id -un` says root inside a user's own session, and that the
+/// only way to get a user session is proot's fake `su` - which is exactly the
+/// proot-only patch we want to delete. So the fiction follows the calls, and
+/// NR_FAKE_UID / NR_FAKE_GID seed it for a launcher that starts as the user.
+static mut FAKE_UID: u32 = 0;
+static mut FAKE_GID: u32 = 0;
+static mut FAKE_ID_READY: u8 = 0;
+
+unsafe fn parse_dec(v: &[u8]) -> u32 {
+    let mut n: u64 = 0;
+    let mut any = false;
+    for &c in v {
+        if !(b'0'..=b'9').contains(&c) {
+            break;
+        }
+        any = true;
+        n = n * 10 + (c - b'0') as u64;
+        if n > u32::MAX as u64 {
+            return u32::MAX;
+        }
+    }
+    if any {
+        n as u32
+    } else {
+        0
+    }
+}
+
+unsafe fn fake_id() -> (u32, u32) {
+    if FAKE_ID_READY == 0 {
+        FAKE_ID_READY = 1;
+        if let Some(v) = env_lookup(b"NR_FAKE_UID") {
+            FAKE_UID = parse_dec(v);
+        }
+        if let Some(v) = env_lookup(b"NR_FAKE_GID") {
+            FAKE_GID = parse_dec(v);
+        }
+    }
+    (FAKE_UID, FAKE_GID)
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn getuid() -> u32 {
     if fake_root_on() {
-        return 0;
+        return fake_id().0;
     }
     syscall4(SYS_GETUID, 0, 0, 0, 0) as u32
 }
@@ -4327,7 +4376,7 @@ pub unsafe extern "C" fn geteuid() -> u32 {
 #[no_mangle]
 pub unsafe extern "C" fn getgid() -> u32 {
     if fake_root_on() {
-        return 0;
+        return fake_id().1;
     }
     syscall4(SYS_GETGID, 0, 0, 0, 0) as u32
 }
@@ -4337,6 +4386,28 @@ pub unsafe extern "C" fn getegid() -> u32 {
     getgid()
 }
 
+/// A container user has *its* groups, not the Android app's fistful
+/// (input/log/adb/sdcard_rw/net_bt/...). Those ids also make bash's and
+/// `id`'s group-name lookups print "cannot find name for group ID" noise, which
+/// LinuxHub 2.0 worked around by appending synthetic `android_gid_N` lines to
+/// /etc/group. Interposing getgroups removes the cause instead: under the fake
+/// identity the process reports exactly one group, its primary one.
+#[no_mangle]
+pub unsafe extern "C" fn getgroups(size: CInt, list: *mut u32) -> CInt {
+    if !fake_root_on() {
+        return ret_or_errno(syscall4(SYS_GETGROUPS, size as usize, list as usize, 0, 0));
+    }
+    let gid = fake_id().1;
+    if size == 0 {
+        return 1;
+    }
+    if size < 1 || list.is_null() {
+        return set_errno(22);
+    }
+    *list = gid;
+    1
+}
+
 // The other half of the same fiction: apt drops to `_apt` for downloads and back
 // to root for the install. Neither call can succeed for us (the process is
 // u0_a302 and stays u0_a302), so under NR_FAKE_ROOT they are accepted and
@@ -4344,25 +4415,45 @@ pub unsafe extern "C" fn getegid() -> u32 {
 #[no_mangle]
 pub unsafe extern "C" fn setuid(_uid: u32) -> CInt {
     log_id(b"setuid", _uid as i64);
-    if fake_root_on() { 0 } else { ret_or_errno(syscall4(SYS_SETUID, _uid as usize, 0, 0, 0)) }
+    if fake_root_on() {
+        fake_id();
+        FAKE_UID = _uid;
+        return 0;
+    }
+    ret_or_errno(syscall4(SYS_SETUID, _uid as usize, 0, 0, 0))
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn seteuid(_uid: u32) -> CInt {
     log_id(b"seteuid", _uid as i64);
-    if fake_root_on() { 0 } else { ret_or_errno(syscall4(SYS_SETRESUID, usize::MAX, _uid as usize, usize::MAX, 0)) }
+    if fake_root_on() {
+        fake_id();
+        FAKE_UID = _uid;
+        return 0;
+    }
+    ret_or_errno(syscall4(SYS_SETRESUID, usize::MAX, _uid as usize, usize::MAX, 0))
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn setgid(_gid: u32) -> CInt {
     log_id(b"setgid", _gid as i64);
-    if fake_root_on() { 0 } else { ret_or_errno(syscall4(SYS_SETGID, _gid as usize, 0, 0, 0)) }
+    if fake_root_on() {
+        fake_id();
+        FAKE_GID = _gid;
+        return 0;
+    }
+    ret_or_errno(syscall4(SYS_SETGID, _gid as usize, 0, 0, 0))
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn setegid(_gid: u32) -> CInt {
     log_id(b"setegid", _gid as i64);
-    if fake_root_on() { 0 } else { ret_or_errno(syscall4(SYS_SETRESGID, usize::MAX, _gid as usize, usize::MAX, 0)) }
+    if fake_root_on() {
+        fake_id();
+        FAKE_GID = _gid;
+        return 0;
+    }
+    ret_or_errno(syscall4(SYS_SETRESGID, usize::MAX, _gid as usize, usize::MAX, 0))
 }
 
 #[no_mangle]
@@ -4374,13 +4465,114 @@ pub unsafe extern "C" fn setgroups(_n: usize, _list: *const u32) -> CInt {
 #[no_mangle]
 pub unsafe extern "C" fn setresuid(_r: u32, _e: u32, _s: u32) -> CInt {
     log_id(b"setresuid", _r as i64);
-    if fake_root_on() { 0 } else { ret_or_errno(syscall4(SYS_SETRESUID, _r as usize, _e as usize, _s as usize, 0)) }
+    if fake_root_on() {
+        fake_id();
+        // -(uid_t)1 means "leave this one alone", as setresuid(2) says.
+        let v = if _r != u32::MAX {
+            _r
+        } else if _e != u32::MAX {
+            _e
+        } else {
+            _s
+        };
+        if v != u32::MAX {
+            FAKE_UID = v;
+        }
+        return 0;
+    }
+    ret_or_errno(syscall4(SYS_SETRESUID, _r as usize, _e as usize, _s as usize, 0))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn setreuid(_r: u32, _e: u32) -> CInt {
+    log_id(b"setreuid", _r as i64);
+    if fake_root_on() {
+        fake_id();
+        let v = if _r != u32::MAX {
+            _r
+        } else if _e != u32::MAX {
+            _e
+        } else {
+            FAKE_UID
+        };
+        FAKE_UID = v;
+        return 0;
+    }
+    ret_or_errno(syscall4(SYS_SETREUID, _r as usize, _e as usize, 0, 0))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn setregid(_r: u32, _e: u32) -> CInt {
+    log_id(b"setregid", _r as i64);
+    if fake_root_on() {
+        fake_id();
+        let v = if _r != u32::MAX {
+            _r
+        } else if _e != u32::MAX {
+            _e
+        } else {
+            FAKE_GID
+        };
+        FAKE_GID = v;
+        return 0;
+    }
+    ret_or_errno(syscall4(SYS_SETREGID, _r as usize, _e as usize, 0, 0))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn getresuid(r: *mut u32, e: *mut u32, s: *mut u32) -> CInt {
+    if fake_root_on() {
+        let id = fake_id();
+        if !r.is_null() {
+            *r = id.0;
+        }
+        if !e.is_null() {
+            *e = id.0;
+        }
+        if !s.is_null() {
+            *s = id.0;
+        }
+        return 0;
+    }
+    ret_or_errno(syscall4(SYS_GETRESUID, r as usize, e as usize, s as usize, 0))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn getresgid(r: *mut u32, e: *mut u32, s: *mut u32) -> CInt {
+    if fake_root_on() {
+        let id = fake_id();
+        if !r.is_null() {
+            *r = id.1;
+        }
+        if !e.is_null() {
+            *e = id.1;
+        }
+        if !s.is_null() {
+            *s = id.1;
+        }
+        return 0;
+    }
+    ret_or_errno(syscall4(SYS_GETRESGID, r as usize, e as usize, s as usize, 0))
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn setresgid(_r: u32, _e: u32, _s: u32) -> CInt {
     log_id(b"setresgid", _r as i64);
-    if fake_root_on() { 0 } else { ret_or_errno(syscall4(SYS_SETRESGID, _r as usize, _e as usize, _s as usize, 0)) }
+    if fake_root_on() {
+        fake_id();
+        let v = if _r != u32::MAX {
+            _r
+        } else if _e != u32::MAX {
+            _e
+        } else {
+            _s
+        };
+        if v != u32::MAX {
+            FAKE_GID = v;
+        }
+        return 0;
+    }
+    ret_or_errno(syscall4(SYS_SETRESGID, _r as usize, _e as usize, _s as usize, 0))
 }
 
 // mknod(2) had no translation at all, so `mkfifo /tmp/x` asked the kernel for

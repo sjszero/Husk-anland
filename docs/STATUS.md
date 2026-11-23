@@ -28,7 +28,8 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径>   <loader>
 1. 非 Mali GPU 家族**适配器**（Adreno kgsl+Turnip / 通用 DRM）：探测表与降级已落地（evidence 127），
    适配器本身等有设备再写——没设备只能出未验证代码；
 2. 传感器 / GPS / USB / 蓝牙 / NFC / 指纹——未开始（先读 `husk-notes/prior-art/sensor-gps-*.md`、`platform-peripherals-*.md`）；
-3. 2.0 集成：用 Husk 替掉 proot，逐项删 proot 专用补丁（对照 `artifacts/rollback/LinuxHub-Myth-Prometheus.apk`）；
+3. 2.0 集成：映射表与替代启动器已落地（docs/design/linuxhub-2.0-swap.md，evidence 129），
+   还剩两件：① `su`/PAM 的 `PAM_SYSTEM_ERR` 要定位（现在靠直接以用户身份启动绕开）；② 把 2.0 的 Kotlin 侧真正接上；
 4. 交付形态：一条"放进终端（Termux 类）即可安装/启动"的路径（现在只有 adb 推文件 + gexec.sh）。
 
 **参考笔记不进仓库**：`/Users/l/Documents/Codex/2026-08-10/husk-notes/prior-art/`（必读 `references.md`）。
@@ -53,6 +54,7 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径>   <loader>
 | GPU | PanVK 列举 Mali-G77、compute、离屏 graphics、Zink surfaceless | 46 / 47 |
 | 设备族探测与降级 | `path-shim/src/plan.rs`：按节点定族（mali0 / kgsl-3d0 / renderD128 / 都没有），只有 Mali 才遮蔽 `/dev/dri`，有真节点则透传，其它家族拒绝并输出 `nr-plan: … reason=…`；`NR_FORCE_SOFTWARE_GPU` 实测降到 llvmpipe 且不崩。Adreno 与真 DRM 节点仍 UNKNOWN（无设备） | 127 |
 | 外设族探测 | `gpu-probe periph`：传感器/GPS/USB/蓝牙/NFC/指纹/输入/i2c/spi 逐个节点实测，`EACCES`(13) 与 `ENOENT`(2) 分开记录；不造假节点、进程退出码 0。本机是否真有传感器仍 UNKNOWN（EACCES 藏住了） | 128 |
+| 用户身份与 2.0 swap | `NR_FAKE_UID/GID` + `setuid/setresuid/setreuid/getresuid` 跟随 + `getgroups` 只报主组：`id` 报 `uid=1000(hu1)`，`su` 这一步可以删；`tools/guest/husk-session.sh` 是 `prootCommand()` 的替代契约（`env -i` 必须带 `NR_ROOTFS/NR_LD`）。**`su`/PAM 仍报 `PAM_SYSTEM_ERR`（UNKNOWN，已绕开）** | 129 |
 | 显示 | AHB → dma-buf → SurfaceControl；3-buffer ring + 真实 SYNC_FD；10,000 帧 / 665 秒 | 53–59 / 73 |
 | 视频 | H.264 1080p30 连续 600 秒，dropped=0；VA-API 解码出真实帧 | 74–80 / 85–87 |
 | 音频输出 | PulseAudio → Rust relay → AAudio，610 秒连续会话 | 60 / 62 / 63 |
