@@ -781,3 +781,19 @@ O S C 现在也认 `ESC \` 结束符（否则会一直吞到下一个 BEL）。
 * 结果：`v4l2src ! videoconvert ! fakesink` 前后摄都干净 EOS（~10 fps）；
   `v4l2-test`（loader shim 侧）回归通过。
 * 未做：JPEG 拍照、30 秒录像、权限拒绝降级。
+
+## 2026-11-23 15:30 相机：拍照 + 30 秒录像（evidence 93）
+
+* 新增 `app-rs/src/encoder.rs`：MediaCodec 编码桥（`run/husk/encoder.sock`，
+  `INFO/OPEN/FRAME/STOP`，NV12 上行、Annex-B AU 下行）。后端实测为
+  `c2.mtk.avc.encoder`（平台日志 `Created component [c2.mtk.avc.encoder]`）。
+* 新增 `runtime/crates/husk-record`：guest 侧 `/dev/videoN` → 编码桥 → 文件；
+  `mp4.rs` 自带 MP4 封装（因为 GStreamer 的 filesrc/filesink 走 libc 内部 open，
+  在 guest 里必然 ENOENT —— 即 libc-interpose 缺口，容器活不该被它卡住）。
+* FACT：拍照 1920x1080 JPEG 有效（SOI/EOI + SOF0，见 evidence 93 图）。
+* FACT：30 秒录像前后摄各一次，890 帧 / 60 个 IDR / 30.07 s；宿主机 ffprobe
+  报 h264 High 640x480、`ffmpeg -f null` 全解码零错误。
+* 三个坑：`dlsym` 要用库句柄不是 codec 句柄；`v4l2_buffer.bytesused` 在偏移 8；
+  MediaCodec 把 SPS/PPS 分成两个 CSD buffer（"只收第一个 CSD"会丢掉 PPS，
+  出来的是能解析但无法解码的流）。
+* 未做：权限拒绝降级。

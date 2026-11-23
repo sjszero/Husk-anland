@@ -16,6 +16,7 @@
 mod ahb;
 mod audio;
 mod camera;
+mod encoder;
 mod caps;
 mod gl;
 mod surface;
@@ -679,6 +680,7 @@ pub unsafe extern "C" fn ANativeActivity_onCreate(
     ahb::spawn_once();
     audio::start_once();
     camera::start_once();
+    encoder::start_once();
     video::start_once();
     caps::start_once();
     // In snitch mode the tracee's ptrace stops are reaped by the spy thread.

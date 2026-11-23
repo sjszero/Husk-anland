@@ -70,6 +70,13 @@ name = "guest-bench"
 version = "0.2.0"
 
 [[package]]
+name = "husk-record"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "husk-va-driver"
 version = "0.1.0"
 dependencies = [

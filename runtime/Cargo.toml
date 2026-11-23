@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/husk-record",
     "crates/audio-relay",
     "crates/audio-setup",
     "crates/audio-probe",
