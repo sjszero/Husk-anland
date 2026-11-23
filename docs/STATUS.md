@@ -93,8 +93,11 @@ INFERENCE：瓶颈是一次进一次出的取帧往返（≈55 ms/帧），不�
 
 **FACT（并发会话已修）**：一个进程只允许一个解码会话。修复前第二个 `OPEN` 会"成功"然后
 永远零帧（`HUSK_VA_FRAME_NONE`），并把 presenter/ebridge 单例搅乱，要等 30 秒读超时才恢复；
-现在直接 `OPEN_ERROR another video session is active`，accept 也改成每连接一个线程
-（否则第二个连接只能拿到 `EAGAIN`）。
+现在直接 `OPEN_ERROR another video session is active`，accept 改成每连接一个线程。
+（更正：`connect` 的 `EAGAIN` 不能当成"backlog 满"的证据——实测 app 睡眠冻结时也会一直是
+`Resource temporarily unavailable`，先查 `dumpsys power | grep mWakefulness`。）
+租约改成带活动时间戳、CLOSE/OPEN_FAIL 时释放、静默 45 秒后可被新客户端接管，
+避免一个卡住的连接把后面所有 `OPEN` 永久拒掉（实测踩到过）。
 
 **两个坑**：`HUSK_VA_TRACE=0` 也算开 trace（`var_os().is_some()`），而 `HUSK_VA_FRAME` 是
 trace 门控的——关掉 trace 后"一条帧日志都没有"不等于没出帧；现在有
