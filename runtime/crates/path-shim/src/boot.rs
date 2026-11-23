@@ -852,6 +852,7 @@ pub unsafe extern "C" fn nr_boot(
     let mut objects = 0;
     let mut patched = 0;
     let mut patch_failures = 0;
+    let mut slot_targets = 0;
     while l != 0 && guard < 4096 {
         let l_addr = rd8(l + L_ADDR);
         let l_ld = rd8(l + L_LD) as usize;
@@ -874,6 +875,7 @@ pub unsafe extern "C" fn nr_boot(
         }
         patched += n_here;
         patch_failures += failed_here;
+        slot_targets += fill_slot_page(l_addr, base, interp);
         objects += 1;
         l = rd8(l + L_NEXT) as usize;
         guard += 1;
@@ -933,6 +935,8 @@ pub unsafe extern "C" fn nr_boot(
         say_hex(patched);
         say(&[b" bodies="]);
         say_hex(libc_bodies);
+        say(&[b" slot_targets="]);
+        say_hex(slot_targets);
         say(&[b"\n"]);
     }
     0
@@ -1210,6 +1214,94 @@ unsafe fn flush_icache(at: usize, len: usize) {
         p += iline;
     }
     core::arch::asm!("dsb ish", "isb", options(nostack));
+}
+
+/// `nr-tools libc-interpose` bakes a dispatcher into libc's own path entry
+/// points: each one loads a target out of a table and jumps to it, falling back
+/// to a copy of its original instructions while the entry is still zero. The
+/// GOT rewrite above only binds calls that pass through a PLT, so this is what
+/// covers the c library calling *itself* -- the resolver reading
+/// `/etc/resolv.conf`, `_IO_file_open` reading `/etc/passwd`, the locale loader.
+///
+/// Returns how many entries were filled.
+/// `NR_SLOTS_N=<n>` fills only the first n entries, so a bisect can point at
+/// the one redirect that breaks a program. Unset means "all".
+unsafe fn slots_limit() -> usize {
+    let key = b"NR_SLOTS_N=";
+    let env = ENVP;
+    if env == 0 {
+        return usize::MAX;
+    }
+    let mut i = 0;
+    while i < 512 {
+        let e = rd8(env + i * 8) as usize;
+        if e == 0 {
+            break;
+        }
+        if mem_eq(e, key.as_ptr() as usize, key.len()) {
+            let mut v = 0usize;
+            let mut j = key.len();
+            while rd1(e + j) >= b'0' && rd1(e + j) <= b'9' {
+                v = v * 10 + (rd1(e + j) - b'0') as usize;
+                j += 1;
+            }
+            return v;
+        }
+        i += 1;
+    }
+    usize::MAX
+}
+
+unsafe fn fill_slot_page(l_addr: u64, base: usize, interp: usize) -> usize {
+    const SLOT_MAGIC: [u8; 12] = *b"HUSK-SLOT-1\0";
+    const SLOT_HDR: usize = 24;
+    const SLOT_STRIDE: usize = 48;
+    let eh = l_addr as usize;
+    if eh == 0 {
+        return 0;
+    }
+    let phoff = rd8(eh + 0x20) as usize;
+    let phnum = rd2(eh + 0x38) as usize;
+    if phnum == 0 || phnum > 64 {
+        return 0;
+    }
+    let mut i = 0;
+    while i < phnum {
+        let p = eh + phoff + i * 56;
+        if rd4(p) == PT_LOAD {
+            let page = eh + rd8(p + 16) as usize;
+            if mem_eq(page, SLOT_MAGIC.as_ptr() as usize, SLOT_MAGIC.len()) {
+                let count = rd4(page + 12) as usize;
+                let stride = rd4(page + 16) as usize;
+                if stride != SLOT_STRIDE || count > 256 {
+                    return 0;
+                }
+                let mut filled = 0;
+                let limit = slots_limit();
+                let mut k = 0;
+                while k < count && k < limit {
+                    let e = page + SLOT_HDR + k * stride;
+                    let mut nl = 0;
+                    while nl < 32 && rd1(e + nl) != 0 {
+                        nl += 1;
+                    }
+                    if nl > 0 {
+                        let target = self_lookup(base, interp, e, nl);
+                        if target != 0 {
+                            // The page is part of a writable PT_LOAD by
+                            // construction, so no mprotect is involved.
+                            wr8(e + 32, target);
+                            filled += 1;
+                        }
+                    }
+                    k += 1;
+                }
+                return filled;
+            }
+        }
+        i += 1;
+    }
+    0
 }
 
 /// Walk the link map for libc.so.6 and redirect its path entry points.

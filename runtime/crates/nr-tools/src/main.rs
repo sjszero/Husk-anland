@@ -14,6 +14,7 @@
 //! Why a scan and not an offset table: see the plan (docs/design/runtime.md).
 //! Every expectation below is an assertion; a different glibc must fail loudly.
 
+mod libc_slots;
 mod provision;
 mod rootfs;
 
@@ -139,6 +140,15 @@ impl Elf {
             }
         }
         die(format!("{vaddr:#x} is not file-backed"))
+    }
+
+    fn try_vaddr_to_off(&self, vaddr: u64) -> Option<usize> {
+        for p in &self.phdrs {
+            if p.typ == PT_LOAD && p.vaddr <= vaddr && vaddr < p.vaddr + p.filesz {
+                return Some((p.off + (vaddr - p.vaddr)) as usize);
+            }
+        }
+        None
     }
 
     fn exec_ranges(&self) -> Vec<(u64, u64)> {
@@ -1107,7 +1117,7 @@ fn walk_elf_candidates(p: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(cmd) = args.first() else {
-        eprintln!("usage: nr-tools {{scan-syscalls|check-elf|embed|provision|rootfs}} ...");
+        eprintln!("usage: nr-tools {{scan-syscalls|check-elf|embed|libc-interpose|provision|rootfs}} ...");
         return ExitCode::from(2);
     };
     match cmd.as_str() {
@@ -1122,6 +1132,10 @@ fn main() -> ExitCode {
         }
         "rootfs" => {
             rootfs::main(&args[1..]);
+            ExitCode::SUCCESS
+        }
+        "libc-interpose" => {
+            libc_slots::main(&args[1..]);
             ExitCode::SUCCESS
         }
         "embed" => {

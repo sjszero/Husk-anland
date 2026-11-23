@@ -1142,6 +1142,30 @@ pub unsafe extern "C" fn open64(path: *const CChar, flags: CInt, mode: CInt) -> 
     openat(AT_FDCWD, path, flags, mode)
 }
 
+// The no-cancellation spelling. libc's own innards (_IO_file_open, the locale
+// loader, gconv) call this one, and `nr-tools libc-interpose` points that entry
+// here so those calls are translated too. It is not a cancellation point, which
+// is what ours already is: no Rust code runs between the check and the syscall.
+#[no_mangle]
+pub unsafe extern "C" fn __open(path: *const CChar, flags: CInt, mode: CInt) -> CInt {
+    openat(AT_FDCWD, path, flags, mode)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __open64(path: *const CChar, flags: CInt, mode: CInt) -> CInt {
+    openat(AT_FDCWD, path, flags, mode)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __open_nocancel(path: *const CChar, flags: CInt, mode: CInt) -> CInt {
+    openat(AT_FDCWD, path, flags, mode)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __open64_nocancel(path: *const CChar, flags: CInt, mode: CInt) -> CInt {
+    openat(AT_FDCWD, path, flags, mode)
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt) -> CInt {
     if path.is_null() {
