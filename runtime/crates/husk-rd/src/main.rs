@@ -90,6 +90,25 @@ struct Gio {
     v_new_string: unsafe extern "C" fn(*const c_char) -> GV,
     v_new_tuple: unsafe extern "C" fn(*const GV, usize) -> GV,
     v_child: unsafe extern "C" fn(GV, usize) -> GV,
+    v_new_array: unsafe extern "C" fn(*const c_void, *const GV, usize) -> GV,
+    v_new_dict_entry: unsafe extern "C" fn(GV, GV) -> GV,
+    v_get_uint32: unsafe extern "C" fn(GV) -> c_uint,
+    v_new_variant: unsafe extern "C" fn(GV) -> GV,
+    v_type_new: unsafe extern "C" fn(*const c_char) -> *mut c_void,
+    sig_subscribe: unsafe extern "C" fn(
+        Conn,
+        *const c_char,
+        *const c_char,
+        *const c_char,
+        *const c_char,
+        *const c_char,
+        c_uint,
+        unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char, *const c_char, *const c_char, GV, *mut c_void),
+        *mut c_void,
+        *mut c_void,
+    ) -> c_uint,
+    main_context_default: unsafe extern "C" fn() -> *mut c_void,
+    main_context_iteration: unsafe extern "C" fn(*mut c_void, c_int) -> c_int,
     v_get_string: unsafe extern "C" fn(GV, *mut usize) -> *const c_char,
     v_unref: unsafe extern "C" fn(GV),
     obj_unref: unsafe extern "C" fn(*mut c_void),
@@ -108,7 +127,7 @@ impl Gio {
                 std::process::exit(3);
             }
         };
-        Gio {
+        let gio = Gio {
             bus_get_sync: fp!(dl, "g_bus_get_sync", unsafe extern "C" fn(c_uint, *mut c_void, *mut *mut c_void) -> Conn),
             call_sync: fp!(dl, "g_dbus_connection_call_sync", unsafe extern "C" fn(Conn, *const c_char, *const c_char, *const c_char, *const c_char, GV, *const c_char, c_uint, c_int, *mut c_void, *mut *mut c_void) -> GV),
             v_new_uint32: fp!(dl, "g_variant_new_uint32", unsafe extern "C" fn(c_uint) -> GV),
@@ -118,11 +137,25 @@ impl Gio {
             v_new_string: fp!(dl, "g_variant_new_string", unsafe extern "C" fn(*const c_char) -> GV),
             v_new_tuple: fp!(dl, "g_variant_new_tuple", unsafe extern "C" fn(*const GV, usize) -> GV),
             v_child: fp!(dl, "g_variant_get_child_value", unsafe extern "C" fn(GV, usize) -> GV),
+            v_new_array: fp!(dl, "g_variant_new_array", unsafe extern "C" fn(*const c_void, *const GV, usize) -> GV),
+            v_new_dict_entry: fp!(dl, "g_variant_new_dict_entry", unsafe extern "C" fn(GV, GV) -> GV),
+            v_get_uint32: fp!(dl, "g_variant_get_uint32", unsafe extern "C" fn(GV) -> c_uint),
+            v_new_variant: fp!(dl, "g_variant_new_variant", unsafe extern "C" fn(GV) -> GV),
+            v_type_new: fp!(dl, "g_variant_type_new", unsafe extern "C" fn(*const c_char) -> *mut c_void),
+            sig_subscribe: fp!(dl, "g_dbus_connection_signal_subscribe", unsafe extern "C" fn(Conn, *const c_char, *const c_char, *const c_char, *const c_char, *const c_char, c_uint, unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char, *const c_char, *const c_char, GV, *mut c_void), *mut c_void, *mut c_void) -> c_uint),
+            main_context_default: fp!(dl, "g_main_context_default", unsafe extern "C" fn() -> *mut c_void),
+            main_context_iteration: fp!(dl, "g_main_context_iteration", unsafe extern "C" fn(*mut c_void, c_int) -> c_int),
             v_get_string: fp!(dl, "g_variant_get_string", unsafe extern "C" fn(GV, *mut usize) -> *const c_char),
             v_unref: fp!(dl, "g_variant_unref", unsafe extern "C" fn(GV)),
             obj_unref: fp!(dl, "g_object_unref", unsafe extern "C" fn(*mut c_void)),
             err_free: fp!(dl, "g_error_free", unsafe extern "C" fn(*mut c_void)),
-        }
+        };
+        let _ = FNS.set(Fns {
+            v_child: gio.v_child,
+            v_get_uint32: gio.v_get_uint32,
+            v_unref: gio.v_unref,
+        });
+        gio
     }
 
     fn bus(&self) -> Conn {
@@ -221,6 +254,7 @@ const SC: &str = "org.gnome.Mutter.ScreenCast";
 const SC_PATH: &str = "/org/gnome/Mutter/ScreenCast";
 const SC_IFACE: &str = "org.gnome.Mutter.ScreenCast";
 const SC_SESSION_IFACE: &str = "org.gnome.Mutter.ScreenCast.Session";
+const SC_STREAM_IFACE: &str = "org.gnome.Mutter.ScreenCast.Stream";
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -233,6 +267,7 @@ fn main() {
         "selftest" => selftest(&gio),
         "inject" => inject(&gio, &args[2..]),
         "probe" => probe(&gio),
+        "sc" => screencast(&gio, &args[2..]),
         "rd" => bridge(&gio, &args[2..]),
         other => {
             eprintln!("husk-rd: unknown command {other}");
@@ -335,6 +370,122 @@ fn inject(gio: &Gio, a: &[String]) {
         }
         Err(e) => println!("husk-rd|inject|{kind}|failed|{e}"),
     }
+    unsafe { (gio.obj_unref)(bus) };
+}
+
+struct Fns {
+    v_child: unsafe extern "C" fn(GV, usize) -> GV,
+    v_get_uint32: unsafe extern "C" fn(GV) -> c_uint,
+    v_unref: unsafe extern "C" fn(GV),
+}
+static FNS: std::sync::OnceLock<Fns> = std::sync::OnceLock::new();
+
+unsafe extern "C" fn on_signal(
+    _conn: *mut c_void,
+    _sender: *const c_char,
+    object_path: *const c_char,
+    _iface: *const c_char,
+    member: *const c_char,
+    params: GV,
+    _ud: *mut c_void,
+) {
+    let path = if object_path.is_null() { String::new() } else { CStr::from_ptr(object_path).to_string_lossy().into_owned() };
+    let mem = if member.is_null() { String::new() } else { CStr::from_ptr(member).to_string_lossy().into_owned() };
+    // PipeWireStreamAdded(u node_id): read child 0 as uint32 through the
+    // function table is not available in this plain fn, so decode via the
+    // statically stored fn pointers captured at load time.
+    let node = match FNS.get() {
+        Some(f) => unsafe {
+            let c = (f.v_child)(params, 0);
+            let n = (f.v_get_uint32)(c);
+            (f.v_unref)(c);
+            Some(n)
+        },
+        None => None,
+    };
+    println!("husk-rd|signal|{mem}|{path}|node={node:?}");
+    std::io::Write::flush(&mut std::io::stdout()).ok();
+}
+
+/// Start a virtual monitor stream and keep the session alive.
+fn screencast(gio: &Gio, a: &[String]) {
+    let secs: u64 = a.first().and_then(|v| v.parse().ok()).unwrap_or(30);
+    let bus = gio.bus();
+
+    // CreateSession with disable-animations = true
+    let key = unsafe { (gio.v_new_string)(CString::new("disable-animations").unwrap().as_ptr()) };
+    let val = unsafe { (gio.v_new_variant)((gio.v_new_bool)(1)) };
+    let entry = unsafe { (gio.v_new_dict_entry)(key, val) };
+    // g_variant_new_array takes the *child* type: an entry type, not a{sv}.
+    let at = unsafe { (gio.v_type_new)(CString::new("{sv}").unwrap().as_ptr()) };
+    let dict = unsafe { (gio.v_new_array)(at, &entry, 1) };
+    let r = match gio.call(bus, SC, SC_PATH, SC_IFACE, "CreateSession", &[dict]) {
+        Ok(r) => r,
+        Err(e) => {
+            println!("husk-rd|sc|create-session-failed|{e}");
+            return;
+        }
+    };
+    let ses = gio.reply_path(r).unwrap_or_default();
+    unsafe { (gio.v_unref)(r) };
+    println!("husk-rd|sc|session|{ses}");
+
+    // RecordVirtual: cursor-mode=2 (metadata), is-platform=true
+    let k1 = unsafe { (gio.v_new_string)(CString::new("cursor-mode").unwrap().as_ptr()) };
+    let v1 = unsafe { (gio.v_new_variant)((gio.v_new_uint32)(2)) };
+    let e1 = unsafe { (gio.v_new_dict_entry)(k1, v1) };
+    let k2 = unsafe { (gio.v_new_string)(CString::new("is-platform").unwrap().as_ptr()) };
+    let v2 = unsafe { (gio.v_new_variant)((gio.v_new_bool)(1)) };
+    let e2 = unsafe { (gio.v_new_dict_entry)(k2, v2) };
+    let dict2 = unsafe { (gio.v_new_array)(at, [e1, e2].as_ptr(), 2) };
+    let r = match gio.call(bus, SC, &ses, SC_SESSION_IFACE, "RecordVirtual", &[dict2]) {
+        Ok(r) => r,
+        Err(e) => {
+            println!("husk-rd|sc|record-virtual-failed|{e}");
+            return;
+        }
+    };
+    let stream = gio.reply_path(r).unwrap_or_default();
+    unsafe { (gio.v_unref)(r) };
+    println!("husk-rd|sc|stream|{stream}");
+
+    // subscribe before Start so we cannot miss the signal
+    let iface = CString::new("org.gnome.Mutter.ScreenCast.Stream").unwrap();
+    let member = CString::new("PipeWireStreamAdded").unwrap();
+    let opath = CString::new(stream.clone()).unwrap();
+    unsafe {
+        (gio.sig_subscribe)(
+            bus,
+            std::ptr::null(),
+            iface.as_ptr(),
+            member.as_ptr(),
+            opath.as_ptr(),
+            std::ptr::null(),
+            0,
+            on_signal,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        );
+    }
+
+    // Session.Start() also starts its streams, so the PipeWire signal arrives
+    // during this call -- subscribe before it. Stream.Start() after that only
+    // returns "Stream already started".
+    if let Err(e) = gio.call(bus, SC, &ses, SC_SESSION_IFACE, "Start", &[]) {
+        println!("husk-rd|sc|session-start-failed|{e}");
+        return;
+    }
+    println!("husk-rd|sc|started");
+
+    // hold the session; dispatch D-Bus signals in the default main context
+    let ctx = unsafe { (gio.main_context_default)() };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+    while std::time::Instant::now() < deadline {
+        unsafe { (gio.main_context_iteration)(ctx, 0) };
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let _ = gio.call(bus, SC, &ses, SC_SESSION_IFACE, "Stop", &[]);
+    println!("husk-rd|sc|stopped");
     unsafe { (gio.obj_unref)(bus) };
 }
 

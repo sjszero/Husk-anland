@@ -3,6 +3,17 @@
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
 
+## 最新（2026-11-23 17:40）
+
+显示链路推进到 PipeWire（evidence 99）：`husk-rd sc` 能把 mutter 的虚拟显示器起成
+`Stream/Output/Video` 节点（BGRx，state=running），手动 `pw-link` 能建立活动连接。
+帧还没到消费者：一是没有 session manager（wireplumber 0.4 在本机因 logind 依赖退出 70），
+二是没有任何合成器客户端能完整起来（GTK 卡在 gdk-pixbuf loader）。
+
+**最重要的结构性问题**：loader 的 path-shim 只覆盖启动时已加载的对象，`dlopen` 进来的库
+（xkbcommon / pixbuf loaders / libspa / gst 插件）里的 `open()` 仍走宿主路径。这挡住的不止
+是显示，GTK/GNOME Shell 都起不来。下一步就做"覆盖 dlopen 的路径层"。
+
 ## 最新（2026-11-23 17:00）
 
 **输入注入打通到合成器**（evidence 98）：`adb input` → app 手势 → `input.sock` →
