@@ -177,6 +177,12 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
 - Chromium / GStreamer 通过 guest 内 VA-API 兼容层共用同一后端；
 - 必须证明实际 decoder 名、1080p30 H.264/HEVC 长稳、硬解 vs 软解 CPU 对比、AV 同步 <40ms。
 
+evidence 80 已完成其中 H.264 的 10 分钟门禁：真实 `c2.mtk.avc.decoder` 输入/输出各
+18,000 帧、`dropped=0`，app 提交/完成/上屏 18,000/18,000/18,000，`present_fail=0`，
+实际耗时 600.097 秒。测试源是 `testsrc2` 合成彩条，不是产品视频；它只用于可重复的像素、
+平面和时序校验。当前还不能写成视频完成：HEVC/VP9/AV1、VA-API/GStreamer/Chromium、
+AV 同步和硬软解 CPU 对比仍未做。
+
 ### 音频
 
 - guest 内 `/dev/snd` 不可用；app 进程内用 AAudio 是当前唯一可行方向。

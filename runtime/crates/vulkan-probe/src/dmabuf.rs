@@ -4358,6 +4358,7 @@ pub unsafe fn run_video_many(
         format!("CLOSED|completed={completed}/{frames}"),
     );
     let elapsed = started.elapsed();
+    let dropped = frames.saturating_sub(completed);
     let fps = if elapsed.is_zero() {
         0.0
     } else {
@@ -4367,7 +4368,7 @@ pub unsafe fn run_video_many(
         "video-ahb",
         "THROUGHPUT",
         format!(
-            "completed={completed}|elapsed_ms={}|fps={fps:.2}|verify_every={verify_every}|slow_gt_33ms={slow_frames}|max_frame_ms={max_frame_ms}",
+            "expected={frames}|completed={completed}|dropped={dropped}|elapsed_ms={}|fps={fps:.2}|verify_every={verify_every}|slow_gt_33ms={slow_frames}|max_frame_ms={max_frame_ms}",
             elapsed.as_millis(),
         ),
     );
@@ -4376,7 +4377,7 @@ pub unsafe fn run_video_many(
         "video-ahb",
         "SUMMARY",
         format!(
-            "{}|completed={completed}/{frames}",
+            "{}|expected={frames}|completed={completed}/{frames}|dropped={dropped}",
             if ok { "PASS" } else { "FAIL" }
         ),
     );

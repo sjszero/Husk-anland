@@ -1,5 +1,18 @@
 # 变更记录
 
+## 2026-11-23 — 1080p30 H.264 连续 10 分钟门禁通过
+
+- **evidence 80**：6 个固定 YV12 AHB slot 经持久 PanVK converter 每帧写回 RGBA8 AHB，
+  再由 app SurfaceControl 上屏。真实 `c2.mtk.avc.decoder` 完成 18,000/18,000 帧，
+  `dropped=0`；app `sent/completed/presented=18,000/18,000/18,000`、`present_fail=0`，
+  实际耗时 600.097 秒，guest 统计 30.03 fps。9:59 截图仍显示 `testsrc2` 彩条和时间码。
+- 新增显式 `expected/completed/dropped` 计数，并把 app 汇总改成只有
+  `completed == sent == presented` 且 `present_fail=0` 才 PASS。
+- 资源对照：RSS 峰值 205,616 KiB，长测后稳定约 203,300–204,020 KiB；第二次 150 帧会话后
+  fd=136、线程=44，没有逐会话增长。仍未回到启动前精确基线，原因标为 UNKNOWN。
+- 测试仍是 MediaCodec ByteBuffer → CPU YUV 拷贝，不是 decoder→GPU 零拷贝；HEVC/VP9/AV1、
+  GStreamer/VA-API/Chromium、AV 同步和硬软解 CPU 对比仍未完成。
+
 ## 2026-11-23 — 单连接持久 AHB 交接 150/150
 
 - **evidence 76**：app 与 guest 把 evidence 75 的“每帧重连”改成整场解码会话只建立一条

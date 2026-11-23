@@ -3,7 +3,7 @@
 > 本文件是目标的**权威规格**。会话里的 goal 对象不可编辑，重建 goal 时以本文件为准；
 > 改目标就改这里，再把下面的「粘贴块」整段贴进去。纯文本版：`docs/goal-objective.txt`。
 
-最后更新：2026-11-23（v44：evidence 79 已把真实 AVC 的 YV12→RGBA8 转换改为三个固定 slot 的持久 converter，逐帧写回 app 分配的 RGBA8 AHB 并经 SurfaceControl 上屏；150/150 帧、三个 slot 各 50/50、app 150/150 PRESENT，截图确认彩条显示。仍是 CPU I420→YV12 拷贝，guest WSI、VA-API/GStreamer/Chromium、HEVC/VP9/AV1、AV 同步、10 分钟门禁和 2.0 替换仍未完成）
+最后更新：2026-11-23（v45：evidence 80 完成 1080p30 H.264 连续 10 分钟门禁。真实 c2.mtk.avc.decoder 输入/输出各 18,000 帧，显式 dropped=0；app sent/completed/presented 均为 18,000，present_fail=0，耗时 600.097 秒，截图在 9:59 仍正常出画。当前仍未完成 HEVC 10 分钟、decoder→GPU 零拷贝、GStreamer/VA-API/Chromium、AV 同步、硬软解对比和 2.0 替换）
 
 ---
 
@@ -40,7 +40,7 @@
   验证 `connect(2)` 翻译。evidence 71 已把 app 内 MediaCodec 输出 AHB 直接提交到持久
   `husk-video` SurfaceControl 子层：150 帧实时播放，SurfaceFlinger `completed/released`
   均 150/150，连续两次会话约 5.1 秒且截图时间码/运动位置不同。当前 v1 仍只支持单条 AVC
-  轨；RGBA 测试 AHB 的 `MEM_IMPORT` / sticky / PanVK GPU 写回已由 evidence 73 打通；evidence 74 进一步把真实 MediaCodec 三平面 YUV AHB 导入 guest PanVK，Y/plane1/plane2 三个 GPU 回读哈希均与 app 侧一致；evidence 75 把这条路径推进到 150/150 帧逐帧交接；evidence 76 又把整场会话改成一条持久 Unix socket，最多保留 3 个在途 AImage，并在 CLOSE 前排空尾部帧，150/150 全部 ACK/RELEASE。evidence 77 进一步把 ByteBuffer 输出改为应用预分配 3 个固定 YV12 AHB 的 ring，150/150 帧、3 次 import、147 次 reuse 通过；evidence 78 已把其中一个真实 YV12 dma-buf 作为 PanVK external storage buffer 导入，compute 转 RGBA8 后第一帧 9/9 采样点 CPU/GPU 逐位一致。evidence 79 已把转换器改为三个固定 slot 的持久对象，逐帧把 YV12 转成 RGBA8 并写回 app 分配的 output AHB，再经 SurfaceControl 上屏：150/150 帧通过，app 150/150 PRESENT，截图确认彩条真实显示，3 次 import、147 次 reuse，会话后 fd/线程回到基线。但仍是 CPU I420→YV12 拷贝，不是 decoder→GPU 零拷贝；guest WSI、VA-API/GStreamer/Chromium、HEVC/VP9/AV1、AV 同步和 10 分钟实时播放仍未完成，不能把 app 侧上屏写成整条视频验收完成。
+  轨；RGBA 测试 AHB 的 `MEM_IMPORT` / sticky / PanVK GPU 写回已由 evidence 73 打通；evidence 74 进一步把真实 MediaCodec 三平面 YUV AHB 导入 guest PanVK，Y/plane1/plane2 三个 GPU 回读哈希均与 app 侧一致；evidence 75 把这条路径推进到 150/150 帧逐帧交接；evidence 76 又把整场会话改成一条持久 Unix socket，最多保留 3 个在途 AImage，并在 CLOSE 前排空尾部帧，150/150 全部 ACK/RELEASE。evidence 77 进一步把 ByteBuffer 输出改为应用预分配 3 个固定 YV12 AHB 的 ring，150/150 帧、3 次 import、147 次 reuse 通过；evidence 78 已把其中一个真实 YV12 dma-buf 作为 PanVK external storage buffer 导入，compute 转 RGBA8 后第一帧 9/9 采样点 CPU/GPU 逐位一致。evidence 79 已把转换器改为固定 slot 的持久对象并实际上屏；evidence 80 用 6 个固定 slot、600 秒合成 AVC 源完成 1080p30 长门禁：真实 `c2.mtk.avc.decoder` 18000/18000、dropped=0，app sent/completed/presented=18000/18000/18000、present_fail=0，耗时 600.097 秒，资源在第二次短会话后不再增长。下一步优先接 GStreamer/VA-API/Chromium 的现有路径并补 HEVC 门禁；decoder→GPU 零拷贝、AV 同步和硬软解 CPU 对比仍未完成。
   evidence 72 又完成播放中的横竖旋转布局与 Home/前台恢复：旧 NativeWindow 销毁后，JNI 刷新
   发现新的 parent SurfaceControl，presenter 按回调代际退役旧层并重建，恢复后继续上屏；无窗口
   期间解出的帧明确计入跳过，不把后台丢帧写成全部显示。

@@ -167,17 +167,18 @@ loader 必须与镜像同源，所以 `--loader-out` 是从镜像自己的 `ld.s
 surfaceless Zink；GPU 到 app AHB / SurfaceControl 的显示路径已由 evidence 53–59 打通。
 当前剩余重点是 WSI、窗口集成和 Mesa 兼容边界，不是“GPU 还完全不能用”。
 
-## 11. 硬解、GPU 转换与上屏（RMX3357，evidence 67–79）
+## 11. 硬解、GPU 转换与上屏（RMX3357，evidence 67–80）
 
 | 项 | 结果 |
 |---|---|
 | 硬解器 | `c2.mtk.avc.decoder` 真机可用；HEVC/VP9/AV1 尚未接 bridge |
-| 解码输出 | 3 个固定 YV12 AHB；evidence 77 完成 150/150、3 import、147 reuse |
-| GPU 转换 | persistent per-slot PanVK converter；evidence 79 三 slot 各 50/50 |
+| 解码输出 | 6 个固定 YV12 AHB；evidence 80 完成 18,000/18,000、6 import、17,994 reuse |
+| GPU 转换 | persistent per-slot PanVK converter；evidence 80 六 slot 全部逐帧转换 |
 | RGBA 输出 | 写回 app 分配的 RGBA8 AHB，再交 SurfaceControl |
-| 实际上屏 | app `150/150 PRESENT`；截图确认彩条，SurfaceFlinger 存在 `husk-video` |
-| 资源 | 会话后 fd 140→140、线程 46→46；RSS 174,368→205,172 KiB，缓存尚未完全回收 |
-| 边界 | 仍是 MediaCodec ByteBuffer → CPU I420/YV12 拷贝；WSI、VA-API/GStreamer/Chromium、HEVC/VP9/AV1、AV 同步和 10 分钟实时播放未完成 |
+| 实际上屏 | evidence 80：app `18,000/18,000 PRESENT`、`present_fail=0`；9:59 截图仍正常出画 |
+| 长稳 | evidence 80：真实 AVC 18,000 帧 / 600.097 秒 / 30.03 fps / `dropped=0` |
+| 资源 | evidence 80：RSS 峰值 205,616 KiB 后稳定在约 203,300–204,020 KiB；第二次会话后 fd=136、线程=44，无继续增长 |
+| 边界 | 仍是 MediaCodec ByteBuffer → CPU I420/YV12 拷贝；WSI、VA-API/GStreamer/Chromium、HEVC/VP9/AV1、AV 同步和硬软解 CPU 对比未完成 |
 
 音频已有 guest PulseAudio → 纯 Rust relay → app 内 AAudio 的连续路径；evidence 63 完成
 610 秒 / 28,818,432 frames，播放器与 relay 均返回 0，fd/RSS 稳定，但仍有 1 次 xrun，

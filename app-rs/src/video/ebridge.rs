@@ -388,12 +388,22 @@ fn worker(
     }
     failed.store(true, Ordering::Release);
     notify_done(&done);
+    let pipeline_dropped = send_count.saturating_sub(completed);
+    let present_dropped = send_count.saturating_sub(presented_count);
+    let pass = outcome.is_ok()
+        && send_count > 0
+        && completed == send_count
+        && presented_count == send_count
+        && present_fail_count == 0;
     match outcome {
+        Ok(()) if pass => crate::log(&format!(
+            "video|ahb-ring|SUMMARY|PASS|sent={send_count}|completed={completed}|presented={presented_count}|pipeline_dropped={pipeline_dropped}|present_dropped={present_dropped}|present_fail={present_fail_count}|handles={handle_count}|reuses={reuse_count}"
+        )),
         Ok(()) => crate::log(&format!(
-            "video|ahb-ring|SUMMARY|PASS|sent={send_count}|completed={completed}|presented={presented_count}|present_fail={present_fail_count}|handles={handle_count}|reuses={reuse_count}"
+            "video|ahb-ring|SUMMARY|FAIL|sent={send_count}|completed={completed}|presented={presented_count}|pipeline_dropped={pipeline_dropped}|present_dropped={present_dropped}|present_fail={present_fail_count}|handles={handle_count}|reuses={reuse_count}|incomplete session"
         )),
         Err(error) => crate::log(&format!(
-            "video|ahb-ring|SUMMARY|FAIL|sent={send_count}|completed={completed}|presented={presented_count}|present_fail={present_fail_count}|handles={handle_count}|reuses={reuse_count}|{error}"
+            "video|ahb-ring|SUMMARY|FAIL|sent={send_count}|completed={completed}|presented={presented_count}|pipeline_dropped={pipeline_dropped}|present_dropped={present_dropped}|present_fail={present_fail_count}|handles={handle_count}|reuses={reuse_count}|{error}"
         )),
     }
 }

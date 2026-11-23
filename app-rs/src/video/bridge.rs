@@ -418,8 +418,11 @@ impl<'a> Session<'a> {
                 self.stats.0
             ));
         }
+        let expected = self.next_seq.saturating_sub(1);
+        let decoded = images.saturating_sub(1);
+        let dropped = expected.saturating_sub(decoded);
         Ok(format!(
-            "EOS_OK frames={} images={images} output_bytes={}",
+            "EOS_OK frames={} images={images} expected={expected} decoded={decoded} dropped={dropped} output_bytes={}",
             self.stats.0, self.stats.1
         ))
     }
@@ -449,8 +452,11 @@ impl<'a> Session<'a> {
         if let Some(sink) = self.sink.take() {
             (sink.api.reader_delete)(sink.reader);
         }
+        let expected = self.next_seq.saturating_sub(1);
+        let decoded = images.saturating_sub(1);
+        let dropped = expected.saturating_sub(decoded);
         format!(
-            "CLOSE_OK mime={} codec={} size={}x{} frames={} output_bytes={} images_last={images} stop_rc={stopped} delete_rc={deleted}",
+            "CLOSE_OK mime={} codec={} size={}x{} frames={} expected={expected} decoded={decoded} dropped={dropped} output_bytes={} images_last={images} stop_rc={stopped} delete_rc={deleted}",
             self.mime,
             self.codec_name,
             self.width,
