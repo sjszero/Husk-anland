@@ -10,7 +10,7 @@ use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use video_protocol::{MappedRing, RingLayout, DEFAULT_SLOTS, DEFAULT_SLOT_SIZE};
 
@@ -32,6 +32,49 @@ static STARTED: AtomicBool = AtomicBool::new(false);
 /// healthy socket. Refusing it with a named error is the honest behaviour -
 /// and it is what a guest tunnel through one surface can actually support.
 static SESSION_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// Wall-clock ms of the last command on the active session. A session whose
+/// thread is wedged inside MediaCodec stops refreshing this, and refusing new
+/// clients forever after one stuck thread is worse than taking the session
+/// over - measured: one deadlocked client made every later `OPEN` fail.
+static SESSION_ACTIVITY_MS: AtomicU64 = AtomicU64::new(0);
+const SESSION_STALE_MS: u64 = 45_000;
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Claim the single session slot. Returns false when a live session holds it.
+fn claim_session() -> bool {
+    if SESSION_ACTIVE
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+    {
+        SESSION_ACTIVITY_MS.store(now_ms(), Ordering::SeqCst);
+        return true;
+    }
+    let last = SESSION_ACTIVITY_MS.load(Ordering::SeqCst);
+    if last != 0 && now_ms().saturating_sub(last) > SESSION_STALE_MS {
+        // The holder has not touched the socket for longer than any legal
+        // wait, so it is dead or wedged; reclaim the slot.
+        SESSION_ACTIVE.store(false, Ordering::SeqCst);
+        if SESSION_ACTIVE
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            SESSION_ACTIVITY_MS.store(now_ms(), Ordering::SeqCst);
+            return true;
+        }
+    }
+    false
+}
+
+fn release_session() {
+    SESSION_ACTIVITY_MS.store(0, Ordering::SeqCst);
+    SESSION_ACTIVE.store(false, Ordering::SeqCst);
+}
 
 fn sequence_log(files: &Path, line: &str) {
     crate::log(line);
@@ -631,6 +674,7 @@ impl<'a> Session<'a> {
 
     unsafe fn close(&mut self) -> String {
         super::present::finish_session();
+        release_session();
         super::ebridge::shutdown();
         let mut stopped = 0;
         let mut deleted = 0;
@@ -671,7 +715,7 @@ impl<'a> Session<'a> {
 
 impl Drop for Session<'_> {
     fn drop(&mut self) {
-        SESSION_ACTIVE.store(false, Ordering::SeqCst);
+        release_session();
         super::ebridge::shutdown();
         if !self.codec.is_null() {
             unsafe {
@@ -801,6 +845,8 @@ unsafe fn handle_client(files: &Path, api: &Api, mut stream: UnixStream) {
                 break;
             }
         };
+        // Keep the session lease alive so a wedged peer can be taken over.
+        SESSION_ACTIVITY_MS.store(now_ms(), Ordering::SeqCst);
         let cmd = line
             .split_whitespace()
             .next()
@@ -811,10 +857,7 @@ unsafe fn handle_client(files: &Path, api: &Api, mut stream: UnixStream) {
             "OPEN" => {
                 if session.is_some() {
                     send_line(&mut stream, "OPEN_ERROR session already open")
-                } else if SESSION_ACTIVE
-                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                    .is_err()
-                {
+                } else if !claim_session() {
                     sequence_log(files, "video|bridge|OPEN_REFUSED|another session is active");
                     send_line(&mut stream, "OPEN_ERROR another video session is active")
                 } else {
@@ -846,7 +889,7 @@ unsafe fn handle_client(files: &Path, api: &Api, mut stream: UnixStream) {
                             Ok(())
                         }
                         Err(e) => {
-                            SESSION_ACTIVE.store(false, Ordering::SeqCst);
+                            release_session();
                             sequence_log(files, &format!("video|bridge|OPEN_FAIL|{e}"));
                             send_line(&mut stream, &format!("OPEN_ERROR {e}"))
                         }

@@ -45,8 +45,27 @@ HUSK_VA_BRIDGE_OPEN_FAILED context=1 size=1920x1088 video bridge OPEN failed: OP
 
 - 一个进程只允许一个解码会话（`SESSION_ACTIVE`），连接被拒绝时给明确错误，
   不再伪装成功。
-- accept 循环改成每个连接一个线程，否则第二个连接连 `accept` 都排不上，
-  客户端只能看到 `EAGAIN`（实测：拒绝生效前就是 `Resource temporarily unavailable`）。
+- accept 循环改成每个连接一个线程，这样第二个客户端一定能拿到上面那句错误，
+  而不是在 backlog 里等着。
+
+**更正（同日实测）**：`connect` 拿到 `EAGAIN (os error 11)` **不能**当成"backlog 满"的证据。
+实测到了另一次：设备 `mWakefulness=Asleep`（屏幕关了 → app 被冻结 → 没人 accept），
+连续 200 秒每次 connect 都是 `Resource temporarily unavailable`。所以看到 EAGAIN 先查
+`dumpsys power | grep mWakefulness` 和 `mCurrentFocus`；这也是为什么测试前必须
+`input keyevent KEYCODE_WAKEUP; svc power stayon usb`。
+
+## 二点五、想让 gst-vaapi 流水的尝试失败（FACT）
+
+在 `vaapih264dec` 和 `videoconvert` 之间插 `queue max-size-buffers=8`，希望解码器先攒几帧：
+
+```text
+200 秒超时，HUSK_VA_DELIVERED 一行都没有，RC=124
+```
+
+surface 池被 queue 吃光 → 解码器拿不到新 surface → 死锁。**gst-vaapi 是设计上一帧一结的**，
+深度只能由客户端决定。对照 `lfdevs/termux-va`（见 `docs/design/prior-art-video.md`）：
+他们桥的流水线深度是 6，流畅的客户端是 **FFmpeg 系**；Chromium/Firefox 硬解在
+非骁龙 SoC（含 MTK）上是已知不可用。
 
 ## 三、两个踩过的坑（写给下一个我）
 

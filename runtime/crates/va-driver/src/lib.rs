@@ -18,12 +18,19 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 const VENDOR: &[u8] = b"husk\0";
-const PROFILE_LIST: [VAProfile; 5] = [
-    VAProfile_VAProfileH264Baseline,
+/// What this driver can actually decode today.
+///
+/// `VAProfileH264Baseline` (5) is deliberately *not* listed: libva 1.20 has no
+/// name for it and `vainfo` prints "<unknown profile>", which is worse than not
+/// offering it - constrained baseline covers every stream that matters.
+/// HEVC is not listed either: the MTK decoder supports it, but this driver has
+/// no VPS/SPS/PPS synthesis yet, and advertising a profile we cannot decode is
+/// a lie the client only discovers after `vaCreateConfig`. The reference
+/// implementation to port is `tva_bridge.c` (see docs/design/prior-art-video.md).
+const PROFILE_LIST: [VAProfile; 3] = [
     VAProfile_VAProfileH264Main,
     VAProfile_VAProfileH264High,
     VAProfile_VAProfileH264ConstrainedBaseline,
-    VAProfile_VAProfileHEVCMain,
 ];
 const NV12_FORMAT: VAImageFormat = VAImageFormat {
     fourcc: VA_FOURCC_NV12,

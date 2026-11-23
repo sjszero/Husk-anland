@@ -3,7 +3,7 @@
 > 本文件是目标的**权威规格**。会话里的 goal 对象不可编辑，重建 goal 时以本文件为准；
 > 改目标就改这里，再把下面的「粘贴块」整段贴进去。纯文本版：`docs/goal-objective.txt`。
 
-最后更新：2026-11-23（v50：evidence 86/87 —— 合成 CSD 修好：不带 `HUSK_VA_SPS/PPS` 旁路，`vaapih264dec ! videoconvert ! I420` 也能拿到真实硬解帧（11 帧 1080p，合成头 `67 42 c0 28` 与真实流逐字节一致）；根因是取值时序（客户端在 `vaMapBuffer` 后自己写参数，`vaEndPicture` 时已是全 0），现在在 `vaUnmapBuffer` 取快照；同时把 level 按 `MaxFS` 修对、并发第二个视频会话改成明确拒绝。**新暴露的硬上限：VA 系统层取帧吞吐只有 ≈18 fps（只提交 33 fps），瓶颈是一次进一次出≈55 ms/帧，做满 1080p30 需要帧级流水或走 evidence 80 的 AHB 路径**；HEVC/VP9/AV1、Chromium、AV 同步、上屏仍未做）
+最后更新：2026-11-23（v50：evidence 86/87 —— 合成 CSD 修好：不带 `HUSK_VA_SPS/PPS` 旁路，`vaapih264dec ! videoconvert ! I420` 也能拿到真实硬解帧（11 帧 1080p，合成头 `67 42 c0 28` 与真实流逐字节一致）；根因是取值时序（客户端在 `vaMapBuffer` 后自己写参数，`vaEndPicture` 时已是全 0），现在在 `vaUnmapBuffer` 取快照；同时把 level 按 `MaxFS` 修对、并发第二个视频会话改成明确拒绝。**新暴露的硬上限：VA 系统层取帧吞吐只有 ≈18 fps（只提交 33 fps），瓶颈是一次进一次出≈55 ms/帧，做满 1080p30 需要帧级流水或走 evidence 80 的 AHB 路径**；HEVC/VP9/AV1、Chromium、AV 同步、上屏仍未做）；v51：按前人工作（lfdevs/termux-va，免 root + proot，AVC/HEVC/VP9/AV1 解码 + 编码）审计后调整视频计划——合成 CSD 是标准做法、HEVC 合成有蓝本、1080p30 验收改用 FFmpeg 系（gst-vaapi 一帧一结）、Chromium 硬解在 MTK 属上游已知不可用，详见 docs/design/prior-art-video.md
 
 ---
 

@@ -108,12 +108,18 @@
 
 ## 7. 视频 / 编解码
 
+> 2026-11-23 追加：**这条线已经有完整开源实现（termux-va）**，结论写在 [`prior-art-video.md`](prior-art-video.md)：合成 CSD 是标准做法（我们做对了）、流水线深度 6 是流畅的前提、gst-vaapi 一帧一结所以只能 18 fps、**Chromium/Firefox 硬解在非骁龙（含 MTK）上是已知不可用**。
+
 | 清单名 | 真实仓库 | ★ | 借鉴点 |
 |---|---|---|---|
 | GStreamer | `GStreamer/gstreamer` 🔎 | ~2k | 媒体管线；我们要在 guest 内提供 VA-API 后端给它 |
 | FFmpeg / libav | `FFmpeg/FFmpeg` 🔎 | ~50k | 解复用/同步留在 guest |
 | Android NDK Media | `aosp-mirror/platform_frameworks_av` 🔎 | — | AMediaCodec 的 ABI 权威来源 |
 | dav1d / libvpx / libyuv / libjpeg-turbo | 上游 | 🔎 | 软解兜底 |
+| termux-va | `lfdevs/termux-va` ✅ | 20 | **最直接的对照**：daemon(MediaCodec) + Mesa VA 桥，AVC/HEVC/VP9/AV1 解码 + AVC/HEVC/VP9 编码，免 root、支持 proot。也用**合成 CSD**；HEVC 合成实现是蓝本。见 `prior-art-video.md` |
+| droidspaces-media-decode | `Re-s/droidspaces-media-decode` ✅ | | termux-va 的上游（协议 DMD v3 的来源） |
+| mesa-for-android-container (dev 分支) | `lfdevs/mesa-for-android-container` `dev/adreno-main` ✅ | 392 | `src/gallium/frontends/va/tva_*` 就是这套 VA 桥；也是 2.0 里那个 mesa tar 的来源 |
+| droidmedia | `sailfishos/droidmedia` ✅ | 19 | glibc 上包 MediaCodec / **Camera** / AudioRecorder 的样板（Droidian 有 port），相机/录音的接口形状参考 |
 
 ## 8. 音频
 

@@ -101,6 +101,22 @@ trace 门控的——关掉 trace 后"一条帧日志都没有"不等于没出�
 `HUSK_VA_DELIVERED frames=N`（每 300 帧一行）。另外只改 `jniLibs/*.so` 时
 `assembleDebug` 不重新打包，必须 `--rerun-tasks` 并用 `strings` 复核 APK 里的 `.so`。
 
+## 视频下一步（已按前人工作调整，2026-11-23）
+
+按 `docs/design/prior-art-video.md` 的审计结论，视频这条线的计划改成：
+
+1. **合成 CSD 不是我们要背的包袱**：`lfdevs/termux-va`（免 root、支持 proot、AVC/HEVC/VP9/AV1
+   解码 + 编码）也是从结构体重建 SPS/PPS，原因和我们一模一样（VA 前端不给参数集）。
+2. **HEVC 有现成蓝本**：`tva_bridge.c:2253` 是完整的 VPS/SPS/PPS 合成（含 PTL、RPS、VUI），
+   移植到 Rust `hevc.rs` 即可，不用再从头推 bit 层。
+3. **1080p30 的验收客户端换 FFmpeg 系**：gst-vaapi 设计上一帧一结（实测插 `queue` 想流水
+   会死锁），我们实测 18 fps；termux-va 的桥流水线深度 6、流畅的是 FFmpeg。
+   gst-vaapi 保留为"能解码"的证据，不再当吞吐基准。
+4. **Chromium 硬解在 MTK 上是上游已知不可用**（termux-va 兼容性表：非骁龙 Chromium/Firefox ❌），
+   不作为必达项；真要浏览器播放，走我们自己的 AHB 上屏路径（evidence 79/80 已 30 fps）。
+5. **编码照抄它的协议形状**：握手带 bitrate/分数帧率，上行紧凑 NV12（按解码器 stride/slice 填），
+   下行 `[len][flags][unit_index][AU]`，显式 profile 用独立 codec ID。
+
 ## VA 驱动拿到真实解码帧（evidence 85，2026-11-23）
 
 **FACT：`vaapih264dec ! videoconvert ! video/x-raw,format=I420 ! fakesink` 跑通，取到 11 帧真实像素，`HOST_RC=0`，gst-vaapi 不再报 `failed to make image current`。**
