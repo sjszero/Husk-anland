@@ -13,3 +13,4 @@ name = "va-probe"
 path = "src/bin/va-probe.rs"
 
 [dependencies]
+video-protocol = { path = "../video-protocol" }

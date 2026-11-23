@@ -6,10 +6,13 @@
 
 #![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 
+mod h264;
 #[allow(dead_code)]
 mod va_bindings;
+mod video_client;
 
 use va_bindings::*;
+use video_client::VideoClient;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -44,11 +47,11 @@ struct SurfaceInfo {
     format: u32,
 }
 
-#[allow(dead_code)]
+#[derive(Clone, Copy)]
 struct ContextInfo {
-    config: VAConfigID,
     width: u32,
     height: u32,
+    profile: VAProfile,
 }
 
 struct BufferInfo {
@@ -74,11 +77,13 @@ struct ContextState {
     surfaces: HashMap<VASurfaceID, SurfaceInfo>,
     contexts: HashMap<VAContextID, ContextInfo>,
     buffers: HashMap<VABufferID, BufferInfo>,
+    picture_params: HashMap<VAContextID, Vec<u8>>,
     active_picture: Option<ActivePicture>,
 }
 
 struct DriverContext {
     state: Mutex<ContextState>,
+    video: Mutex<Option<VideoClient>>,
 }
 
 static CONTEXTS: OnceLock<Mutex<HashMap<usize, Arc<DriverContext>>>> = OnceLock::new();
@@ -95,6 +100,7 @@ fn register_context(ctx: VADriverContextP) -> bool {
         ctx as usize,
         Arc::new(DriverContext {
             state: Mutex::new(ContextState::default()),
+            video: Mutex::new(None),
         }),
     );
     true
@@ -517,16 +523,16 @@ unsafe extern "C" fn create_context(
         return VA_STATUS_ERROR_INVALID_PARAMETER as VAStatus;
     }
     let Some(rc) = with_state(ctx, |state| {
-        if !state.configs.contains_key(&config) {
+        let Some((profile, _entrypoint)) = state.configs.get(&config).copied() else {
             return VA_STATUS_ERROR_INVALID_CONFIG as VAStatus;
-        }
+        };
         let id = alloc_id(&mut state.next_context);
         state.contexts.insert(
             id,
             ContextInfo {
-                config,
                 width: width as u32,
                 height: height as u32,
+                profile,
             },
         );
         *context = id;
@@ -570,11 +576,23 @@ unsafe extern "C" fn create_buffer(
     if !data.is_null() && bytes > 0 {
         core::ptr::copy_nonoverlapping(data.cast::<u8>(), payload.as_mut_ptr(), bytes);
     }
+    if std::env::var_os("HUSK_VA_TRACE").is_some() {
+        let prefix = payload
+            .iter()
+            .take(16)
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        eprintln!(
+            "HUSK_VA_BUFFER context={context} type={type_} size={size} elements={num_elements} bytes={bytes} prefix={prefix}"
+        );
+    }
     let Some(rc) = with_state(ctx, |state| {
         if context != 0 && !state.contexts.contains_key(&context) {
             return VA_STATUS_ERROR_INVALID_CONTEXT as VAStatus;
         }
         let id = alloc_id(&mut state.next_buffer);
+        let picture_param =
+            (type_ == VABufferType_VAPictureParameterBufferType).then(|| payload.clone());
         state.buffers.insert(
             id,
             BufferInfo {
@@ -584,6 +602,9 @@ unsafe extern "C" fn create_buffer(
                 data: payload,
             },
         );
+        if let Some(data) = picture_param {
+            state.picture_params.insert(context, data);
+        }
         *buffer = id;
         VA_STATUS_SUCCESS as VAStatus
     }) else {
@@ -772,61 +793,225 @@ unsafe extern "C" fn render_picture(
 }
 
 unsafe extern "C" fn end_picture(ctx: VADriverContextP, context: VAContextID) -> VAStatus {
-    let Some(picture) = with_state(ctx, |state| {
-        let Some(picture) = state.active_picture.take() else {
-            return None;
-        };
-        (picture.context == context).then_some(picture)
-    }) else {
-        return VA_STATUS_ERROR_INVALID_CONTEXT as VAStatus;
-    };
-    let Some(picture) = picture else {
+    let trace = std::env::var_os("HUSK_VA_TRACE").is_some();
+    if trace {
+        eprintln!("HUSK_VA_END_ENTER ctx={ctx:p} context={context}");
+    }
+    let Some(driver) = driver_context(ctx) else {
+        if trace {
+            eprintln!("HUSK_VA_END_NO_DRIVER ctx={ctx:p} context={context}");
+        }
         return VA_STATUS_ERROR_INVALID_CONTEXT as VAStatus;
     };
 
-    let trace = std::env::var_os("HUSK_VA_TRACE").is_some();
-    let mut access_unit = Vec::new();
-    let mut slice_buffers = 0usize;
-    let mut buffer_types = Vec::new();
-    if let Some(context) = driver_context(ctx) {
-        if let Ok(state) = context.state.lock() {
-            for id in &picture.buffers {
-                let Some(buffer) = state.buffers.get(id) else {
-                    continue;
-                };
-                buffer_types.push(format!("{}:{}", buffer.type_, buffer.data.len()));
-                if buffer.type_ != VABufferType_VASliceDataBufferType || buffer.data.is_empty() {
-                    continue;
+    let (picture, profile, width, height, access_unit, csd0, csd1) = {
+        let mut state = match driver.state.lock() {
+            Ok(state) => state,
+            Err(_) => return VA_STATUS_ERROR_OPERATION_FAILED as VAStatus,
+        };
+        let Some(active_context) = state.active_picture.as_ref().map(|picture| picture.context)
+        else {
+            if trace {
+                eprintln!("HUSK_VA_END_NO_ACTIVE context={context}");
+            }
+            return VA_STATUS_ERROR_INVALID_CONTEXT as VAStatus;
+        };
+        if active_context != context {
+            if trace {
+                eprintln!(
+                    "HUSK_VA_END_CONTEXT_MISMATCH active={active_context} requested={context}"
+                );
+            }
+            return VA_STATUS_ERROR_INVALID_CONTEXT as VAStatus;
+        }
+        let picture = state
+            .active_picture
+            .take()
+            .expect("active picture checked immediately above");
+        let Some(info) = state.contexts.get(&context).copied() else {
+            if trace {
+                eprintln!("HUSK_VA_END_NO_CONTEXT_INFO context={context}");
+            }
+            return VA_STATUS_ERROR_INVALID_CONTEXT as VAStatus;
+        };
+        if trace {
+            eprintln!(
+                "HUSK_VA_END_ACTIVE context={context} surface={} buffers={} size={}x{} profile={}",
+                picture.surface,
+                picture.buffers.len(),
+                info.width,
+                info.height,
+                info.profile
+            );
+        }
+        if !matches!(
+            info.profile,
+            VAProfile_VAProfileH264Baseline
+                | VAProfile_VAProfileH264Main
+                | VAProfile_VAProfileH264High
+                | VAProfile_VAProfileH264ConstrainedBaseline
+        ) {
+            if trace {
+                eprintln!("HUSK_VA_END_UNSUPPORTED_PROFILE profile={}", info.profile);
+            }
+            return VA_STATUS_ERROR_UNSUPPORTED_PROFILE as VAStatus;
+        }
+
+        let mut access_unit = Vec::new();
+        let mut slice_buffers = 0usize;
+        let mut buffer_types = Vec::new();
+        let mut picture_params: Option<Vec<u8>> = None;
+        let mut slice_params: Option<Vec<u8>> = None;
+        for id in &picture.buffers {
+            let Some(buffer) = state.buffers.get(id) else {
+                continue;
+            };
+            buffer_types.push(format!("{}:{}", buffer.type_, buffer.data.len()));
+            match buffer.type_ {
+                VABufferType_VAPictureParameterBufferType => {
+                    if picture_params.is_none() {
+                        picture_params = Some(buffer.data.clone());
+                    }
                 }
-                slice_buffers += 1;
-                if !buffer.data.starts_with(&[0, 0, 0, 1]) && !buffer.data.starts_with(&[0, 0, 1]) {
-                    access_unit.extend_from_slice(&[0, 0, 0, 1]);
+                VABufferType_VASliceParameterBufferType => {
+                    if slice_params.is_none() {
+                        slice_params = Some(buffer.data.clone());
+                    }
                 }
-                access_unit.extend_from_slice(&buffer.data);
+                VABufferType_VASliceDataBufferType if !buffer.data.is_empty() => {
+                    slice_buffers += 1;
+                    if !buffer.data.starts_with(&[0, 0, 0, 1])
+                        && !buffer.data.starts_with(&[0, 0, 1])
+                    {
+                        access_unit.extend_from_slice(&[0, 0, 0, 1]);
+                    }
+                    access_unit.extend_from_slice(&buffer.data);
+                }
+                _ => {}
+            }
+        }
+
+        if picture_params.is_none() {
+            picture_params = state.picture_params.get(&context).cloned();
+        }
+        if trace {
+            eprintln!(
+                "HUSK_VA_END_GATHER slices={slice_buffers} access_bytes={} picture_params={} slice_params={} types={}",
+                access_unit.len(),
+                picture_params.as_ref().map(Vec::len).unwrap_or(0),
+                slice_params.as_ref().map(Vec::len).unwrap_or(0),
+                buffer_types.join(",")
+            );
+        }
+        if slice_buffers == 0 || access_unit.is_empty() {
+            return VA_STATUS_ERROR_DECODING_ERROR as VAStatus;
+        }
+        let Some(picture_params) = picture_params.as_deref() else {
+            if trace {
+                eprintln!("HUSK_VA_END_NO_PICTURE_PARAMS context={context}");
+            }
+            return VA_STATUS_ERROR_INVALID_PARAMETER as VAStatus;
+        };
+        let csd = match h264::build_csd(
+            info.profile,
+            picture_params,
+            slice_params.as_deref(),
+            info.width,
+            info.height,
+        ) {
+            Ok(csd) => csd,
+            Err(error) => {
+                eprintln!("HUSK_VA_CSD_FAILED context={context} {error}");
+                return VA_STATUS_ERROR_INVALID_PARAMETER as VAStatus;
+            }
+        };
+        if trace {
+            let prefix = access_unit
+                .iter()
+                .take(32)
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            eprintln!(
+                "HUSK_VA_ACCESS_UNIT context={} surface={} profile={} size={}x{} slices={} bytes={} buffers={} prefix={}",
+                picture.context,
+                picture.surface,
+                info.profile,
+                info.width,
+                info.height,
+                slice_buffers,
+                access_unit.len(),
+                buffer_types.join(","),
+                prefix
+            );
+        }
+        (
+            picture,
+            info.profile,
+            info.width,
+            info.height,
+            access_unit,
+            csd.sps,
+            csd.pps,
+        )
+    };
+
+    let mut video = match driver.video.lock() {
+        Ok(video) => video,
+        Err(_) => return VA_STATUS_ERROR_OPERATION_FAILED as VAStatus,
+    };
+    if video
+        .as_ref()
+        .is_none_or(|client| !client.matches(width, height))
+    {
+        *video = None;
+        match VideoClient::connect(width, height, &csd0, &csd1) {
+            Ok(client) => {
+                if trace {
+                    eprintln!(
+                        "HUSK_VA_BRIDGE_OPEN context={} size={}x{} codec=c2.mtk.avc.decoder",
+                        picture.context, width, height
+                    );
+                }
+                *video = Some(client);
+            }
+            Err(error) => {
+                eprintln!(
+                    "HUSK_VA_BRIDGE_OPEN_FAILED context={} size={}x{} {error}",
+                    picture.context, width, height
+                );
+                return VA_STATUS_ERROR_OPERATION_FAILED as VAStatus;
             }
         }
     }
-    if trace {
-        let prefix = access_unit
-            .iter()
-            .take(32)
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-        eprintln!(
-            "HUSK_VA_ACCESS_UNIT context={} surface={} slices={} bytes={} buffers={} prefix={}",
-            picture.context,
-            picture.surface,
-            slice_buffers,
-            access_unit.len(),
-            buffer_types.join(","),
-            prefix
-        );
-    }
 
-    // The state machine now captures the real compressed access unit.  Until
-    // the app-side MediaCodec transport is connected, report the missing data
-    // plane instead of pretending the surface was decoded.
-    VA_STATUS_ERROR_UNIMPLEMENTED as VAStatus
+    // VA-API does not carry a presentation timestamp in vaEndPicture. Keep the
+    // bridge's PTS neutral until the display path supplies a real clock.
+    let result = video
+        .as_mut()
+        .expect("video client inserted above")
+        .submit(&access_unit, 0, 0);
+    match result {
+        Ok(()) => {
+            if trace {
+                eprintln!(
+                    "HUSK_VA_BRIDGE_SUBMIT context={} surface={} profile={} bytes={}",
+                    picture.context,
+                    picture.surface,
+                    profile,
+                    access_unit.len()
+                );
+            }
+            VA_STATUS_SUCCESS as VAStatus
+        }
+        Err(error) => {
+            eprintln!(
+                "HUSK_VA_BRIDGE_SUBMIT_FAILED context={} surface={} {error}",
+                picture.context, picture.surface
+            );
+            *video = None;
+            VA_STATUS_ERROR_DECODING_ERROR as VAStatus
+        }
+    }
 }
 
 macro_rules! install_stub {
