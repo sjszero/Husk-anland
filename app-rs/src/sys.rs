@@ -19,7 +19,11 @@ extern "C" {
     pub fn close(fd: c_int) -> c_int;
     pub fn read(fd: c_int, buf: *mut c_void, n: usize) -> isize;
     pub fn write(fd: c_int, buf: *const c_void, n: usize) -> isize;
-    pub fn execve(path: *const c_char, argv: *const *const c_char, envp: *const *const c_char) -> c_int;
+    pub fn execve(
+        path: *const c_char,
+        argv: *const *const c_char,
+        envp: *const *const c_char,
+    ) -> c_int;
     pub fn waitpid(pid: c_int, status: *mut c_int, opts: c_int) -> c_int;
     pub fn chdir(path: *const c_char) -> c_int;
     pub fn fcntl(fd: c_int, cmd: c_int, ...) -> c_int;
@@ -61,7 +65,8 @@ pub struct Winsize {
 pub struct ANativeActivityCallbacks {
     pub onStart: Option<unsafe extern "C" fn(*mut ANativeActivity)>,
     pub onResume: Option<unsafe extern "C" fn(*mut ANativeActivity)>,
-    pub onSaveInstanceState: Option<unsafe extern "C" fn(*mut ANativeActivity, *mut c_void, usize) -> *mut c_void>,
+    pub onSaveInstanceState:
+        Option<unsafe extern "C" fn(*mut ANativeActivity, *mut c_void, usize) -> *mut c_void>,
     pub onPause: Option<unsafe extern "C" fn(*mut ANativeActivity)>,
     pub onStop: Option<unsafe extern "C" fn(*mut ANativeActivity)>,
     pub onDestroy: Option<unsafe extern "C" fn(*mut ANativeActivity)>,
@@ -105,7 +110,11 @@ extern "C" {
     pub fn ANativeActivity_finish(activity: *mut ANativeActivity);
     pub fn ANativeWindow_getWidth(window: *mut c_void) -> i32;
     pub fn ANativeWindow_getHeight(window: *mut c_void) -> i32;
-    pub fn ANativeActivity_setWindowFlags(activity: *mut ANativeActivity, addFlags: u32, removeFlags: u32);
+    pub fn ANativeActivity_setWindowFlags(
+        activity: *mut ANativeActivity,
+        addFlags: u32,
+        removeFlags: u32,
+    );
 
     pub fn ALooper_prepare(opts: c_int) -> *mut c_void;
     pub fn ALooper_wake(looper: *mut c_void);
@@ -119,7 +128,12 @@ extern "C" {
         callback: *mut c_void,
         data: *mut c_void,
     ) -> c_int;
-    pub fn ALooper_pollOnce(timeoutMillis: c_int, outFd: *mut c_int, outEvents: *mut c_int, outData: *mut *mut c_void) -> c_int;
+    pub fn ALooper_pollOnce(
+        timeoutMillis: c_int,
+        outFd: *mut c_int,
+        outEvents: *mut c_int,
+        outData: *mut *mut c_void,
+    ) -> c_int;
 
     pub fn AInputQueue_attachLooper(
         queue: *mut c_void,
@@ -193,10 +207,31 @@ pub type GLfloat = f32;
 extern "C" {
     pub fn eglGetDisplay(display_id: *mut c_void) -> EGLDisplay;
     pub fn eglInitialize(dpy: EGLDisplay, major: *mut i32, minor: *mut i32) -> u32;
-    pub fn eglChooseConfig(dpy: EGLDisplay, attribs: *const i32, configs: *mut EGLConfig, n: i32, num: *mut i32) -> u32;
-    pub fn eglCreateWindowSurface(dpy: EGLDisplay, cfg: EGLConfig, win: *mut c_void, attribs: *const i32) -> EGLSurface;
-    pub fn eglCreateContext(dpy: EGLDisplay, cfg: EGLConfig, share: EGLContext, attribs: *const i32) -> EGLContext;
-    pub fn eglMakeCurrent(dpy: EGLDisplay, draw: EGLSurface, read: EGLSurface, ctx: EGLContext) -> u32;
+    pub fn eglChooseConfig(
+        dpy: EGLDisplay,
+        attribs: *const i32,
+        configs: *mut EGLConfig,
+        n: i32,
+        num: *mut i32,
+    ) -> u32;
+    pub fn eglCreateWindowSurface(
+        dpy: EGLDisplay,
+        cfg: EGLConfig,
+        win: *mut c_void,
+        attribs: *const i32,
+    ) -> EGLSurface;
+    pub fn eglCreateContext(
+        dpy: EGLDisplay,
+        cfg: EGLConfig,
+        share: EGLContext,
+        attribs: *const i32,
+    ) -> EGLContext;
+    pub fn eglMakeCurrent(
+        dpy: EGLDisplay,
+        draw: EGLSurface,
+        read: EGLSurface,
+        ctx: EGLContext,
+    ) -> u32;
     pub fn eglSwapBuffers(dpy: EGLDisplay, surf: EGLSurface) -> u32;
     pub fn eglQuerySurface(dpy: EGLDisplay, surf: EGLSurface, attr: i32, value: *mut i32) -> u32;
     pub fn eglDestroySurface(dpy: EGLDisplay, surf: EGLSurface) -> u32;
@@ -204,7 +239,7 @@ extern "C" {
     pub fn eglDestroyContext(dpy: EGLDisplay, ctx: EGLContext) -> u32;
     pub fn eglGetProcAddress(name: *const c_char) -> *mut c_void;
     pub fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
-    
+
     pub fn glViewport(x: i32, y: i32, w: i32, h: i32);
     pub fn glClearColor(r: f32, g: f32, b: f32, a: f32);
     pub fn glClear(mask: u32);
@@ -219,12 +254,29 @@ extern "C" {
     pub fn glUseProgram(p: GLuint);
     pub fn glGetAttribLocation(p: GLuint, name: *const c_char) -> GLint;
     pub fn glGetUniformLocation(p: GLuint, name: *const c_char) -> GLint;
-    pub fn glVertexAttribPointer(idx: GLuint, size: GLint, ty: GLenum, norm: u8, stride: GLsizei, ptr: *const c_void);
+    pub fn glVertexAttribPointer(
+        idx: GLuint,
+        size: GLint,
+        ty: GLenum,
+        norm: u8,
+        stride: GLsizei,
+        ptr: *const c_void,
+    );
     pub fn glEnableVertexAttribArray(idx: GLuint);
     pub fn glGenTextures(n: GLsizei, out: *mut GLuint);
     pub fn glBindTexture(target: GLenum, tex: GLuint);
     pub fn glActiveTexture(unit: GLenum);
-    pub fn glTexImage2D(target: GLenum, level: GLint, ifmt: GLint, w: GLsizei, h: GLsizei, border: GLint, fmt: GLenum, ty: GLenum, data: *const c_void);
+    pub fn glTexImage2D(
+        target: GLenum,
+        level: GLint,
+        ifmt: GLint,
+        w: GLsizei,
+        h: GLsizei,
+        border: GLint,
+        fmt: GLenum,
+        ty: GLenum,
+        data: *const c_void,
+    );
     pub fn glTexParameteri(target: GLenum, pname: GLenum, v: GLint);
     pub fn glPixelStorei(pname: GLenum, v: GLint);
     pub fn glUniform1i(loc: GLint, v: GLint);
@@ -296,17 +348,38 @@ pub const EIO: c_int = 5;
 pub const EAGAIN: c_int = 11;
 
 /// wait(2) status decoding. Linux layout, same on every arch we ship.
-pub fn wifexited(st: c_int) -> bool { st & 0x7f == 0 }
-pub fn wexitstatus(st: c_int) -> c_int { (st >> 8) & 0xff }
-pub fn wifsignaled(st: c_int) -> bool { (st & 0x7f) != 0 && (st & 0x7f) != 0x7f }
-pub fn wtermsig(st: c_int) -> c_int { st & 0x7f }
+pub fn wifexited(st: c_int) -> bool {
+    st & 0x7f == 0
+}
+pub fn wexitstatus(st: c_int) -> c_int {
+    (st >> 8) & 0xff
+}
+pub fn wifsignaled(st: c_int) -> bool {
+    (st & 0x7f) != 0 && (st & 0x7f) != 0x7f
+}
+pub fn wtermsig(st: c_int) -> c_int {
+    st & 0x7f
+}
 
 pub fn sig_name(sig: c_int) -> &'static str {
     match sig {
-        1 => "SIGHUP", 2 => "SIGINT", 3 => "SIGQUIT", 4 => "SIGILL", 5 => "SIGTRAP",
-        6 => "SIGABRT", 7 => "SIGBUS", 8 => "SIGFPE", 9 => "SIGKILL", 11 => "SIGSEGV",
-        13 => "SIGPIPE", 14 => "SIGALRM", 15 => "SIGTERM", 17 => "SIGCHLD",
-        18 => "SIGCONT", 19 => "SIGSTOP", 31 => "SIGSYS",
+        1 => "SIGHUP",
+        2 => "SIGINT",
+        3 => "SIGQUIT",
+        4 => "SIGILL",
+        5 => "SIGTRAP",
+        6 => "SIGABRT",
+        7 => "SIGBUS",
+        8 => "SIGFPE",
+        9 => "SIGKILL",
+        11 => "SIGSEGV",
+        13 => "SIGPIPE",
+        14 => "SIGALRM",
+        15 => "SIGTERM",
+        17 => "SIGCHLD",
+        18 => "SIGCONT",
+        19 => "SIGSTOP",
+        31 => "SIGSYS",
         _ => "?",
     }
 }
@@ -337,4 +410,6 @@ pub struct PtRegs {
     pub pstate: u64,
 }
 
-pub fn wstopsig(st: c_int) -> c_int { (st >> 8) & 0xff }
+pub fn wstopsig(st: c_int) -> c_int {
+    (st >> 8) & 0xff
+}

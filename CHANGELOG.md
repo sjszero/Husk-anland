@@ -1,5 +1,26 @@
 # 变更记录
 
+## 2026-11-23 — 真实 MediaCodec 三平面 YUV AHB 回导 PanVK，三平面 GPU 哈希通过
+
+- **evidence 74**：`c2.mtk.avc.decoder` 输出的 1920x1080 AHB（`format=842094169`,
+  `0x32315659` / `"YV12"` private FourCC）经 `AHardwareBuffer_sendHandleToUnixSocket`
+  进入 guest。app 用 `AHardwareBuffer_lockPlanes` 取得真实三平面布局，而不是猜测 fd[0]
+  或依赖 `AImage_getNumberOfPlanes`（PRIVATE image 返回 0）。
+- guest PanVK 以 `VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM` + `DRM_FORMAT_MOD_LINEAR` 导入
+  同一个 dma-buf，分别对 plane 0/1/2 执行 `vkCmdCopyImageToBuffer` 和 host readback。
+  三平面 FNV-1a 全部与 app 侧一致：
+  `d4abebfa3f8cb0fc / a8a073543b9ed2db / f164ae94471897d1`。
+- 真实解码会话仍为 150 个 AVC access unit、150 个输出 image，EOS/stop/delete 全部通过，
+  guest `RESULT PASS`，约 5.1 秒。
+- Vulkan probe 的 socket 连接增加 90 秒重试；真机日志先出现
+  `socket_wait|retry=1|... No such file or directory`，随后成功连接，消除了“必须先启动
+  decoder 再启动 probe”的时序竞态。
+- `libhuskapp.so` sha256 `3d8b0caf8bf899206d15c2d89c2ef30faeca30a4969872e00beed9c33f834603`；
+  `vulkan-probe` sha256 `8658fcbd56fb56e413eb9771b31ae1a09b8a0529c971565dff02b95749ac895b`；
+  debug APK sha256 `2e551f5aa285e6a11f594901434de51af126b5d13ab649c51bdb26fa4965f923`。
+- **边界**：这是首帧一次性诊断，不是逐帧 ring；YUV→RGB、guest WSI、VA-API/GStreamer/
+  Chromium、HEVC/VP9/AV1 bridge、AV 同步和 10 分钟视频门禁仍未完成。
+
 ## 2026-11-23 — AHB 回导 guest：sticky map 与 PanVK GPU 写回
 
 - **evidence 73**：app 分配的 `64x64 RGBA8` AHardwareBuffer 经 `SCM_RIGHTS` 进入 glibc

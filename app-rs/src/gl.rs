@@ -67,8 +67,7 @@ fn shader(kind: GLenum, src: &str) -> GLuint {
     }
 }
 
-type FnEglGetNativeClientBuffer =
-    unsafe extern "C" fn(buffer: *mut c_void) -> *mut c_void;
+type FnEglGetNativeClientBuffer = unsafe extern "C" fn(buffer: *mut c_void) -> *mut c_void;
 type FnEglCreateImage = unsafe extern "C" fn(
     dpy: EGLDisplay,
     ctx: EGLContext,
@@ -102,9 +101,18 @@ impl Gfx {
                 return None;
             }
             let cfg_attribs: [i32; 13] = [
-                EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
-                EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-                EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
+                EGL_SURFACE_TYPE,
+                EGL_WINDOW_BIT,
+                EGL_RENDERABLE_TYPE,
+                EGL_OPENGL_ES2_BIT,
+                EGL_RED_SIZE,
+                8,
+                EGL_GREEN_SIZE,
+                8,
+                EGL_BLUE_SIZE,
+                8,
+                EGL_ALPHA_SIZE,
+                8,
                 EGL_NONE,
             ];
             let mut cfg: EGLConfig = core::ptr::null_mut();
@@ -125,21 +133,29 @@ impl Gfx {
                 return None;
             }
 
-            let vs = shader(GL_VERTEX_SHADER, concat!(
-                "attribute vec2 aPos;\n",
-                "attribute vec2 aUV;\n",
-                "uniform vec2 uRes;\n",
-                "varying vec2 vUV;\n",
-                "void main(){ vUV = aUV;\n",
-                "  vec2 p = aPos / uRes * 2.0 - 1.0;\n",
-                "  gl_Position = vec4(p.x, -p.y, 0.0, 1.0); }\n"));
-            let fs = shader(GL_FRAGMENT_SHADER, concat!(
-                "precision mediump float;\n",
-                "varying vec2 vUV;\n",
-                "uniform sampler2D uTex;\n",
-                "uniform vec3 uColor;\n",
-                "void main(){ float a = texture2D(uTex, vUV).a;\n",
-                "  gl_FragColor = vec4(uColor * a, a); }\n"));
+            let vs = shader(
+                GL_VERTEX_SHADER,
+                concat!(
+                    "attribute vec2 aPos;\n",
+                    "attribute vec2 aUV;\n",
+                    "uniform vec2 uRes;\n",
+                    "varying vec2 vUV;\n",
+                    "void main(){ vUV = aUV;\n",
+                    "  vec2 p = aPos / uRes * 2.0 - 1.0;\n",
+                    "  gl_Position = vec4(p.x, -p.y, 0.0, 1.0); }\n"
+                ),
+            );
+            let fs = shader(
+                GL_FRAGMENT_SHADER,
+                concat!(
+                    "precision mediump float;\n",
+                    "varying vec2 vUV;\n",
+                    "uniform sampler2D uTex;\n",
+                    "uniform vec3 uColor;\n",
+                    "void main(){ float a = texture2D(uTex, vUV).a;\n",
+                    "  gl_FragColor = vec4(uColor * a, a); }\n"
+                ),
+            );
             let prog = glCreateProgram();
             glAttachShader(prog, vs);
             glAttachShader(prog, fs);
@@ -152,16 +168,24 @@ impl Gfx {
             }
             glUseProgram(prog);
 
-            let pvs = shader(GL_VERTEX_SHADER, concat!(
-                "attribute vec2 aPos;\n",
-                "varying vec2 vUV;\n",
-                "void main(){ vUV = aPos * 0.5 + 0.5;\n",
-                "  gl_Position = vec4(aPos, 0.0, 1.0); }\n"));
-            let pfs = shader(GL_FRAGMENT_SHADER, concat!(
-                "precision mediump float;\n",
-                "varying vec2 vUV;\n",
-                "uniform sampler2D uTex;\n",
-                "void main(){ gl_FragColor = texture2D(uTex, vUV); }\n"));
+            let pvs = shader(
+                GL_VERTEX_SHADER,
+                concat!(
+                    "attribute vec2 aPos;\n",
+                    "varying vec2 vUV;\n",
+                    "void main(){ vUV = aPos * 0.5 + 0.5;\n",
+                    "  gl_Position = vec4(aPos, 0.0, 1.0); }\n"
+                ),
+            );
+            let pfs = shader(
+                GL_FRAGMENT_SHADER,
+                concat!(
+                    "precision mediump float;\n",
+                    "varying vec2 vUV;\n",
+                    "uniform sampler2D uTex;\n",
+                    "void main(){ gl_FragColor = texture2D(uTex, vUV); }\n"
+                ),
+            );
             let present_prog = glCreateProgram();
             glAttachShader(present_prog, pvs);
             glAttachShader(present_prog, pfs);
@@ -307,8 +331,15 @@ impl Gfx {
             glBindTexture(GL_TEXTURE_2D, tex);
             glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
             glTexImage2D(
-                GL_TEXTURE_2D, 0, GL_ALPHA as GLint, self.atlas_w, self.atlas_h, 0,
-                GL_ALPHA, GL_UNSIGNED_BYTE, pix.as_ptr() as *const c_void,
+                GL_TEXTURE_2D,
+                0,
+                GL_ALPHA as GLint,
+                self.atlas_w,
+                self.atlas_h,
+                0,
+                GL_ALPHA,
+                GL_UNSIGNED_BYTE,
+                pix.as_ptr() as *const c_void,
             );
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -331,7 +362,15 @@ impl Gfx {
         (w, h)
     }
 
-    pub fn draw(&mut self, cells: &[u8], cols: usize, rows: usize, cx: usize, cy: usize, focused: bool) {
+    pub fn draw(
+        &mut self,
+        cells: &[u8],
+        cols: usize,
+        rows: usize,
+        cx: usize,
+        cy: usize,
+        focused: bool,
+    ) {
         let (w, h) = self.size();
         if w <= 0 || h <= 0 {
             return;
@@ -395,10 +434,24 @@ impl Gfx {
         unsafe {
             if !self.verts.is_empty() {
                 let stride = 4 * core::mem::size_of::<f32>() as GLsizei;
-                glVertexAttribPointer(self.a_pos as GLuint, 2, GL_FLOAT, 0, stride, self.verts.as_ptr() as *const c_void);
+                glVertexAttribPointer(
+                    self.a_pos as GLuint,
+                    2,
+                    GL_FLOAT,
+                    0,
+                    stride,
+                    self.verts.as_ptr() as *const c_void,
+                );
                 glEnableVertexAttribArray(self.a_pos as GLuint);
                 let off = 2 * core::mem::size_of::<f32>();
-                glVertexAttribPointer(self.a_uv as GLuint, 2, GL_FLOAT, 0, stride, (self.verts.as_ptr() as *const u8).add(off) as *const c_void);
+                glVertexAttribPointer(
+                    self.a_uv as GLuint,
+                    2,
+                    GL_FLOAT,
+                    0,
+                    stride,
+                    (self.verts.as_ptr() as *const u8).add(off) as *const c_void,
+                );
                 glEnableVertexAttribArray(self.a_uv as GLuint);
                 glDrawArrays(GL_TRIANGLES, 0, (self.verts.len() / 4) as GLsizei);
             }
@@ -472,8 +525,7 @@ impl Gfx {
             glUniform1i(self.p_tex, 0);
             glBindTexture(GL_TEXTURE_2D, tex);
             let verts: [f32; 12] = [
-                -1.0, -1.0, 1.0, -1.0, 1.0, 1.0,
-                -1.0, -1.0, 1.0, 1.0, -1.0, 1.0,
+                -1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, -1.0, 1.0, 1.0, -1.0, 1.0,
             ];
             let stride = 2 * core::mem::size_of::<f32>() as GLsizei;
             glVertexAttribPointer(
@@ -499,7 +551,12 @@ impl Drop for Gfx {
     fn drop(&mut self) {
         unsafe {
             glDeleteTextures(1, &self.atlas_tex);
-            eglMakeCurrent(self.dpy, core::ptr::null_mut(), core::ptr::null_mut(), core::ptr::null_mut());
+            eglMakeCurrent(
+                self.dpy,
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+            );
             eglDestroySurface(self.dpy, self.surf);
             eglDestroyContext(self.dpy, self.ctx);
             // Without this every rotation leaks the display's swap-chain buffers:

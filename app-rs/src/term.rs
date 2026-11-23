@@ -102,7 +102,13 @@ impl Term {
         }
     }
 
-    pub fn spawn(loader: &str, libdir: &str, rootfs: &str, cols: usize, rows: usize) -> Option<Term> {
+    pub fn spawn(
+        loader: &str,
+        libdir: &str,
+        rootfs: &str,
+        cols: usize,
+        rows: usize,
+    ) -> Option<Term> {
         let mfd = unsafe { posix_openpt(O_RDWR | O_NOCTTY) };
         if mfd < 0 {
             return None;
@@ -174,7 +180,11 @@ impl Term {
                 // mask. glibc's loader wants a clean one; anything blocked here
                 // would silently change the guest's semantics.
                 let empty = [0u64; 2];
-                sigprocmask(SIG_SETMASK, empty.as_ptr() as *const _, core::ptr::null_mut());
+                sigprocmask(
+                    SIG_SETMASK,
+                    empty.as_ptr() as *const _,
+                    core::ptr::null_mut(),
+                );
                 let sfd = open(slave.as_ptr(), O_RDWR);
                 if sfd >= 0 {
                     ioctl(sfd, TIOCSCTTY, 0usize);
@@ -195,9 +205,11 @@ impl Term {
                     fd += 1;
                 }
                 let _ = chdir(root_c.as_ptr());
-                let mut argv: Vec<*const core::ffi::c_char> = argv_s.iter().map(|c| c.as_ptr()).collect();
+                let mut argv: Vec<*const core::ffi::c_char> =
+                    argv_s.iter().map(|c| c.as_ptr()).collect();
                 argv.push(core::ptr::null());
-                let mut envp: Vec<*const core::ffi::c_char> = env_s.iter().map(|c| c.as_ptr()).collect();
+                let mut envp: Vec<*const core::ffi::c_char> =
+                    env_s.iter().map(|c| c.as_ptr()).collect();
                 envp.push(core::ptr::null());
                 execve(loader_c.as_ptr(), argv.as_ptr(), envp.as_ptr());
                 _exit(127);
@@ -232,7 +244,10 @@ impl Term {
         }
         let (oc, orows) = (self.cols, self.rows);
         if (cols, rows) != (oc, orows) && self.pid > 0 {
-            crate::log(&format!("session: resize {oc}x{orows} -> {cols}x{rows} (TIOCSWINSZ, pid={})", self.pid));
+            crate::log(&format!(
+                "session: resize {oc}x{orows} -> {cols}x{rows} (TIOCSWINSZ, pid={})",
+                self.pid
+            ));
         }
         let mut cells = vec![b' '; cols * rows];
         for r in 0..rows.min(orows) {
@@ -246,7 +261,12 @@ impl Term {
         self.cx = self.cx.min(cols - 1);
         self.cy = self.cy.min(rows - 1);
         if self.fd >= 0 {
-            let ws = Winsize { rows: rows as u16, cols: cols as u16, xpixel: 0, ypixel: 0 };
+            let ws = Winsize {
+                rows: rows as u16,
+                cols: cols as u16,
+                xpixel: 0,
+                ypixel: 0,
+            };
             unsafe {
                 ioctl(self.fd, TIOCSWINSZ, &ws as *const Winsize);
             }
@@ -347,7 +367,9 @@ impl Term {
         crate::log(&format!("session pid={} ended: {text}", self.pid));
         self.exit_text = text.clone();
         self.dead = true;
-        self.banner(&format!("\r\n[husk] session ended: {text}\r\n[husk] tap to start again\r\n"));
+        self.banner(&format!(
+            "\r\n[husk] session ended: {text}\r\n[husk] tap to start again\r\n"
+        ));
     }
 
     pub fn banner(&mut self, text: &str) {
@@ -450,7 +472,10 @@ impl Term {
                 2 => match b {
                     b'?' => self.private = true,
                     b'0'..=b'9' => {
-                        self.cur = self.cur.saturating_mul(10).saturating_add((b - b'0') as u32);
+                        self.cur = self
+                            .cur
+                            .saturating_mul(10)
+                            .saturating_add((b - b'0') as u32);
                         self.has_cur = true;
                     }
                     b';' => {
@@ -802,24 +827,32 @@ fn provision_prompt(rootfs: &str) {
 fn has_id(path: &str, idx: usize, id: u32) -> bool {
     let text = std::fs::read_to_string(path).unwrap_or_default();
     let want = id.to_string();
-    text.lines().any(|l| {
-        l.split(':').nth(idx).map(|f| f == want).unwrap_or(false)
-    })
+    text.lines()
+        .any(|l| l.split(':').nth(idx).map(|f| f == want).unwrap_or(false))
 }
 
 fn append(path: &str, extra: &str) -> std::io::Result<()> {
     use std::io::Write;
-    let mut f = std::fs::OpenOptions::new().append(true).create(true).open(path)?;
+    let mut f = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(path)?;
     f.write_all(extra.as_bytes())
 }
 
 /// Field 22 (starttime, in clock ticks since boot) of /proc/<pid>/stat.
 /// 0 means "could not read it", which callers must treat as "unverified".
 pub fn start_ticks(pid: i32) -> u64 {
-    let Ok(s) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else { return 0 };
+    let Ok(s) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+        return 0;
+    };
     let Some(i) = s.rfind(')') else { return 0 };
     // After the comm field the fields start again at #3 (state), so #22 is #19.
-    s[i + 1..].split_whitespace().nth(19).and_then(|t| t.parse().ok()).unwrap_or(0)
+    s[i + 1..]
+        .split_whitespace()
+        .nth(19)
+        .and_then(|t| t.parse().ok())
+        .unwrap_or(0)
 }
 
 /// Dropping a Term must hang up its PTY, not just forget the numbers.

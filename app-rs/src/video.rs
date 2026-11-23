@@ -23,6 +23,7 @@
 use core::ffi::{c_char, c_int, c_void};
 
 mod bridge;
+mod ebridge;
 mod present;
 use std::ffi::{CStr, CString};
 use std::fs::OpenOptions;
@@ -43,6 +44,7 @@ const INPUT_TIMEOUT_US: i64 = 2_000_000;
 const EOS_TIMEOUT: Duration = Duration::from_secs(15);
 const AIMAGE_FORMAT_PRIVATE: i32 = 0x22;
 const AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE: u64 = 1 << 8;
+const AHARDWAREBUFFER_USAGE_CPU_READ_RARELY: u64 = 1 << 0;
 
 static STARTED: AtomicBool = AtomicBool::new(false);
 
@@ -65,6 +67,30 @@ struct AhbDesc {
     stride: u32,
     rfu0: u32,
     rfu1: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct AhbPlane {
+    data: *mut c_void,
+    pixel_stride: u32,
+    row_stride: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct AhbPlanes {
+    plane_count: u32,
+    planes: [AhbPlane; 4],
+}
+
+impl Default for AhbPlanes {
+    fn default() -> Self {
+        Self {
+            plane_count: 0,
+            planes: [AhbPlane::default(); 4],
+        }
+    }
 }
 
 #[repr(C)]
@@ -123,8 +149,16 @@ type FnImageReaderAcquireNext = unsafe extern "C" fn(*mut ImageReader, *mut *mut
 type FnImageDelete = unsafe extern "C" fn(*mut Image);
 type FnImageGetHardwareBuffer = unsafe extern "C" fn(*const Image, *mut *mut Ahb) -> c_int;
 type FnImageGetTimestamp = unsafe extern "C" fn(*const Image, *mut i64) -> c_int;
+type FnImageGetNumberOfPlanes = unsafe extern "C" fn(*const Image, *mut i32) -> c_int;
+type FnImageGetPlaneData = unsafe extern "C" fn(*const Image, i32, *mut *mut u8, *mut i32) -> c_int;
+type FnImageGetPlaneRowStride = unsafe extern "C" fn(*const Image, i32, *mut i32) -> c_int;
+type FnImageGetPlanePixelStride = unsafe extern "C" fn(*const Image, i32, *mut i32) -> c_int;
 type FnAhbDescribe = unsafe extern "C" fn(*const Ahb, *mut AhbDesc);
 type FnAhbNativeHandle = unsafe extern "C" fn(*const Ahb) -> *const c_void;
+type FnAhbLockPlanes =
+    unsafe extern "C" fn(*mut Ahb, u64, i32, *const c_void, *mut AhbPlanes) -> c_int;
+type FnAhbUnlock = unsafe extern "C" fn(*mut Ahb, *mut i32) -> c_int;
+type FnAhbSendToSocket = unsafe extern "C" fn(*const Ahb, c_int) -> c_int;
 
 unsafe extern "C" {
     fn dlopen(filename: *const c_char, flags: c_int) -> *mut c_void;
@@ -182,8 +216,15 @@ struct ImageApi {
     image_delete: FnImageDelete,
     image_get_hardware_buffer: FnImageGetHardwareBuffer,
     image_get_timestamp: FnImageGetTimestamp,
+    image_get_number_of_planes: FnImageGetNumberOfPlanes,
+    image_get_plane_data: FnImageGetPlaneData,
+    image_get_plane_row_stride: FnImageGetPlaneRowStride,
+    image_get_plane_pixel_stride: FnImageGetPlanePixelStride,
     ahb_describe: FnAhbDescribe,
     ahb_native_handle: FnAhbNativeHandle,
+    ahb_lock_planes: FnAhbLockPlanes,
+    ahb_unlock: FnAhbUnlock,
+    ahb_send_to_socket: FnAhbSendToSocket,
 }
 
 struct ImageSink {
@@ -266,8 +307,15 @@ impl ImageApi {
             image_delete: symbol(media_handle, c"AImage_delete")?,
             image_get_hardware_buffer: symbol(media_handle, c"AImage_getHardwareBuffer")?,
             image_get_timestamp: symbol(media_handle, c"AImage_getTimestamp")?,
+            image_get_number_of_planes: symbol(media_handle, c"AImage_getNumberOfPlanes")?,
+            image_get_plane_data: symbol(media_handle, c"AImage_getPlaneData")?,
+            image_get_plane_row_stride: symbol(media_handle, c"AImage_getPlaneRowStride")?,
+            image_get_plane_pixel_stride: symbol(media_handle, c"AImage_getPlanePixelStride")?,
             ahb_describe: symbol(android_handle, c"AHardwareBuffer_describe")?,
             ahb_native_handle: symbol(android_handle, c"AHardwareBuffer_getNativeHandle")?,
+            ahb_lock_planes: symbol(android_handle, c"AHardwareBuffer_lockPlanes")?,
+            ahb_unlock: symbol(android_handle, c"AHardwareBuffer_unlock")?,
+            ahb_send_to_socket: symbol(android_handle, c"AHardwareBuffer_sendHandleToUnixSocket")?,
         })
     }
 
@@ -299,8 +347,15 @@ impl ImageApi {
                 image_delete: self.image_delete,
                 image_get_hardware_buffer: self.image_get_hardware_buffer,
                 image_get_timestamp: self.image_get_timestamp,
+                image_get_number_of_planes: self.image_get_number_of_planes,
+                image_get_plane_data: self.image_get_plane_data,
+                image_get_plane_row_stride: self.image_get_plane_row_stride,
+                image_get_plane_pixel_stride: self.image_get_plane_pixel_stride,
                 ahb_describe: self.ahb_describe,
                 ahb_native_handle: self.ahb_native_handle,
+                ahb_lock_planes: self.ahb_lock_planes,
+                ahb_unlock: self.ahb_unlock,
+                ahb_send_to_socket: self.ahb_send_to_socket,
             },
         })
     }
@@ -432,6 +487,139 @@ unsafe fn choose_video_track(
     Err(format!("no supported video track in {count} track(s)"))
 }
 
+unsafe fn hash_plane_rows(data: *const u8, row_stride: usize, width: usize, height: usize) -> u64 {
+    if data.is_null() || width == 0 || height == 0 || row_stride < width {
+        return 0;
+    }
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for row in 0..height {
+        let row_data = core::slice::from_raw_parts(data.add(row * row_stride), width);
+        for &byte in row_data {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    hash
+}
+
+unsafe fn ahb_layout_summary(
+    api: &ImageApi,
+    image: *mut Image,
+    buffer: *mut Ahb,
+    desc: &AhbDesc,
+) -> (AhbPlanes, i32, [u64; 4], [usize; 4], String) {
+    let mut image_plane_count = 0i32;
+    let image_plane_rc = (api.image_get_number_of_planes)(image, &mut image_plane_count);
+    let mut image_planes = Vec::new();
+    for index in 0..image_plane_count.clamp(0, 8) {
+        let mut data = core::ptr::null_mut();
+        let mut len = 0i32;
+        let data_rc = (api.image_get_plane_data)(image, index, &mut data, &mut len);
+        let mut row_stride = 0i32;
+        let row_rc = (api.image_get_plane_row_stride)(image, index, &mut row_stride);
+        let mut pixel_stride = 0i32;
+        let pixel_rc = (api.image_get_plane_pixel_stride)(image, index, &mut pixel_stride);
+        image_planes.push(format!(
+            "p{index}:data={data:p},len={len},row={row_stride},pixel={pixel_stride},rc={data_rc}/{row_rc}/{pixel_rc}"
+        ));
+    }
+
+    let mut planes = AhbPlanes::default();
+    let lock_rc = (api.ahb_lock_planes)(
+        buffer,
+        AHARDWAREBUFFER_USAGE_CPU_READ_RARELY,
+        -1,
+        core::ptr::null(),
+        &mut planes,
+    );
+    let mut locked = Vec::new();
+    for index in 0..(planes.plane_count as usize).min(planes.planes.len()) {
+        let plane = planes.planes[index];
+        locked.push(format!(
+            "p{index}:data={:p},row={},pixel={}",
+            plane.data, plane.row_stride, plane.pixel_stride
+        ));
+    }
+    let mut plane_hashes = [0u64; 4];
+    let mut plane_bytes = [0usize; 4];
+    if lock_rc == 0 {
+        for index in 0..(planes.plane_count as usize).min(3) {
+            let plane = planes.planes[index];
+            let width = if index == 0 {
+                desc.width.max(0) as usize
+            } else {
+                (desc.width.max(0) as usize).div_ceil(2)
+            };
+            let height = if index == 0 {
+                desc.height.max(0) as usize
+            } else {
+                (desc.height.max(0) as usize).div_ceil(2)
+            };
+            let bytes = width.saturating_mul(height);
+            plane_bytes[index] = bytes;
+            plane_hashes[index] = hash_plane_rows(
+                plane.data as *const u8,
+                plane.row_stride as usize,
+                width,
+                height,
+            );
+        }
+    }
+    let unlock_rc = if lock_rc == 0 {
+        (api.ahb_unlock)(buffer, core::ptr::null_mut())
+    } else {
+        -1
+    };
+
+    let summary = format!(
+        "image_planes={image_plane_count}(rc={image_plane_rc})[{}]|lock_planes_rc={lock_rc}|planes={}[{}]|plane_fnv={:#x}/{:#x}/{:#x}|plane_bytes={}/{}/{}|unlock_rc={unlock_rc}",
+        image_planes.join(";"),
+        planes.plane_count,
+        locked.join(";"),
+        plane_hashes[0],
+        plane_hashes[1],
+        plane_hashes[2],
+        plane_bytes[0],
+        plane_bytes[1],
+        plane_bytes[2]
+    );
+    (planes, lock_rc, plane_hashes, plane_bytes, summary)
+}
+
+unsafe fn native_handle_summary(native: *const c_void) -> String {
+    if native.is_null() {
+        return "null".into();
+    }
+    let words = native as *const i32;
+    let version = words.read_unaligned();
+    let num_fds = words.add(1).read_unaligned().clamp(0, 32);
+    let num_ints = words.add(2).read_unaligned().clamp(0, 64);
+    let mut fds = Vec::new();
+    for index in 0..num_fds {
+        let fd = words.add(3 + index as usize).read_unaligned();
+        let target = std::fs::read_link(format!("/proc/self/fd/{fd}"))
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|e| format!("<readlink:{e}>"));
+        let size = std::fs::metadata(format!("/proc/self/fd/{fd}"))
+            .map(|meta| meta.len())
+            .unwrap_or(0);
+        fds.push(format!("fd[{index}]={fd}:{target}:len={size}"));
+    }
+    let int_base = 3usize + num_fds as usize;
+    let mut ints = Vec::new();
+    for index in 0..num_ints {
+        ints.push(words.add(int_base + index as usize).read_unaligned());
+    }
+    format!(
+        "version={version}|num_fds={num_fds}|num_ints={num_ints}|fds=[{}]|ints=[{}]",
+        fds.join(";"),
+        ints.iter()
+            .map(|value| format!("{value:#x}"))
+            .collect::<Vec<_>>()
+            .join(",")
+    )
+}
+
 unsafe fn consume_image(sink: &mut ImageSink, files: &Path, tag: &str) -> Result<(), String> {
     let mut image = core::ptr::null_mut();
     let rc = (sink.api.reader_acquire_next)(sink.reader, &mut image);
@@ -456,6 +644,10 @@ unsafe fn consume_image(sink: &mut ImageSink, files: &Path, tag: &str) -> Result
     let mut desc = AhbDesc::default();
     (sink.api.ahb_describe)(buffer, &mut desc);
     let native = (sink.api.ahb_native_handle)(buffer);
+    let should_log_layout = sink.seen == 1 || sink.seen % 30 == 0;
+    let want_layout = should_log_layout || (sink.seen == 1 && ebridge::enabled(files));
+    let layout = want_layout.then(|| ahb_layout_summary(&sink.api, image, buffer, &desc));
+    let native_summary = should_log_layout.then(|| native_handle_summary(native));
     let (handle_version, num_fds, first_fd) = if native.is_null() {
         (-1, -1, -1)
     } else {
@@ -470,7 +662,7 @@ unsafe fn consume_image(sink: &mut ImageSink, files: &Path, tag: &str) -> Result
         (version, num_fds, fd)
     };
 
-    if sink.seen == 1 || sink.seen % 30 == 0 {
+    if should_log_layout {
         result(
             files,
             &format!(
@@ -484,12 +676,39 @@ unsafe fn consume_image(sink: &mut ImageSink, files: &Path, tag: &str) -> Result
                 desc.stride
             ),
         );
+        result(
+            files,
+            &format!(
+                "video|{tag}|ahb-layout|n={}|{}|{}",
+                sink.seen,
+                layout
+                    .as_ref()
+                    .map(|(_, _, _, _, summary)| summary.as_str())
+                    .unwrap_or("layout-missing"),
+                native_summary.as_deref().unwrap_or("handle-missing")
+            ),
+        );
     }
     if native.is_null() || num_fds <= 0 || first_fd < 0 {
         (sink.api.image_delete)(image);
         return Err(format!(
             "AHardwareBuffer has no dmabuf-native-handle: native={native:p} fds={num_fds} fd={first_fd}"
         ));
+    }
+    if tag == "bridge" {
+        if let Some((planes, lock_rc, plane_hashes, plane_bytes, _)) = layout.as_ref() {
+            ebridge::export_if_enabled(
+                files,
+                &sink.api,
+                buffer,
+                &desc,
+                planes,
+                *lock_rc,
+                timestamp_ns,
+                plane_hashes,
+                plane_bytes,
+            );
+        }
     }
     let presented = if tag == "bridge" {
         present::present_if_enabled(files, buffer, desc.width, desc.height)

@@ -296,8 +296,8 @@ impl Presenter {
     }
 
     unsafe fn submit(&mut self, buffer: *mut Ahb, width: u32, height: u32) -> bool {
-        let current_parent = crate::surface::wait_parent(Duration::from_millis(200))
-            .unwrap_or(self.parent);
+        let current_parent =
+            crate::surface::wait_parent(Duration::from_millis(200)).unwrap_or(self.parent);
         if current_parent != self.parent && !self.rebuild(current_parent) {
             crate::log(&format!(
                 "video|present|parent_changed|old={:#x}|new={current_parent:#x}",
@@ -315,8 +315,7 @@ impl Presenter {
             return false;
         }
 
-        let scale = (win_w as f64 / width.max(1) as f64)
-            .min(win_h as f64 / height.max(1) as f64);
+        let scale = (win_w as f64 / width.max(1) as f64).min(win_h as f64 / height.max(1) as f64);
         let draw_w = (width as f64 * scale).round().max(1.0) as i32;
         let draw_h = (height as f64 * scale).round().max(1.0) as i32;
         let left = (win_w - draw_w) / 2;
@@ -336,7 +335,11 @@ impl Presenter {
 
         (self.s.acquire)(buffer);
         self.callbacks.fetch_add(1, Ordering::AcqRel);
-        let previous = self.pending.lock().ok().and_then(|mut slot| slot.replace(buffer));
+        let previous = self
+            .pending
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.replace(buffer));
         let submitted = self.stats.submitted.fetch_add(1, Ordering::Relaxed) + 1;
         let transaction = (self.s.create_transaction)();
         if transaction.is_null() {
@@ -449,7 +452,9 @@ pub(super) unsafe fn present_if_enabled(
             }
         }
     }
-    let ok = slot.as_mut().is_some_and(|p| p.submit(buffer, width, height));
+    let ok = slot
+        .as_mut()
+        .is_some_and(|p| p.submit(buffer, width, height));
     if !ok && !PRESENT_FAIL_LOGGED.swap(true, Ordering::Relaxed) {
         crate::log("video|present|SUBMIT|FAIL");
     }

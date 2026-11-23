@@ -670,9 +670,7 @@ unsafe extern "C" fn on_transaction_complete(context: *mut c_void, stats: *mut c
                 if send_ring_text(&ctx.stream, &message) {
                     crate::log(&format!("ahb|ring|release_sent|slot={previous_slot}"));
                 } else {
-                    crate::log(&format!(
-                        "ahb|ring|release_send|FAIL|slot={previous_slot}"
-                    ));
+                    crate::log(&format!("ahb|ring|release_send|FAIL|slot={previous_slot}"));
                 }
             }
         }

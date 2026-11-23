@@ -1,0 +1,64 @@
+vk|loader|PASS|libvulkan.so.1
+vk|symbols|PASS|core entrypoints resolved
+MESA: info: panvk_debug: startup|noafbc
+MESA: info: Created an instance
+vk|instance|PASS|VkResult=0
+MESA: info: Found kbase device '/dev/mali0'.
+WARNING: panvk is not a conformant Vulkan implementation, testing use only.
+FristOneRR 1.2.0 (Mesa 26.3.0-devel)
+MESA: info: panvk (Mali-G77 MC9) FristOneRR 1.2.0 (Mesa 26.3.0-devel)
+MESA: info: panvk: gpu_id=0x90800011 variant=0x0 texture_features0=0xf7fffffe afbc=1 afrc=0
+vk|physical|PASS|count=1 name=Mali-G77 MC9
+vk|ext|INFO|instance=18 device=171
+vk|ext|support|VK_KHR_surface
+vk|ext|missing|VK_KHR_android_surface
+vk|ext|support|VK_KHR_get_physical_device_properties2
+vk|ext|support|VK_KHR_external_memory_capabilities
+vk|ext|support|VK_KHR_external_fence_capabilities
+vk|ext|support|VK_KHR_external_semaphore_capabilities
+vk|ext|support|VK_KHR_get_surface_capabilities2
+vk|ext|support|VK_EXT_surface_maintenance1
+vk|ext|support|VK_KHR_swapchain
+vk|ext|missing|VK_ANDROID_external_memory_android_hardware_buffer
+vk|ext|support|VK_KHR_external_memory
+vk|ext|support|VK_KHR_external_memory_fd
+vk|ext|support|VK_EXT_external_memory_dma_buf
+vk|ext|support|VK_EXT_external_memory_host
+vk|ext|support|VK_EXT_image_drm_format_modifier
+vk|ext|support|VK_KHR_external_fence
+vk|ext|support|VK_KHR_external_fence_fd
+vk|ext|support|VK_KHR_external_semaphore
+vk|ext|support|VK_KHR_external_semaphore_fd
+vk|ext|support|VK_EXT_queue_family_foreign
+vk|ext|support|VK_KHR_timeline_semaphore
+vk|ext|support|VK_KHR_synchronization2
+vk|ext|support|VK_EXT_swapchain_maintenance1
+vk|ext|support|VK_KHR_present_id
+vk|ext|support|VK_KHR_present_wait
+vk|queue_family|PASS|index=0 flags=0x7 queues=1
+vk|device|PASS|queue=0x5589ef68b0 VkResult=0
+vk|memory_types|PASS|count=3
+vk|buffer|PASS|created/bound/mapped size=4096 type=2 readback=0x4855534b
+vk|dmabuf|socket_wait|retry=1|/run/husk/video-ahb.sock|No such file or directory (os error 2)
+vk|dmabuf|socket|PASS|/run/husk/video-ahb.sock
+vk|dmabuf|meta|PASS|1920x1080 stride=1920 format=842094169 usage=0x103 count=1 frames=1
+vk|dmabuf|recv|bytes=356 control_len=32
+vk|dmabuf|fd_count|3
+vk|dmabuf|fd|fd=6 target=anon_inode:gralloc_extra
+vk|dmabuf|found|fd=7 target=/dmabuf:G:ImageReader-1920x1080f22u256m
+vk|video-ahb|layout|size=1920x1080 stride=1920 format=0x32315659 dmabuf_size=3137536 planes=3
+vk|video-ahb|plane|index=0 offset=0 row_stride=1920 pixel_stride=1
+vk|video-ahb|plane|index=1 offset=2592000 row_stride=960 pixel_stride=1
+vk|video-ahb|plane|index=2 offset=2073600 row_stride=960 pixel_stride=1
+vk|video-ahb|format_properties|format=G8_B8_R8_3PLANE_420_UNORM linear=0xc6d001 optimal=0xc6d001 buffer=0x0
+vk|video-ahb|image_create|VkResult=0|format=G8_B8_R8_3PLANE_420_UNORM|1920x1080|modifier=LINEAR|planes=3
+vk|video-ahb|requirements|size=3110400 alignment=4096 memory_bits=0x7
+vk|video-ahb|image_import|VkResult=0|type=2 size=3110400 fd=7
+vk|video-ahb|image_bind|VkResult=0
+vk|video-ahb|cpu_luma|PASS|fnv=0xd4abebfa3f8cb0fc|expected=0xd4abebfa3f8cb0fc|bytes=2073600
+vk|video-ahb|gpu_luma|PASS|plane=0|fnv=0xd4abebfa3f8cb0fc|expected=0xd4abebfa3f8cb0fc|bytes=2073600|size=1920x1080
+vk|video-ahb|gpu_plane1|PASS|plane=1|fnv=0xa8a073543b9ed2db|expected=0xa8a073543b9ed2db|bytes=518400|size=960x540
+vk|video-ahb|gpu_plane2|PASS|plane=2|fnv=0xf164ae94471897d1|expected=0xf164ae94471897d1|bytes=518400|size=960x540
+vk|video-ahb|display_handoff|PASS
+vk|video-ahb|teardown|image/memory/native fds released
+vk|teardown|PASS|device/instance/loader released

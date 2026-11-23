@@ -151,7 +151,9 @@ impl App {
         if act.internalDataPath.is_null() {
             return None;
         }
-        let files = unsafe { std::ffi::CStr::from_ptr(act.internalDataPath) }.to_string_lossy().to_string();
+        let files = unsafe { std::ffi::CStr::from_ptr(act.internalDataPath) }
+            .to_string_lossy()
+            .to_string();
         let full = format!("{files}/rootfs-full");
         let rootfs = if std::path::Path::new(&full).exists() {
             full
@@ -266,7 +268,9 @@ impl App {
                 return;
             }
         }
-        let Some((rootfs, _libdir, loader)) = self.paths() else { return };
+        let Some((rootfs, _libdir, loader)) = self.paths() else {
+            return;
+        };
         if !std::path::Path::new(&format!("{rootfs}/usr/bin/bash")).exists() {
             log(&format!("no rootfs at {rootfs}"));
             return;
@@ -299,7 +303,14 @@ impl App {
                 let l = LOOPER.load(Ordering::Relaxed);
                 if !l.is_null() && fd >= 0 {
                     unsafe {
-                        ALooper_addFd(l, fd, 1000, ALOOPER_EVENT_INPUT, core::ptr::null_mut(), core::ptr::null_mut());
+                        ALooper_addFd(
+                            l,
+                            fd,
+                            1000,
+                            ALOOPER_EVENT_INPUT,
+                            core::ptr::null_mut(),
+                            core::ptr::null_mut(),
+                        );
                     }
                 }
                 self.dirty = true;
@@ -368,7 +379,9 @@ impl App {
 /// number that creeps up across restarts is the only cheap leak detector we
 /// have inside an unprivileged app (lifecycle G5).
 fn fd_count() -> usize {
-    std::fs::read_dir("/proc/self/fd").map(|d| d.count()).unwrap_or(0)
+    std::fs::read_dir("/proc/self/fd")
+        .map(|d| d.count())
+        .unwrap_or(0)
 }
 
 /// "none" / "running" / "exited", for callback log lines.
@@ -398,7 +411,9 @@ fn native_lib_dir() -> Option<String> {
     if ok == 0 || info.dli_fname.is_null() {
         return None;
     }
-    let p = unsafe { std::ffi::CStr::from_ptr(info.dli_fname) }.to_string_lossy().to_string();
+    let p = unsafe { std::ffi::CStr::from_ptr(info.dli_fname) }
+        .to_string_lossy()
+        .to_string();
     let idx = p.rfind('/')?;
     Some(p[..idx].to_string())
 }
@@ -424,9 +439,15 @@ static CALLBACKS: ANativeActivityCallbacks = ANativeActivityCallbacks {
     onLowMemory: Some(on_low_memory),
 };
 
-unsafe extern "C" fn on_start(_a: *mut ANativeActivity) { log("cb: onStart"); }
-unsafe extern "C" fn on_resume(_a: *mut ANativeActivity) { log("cb: onResume"); }
-unsafe extern "C" fn on_pause(_a: *mut ANativeActivity) { log("cb: onPause"); }
+unsafe extern "C" fn on_start(_a: *mut ANativeActivity) {
+    log("cb: onStart");
+}
+unsafe extern "C" fn on_resume(_a: *mut ANativeActivity) {
+    log("cb: onResume");
+}
+unsafe extern "C" fn on_pause(_a: *mut ANativeActivity) {
+    log("cb: onPause");
+}
 unsafe extern "C" fn on_config(_a: *mut ANativeActivity) {
     if let Ok(mut g) = APP.lock() {
         if let Some(app) = g.as_mut() {
@@ -440,7 +461,11 @@ unsafe extern "C" fn on_config(_a: *mut ANativeActivity) {
 /// still alive, and the guest keeps its PTY. It exists so the log has the full
 /// callback timeline (lifecycle E1) and so a stop-then-kill leaves a trace.
 unsafe extern "C" fn on_stop(_a: *mut ANativeActivity) {
-    log(&format!("cb: onStop (session {}, fds={})", session_state(), fd_count()));
+    log(&format!(
+        "cb: onStop (session {}, fds={})",
+        session_state(),
+        fd_count()
+    ));
 }
 
 /// No UI state is worth persisting: the session lives in the process and the
@@ -547,7 +572,13 @@ unsafe extern "C" fn on_input_queue(_a: *mut ANativeActivity, q: *mut c_void) {
     INPUTQ.store(q, Ordering::SeqCst);
     let looper = LOOPER.load(Ordering::SeqCst);
     if !looper.is_null() {
-        AInputQueue_attachLooper(q, looper, 2000, core::ptr::null_mut(), core::ptr::null_mut());
+        AInputQueue_attachLooper(
+            q,
+            looper,
+            2000,
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+        );
     }
 }
 
@@ -576,7 +607,11 @@ unsafe extern "C" fn on_destroy(_a: *mut ANativeActivity) {
 // ---------------------------------------------------------------- the app ---
 
 #[no_mangle]
-pub unsafe extern "C" fn ANativeActivity_onCreate(activity: *mut ANativeActivity, _state: *mut c_void, _size: usize) {
+pub unsafe extern "C" fn ANativeActivity_onCreate(
+    activity: *mut ANativeActivity,
+    _state: *mut c_void,
+    _size: usize,
+) {
     log(&format!("onCreate activity={:p}", activity));
     // The platform may call onCreate again in the *same* process (activity
     // recreated after onDestroy while the process lives). Everything the run
@@ -600,7 +635,9 @@ pub unsafe extern "C" fn ANativeActivity_onCreate(activity: *mut ANativeActivity
     // needs exactly this.
     if let Some(dir) = native_lib_dir() {
         if !(*activity).internalDataPath.is_null() {
-            let files = CStr::from_ptr((*activity).internalDataPath).to_string_lossy().to_string();
+            let files = CStr::from_ptr((*activity).internalDataPath)
+                .to_string_lossy()
+                .to_string();
             let _ = std::fs::write(format!("{files}/libdir"), dir.as_bytes());
         }
     }
@@ -616,7 +653,9 @@ pub unsafe extern "C" fn ANativeActivity_onCreate(activity: *mut ANativeActivity
         let aligned = p % core::mem::align_of::<ANativeActivityCallbacks>() == 0;
         if aligned {
             let bytes = core::mem::size_of::<ANativeActivityCallbacks>();
-            log(&format!("onCreate callbacks={fw_cb:p} -> in-place copy ({bytes} bytes)"));
+            log(&format!(
+                "onCreate callbacks={fw_cb:p} -> in-place copy ({bytes} bytes)"
+            ));
             core::ptr::copy_nonoverlapping(
                 &CALLBACKS as *const ANativeActivityCallbacks as *const u8,
                 fw_cb as *mut u8,
@@ -648,7 +687,6 @@ pub unsafe extern "C" fn ANativeActivity_onCreate(activity: *mut ANativeActivity
     });
 }
 
-
 /// One-shot experiment: does this ROM's app-domain seccomp use TRAP (catchable)
 /// or KILL (the process is gone, no handler ever runs)?
 ///
@@ -667,7 +705,13 @@ fn probe_sigsys_semantics() {
             let mut act = [0usize; 4];
             act[0] = probe_sig_handler as usize;
             act[1] = 0x1004; // SA_SIGINFO | SA_RESTART
-            let r = syscall(134, SIGSYS as c_long, act.as_ptr() as c_long, 0 as c_long, 8 as c_long);
+            let r = syscall(
+                134,
+                SIGSYS as c_long,
+                act.as_ptr() as c_long,
+                0 as c_long,
+                8 as c_long,
+            );
             crate::log(&format!("probe: rt_sigaction ret={r}"));
             let code = syscall(437, 0 as c_long, 0 as c_long, 0 as c_long, 0 as c_long);
             _exit(if code < 0 { 43 } else { 44 });
@@ -682,7 +726,11 @@ fn probe_sigsys_semantics() {
                 c => format!("exit {c}"),
             }
         } else {
-            format!("signal {} ({}) -- KILL, nothing can catch it", wtermsig(st), sig_name(wtermsig(st)))
+            format!(
+                "signal {} ({}) -- KILL, nothing can catch it",
+                wtermsig(st),
+                sig_name(wtermsig(st))
+            )
         };
         crate::log(&format!("probe: openat2 semantics = {verdict}"));
     }
@@ -699,7 +747,9 @@ fn trace_requested() -> bool {
         if a.internalDataPath.is_null() {
             return false;
         }
-        let files = CStr::from_ptr(a.internalDataPath).to_string_lossy().to_string();
+        let files = CStr::from_ptr(a.internalDataPath)
+            .to_string_lossy()
+            .to_string();
         std::path::Path::new(&format!("{files}/trace")).exists()
     }
 }
@@ -758,7 +808,13 @@ fn start_reaper() {
     }
     std::thread::spawn(|| {
         unsafe {
-            prctl(PR_SET_CHILD_SUBREAPER, 1 as c_long, 0 as c_long, 0 as c_long, 0 as c_long);
+            prctl(
+                PR_SET_CHILD_SUBREAPER,
+                1 as c_long,
+                0 as c_long,
+                0 as c_long,
+                0 as c_long,
+            );
         }
         loop {
             let mut st: c_int = 0;
@@ -790,7 +846,15 @@ fn run() {
 
     let q = INPUTQ.load(Ordering::SeqCst);
     if !q.is_null() {
-        unsafe { AInputQueue_attachLooper(q, looper, 2000, core::ptr::null_mut(), core::ptr::null_mut()) };
+        unsafe {
+            AInputQueue_attachLooper(
+                q,
+                looper,
+                2000,
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+            )
+        };
     }
 
     while !DESTROYED.load(Ordering::SeqCst) {
@@ -808,7 +872,13 @@ fn run() {
                 let q = INPUTQ.load(Ordering::SeqCst) as usize;
                 if q != 0 && app.attached_queue != q {
                     unsafe {
-                        AInputQueue_attachLooper(q as *mut c_void, looper, 2000, core::ptr::null_mut(), core::ptr::null_mut());
+                        AInputQueue_attachLooper(
+                            q as *mut c_void,
+                            looper,
+                            2000,
+                            core::ptr::null_mut(),
+                            core::ptr::null_mut(),
+                        );
                     }
                     app.attached_queue = q;
                 }
@@ -839,8 +909,19 @@ fn run() {
                     if let (Some(gfx), Some(t)) = (app.gfx.as_mut(), app.term.as_ref()) {
                         let back = app.scroll.min(t.max_scroll());
                         let view = t.snapshot(back);
-                        let cursor = if back > 0 { (t.cols, t.rows) } else { (t.cx, t.cy) };
-                        gfx.draw(&view, t.cols, t.rows, cursor.0, cursor.1, focused && back == 0);
+                        let cursor = if back > 0 {
+                            (t.cols, t.rows)
+                        } else {
+                            (t.cx, t.cy)
+                        };
+                        gfx.draw(
+                            &view,
+                            t.cols,
+                            t.rows,
+                            cursor.0,
+                            cursor.1,
+                            focused && back == 0,
+                        );
                     } else {
                         app.dirty = false;
                         continue;
@@ -962,17 +1043,83 @@ fn key_text(code: i32, meta: i32) -> Option<char> {
     let shift = meta & AMETA_SHIFT_ON != 0;
     let c = match code {
         AKEYCODE_SPACE => ' ',
-        AKEYCODE_COMMA => if shift { '<' } else { ',' },
-        AKEYCODE_PERIOD => if shift { '>' } else { '.' },
-        AKEYCODE_SLASH => if shift { '?' } else { '/' },
-        AKEYCODE_SEMICOLON => if shift { ':' } else { ';' },
-        AKEYCODE_APOSTROPHE => if shift { '"' } else { '\'' },
-        AKEYCODE_GRAVE => if shift { '~' } else { '`' },
-        AKEYCODE_MINUS => if shift { '_' } else { '-' },
-        AKEYCODE_EQUALS => if shift { '+' } else { '=' },
-        AKEYCODE_LEFT_BRACKET => if shift { '{' } else { '[' },
-        AKEYCODE_RIGHT_BRACKET => if shift { '}' } else { ']' },
-        AKEYCODE_BACKSLASH => if shift { '|' } else { '\\' },
+        AKEYCODE_COMMA => {
+            if shift {
+                '<'
+            } else {
+                ','
+            }
+        }
+        AKEYCODE_PERIOD => {
+            if shift {
+                '>'
+            } else {
+                '.'
+            }
+        }
+        AKEYCODE_SLASH => {
+            if shift {
+                '?'
+            } else {
+                '/'
+            }
+        }
+        AKEYCODE_SEMICOLON => {
+            if shift {
+                ':'
+            } else {
+                ';'
+            }
+        }
+        AKEYCODE_APOSTROPHE => {
+            if shift {
+                '"'
+            } else {
+                '\''
+            }
+        }
+        AKEYCODE_GRAVE => {
+            if shift {
+                '~'
+            } else {
+                '`'
+            }
+        }
+        AKEYCODE_MINUS => {
+            if shift {
+                '_'
+            } else {
+                '-'
+            }
+        }
+        AKEYCODE_EQUALS => {
+            if shift {
+                '+'
+            } else {
+                '='
+            }
+        }
+        AKEYCODE_LEFT_BRACKET => {
+            if shift {
+                '{'
+            } else {
+                '['
+            }
+        }
+        AKEYCODE_RIGHT_BRACKET => {
+            if shift {
+                '}'
+            } else {
+                ']'
+            }
+        }
+        AKEYCODE_BACKSLASH => {
+            if shift {
+                '|'
+            } else {
+                '\\'
+            }
+        }
         AKEYCODE_ESCAPE => '\x1b',
         c if c >= AKEYCODE_0 && c <= AKEYCODE_9 => {
             let d = b'0' + (c - AKEYCODE_0) as u8;
@@ -995,7 +1142,11 @@ fn key_text(code: i32, meta: i32) -> Option<char> {
         }
         c if c >= AKEYCODE_A && c <= AKEYCODE_Z => {
             let d = (b'a' + (c - AKEYCODE_A) as u8) as char;
-            if shift { d.to_ascii_uppercase() } else { d }
+            if shift {
+                d.to_ascii_uppercase()
+            } else {
+                d
+            }
         }
         _ => return None,
     };

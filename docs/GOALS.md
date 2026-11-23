@@ -3,7 +3,7 @@
 > 本文件是目标的**权威规格**。会话里的 goal 对象不可编辑，重建 goal 时以本文件为准；
 > 改目标就改这里，再把下面的「粘贴块」整段贴进去。纯文本版：`docs/goal-objective.txt`。
 
-最后更新：2026-11-23（v38：evidence 73 已让 app AHB dma-buf 进入 guest，完成 `MEM_IMPORT` + `STICKY_RESOURCE_MAP`，并由 guest PanVK 作为 LINEAR 2D image 做 GPU clear 后由 app 回读上屏。仍需把 MediaCodec 的 YUV/Private 解码 AHB 回导、guest WSI、HEVC/VP9/AV1 bridge、GStreamer/Chromium、AV 同步、10 分钟门禁和 2.0 替换做完）
+最后更新：2026-11-23（v39：evidence 74 已把真实 `c2.mtk.avc.decoder` 的三平面 YUV AHB 导入 guest PanVK，Y/plane1/plane2 三个 GPU 回读哈希均与 app 侧一致；socket 竞态已修复。仍是首帧一次性诊断，逐帧 ring、YUV→RGB、guest WSI、VA-API/GStreamer/Chromium、AV 同步、10 分钟门禁和 2.0 替换仍未完成）
 
 ---
 
@@ -32,7 +32,7 @@
    **已实测（evidence 67）**：app 进程内的纯 Rust 探针已真实选中 `c2.mtk.avc.decoder` /
    `c2.mtk.hevc.decoder`，两条路径各完成 1920x1080@30 的 150/150 帧 + EOS；MediaCodec
    输出经 `AImageReader(AIMAGE_FORMAT_PRIVATE)` 变成 AHardwareBuffer，每个 native handle
-   有 3 个 fd，格式 YUV420_888、stride 1920，codec/ImageReader/extractor 均正常释放。
+   有 3 个 fd，格式 `842094169 / 0x32315659 ("YV12" private FourCC)`、stride 1920，codec/ImageReader/extractor 均正常释放。
   evidence 69 已把正式所有权边界前移：正常 `rootfs-full` 根内的 guest 用纯 Rust MP4 reader
   解复用 150 个 AVC access unit，经 4×2 MiB memfd ring 和控制 socket 送到 app；app 真实选中
   `c2.mtk.avc.decoder` 并产出 150 个 AHB，guest `RESULT PASS`，app 日志累计 14 个相同会话全成功。
@@ -40,12 +40,12 @@
   验证 `connect(2)` 翻译。evidence 71 已把 app 内 MediaCodec 输出 AHB 直接提交到持久
   `husk-video` SurfaceControl 子层：150 帧实时播放，SurfaceFlinger `completed/released`
   均 150/150，连续两次会话约 5.1 秒且截图时间码/运动位置不同。当前 v1 仍只支持单条 AVC
-  轨；RGBA 测试 AHB 的 `MEM_IMPORT` / sticky / PanVK GPU 写回已由 evidence 73 打通，但 MediaCodec 解码 AHB 的 YUV/Private layout 回导与 guest 侧 WSI 仍未完成，不能把 app 侧上屏写成整条视频验收完成。
+  轨；RGBA 测试 AHB 的 `MEM_IMPORT` / sticky / PanVK GPU 写回已由 evidence 73 打通；evidence 74 进一步把真实 MediaCodec 三平面 YUV AHB 导入 guest PanVK，Y/plane1/plane2 三个 GPU 回读哈希均与 app 侧一致。但本轮只是首帧一次性诊断，逐帧 AHB ring、YUV→RGB sampling、guest WSI 仍未完成，不能把 app 侧上屏写成整条视频验收完成。
   evidence 72 又完成播放中的横竖旋转布局与 Home/前台恢复：旧 NativeWindow 销毁后，JNI 刷新
   发现新的 parent SurfaceControl，presenter 按回调代际退役旧层并重建，恢复后继续上屏；无窗口
   期间解出的帧明确计入跳过，不把后台丢帧写成全部显示。
    事实（evidence 39）：guest 直连硬解不可行——`/dev/video*` 是 `0660 media:system` 的相机采集节点，不是编解码器；厂商解码 .so 带 bionic DT_NEEDED，glibc guest 内加载不了。本机硬解器在 bionic 侧：`c2.mtk.avc.decoder` / `c2.mtk.hevc.decoder` / `c2.mtk.vp9.decoder` / `c2.mtk.av1.decoder`（取自 /vendor/etc/media_codecs_c2.xml），厂商自报 1080p 帧率 113–276 fps。
-   形状：解复用 + 音视频同步留在 guest（ffmpeg/GStreamer 不动），压缩帧走独立通道（AF_UNIX socketpair + 共享内存 ring，不复用输入/剪贴板/音频通道）递到 app 进程里我们的 Rust 解码线程 → NDK `AMediaCodec`（dlopen libmediandk.so，纯 Rust 调用）→ 输出 AHardwareBuffer；优先经 MEM_IMPORT（0xc0188016）把 dma-buf 交回 guest，走第 3 条同一条零拷贝 Surface 路径；evidence 73 已在 RGBA 测试面证明 import + sticky + PanVK GPU write + app 回读上屏，下一步必须覆盖真实解码 AHB 的 YUV/Private layout；不能导出才退化 CPU 拷贝并写开销。不留独立解码进程、不留 gst 中转服务。
+   形状：解复用 + 音视频同步留在 guest（ffmpeg/GStreamer 不动），压缩帧走独立通道（AF_UNIX socketpair + 共享内存 ring，不复用输入/剪贴板/音频通道）递到 app 进程里我们的 Rust 解码线程 → NDK `AMediaCodec`（dlopen libmediandk.so，纯 Rust 调用）→ 输出 AHardwareBuffer；优先经 MEM_IMPORT（0xc0188016）把 dma-buf 交回 guest，走第 3 条同一条零拷贝 Surface 路径；evidence 73 已在 RGBA 测试面证明 import + sticky + PanVK GPU write + app 回读上屏；evidence 74 已覆盖真实解码 AHB 的三平面 YUV layout，并用 GPU 分别回读 Y/plane1/plane2 与 app 哈希对照。下一步是把一次性诊断改成逐帧 ring 和真正的 YUV→RGB 渲染；不能导出才退化 CPU 拷贝并写开销。不留独立解码进程、不留 gst 中转服务。
    接口（v11 补）：Chromium 与 GStreamer 都不直接调 AMediaCodec，它们说的是 VA-API。所以第 4 条的重心是**在 guest 内实现一个 Rust VA-API 后端（libva 驱动名 `husk`）**：`vaInitialize` / `vaQueryConfigProfiles` / `vaCreateConfig` / `vaCreateContext` / `vaCreateSurfaces` / `vaBeginPicture` / `vaRenderPicture` / `vaEndPicture` / `vaSyncSurface` / `vaExportSurfaceHandle`，把 bitstream 和参数经同一条通道送到 app 侧 AMediaCodec，解出的帧用 dma-buf 导出（走第 3 条零拷贝路径，导不出才 CPU 拷贝）。两条路共用这一个后端，只写一份：Chromium 侧不改不重编，只加 `--use-gl=egl --enable-features=VaapiVideoDecoder,VaapiIgnoreDriverChecks --ignore-gpu-blocklist`；GStreamer 侧用 `vah264dec` / `vah265dec` / `vavp9dec`（rootfs 缺这些元素就退回 `avdec_*` 软解并在日志写明原因）。VA 驱动同时提供 `vaQuerySurfaceAttributes`，让上层能拿到本机真实上限（分辨率 / 帧率 / profile）。
    验收：1080p30 H.264 与 HEVC 各连续 10 分钟不掉帧（丢帧 <0.5%，日志里有 dropped 计数）；CPU 占用（按核采样 /proc/pid/stat）硬解 vs 软解对比表；AV 同步偏差 <40ms 且写明测量方法；Chromium `<video>` 与 GNOME 播放器两条路径都出画；不支持的编码退化软解并写日志原因，任何一条都不许崩；退出后无残留解码线程与 fd；guest 内 `vainfo` 必须报出 `husk` 驱动与 H.264 / HEVC profile，日志里必须打出实际 decoder 名（c2.mtk.*）作为"确实硬解"的证据。
    依赖关系：不阻塞在第 2 条后面——dma-buf 回传没打通之前，先用 CPU 拷贝版本出画，数字照实写。
