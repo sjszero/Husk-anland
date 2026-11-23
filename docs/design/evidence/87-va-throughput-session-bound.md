@@ -90,3 +90,22 @@ surface 池被 queue 吃光 → 解码器拿不到新 surface → 死锁。**gst
 
 注意写出的 height 是 **1080**，不是 1088：合成 SPS 声明的是 1088（无 crop），
 但 `h264parse` 自己知道真实可见高度，下游按 1080 取，多出来的 8 行没有泄漏给用户。
+
+## 五、未解决的 bug（FACT，留给下一轮）
+
+`gst-launch-1.0 ... ! filesink` 写完整个文件（466,560,000 字节，一字节不差）之后
+**进程不退**，`RC=0` 也不返回：
+
+```text
+$ ps -A -o PID,NAME | grep libld
+32069 libld.so            # 文件早就写完了，进程还活着
+$ for t in /proc/32069/task/*; do cat $t/wchan; done
+do_sys_poll / do_sys_poll / futex_wait_queue_me / 0 / do_sys_poll
+```
+
+后果：这条连接一直占着视频会话，后面的客户端会被 `OPEN_REFUSED` 挡掉——这很可能就是
+之前"杀掉 guest 之后要等很久才恢复"的真正来源。当前靠租约（静默 45 秒可接管）兜住，
+但**根因没修**：要么 `vaTerminate`/`vaDestroyContext` 没有把 `VideoClient` 的 socket 关掉
+（`DriverContext` 存在静态表里，可能永远不会被 drop），要么 gst-vaapi 在 teardown 时
+等一个我们没实现的 display 事件。下一轮第一步：在 `vaTerminate` 里显式
+`*video = None` 并记一行日志，然后重跑上面这条命令，看进程是否正常退出。
