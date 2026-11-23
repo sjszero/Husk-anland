@@ -1180,6 +1180,21 @@ pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mo
             if verbose_on() && n >= 4 && &gp[..4] == b"/dev".as_ref() {
                 dbg(&[b"nrshim open ", &gp[..n], b"\n"]);
             }
+            let mut sysbuf = [0u8; PATH_MAX];
+            if let Some(sn) = v4l2_sys_host(&gp[..n], &mut sysbuf) {
+                return ret_or_errno(syscall4(
+                    SYS_OPENAT,
+                    AT_FDCWD as usize,
+                    sysbuf.as_ptr() as usize,
+                    flags as usize,
+                    mode as usize,
+                ));
+            }
+            if let Some(vn) = video_index(&gp[..n]) {
+                if let Some(fd) = v4l2_open(vn) {
+                    return fd;
+                }
+            }
             if is_drm_node(&gp[..n]) {
                 if let Some(api) = drm_api() {
                     return drm_api_open(&api);
@@ -1233,6 +1248,21 @@ pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mo
         }
         i
     };
+    let mut sysbuf = [0u8; PATH_MAX];
+    if let Some(sn) = v4l2_sys_host(&buf[..bl], &mut sysbuf) {
+        return ret_or_errno(syscall4(
+            SYS_OPENAT,
+            AT_FDCWD as usize,
+            sysbuf.as_ptr() as usize,
+            flags as usize,
+            mode as usize,
+        ));
+    }
+    if let Some(vn) = video_index(&buf[..bl]) {
+        if let Some(fd) = v4l2_open(vn) {
+            return fd;
+        }
+    }
     if is_drm_node(&buf[..bl]) {
         if let Some(api) = drm_api() {
             return drm_api_open(&api);
@@ -1269,6 +1299,19 @@ unsafe fn stat_like(path: *const CChar, st: *mut u8, flags: CInt) -> CInt {
             Some(n) => n,
             None => PATH_MAX,
         };
+        let mut sysbuf = [0u8; PATH_MAX];
+        if let Some(sn) = v4l2_sys_host(&gp[..n], &mut sysbuf) {
+            return ret_or_errno(syscall4(
+                SYS_NEWFSTATAT,
+                AT_FDCWD as usize,
+                sysbuf.as_ptr() as usize,
+                st as usize,
+                flags as usize,
+            ));
+        }
+        if let Some(vn) = video_index(&gp[..n]) {
+            return v4l2_stat(vn, st);
+        }
         if passthrough(&gp[..n]) {
             return ret_or_errno(syscall4(
                 SYS_NEWFSTATAT,
@@ -1373,6 +1416,9 @@ pub unsafe extern "C" fn access(path: *const CChar, mode: CInt) -> CInt {
             Some(n) => n,
             None => PATH_MAX,
         };
+        if let Some(_vn) = video_index(&gp[..n]) {
+            return 0;
+        }
         if passthrough(&gp[..n]) {
             return ret_or_errno(syscall4(
                 SYS_FACCESSAT,
@@ -2266,6 +2312,9 @@ pub unsafe extern "C" fn close(fd: CInt) -> CInt {
         dbg(&[b"close preserved rootfd\n"]);
         return 0;
     }
+    if fd >= 0 && V4L2_CTX.is_video_fd(fd) {
+        V4L2_CTX.close(fd);
+    }
     ret_or_errno(syscall4(SYS_CLOSE, fd as usize, 0, 0, 0))
 }
 
@@ -2441,6 +2490,25 @@ pub unsafe extern "C" fn statx(
             mask as usize,
             buf as usize,
         ));
+    }
+    if *path == b'/' as CChar {
+        let mut gp = [0u8; PATH_MAX];
+        if let Some(n) = abs_guest(path, &mut gp) {
+            let mut sbuf = [0u8; PATH_MAX];
+            if let Some(sn) = v4l2_sys_host(&gp[..n], &mut sbuf) {
+                return ret_or_errno(syscall5(
+                    SYS_STATX,
+                    AT_FDCWD as usize,
+                    sbuf.as_ptr() as usize,
+                    flags as usize,
+                    mask as usize,
+                    buf as usize,
+                ));
+            }
+            if let Some(vn) = video_index(&gp[..n]) {
+                return v4l2_statx(vn, buf);
+            }
+        }
     }
     if *path == 0 && flags & AT_EMPTY_PATH != 0 {
         return ret_or_errno(syscall5(
@@ -4932,6 +5000,10 @@ unsafe fn drm_fake_open() -> CInt {
 
 #[no_mangle]
 pub unsafe extern "C" fn ioctl(fd: CInt, request: u64, arg: *mut u8) -> CInt {
+    if V4L2_CTX.is_video_fd(fd) {
+        let r = V4L2_CTX.ioctl(fd, request, arg);
+        return if r < 0 { set_errno((-r) as CInt) } else { 0 };
+    }
     if let Some(api) = drm_api() {
         if drm_api_is_fake(&api, fd) {
             return drm_api_ioctl(&api, fd, request, arg);
@@ -4971,6 +5043,12 @@ pub unsafe extern "C" fn mmap(
     fd: CInt,
     off: i64,
 ) -> *mut u8 {
+    if V4L2_CTX.is_video_fd(fd) {
+        return match V4L2_CTX.mmap(fd, len, off) {
+            Some(p) => p,
+            None => set_errno_ptr(22, core::ptr::null_mut()) as *mut u8,
+        };
+    }
     if let Some(api) = drm_api() {
         if drm_api_is_fake(&api, fd) {
             return drm_api_mmap(&api, addr, len, prot, flags, fd, off);
@@ -5014,4 +5092,144 @@ pub unsafe extern "C" fn mmap64(
     off: i64,
 ) -> *mut u8 {
     mmap(addr, len, prot, flags, fd, off)
+}
+
+// ---------------------------------------------------------------------------
+// V4L2 假节点：guest `/dev/videoN` → app 的 camera.sock。
+//
+// 设计/前人实现见 docs/design/v4l2-prior-art.md（DroidNative 的 dn_v4l2 逐行读）。
+// 与它不同的地方只有传输：没有 FIFO、没有 fd 传递，DQBUF 是一次同步 FRAME
+// 事务；打开的 fd 是 memfd，所以 poll/select/epoll 天然"可读"。
+// ---------------------------------------------------------------------------
+static mut V4L2_CTX: v4l2_shim::Ctx = v4l2_shim::Ctx::empty();
+static mut V4L2_READY: u8 = 0;
+
+unsafe fn v4l2_ready() -> bool {
+    if V4L2_READY == 1 {
+        return true;
+    }
+    let rl = ROOT_REAL_LEN;
+    if rl == 0 || rl > 200 {
+        return false;
+    }
+    let suffix = b"/run/husk/camera.sock";
+    let mut p = [0u8; 256];
+    p[..rl].copy_from_slice(&ROOT_REAL[..rl]);
+    p[rl..rl + suffix.len()].copy_from_slice(suffix);
+    if V4L2_CTX.init(&p[..rl + suffix.len()]) {
+        V4L2_READY = 1;
+        true
+    } else {
+        false
+    }
+}
+
+/// `/dev/videoN` → Some(N)
+fn video_index(p: &[u8]) -> Option<u32> {
+    let pre = b"/dev/video";
+    if p.len() <= pre.len() || !p.starts_with(pre) {
+        return None;
+    }
+    let rest = &p[pre.len()..];
+    if rest.len() > 3 {
+        return None;
+    }
+    let mut n: u32 = 0;
+    for &c in rest {
+        if !c.is_ascii_digit() {
+            return None;
+        }
+        n = n * 10 + (c - b'0') as u32;
+    }
+    Some(n)
+}
+
+/// `/sys/class/video4linux*` 与 `/sys/subsystem/video4linux*` 在 Android 的 sysfs 里
+/// 不存在（本机内核没有 V4L2），改指向 rootfs 里的影子树；`/sys` 其余部分照旧透传。
+unsafe fn v4l2_sys_host(p: &[u8], out: &mut [u8; PATH_MAX]) -> Option<usize> {
+    let rl = ROOT_REAL_LEN;
+    if rl == 0 {
+        return None;
+    }
+    const C: &[u8] = b"/sys/class/video4linux";
+    const S: &[u8] = b"/sys/subsystem/video4linux";
+    let (dir, rest) = if p.starts_with(C) {
+        (b"/sys-v4l2/class".as_ref(), &p[C.len()..])
+    } else if p.starts_with(S) {
+        (b"/sys-v4l2/subsystem".as_ref(), &p[S.len()..])
+    } else {
+        return None;
+    };
+    if !rest.is_empty() && rest[0] != b'/' {
+        return None;
+    }
+    let n = rl + dir.len() + rest.len();
+    if n + 1 > PATH_MAX {
+        return None;
+    }
+    out[..rl].copy_from_slice(&ROOT_REAL[..rl]);
+    out[rl..rl + dir.len()].copy_from_slice(dir);
+    out[rl + dir.len()..n].copy_from_slice(rest);
+    out[n] = 0;
+    Some(n)
+}
+
+unsafe fn v4l2_stat(n: u32, st: *mut u8) -> CInt {
+    if st.is_null() {
+        return set_errno(14);
+    }
+    core::ptr::write_bytes(st, 0, 128);
+    core::ptr::write_unaligned(st.add(8) as *mut u64, n as u64 + 1); // ino
+    core::ptr::write_unaligned(st.add(16) as *mut u32, 0o020666u32); // S_IFCHR|0666
+    core::ptr::write_unaligned(st.add(20) as *mut u32, 1u32); // nlink
+    // rdev: major 81 (0x51) minor N, makedev(81,N) = (81<<8)|N on this kernel
+    core::ptr::write_unaligned(st.add(32) as *mut u64, ((81u64) << 8) | n as u64);
+    core::ptr::write_unaligned(st.add(48) as *mut i64, 0i64); // size
+    core::ptr::write_unaligned(st.add(56) as *mut i64, 4096i64); // blksize
+    0
+}
+
+unsafe fn v4l2_statx(n: u32, buf: *mut u8) -> CInt {
+    if buf.is_null() {
+        return set_errno(14);
+    }
+    core::ptr::write_bytes(buf, 0, 256);
+    core::ptr::write_unaligned(buf.add(0) as *mut u32, 0x7ffu32); // stx_mask
+    core::ptr::write_unaligned(buf.add(4) as *mut u32, 4096u32); // blksize
+    core::ptr::write_unaligned(buf.add(16) as *mut u32, 1u32); // nlink
+    core::ptr::write_unaligned(buf.add(28) as *mut u16, 0o020666u16); // mode
+    core::ptr::write_unaligned(buf.add(32) as *mut u64, n as u64 + 1); // ino
+    core::ptr::write_unaligned(buf.add(128) as *mut u32, 81u32); // rdev_major
+    core::ptr::write_unaligned(buf.add(132) as *mut u32, n); // rdev_minor
+    0
+}
+
+/// open("/dev/videoN")：给一个 memfd，登记在 v4l2 表里。
+unsafe fn v4l2_open(n: u32) -> Option<CInt> {
+    if !v4l2_ready() {
+        return None;
+    }
+    let fd = V4L2_CTX.open(n);
+    if fd < 0 {
+        None
+    } else {
+        Some(fd)
+    }
+}
+
+/// fcntl: 只跟踪 O_NONBLOCK，其余原样走。glibc 的 fcntl 是可变参，第三个参数
+/// 按 usize 接（F_GETFD/F_GETFL/F_SETFD 不带参数，不会用到它）。
+#[no_mangle]
+pub unsafe extern "C" fn fcntl(fd: CInt, cmd: CInt, arg: usize) -> CInt {
+    const F_GETFL: CInt = 3;
+    const F_SETFL: CInt = 4;
+    let r = syscall4(SYS_FCNTL, fd as usize, cmd as usize, arg, 0);
+    if r >= 0 && V4L2_CTX.is_video_fd(fd) {
+        if cmd == F_SETFL {
+            V4L2_CTX.update_nonblock(fd, (arg & 0o4000) != 0); // O_NONBLOCK
+        } else if cmd == F_GETFL {
+            V4L2_CTX.update_nonblock(fd, (r as usize & 0o4000) != 0);
+        }
+    }
+    ret_or_errno(r)
 }

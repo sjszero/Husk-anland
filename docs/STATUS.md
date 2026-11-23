@@ -3,6 +3,14 @@
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
 
+## 最新（2026-11-23 15:00）
+
+guest 里 `/dev/video0`、`/dev/video1` 已是真 V4L2 采集设备：`stat` 报
+`character special file 51:N`，QUERYCAP/ENUM_FMT/ENUM_FRAMESIZES/G-S_FMT/REQBUFS/
+QUERYBUF/mmap/QBUF/STREAMON/DQBUF/STREAMOFF 全通，前后摄 × NV12/YUYV 都出真实画面
+（evidence 91）。实现是 `v4l2-shim`（loader 内，无 ptrace/无 FIFO）+ app 侧 `INFO`；
+先读了 DroidNative 的 `dn_v4l2`（848 行）再写，记录在 `docs/design/v4l2-prior-art.md`。
+
 ## 一句话
 
 在 RMX3357（MT6893 / Android 13 / kernel 4.19.191 / 4 KiB 页）上，普通应用域（`untrusted_app`）

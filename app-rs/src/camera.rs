@@ -871,6 +871,26 @@ unsafe fn handle_client(
         };
         let verb = line.split_whitespace().next().unwrap_or("");
         match verb {
+            "INFO" => {
+                let mut reply = String::new();
+                for (k, cam) in ordered(cams).iter().enumerate() {
+                    let facing = if cam.facing == LENS_FACING_BACK { "back" } else { "front" };
+                    reply.push_str(&format!(
+                        "CAM k={k} id={} facing={facing} name={} sizes=",
+                        cam.id,
+                        if cam.facing == LENS_FACING_BACK { "BACK" } else { "FRONT" }
+                    ));
+                    for (i, (w, h)) in cam.sizes.iter().enumerate() {
+                        if i > 0 {
+                            reply.push(',');
+                        }
+                        reply.push_str(&format!("{w}x{h}"));
+                    }
+                    reply.push('\n');
+                }
+                reply.push_str("OK\n");
+                let _ = stream.write_all(reply.as_bytes());
+            }
             "OPEN" => {
                 if session.is_some() {
                     let _ = stream.write_all(b"ERR busy\n");
@@ -964,6 +984,52 @@ unsafe fn handle_client(
 // Entry point
 // ---------------------------------------------------------------------------
 
+/// Video device order: back cameras first (DroidNative does the same), so
+/// `/dev/video0` is the main camera. Everything the guest can see (INFO lines,
+/// sysfs tree) uses this order.
+fn ordered(cams: &[CameraInfo]) -> Vec<&CameraInfo> {
+    let mut v: Vec<&CameraInfo> = cams.iter().filter(|c| c.facing == LENS_FACING_BACK).collect();
+    v.extend(cams.iter().filter(|c| c.facing != LENS_FACING_BACK));
+    v
+}
+
+/// The guest's `/sys` is Android's real sysfs (the kernel has no V4L2), so the
+/// shim redirects `/sys/class/video4linux*` here. Same layout DroidNative binds:
+/// class entry, the `/sys/subsystem` mirror eudev prefers, and the udev db entry.
+fn prepare_v4l2_tree(files: &std::path::Path, cams: &[CameraInfo]) {
+    let base = files.join("rootfs-full");
+    let class = base.join("sys-v4l2/class");
+    let devices = base.join("sys-v4l2/subsystem/devices");
+    let udev = base.join("run/udev/data");
+    for d in [&class, &devices, &udev] {
+        if let Err(e) = std::fs::create_dir_all(d) {
+            crate::log(&format!("camera|v4l2|mkdir {d:?}: {e}"));
+            return;
+        }
+    }
+    for (k, cam) in ordered(cams).iter().enumerate() {
+        let label = if cam.facing == LENS_FACING_BACK { "BACK" } else { "FRONT" };
+        let uevent = format!("MAJOR=81\nMINOR={k}\nDEVNAME=video{k}\nDEVTYPE=video4linux\n");
+        let dev = format!("81:{k}\n");
+        let name = format!("{label}\n");
+        let index = format!("{k}\n");
+        for dir in [class.join(format!("video{k}")), devices.join(format!("video{k}"))] {
+            if let Err(e) = std::fs::create_dir_all(&dir) {
+                crate::log(&format!("camera|v4l2|mkdir {dir:?}: {e}"));
+                continue;
+            }
+            for (n, v) in [("uevent", &uevent), ("dev", &dev), ("name", &name), ("index", &index)] {
+                let _ = std::fs::write(dir.join(n), v);
+            }
+        }
+        let db = format!(
+            "I:1\nE:ID_V4L_CAPABILITIES=:capture:\nE:ID_V4L_PRODUCT={label}\nE:DEVNAME=/dev/video{k}\nE:DEVTYPE=video4linux\n"
+        );
+        let _ = std::fs::write(udev.join(format!("c81:{k}")), db);
+    }
+    crate::log(&format!("camera|v4l2|tree|devices={}", cams.len()));
+}
+
 fn files_dir() -> Option<std::path::PathBuf> {
     let act = crate::ACTIVITY.load(Ordering::SeqCst);
     if act.is_null() {
@@ -1027,6 +1093,7 @@ fn run() {
         }
         let cams = enumerate(&api, manager);
         crate::log(&format!("camera|list|count={}", cams.len()));
+        prepare_v4l2_tree(&files, &cams);
 
         // One-shot self test, only when its marker exists.
         let selftest_marker = files.join("camera-selftest");

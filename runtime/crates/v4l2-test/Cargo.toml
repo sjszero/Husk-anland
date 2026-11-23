@@ -1,0 +1,11 @@
+[package]
+name = "v4l2-test"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "v4l2-test"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"
