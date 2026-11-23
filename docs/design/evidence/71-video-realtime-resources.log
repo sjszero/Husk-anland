@@ -1,0 +1,11 @@
+device=UKHMMB8PYTGECMNV pid=23370
+before: fds=135
+VmRSS:	  155012 kB
+round-9 guest|DONE|samples=150|bytes=9821765|elapsed_ms=5091
+round-9 RESULT PASS
+after-9: fds=133
+VmRSS:	  154972 kB
+round-10 guest|DONE|samples=150|bytes=9821765|elapsed_ms=5039
+round-10 RESULT PASS
+after-10: fds=135
+VmRSS:	  155008 kB

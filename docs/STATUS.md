@@ -1,4 +1,4 @@
-# 当前状态（2026-11-23 08:48）
+# 当前状态（2026-11-23 09:10）
 
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
@@ -39,7 +39,7 @@ PT_LOAD 的映射边界。`chmod`/`chown`/`utimensat`/`statx` 现在固定最终
 恶意 ELF 注入、GOT 失败注入、rootfd 并发 close/reopen、
 SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不能写成已完成。
 
-## 视频最新（evidence 67 / 69 / 70，2026-11-23）
+## 视频最新（evidence 67 / 69 / 70 / 71，2026-11-23）
 
 - **FACT**：app 进程内纯 Rust 探针已真实选中 `c2.mtk.avc.decoder` 和
   `c2.mtk.hevc.decoder`；1920x1080@30、各 150/150 帧、EOS、codec 正常释放。
@@ -55,9 +55,16 @@ SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不�
   `files/rootfs-full/run/husk/video.sock` 接受连接；abstract / unnamed / 非 `AF_UNIX`
   地址仍原样透传。新 loader 回归为功能矩阵 31/31、越界 0、路径可靠性 15/15、
   `faccessat` 8/8、dirfd 31/31。
+- **FACT（evidence 71）**：MediaCodec 输出的 AHB 已在 app 内直接上屏。guest 以实时 PTS
+  送完 150 个 AVC access unit；app 用 `c2.mtk.avc.decoder` 产出 150 个 AHB，持久
+  `husk-video` SurfaceControl 子层完成 `submitted=150`、`completed=150`、`released=150`，
+  release fence 全部成功。连续两次会话均 `RESULT PASS`、约 5.1 秒；两张独立截图显示不同
+  时间码和运动位置。另跑两轮 5 秒会话，app fd 在 133-135 间波动、RSS 约 155 MiB；这只说明
+  短时资源有界，不是 10 分钟无泄漏证明。
 - **FACT（边界）**：v1 只覆盖单条 AVC 轨与精确 MTK decoder 名。
-- **FACT（仍缺）**：AHB 回导 guest / `MEM_IMPORT` / 解码后上屏、HEVC/VP9/AV1 bridge、
-  GStreamer/VA-API、Chromium `<video>`、AV 同步、10 分钟播放、丢帧与硬软解对比未完成。
+- **FACT（仍缺）**：解码 AHB 回导 guest / kbase `MEM_IMPORT`、guest 侧 GL/X11/Wayland WSI、
+  HEVC/VP9/AV1 bridge、GStreamer/VA-API、Chromium `<video>`、AV 同步、10 分钟播放、丢帧与
+  硬软解对比未完成。presenter 遇到 parent SurfaceControl 变化时当前只拒绝提交，不会重建子层。
 - **FACT（新可靠性缺陷）**：一次息屏状态下的重启动发生在 `eglCreateWindowSurface` 内，
   abort message 为 `FORTIFY: pthread_mutex_lock called on a destroyed mutex`。点亮后重跑通过；
   该 Surface 生命周期竞争已由 `WINDOW_ALIVE + focus` 状态门修复。最终产物连续完成息屏冷启动、
@@ -66,6 +73,7 @@ SIGSYS 帧跨设备可移植性和 16K/64K 实机运行仍是 **UNKNOWN**，不�
 - 证据：[`evidence/67-video-mediacodec-ahb.md`](design/evidence/67-video-mediacodec-ahb.md)。
 - Guest bridge 证据：[`evidence/69-video-guest-bridge.md`](design/evidence/69-video-guest-bridge.md)。
 - Guest socket 路径证据：[`evidence/70-guest-unix-socket-path.md`](design/evidence/70-guest-unix-socket-path.md)。
+- 实时硬解上屏证据：[`evidence/71-video-realtime-surface-playback.md`](design/evidence/71-video-realtime-surface-playback.md)。
 - 生命周期证据：[`evidence/68-screen-off-surface-lifecycle.md`](design/evidence/68-screen-off-surface-lifecycle.md)。
 
 ## acquire fence 当前实验（PanVK → SurfaceControl 已通过，WSI 未完成）

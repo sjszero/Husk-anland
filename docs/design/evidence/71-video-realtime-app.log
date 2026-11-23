@@ -1,0 +1,1311 @@
+--------- beginning of main
+11-23 08:58:21.284 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[31.000000,,160.000000,,64.000000,0.000000,41296502945583]
+11-23 08:58:21.286 E/OPLUS_KEVENT_RECORD( 1414): oplus_kevent Receive message from kernel, event_type=3
+11-23 08:58:21.286 E/OPLUS_KEVENT_RECORD( 1414): OPLUS_KEVENT payload:10302,path@@/data/app/~~weE42Pyr-B6BOPmwr7MSJQ==/com.linuxhub.husk-Uf9W08H0eGGJHfvaN_9I3A==/lib/arm64/libld.so
+11-23 08:58:21.286 I/OPLUS_KEVENT_RECORD( 1414): oplus_put_exec_kevent_to_list
+11-23 08:58:21.280 W/libld.so(26332): type=1400 audit(0.0:69544): avc: granted { execute } for path="/data/user/0/com.linuxhub.husk/files/rootfs-full/usr/local/bin/video-bridge" dev="tmemory-0" ino=254713 scontext=u:r:runas_app:s0:c46,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c46,c257,c512,c768 tclass=file app=com.linuxhub.husk
+11-23 08:58:21.280 W/libld.so(26332): type=1400 audit(0.0:69545): avc: granted { execute } for path="/data/data/com.linuxhub.husk/files/rootfs-full/usr/lib/aarch64-linux-gnu/libgcc_s.so.1" dev="tmemory-0" ino=248088 scontext=u:r:runas_app:s0:c46,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c46,c257,c512,c768 tclass=file app=com.linuxhub.husk
+11-23 08:58:21.280 W/libld.so(26332): type=1400 audit(0.0:69546): avc: granted { execute } for path="/data/data/com.linuxhub.husk/files/rootfs-full/usr/lib/aarch64-linux-gnu/libc.so.6" dev="tmemory-0" ino=247879 scontext=u:r:runas_app:s0:c46,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c46,c257,c512,c768 tclass=file app=com.linuxhub.husk
+--------- beginning of system
+11-23 08:58:21.286 D/OplusSmartBrightnessController( 1687): handleMessage MSG_LUX_CHANGED, mLux:3.0 luxQueue=[3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0]
+11-23 08:58:21.298 I/Husk    (23370): video|bridge|client|connected|fd=3
+11-23 08:58:21.301 D/MediaCodec(23370): CreateByComponentName: name c2.mtk.avc.decoder
+11-23 08:58:21.303 D/CCodecBufferChannel(23370): mBufferCountDebug=0 mIsUserLoad=1
+11-23 08:58:21.303 D/OplusCCodec(23370): OplusCCodec [169]: (0xb400007a3a795200)
+11-23 08:58:21.304 W/libc    (23370): Access denied finding property "vendor.oplus.media.vpp.stutter"
+11-23 08:58:21.304 D/MMListService( 1231): getListValueByUid module:sr-osie-whitelist, uid:10302
+11-23 08:58:21.304 D/CCodecBufferChannel(23370): mBufferCountDebug=0 mIsUserLoad=1
+11-23 08:58:21.305 D/MediaCodec(23370): [0xb400007a2555a000] init: CCodec 0xb400007a3a795200, CCodecBufferChannel 0xb400007a3a72e018
+11-23 08:58:21.305 D/MediaCodec(23370): [0xb400007a2555a000] setState: 1
+11-23 08:58:21.305 D/CCodec  (23370): allocate(c2.mtk.avc.decoder)
+11-23 08:58:21.308 I/CCodec  (23370): setting up 'default' as default (vendor) store
+11-23 08:58:21.309 D/C2MtkComponentStore(  893): trytofind: name=c2.mtk.avc.decoder
+11-23 08:58:21.309 D/C2MtkComponentStore(  893): find: name=c2.mtk.avc.decoder, key=c2.mtk.avc.decoder
+11-23 08:58:21.309 V/C2MtkVdec(  893): in CreateCodec2AvcFactory
+11-23 08:58:21.310 D/C2MtkVdec(  893): [0xEF90B188] cpu.boost.multiple.instances: cluster = 0,1,2, minFrequency = 2000000,2600000,1108000
+11-23 08:58:21.310 V/C2MtkVdec(  893): in CreateCodec2InitFactory
+11-23 08:58:21.310 D/C2MtkVdec(  893): [0xEF90B3B8] cpu.boost.multiple.instances: cluster = 0,1,2, minFrequency = 2000000,2600000,1108000
+11-23 08:58:21.310 D/C2MtkVdec(  893): [0xEF90B3B8] createInterface:TotalInputMemoryUsage:0, inputMemoryLimitation:0 (c2.mtk.avc.decoder)
+11-23 08:58:21.311 D/C2MtkVdec(  893): [0xEF90B188] createComponent:TotalInputMemoryUsage:0, inputMemoryLimitation:0 (c2.mtk.avc.decoder)
+11-23 08:58:21.311 D/C2MtkComponentStore(  893): onNumberOfVideoInstancesChanged: Decoder 1, Encoder 0
+11-23 08:58:21.311 V/C2MtkVdec(  893): Number of instances increased to 1(c2.mtk.avc.decoder)
+11-23 08:58:21.312 D/C2MtkVdec(  893): [0xEC8E2010] IntfImpl: name=c2.mtk.avc.decoder, kind=1, domain=1, mediaType=video/avc, driverIntf=v4l2
+11-23 08:58:21.317 D/C2MtkVdec(  893): [0xEC8E2010] Max supported level: 20496
+11-23 08:58:21.317 D/C2MtkVdec(  893): [0xEC8E2010] Supported resolution: max(width 4096, height 2176), min(width 16, height 16)
+11-23 08:58:21.317 D/C2MtkVdec(  893): [0xEC8E2010] Alignment required for output buffer: width 16, height 32
+11-23 08:58:21.318 D/C2MtkVdec(  893): (video/avc): MaxInputSizeSetter: 2097152 -> 2097152 bytes, width 320, height 240
+11-23 08:58:21.318 D/C2MtkVdec(  893): [0xec8e2010] updateInputMemoryUsage: bufferSize: 2097152 (x8: 16777216), entryCount: 1, totalUsage: 16777216
+11-23 08:58:21.318 V/C2MtkVdec(  893): Pixel format 0x0 not supported
+11-23 08:58:21.318 D/C2MtkVdec(  893): CropSetter: old 319,239 : new 319,239
+11-23 08:58:21.318 V/C2MtkVdec(  893): OutputBufferAllocConfigSetter: old 1 : new 1
+11-23 08:58:21.318 V/C2MtkVdec(  893): OplusCpuBoostModeSetter preferIdle=0 cluster0Min=0 cluster1Min=0 cluster2Min=0 limitOpRate=0
+11-23 08:58:21.318 V/C2MtkVdec(  893): OplusMediaSchedModeSetter value=0
+11-23 08:58:21.318 D/C2MtkVdecExt(  893): [0xEF93CFCC] ExtIntfImpl: name=c2.mtk.avc.decoder, kind=1, domain=1, mediaType=video/avc
+11-23 08:58:21.319 D/C2MtkVdecExt(  893): VdecOplusVppEngineSetter: me.oplusVppEngine.featureOn 0
+11-23 08:58:21.319 D/C2MtkVdecExt(  893): VdecExtForceCcSetter: VdecExtForceCC 0
+11-23 08:58:21.319 D/C2MtkComponent(  893): [0xEBDA0010] setWorkflow: PROCESSED->COMPLETED
+11-23 08:58:21.319 D/C2MtkComponent(  893): [0xEBDA0010] setWorkflow: UNPROCESSED->PROCESSED
+11-23 08:58:21.320 D/C2MtkComponent(  893): [0xEBDA0000] c2.mtk.avc.decoder.preproc thread stared.
+11-23 08:58:21.320 D/C2MtkComponent(  893): [0xEBDA0000] c2.mtk.avc.decoder.postproc thread stared.
+11-23 08:58:21.321 D/C2MtkComponent(  893): [0xEBDA0000] c2.mtk.avc.decoder.postprocasyncs1 thread stared.
+11-23 08:58:21.321 D/C2MtkComponent(  893): [0xEBDA0000] c2.mtk.avc.decoder.postprocasyncs2 thread stared.
+11-23 08:58:21.321 D/C2MtkVdec(  893): [0xEBDA0000] C2MtkVdec: name=c2.mtk.avc.decoder, kind=1, domain=1, mediaType=video/avc
+11-23 08:58:21.321 D/C2MtkVdec(  893): [0xEBDA0000] Client: mCallingUid 10302, mCallingPid 23370
+11-23 08:58:21.321 D/C2MtkVdecExt(  893): [0xECD67810] mEnableAiSdr2Hdr 0, mEnableAiScencePq 1
+11-23 08:58:21.321 D/C2MtkVdecExt(  893): [0xECD67810] ExtImpl: name=c2.mtk.avc.decoder, kind=1, domain=1, mediaType=video/avc
+11-23 08:58:21.322 D/C2MtkVdecExt(  893): [0xECD67810] formatAfbcEnabled not output AFBC format by ged hint hdl:0xef91a450
+11-23 08:58:21.322 D/C2MtkVdec(  893): [0xEBDA0000] Supported params 61
+11-23 08:58:21.322 D/RPU     (  893): [0xEF90B9AC] extent() != 1 for single value type: algo.buffers.max-count.values
+11-23 08:58:21.322 D/RPU     (  893): [0xEF90B9AC] extent() != 1 for single value type: output.subscribed-indices.values
+11-23 08:58:21.322 D/RPU     (  893): [0xEF90B9AC] extent() != 1 for single value type: input.buffers.allocator-ids.values
+11-23 08:58:21.322 D/RPU     (  893): [0xEF90B9AC] extent() != 1 for single value type: output.buffers.allocator-ids.values
+11-23 08:58:21.322 D/RPU     (  893): [0xEF90B9AC] extent() != 1 for single value type: algo.buffers.allocator-ids.values
+11-23 08:58:21.322 D/RPU     (  893): [0xEF90B9AC] extent() != 1 for single value type: output.buffers.pool-ids.values
+11-23 08:58:21.322 D/RPU     (  893): [0xEF90B9AC] extent() != 1 for single value type: algo.buffers.pool-ids.values
+11-23 08:58:21.322 D/RPU     (  893): [0xEF90B9AC] ignored struct field coded.color-format.locations
+11-23 08:58:21.324 I/CCodec  (23370): Created component [c2.mtk.avc.decoder]
+11-23 08:58:21.324 D/CCodecBufferChannel(23370): [0xb400007a3a72e018] setComponent: mName c2.mtk.avc.decoder#351, mPipelineWatcher 0xb400007a3a72e480
+11-23 08:58:21.324 D/CCodecBufferChannel(23370): PipelineWatcher debug info [c2.mtk.avc.decoder#351] enable=0
+11-23 08:58:21.325 D/CCodecConfig(23370): read media type: video/avc
+11-23 08:58:21.327 D/ReflectedParamUpdater(23370): extent() != 1 for single value type: algo.buffers.max-count.values
+11-23 08:58:21.328 D/ReflectedParamUpdater(23370): extent() != 1 for single value type: output.subscribed-indices.values
+11-23 08:58:21.328 D/ReflectedParamUpdater(23370): extent() != 1 for single value type: input.buffers.allocator-ids.values
+11-23 08:58:21.328 D/ReflectedParamUpdater(23370): extent() != 1 for single value type: output.buffers.allocator-ids.values
+11-23 08:58:21.328 D/ReflectedParamUpdater(23370): extent() != 1 for single value type: algo.buffers.allocator-ids.values
+11-23 08:58:21.328 D/ReflectedParamUpdater(23370): extent() != 1 for single value type: output.buffers.pool-ids.values
+11-23 08:58:21.329 D/ReflectedParamUpdater(23370): extent() != 1 for single value type: algo.buffers.pool-ids.values
+11-23 08:58:21.330 D/ReflectedParamUpdater(23370): ignored struct field coded.color-format.locations
+11-23 08:58:21.336 D/CCodecConfig(23370): ignoring local param raw.size (0xd2001800) as it is already supported
+11-23 08:58:21.336 D/CCodecConfig(23370): ignoring local param raw.crop (0xd2001801) as it is already supported
+11-23 08:58:21.336 D/CCodecConfig(23370): ignoring local param default.color (0x5200180b) as it is already supported
+11-23 08:58:21.336 D/CCodecConfig(23370): ignoring local param raw.hdr-static-info (0xd200180a) as it is already supported
+11-23 08:58:21.337 I/CCodecConfig(23370): query failed after returning 17 values (BAD_INDEX)
+11-23 08:58:21.337 D/CCodecConfig(23370): c2 config diff is Dict {
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::i32 algo.priority.value = 1
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::float algo.rate.value = 0
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::float coded.frame-rate.value = 30
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::u32 coded.pl.level = 20496
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::u32 coded.pl.profile = 20481
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::u32 coded.vui.color.matrix = 0
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::u32 coded.vui.color.primaries = 0
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::u32 coded.vui.color.range = 2
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::u32 coded.vui.color.transfer = 0
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::u32 default.color.matrix = 0
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::u32 default.color.primaries = 0
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::u32 default.color.range = 0
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::u32 default.color.transfer = 0
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::u32 input.buffers.max-size.value = 2097152
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::u32 input.delay.value = 4
+11-23 08:58:21.337 D/CCodecConfig(23370):   string input.media-type.value = "video/avc"
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::u32 output.delay.value = 12
+11-23 08:58:21.337 D/CCodecConfig(23370):   string output.media-type.value = "video/raw"
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::u32 raw.color.matrix = 0
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::u32 raw.color.primaries = 0
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::u32 raw.color.range = 2
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::u32 raw.color.transfer = 0
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::u32 raw.crop.height = 239
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::u32 raw.crop.left = 0
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::u32 raw.crop.top = 0
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::u32 raw.crop.width = 319
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::float raw.hdr-static-info.mastering.blue.x = 0
+11-23 08:58:21.337 D/CCodecConfig(23370):   c2::float raw.hdr-s
+11-23 08:58:21.338 W/ColorUtils(23370): expected specified color aspects (2:0:0:0)
+11-23 08:58:21.339 D/MediaCodec(23370): [0xb400007a2555a000] setState: 2
+11-23 08:58:21.342 I/Husk    (23370): video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+11-23 08:58:21.344 D/BufferQueueConsumer(23370): [](id:5b4a00000003,api:0,p:-1,c:23370) connect: controlledByApp=true
+11-23 08:58:21.344 I/MediaCodec(23370): [0xb400007a2555a000] [c2.mtk.avc.decoder] configure, format : AMessage(what = 0x00000000) = {
+11-23 08:58:21.344 I/MediaCodec(23370):   string mime = "video/avc"
+11-23 08:58:21.344 I/MediaCodec(23370):   int32_t width = 1920
+11-23 08:58:21.344 I/MediaCodec(23370):   int32_t height = 1080
+11-23 08:58:21.344 I/MediaCodec(23370):   int32_t max-input-size = 2097152
+11-23 08:58:21.344 I/MediaCodec(23370):   Buffer csd-0 = {
+11-23 08:58:21.344 I/MediaCodec(23370):     00000000:  00 00 00 01 67 42 c0 28  da 01 e0 08 9f 97 01 10  ....gB.(........
+11-23 08:58:21.344 I/MediaCodec(23370):     00000010:  00 00 03 00 10 00 00 03  03 c8 f1 83 2a           ............*
+11-23 08:58:21.344 I/MediaCodec(23370):   }
+11-23 08:58:21.344 I/MediaCodec(23370):   Buffer csd-1 = {
+11-23 08:58:21.344 I/MediaCodec(23370):     00000000:  00 00 00 01 68 ce 0f c8                           ....h...
+11-23 08:58:21.344 I/MediaCodec(23370):   }
+11-23 08:58:21.344 I/MediaCodec(23370): }
+11-23 08:58:21.344 D/MediaCodec(23370): flushMediametrics
+11-23 08:58:21.345 D/MediaCodec(23370): [0xb400007a2555a000] [c2.mtk.avc.decoder] connectToSurface: surface 0xb400007aa63b6000, mSurface 0x0
+11-23 08:58:21.345 D/SurfaceUtils(23370): connecting to surface 0xb400007aa63b6010, reason connectToSurface
+11-23 08:58:21.345 I/MediaCodec(23370): [c2.mtk.avc.decoder] setting surface generation to 23930882
+11-23 08:58:21.345 D/SurfaceUtils(23370): disconnecting from surface 0xb400007aa63b6010, reason connectToSurface(reconnect)
+11-23 08:58:21.345 D/SurfaceUtils(23370): connecting to surface 0xb400007aa63b6010, reason connectToSurface(reconnect)
+11-23 08:58:21.346 D/MediaCodec(23370): [0xb400007a2555a000] setState: 3
+11-23 08:58:21.346 D/MediaCodec(23370): [c2.mtk.avc.decoder] config set c2 sleep timeout 500 kC2SleepTimeoutMs=500
+11-23 08:58:21.346 D/OplusCCodec(23370): [initiateConfigureComponent:L791] OplusFeedbackInfo  mFeedbackID:-5476376621915483648
+11-23 08:58:21.346 W/AString (23370): ctor got NULL, using empty string instead
+11-23 08:58:21.346 D/MMListService( 1231): uid 10302 no permission to getPackageNameByPid
+11-23 08:58:21.346 D/AtlasEventUploadUtils(23370): setEvent event:atlas_event_video_monitor_network_switch
+11-23 08:58:21.347 D/MMListService( 1231): getListValueByUid module:video-resolution-blurry, uid:10302
+11-23 08:58:21.347 D/MMListService( 1231): getListValueByUid module:sr-osie-whitelist, uid:10302
+11-23 08:58:21.347 D/OplusAtlas.OplusAtlasEventDispatch( 3599): setEvent:atlas_event_video_monitor_network_switch info:START,23370,Key,-5476376620108343936,Component,c2.mtk.avc.decoder,Width,1920,Height,1080,IsMediaPlayer,0
+11-23 08:58:21.347 D/OplusCCodec(23370): debug enabled , debugType :0
+11-23 08:58:21.347 D/OplusCCodec(23370): [configOplusVppTypeV2:L287] whitelist:sr-osie-whitelist
+11-23 08:58:21.347 D/MMListService( 1231): getListValueByUid module:sr-osie-whitelist, uid:10302
+11-23 08:58:21.347 D/OplusCCodec(23370): [configOplusVppTypeV2:L305] value:  - 0
+11-23 08:58:21.348 D/OplusAtlasVideo( 3599): callback success event:atlas_event_video_monitor_network_switch eventInfo:START,23370,Key,-5476376620108343936,Component,c2.mtk.avc.decoder,Width,1920,Height,1080,IsMediaPlayer,0
+11-23 08:58:21.348 V/ListServiceUtils(23370): getListValueByTopActivity module:mtk-vdec-cpu-boost pid:23370 cost 128us return 0
+11-23 08:58:21.348 D/MMListService( 1231): getListValueByUid module:media-sched-boost, uid:10302
+11-23 08:58:21.348 D/OplusMediaCodecUtils(23370): getProcessName: pid=23370 name=[com.linuxhub.husk] success
+11-23 08:58:21.349 V/ListServiceUtils(23370): getListValueByTopActivity module:mtk-ext-param pid:23370 cost 240us return 0
+11-23 08:58:21.349 D/OplusCCodec(23370): configureInputDelay [901]: (0xb400007a3a795200)
+11-23 08:58:21.349 D/MMListService( 1231): getListValueByUid module:codec2-input-delay, uid:10302
+11-23 08:58:21.349 D/MMListService( 1231): getListValueByUid module:media-sched-boost, uid:10302
+11-23 08:58:21.349 D/OplusMediaCodecUtils(23370): getProcessName: pid=23370 name=[com.linuxhub.husk] success
+11-23 08:58:21.349 D/CCodec  (23370): [c2.mtk.avc.decoder] buffers are bound to CCodec for this session
+11-23 08:58:21.350 D/OplusAtlas.OplusMessageHandler( 3599): handleMessage: Msg { when=0 what=0 target=com.oplus.atlas.OplusMessageHandler$MyHandler }
+11-23 08:58:21.350 D/CCodecConfig(23370): no c2 equivalents for csd-1
+11-23 08:58:21.350 D/CCodecConfig(23370): no c2 equivalents for tp-ux-tid
+11-23 08:58:21.350 D/CCodecConfig(23370): no c2 equivalents for native-window
+11-23 08:58:21.350 D/CCodecConfig(23370): no c2 equivalents for flags
+11-23 08:58:21.350 D/ReflectedParamUpdater(23370): vendor.oplus.vpp.white.list.value found, but param #1107330561 isn't present to update
+11-23 08:58:21.350 D/C2MtkVdec(  893): (video/avc): MaxInputSizeSetter: 2097152 -> 2097152 bytes, width 1920, height 1080
+11-23 08:58:21.350 D/C2MtkVdec(  893): [0xec8e2010] updateInputMemoryUsage: bufferSize: 2097152 (x8: 16777216), entryCount: 1, totalUsage: 16777216
+11-23 08:58:21.351 D/CCodecConfig(23370): c2 config diff is   c2::u32 raw.pixel-format.value = 34
+11-23 08:58:21.351 D/CCodecConfig(23370):   c2::u32 raw.size.height = 1080
+11-23 08:58:21.351 D/CCodecConfig(23370):   c2::u32 raw.size.width = 1920
+11-23 08:58:21.351 D/CCodecConfig(23370):   c2::u32 vendor.mtk.vdec.buffer.fetch.timeout.ms.value = 500
+11-23 08:58:21.352 W/Codec2Client(23370): query -- param skipped: index = 1107298332.
+11-23 08:58:21.352 D/CCodec  (23370): encoding statistics level = 0
+11-23 08:58:21.352 D/CCodec  (23370): setup formats input: AMessage(what = 0x00000000) = {
+11-23 08:58:21.352 D/CCodec  (23370):   string mime = "video/avc"
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t width = 1920
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t profile = 65536
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t priority = -1
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t frame-rate = 30
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t height = 1080
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t level = 65536
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t max-input-size = 2097152
+11-23 08:58:21.352 D/CCodec  (23370):   Rect crop(0, 0, 318, 238)
+11-23 08:58:21.352 D/CCodec  (23370): }
+11-23 08:58:21.352 D/CCodec  (23370): setup formats output: AMessage(what = 0x00000000) = {
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t android._color-format = 2130708361
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t android._video-scaling = 1
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t sar-width = 1
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t color-standard = 4
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t color-range = 2
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t color-transfer = 3
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t android._dataspace = 259
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t width = 1920
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t rotation-degrees = 0
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t sar-height = 1
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t max-width = 320
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t max-height = 240
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t priority = -1
+11-23 08:58:21.352 D/CCodec  (23370):   string mime = "video/raw"
+11-23 08:58:21.352 D/CCodec  (23370):   Rect crop(0, 0, 318, 238)
+11-23 08:58:21.352 D/CCodec  (23370):   Buffer hdr-static-info = {
+11-23 08:58:21.352 D/CCodec  (23370):     00000000:  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  ................
+11-23 08:58:21.352 D/CCodec  (23370):     00000010:  00 00 00 00 00 00 00 00  00                       .........
+11-23 08:58:21.352 D/CCodec  (23370):   }
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t frame-rate = 30
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t height = 1080
+11-23 08:58:21.352 D/CCodec  (23370):   int32_t color-format = 2130708361
+11-23 08:58:21.352 D/CCodec  (23370): }
+11-23 08:58:21.352 I/CCodecConfig(23370): query failed after returning 18 values (BAD_INDEX)
+11-23 08:58:21.353 D/CCodecConfig(23370): c2 config diff is   c2::u32 raw.max-size.height = 1080
+11-23 08:58:21.353 D/CCodecConfig(23370):   c2::u32 raw.max-size.width = 1920
+11-23 08:58:21.354 D/MediaCodec(23370): [0xb400007a2555a000] setState: 4
+11-23 08:58:21.354 D/MediaCodec(23370): [0xb400007a2555a000] setState: 5
+11-23 08:58:21.354 D/C2MtkComponent(  893): [0xEBDA0000] start
+11-23 08:58:21.355 D/C2MtkComponent(  893): [0xEBDA0010] setWorkflow: PROCESSED->COMPLETED
+11-23 08:58:21.355 D/C2MtkComponent(  893): [0xEBDA0010] setWorkflow: UNPROCESSED->PROCESSED
+11-23 08:58:21.355 D/C2MtkVdec(  893): [0xEBDA0000] RealTime: priority 1, operating rate 0.000000
+11-23 08:58:21.355 D/C2MtkVdec(  893): [0xEBDA0000] Picture size: width 1920, height 1080
+11-23 08:58:21.355 D/C2MtkVdec(  893): [0xEBDA0000] Aligned size: width 1920, height 1088
+11-23 08:58:21.357 I/VPUD    ( 1278): == handle_init_msg()- == ret=0 kernel vcu:18446743882203614736, mem_inst[0] 0xec1edd88
+11-23 08:58:21.357 I/VPUD    ( 1278): 
+11-23 08:58:21.358 D/C2MtkVdec(  893): [0xEBDA0000] VCodec started.
+11-23 08:58:21.360 I/mtkpower_client(  893): perf_lock_acq, hdl:0, dur:0, num:2, tid:26337
+11-23 08:58:21.363 I/mtkpower_client(  893): Loaded mtkperf HAL 1.0 service
+11-23 08:58:21.363 I/mtkpower_client(  893): Loaded mtkperf HAL 1.1 service
+11-23 08:58:21.363 I/mtkpower_client(  893): Loaded mtkperf HAL 1.2 service
+11-23 08:58:21.364 I/mtkpower_client(  893): ret_hdl:2028
+11-23 08:58:21.364 D/C2MtkVdec(  893): [0xEBDA0228] setClientPid: perfLockAcq mFpsLockHandle 2028 pid 23370
+11-23 08:58:21.365 I/libPowerHal(  912): [fpsgo_set_video_pid_thread] 23370, 0xb4000077d8201ec0
+11-23 08:58:21.365 W/Codec2Client(23370): query -- param skipped: index = 1342179345.
+11-23 08:58:21.365 W/Codec2Client(23370): query -- param skipped: index = 2415921170.
+11-23 08:58:21.365 W/Codec2Client(23370): query -- param skipped: index = 1610614798.
+11-23 08:58:21.365 E/libPowerHal(  912): Could not open '/sys/kernel/fpsgo/fstb/set_video_pid'
+11-23 08:58:21.365 E/libPowerHal(  912): error : 2, No such file or directory
+11-23 08:58:21.366 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#351] Created input block pool with allocatorID 16 => poolID 18 - OK (0)
+11-23 08:58:21.367 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#351] Query output surface allocator returned 0 params => BAD_INDEX (6)
+11-23 08:58:21.367 I/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#351] Created output block pool with allocatorID 18 => poolID 50 - OK
+11-23 08:58:21.367 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#351] Configured output block pool ids 50 => OK
+11-23 08:58:21.367 D/CCodecBufferChannel(23370): [0xb400007a3a72e018] [c2.mtk.avc.decoder#351] start: output->outputDelay 12, output->numSlots 16
+11-23 08:58:21.367 D/Codec2-OutputBufferQueue(23370): remote graphic buffer migration 0/0
+11-23 08:58:21.368 D/Codec2Client(23370): setOutputSurface -- generation=23930882 consumer usage=0x900
+11-23 08:58:21.370 D/C2BqBuffer(  893): local generation change 23930882 , bqId: 100373385707523 migrated buffers # 0
+11-23 08:58:21.370 D/Codec2Client(23370): Surface configure completed
+11-23 08:58:21.371 D/C2MtkComponentStore(  893): setIonUsage: usage 5, flags 65539, minAlign 0, heapMask 1024 for decoder and encoder.
+11-23 08:58:21.373 W/ResourceManagerService( 1196): Ignoring request to add new resource entry with value <= 0
+11-23 08:58:21.374 D/MediaCodec(23370): [0xb400007a2555a000] setState: 6
+11-23 08:58:21.375 D/BufferPoolAccessor2.0(23370): bufferpool2 0xb400007aa55dbe28 : 0(0 size) total buffers - 0(0 size) used buffers - 0/10 (recycle/alloc) - 10/152 (fetch/transfer)
+11-23 08:58:21.375 D/BufferPoolAccessor2.0(23370): Destruction - bufferpool2 0xb400007aa55dbe28 cached: 0/0M, 0/0% in use; allocs: 10, 0% recycled; transfers: 152, 93% unfetched
+11-23 08:58:21.375 D/SurfaceFlinger( 1024): kickIdle 2827, 2804, 35, 0
+11-23 08:58:21.376 E/hwcomposer(  891): [DRMDEV] DRM_IOCTL_MTK_KICK_IDLE failed, drm_id_crtc: 64, error: -1  
+11-23 08:58:21.376 D/C2MtkComponent(  893): [0xEBDA0000] Using output block pool with poolID 50 => got 50 - 0
+11-23 08:58:21.376 D/C2MtkVdec(  893): [0xEBDA0000] Using DEC block pool => got 50 - 0
+11-23 08:58:21.377 I/Husk    (23370): video|present|clear|submitted=150|completed=150|released=150
+11-23 08:58:21.377 I/Husk    (23370): video|present|session|BEGIN
+11-23 08:58:21.377 D/C2MtkBufferManager(  893): [0xEC8B8210] C2MtkBufferManager, allocId:18
+11-23 08:58:21.377 D/C2MtkVdecExt(  893): [0xECD67810] setBufferManager: bufferManager 0xec8b8210
+11-23 08:58:21.377 D/C2MtkBufferManager(  893): [0xEC8B8210] setBufferFetchTimeout mThreadTimeout set to 500
+11-23 08:58:21.377 D/C2MtkVdec(  893): [0xEBDA0000] mBufferManager created.
+11-23 08:58:21.377 I/Husk    (23370): video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+11-23 08:58:21.377 D/C2MtkVdec(  893): [0xEBDA0000] mSawInputCSD was set.
+11-23 08:58:21.377 D/C2MtkVdec(  893): [0xEBDA0000] mSawInputCSD was set.
+11-23 08:58:21.377 D/C2MtkBufferManager(  893): C2MtkBMFetchThread Start
+11-23 08:58:21.380 D/CCodecBuffers(23370): [c2.mtk.avc.decoder#351:1D-Input.Impl[N]] converted 8 buffers to array mode of 8
+11-23 08:58:21.416 I/VPUD    ( 1278): [Vdec_Drv_H264_open] eDecodeMode: 5
+11-23 08:58:21.431 I/mtkpower_client( 1278): perf_lock_acq, hdl:0, dur:0, num:2, tid:1382
+11-23 08:58:21.432 I/mtkpower_client( 1278): ret_hdl:2029
+11-23 08:58:21.432 I/VCodecDrv( 1278): perfLockAcq hdl:2029
+11-23 08:58:21.434 D/C2MtkVdecExt(  893): [0xECD67810] formatAfbcEnabled not output AFBC format by ged hint hdl:0xef91a408
+11-23 08:58:21.434 D/C2MtkVdec(  893): [0xEBDA0000] Output buffer: usage 1, ccUsage 1, width 1920, height 1088, format 32315679, ccFormat 32315659, BufferCount 8
+11-23 08:58:21.434 D/C2MtkBufferManager(  893): [0xEC8B8210] setCcBuffersParams Params: ((1920,1088) 0x32315659, total:8, type:1, mParamChanged:0)
+11-23 08:58:21.434 D/C2MtkBufferManager(  893): [0xEC8B8210] mFetchLock by cancelAllBuffers
+11-23 08:58:21.434 D/C2MtkBufferManager(  893): [0xEC8B8210]   mBufferLock by cancelAllBuffers
+11-23 08:58:21.434 D/C2MtkBufferManager(  893): [0xEC8B8210] cancelAllBuffers, Free all Buffers Done!
+11-23 08:58:21.434 D/C2MtkBufferManager(  893): [0xEC8B8210] setBuffersParams Params: ((1920,1088) 0x32315679, total:8, type:1, mParamChanged:0)
+11-23 08:58:21.439 D/VCodec  (  893): [V4L2Device] output VIDIOC_DQBUF failed, err: 22, Invalid argument, fail count = 1
+11-23 08:58:21.440 D/C2MtkVdec(  893): [0xEBDA0000] FormatChange: width 1920, height 1088, mColorFormat 0x10f, crop(Width 1920, Height 1080, Left 0, Top 0, BufferCount 8 -> 12)
+11-23 08:58:21.440 D/C2MtkVdec(  893): CropSetter: old 319,239 : new 1920,1080
+11-23 08:58:21.440 D/C2MtkVdec(  893): [0xEBDA0000] NotifyEvent: getAlwaysColorConvertChecker_l: 1, isAlwaysCc: 0, isFirstAlwaysCcCheck: 1
+11-23 08:58:21.440 D/C2MtkComponent(  893): [0xEBDA0010] setWorkflow: ASYNCPOSTPROCESSED->COMPLETED
+11-23 08:58:21.440 D/C2MtkComponent(  893): [0xEBDA0010] setWorkflow: PROCESSED->ASYNCPOSTPROCESSED
+11-23 08:58:21.440 D/C2MtkComponent(  893): [0xEBDA0010] setWorkflow: UNPROCESSED->PROCESSED
+11-23 08:58:21.440 D/C2MtkVdec(  893): [0xEBDA0000] Reset CC block pool => got 50 - 0
+11-23 08:58:21.440 D/C2MtkBufferManager(  893): C2MtkBMCcFetchThread Start
+11-23 08:58:21.440 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#351] flushed work; ignored.
+11-23 08:58:21.440 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#351] Discard frames from previous generation.
+11-23 08:58:21.440 D/PipelineWatcher(23370): onWorkDone: frameIndex not found (18446744073709551615); ignored
+11-23 08:58:21.440 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#351] flushed work not feedInput.
+11-23 08:58:21.444 I/sensors-hal-OriginChannel(  903): wise light debug, data[3].type is 65627,data[3].sensor is 91:[31.000000,,140.000000,,64.000000,0.000000,41296662793280]
+11-23 08:58:21.444 D/C2MtkVdec(  893): [0xEBDA0000] Reset DEC block pool => got 1 - 0
+11-23 08:58:21.444 D/C2MtkVdecExt(  893): [0xECD67810] formatAfbcEnabled not output AFBC format by ged hint hdl:0xef91a7a0
+11-23 08:58:21.444 D/C2MtkBufferManager(  893): [0xEC8B8210] mFetchLock by cancelAllBuffers
+11-23 08:58:21.444 D/C2MtkBufferManager(  893): [0xEC8B8210]   mBufferLock by cancelAllBuffers
+11-23 08:58:21.446 D/C2MtkBufferManager(  893): [0xEC8B8210] mCcFetchLock by cancelAllBuffers
+11-23 08:58:21.446 D/C2MtkBufferManager(  893): [0xEC8B8210]   mCcBufferLock by cancelAllBuffers
+11-23 08:58:21.446 D/C2MtkBufferManager(  893): [0xEC8B8210] cancelAllBuffers, Free all Buffers Done!
+11-23 08:58:21.446 D/C2MtkBufferManager(  893): [0xEC8B8210] setCcBuffersParams Params: ((1920,1080) 0x32315659, total:12, type:1, mParamChanged:0)
+11-23 08:58:21.446 D/C2MtkBufferManager(  893): [0xEC8B8210] mFetchLock by cancelAllBuffers
+11-23 08:58:21.446 D/C2MtkBufferManager(  893): [0xEC8B8210]   mBufferLock by cancelAllBuffers
+11-23 08:58:21.446 D/C2MtkBufferManager(  893): [0xEC8B8210] mCcFetchLock by cancelAllBuffers
+11-23 08:58:21.446 D/C2MtkBufferManager(  893): [0xEC8B8210]   mCcBufferLock by cancelAllBuffers
+11-23 08:58:21.446 D/C2MtkBufferManager(  893): [0xEC8B8210] cancelAllBuffers, Free all Buffers Done!
+11-23 08:58:21.446 D/C2MtkBufferManager(  893): [0xEC8B8210] setBuffersParams Params: ((1920,1080) 0x10f, total:12, type:1, mParamChanged:0)
+11-23 08:58:21.448 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#351] onWorkDone: updating output delay 12
+11-23 08:58:21.448 I/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#351] onWorkDone: updating max output delay 19
+11-23 08:58:21.448 D/Codec2-OutputBufferQueue(23370): set max dequeue count 19 from update
+11-23 08:58:21.458 D/C2MtkVdec(  893): [0xEBDA0000] CSD work returned: workId 1, mFrameIndex 0
+11-23 08:58:21.458 D/C2MtkVdec(  893): [0xEBDA0000] CSD work returned: workId 2, mFrameIndex 1
+11-23 08:58:21.459 E/VPUD    ( 1278): [Info] frame packing 67 0!!
+11-23 08:58:21.468 D/C2MtkVdec(  893): [0xEBDA0000] configUpdate(1920 x 1080) with ts: 3
+11-23 08:58:21.469 D/C2MtkVdecExt(  893): [0xECD67810] postprocessAsyncS1: isAlwaysCc 1, isBasicGraphicPool 0
+11-23 08:58:21.469 E/FmtSync (  893): [0xec884580] createTimeline() can't open /dev/fmt_sync
+11-23 08:58:21.469 E/FmtSync (  893): [0xec884580] createTimeline() can't create fmt_sync_timeline -1
+11-23 08:58:21.470 D/C2MtkConvert(  893): [0xEBDD5310] Using CC block pool => got 50, mFmtSupportLevel 0
+11-23 08:58:21.470 D/C2MtkVdecExt(  893): [0xECD67810] LastSrcConfig: size(w 1920, h 1088), crop(w 1920, h 1080, l 0, t 0), fmt 0x10f, rot 0
+11-23 08:58:21.471 D/C2MtkConvert(  893): [0xEBDD5310] Dst buffer change: width 1920, height 1080, format 32315659
+11-23 08:58:21.471 D/C2MtkConvert(  893): [0xEBDD5310] Src buffer change: width 1920, height 1088, format 10f
+11-23 08:58:21.471 D/C2MtkConvert(  893): [0xEBDD5310] updateConfig: Src(format 271(HAL_PIXEL_FORMAT_UFO), size(1920,1088), crop(1920,1080), (secure 0), (doFlush 0)), Dst(format 842094169(HAL_PIXEL_FORMAT_YV12), size(1920,1080), crop(1920,1080), (secure 0), (doFlush 0))
+11-23 08:58:21.471 D/MDP     (  893): [PQ][PQSession] init HDR handle
+11-23 08:58:21.471 D/TRS     (  893): DpAsyncBlit: in: job (3707 27) (1920, 1088, 61440, 30720, C12bu, P0), sec0, flush 0 Buffer 0: plane=2 bufVA={0x42,0x42,0x0} bufMVA={0x0,0x0,0x0} bufSize={0x1fe000,0xff000,0x0} proxy={0xecd31410,0x0,0x0}fence=-1
+11-23 08:58:21.471 D/TRS     (  893): DpAsyncBlit: out0: (1920, 1080, 1920, 960, C8s, P0), misc: (X:0, Y:0, R:0, F:0, S:0, A:0, D:0), sec0, flush 1 Buffer 0: plane=3 bufVA={0x30,0x30,0x30} bufMVA={0x0,0x0,0x0} bufSize={0x1fa400,0x7e900,0x7e900} proxy={0xec885750,0x0,0x0}fence=-1
+11-23 08:58:21.471 D/TRS     (  893): DpAsyncBlit: crop0: (0, 0, 1920, 1080, 0, 0, 0, 0)
+11-23 08:58:21.472 E/MDP     (  893): [PQ][DpAIPqControl] workerLoop: Failed to get service
+11-23 08:58:21.486 D/CCodecConfig(23370): c2 config diff is   c2::u32 raw.crop.height = 1080
+11-23 08:58:21.486 D/CCodecConfig(23370):   c2::u32 raw.crop.width = 1920
+11-23 08:58:21.486 D/CCodecConfig(23370):   c2::u32 raw.pixel-format.value = 842094169
+11-23 08:58:21.487 D/CCodecBuffers(23370): [c2.mtk.avc.decoder#351:2D-Output] popFromStashAndRegister: at 0us, output format changed to AMessage(what = 0x00000000) = {
+11-23 08:58:21.487 D/CCodecBuffers(23370):   int32_t android._color-format = 2135033992
+11-23 08:58:21.487 D/CCodecBuffers(23370):   int32_t android._video-scaling = 1
+11-23 08:58:21.487 D/CCodecBuffers(23370):   int32_t sar-width = 1
+11-23 08:58:21.487 D/CCodecBuffers(23370):   int32_t color-standard = 1
+11-23 08:58:21.487 D/CCodecBuffers(23370):   int32_t color-range = 2
+11-23 08:58:21.487 D/CCodecBuffers(23370):   int32_t color-transfer = 3
+11-23 08:58:21.487 D/CCodecBuffers(23370):   int32_t android._dataspace = 260
+11-23 08:58:21.487 D/CCodecBuffers(23370):   int32_t width = 1920
+11-23 08:58:21.487 D/CCodecBuffers(23370):   int32_t rotation-degrees = 0
+11-23 08:58:21.487 D/CCodecBuffers(23370):   int32_t sar-height = 1
+11-23 08:58:21.487 D/CCodecBuffers(23370):   int32_t max-width = 1920
+11-23 08:58:21.487 D/CCodecBuffers(23370):   int32_t max-height = 1080
+11-23 08:58:21.487 D/CCodecBuffers(23370):   int32_t priority = -1
+11-23 08:58:21.487 D/CCodecBuffers(23370):   string mime = "video/raw"
+11-23 08:58:21.487 D/CCodecBuffers(23370):   Rect crop(0, 0, 1919, 1079)
+11-23 08:58:21.487 D/CCodecBuffers(23370):   Buffer hdr-static-info = {
+11-23 08:58:21.487 D/CCodecBuffers(23370):     00000000:  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  ................
+11-23 08:58:21.487 D/CCodecBuffers(23370):     00000010:  00 00 00 00 00 00 00 00  00                       .........
+11-23 08:58:21.487 D/CCodecBuffers(23370):   }
+11-23 08:58:21.487 D/CCodecBuffers(23370):   int32_t frame-rate = 30
+11-23 08:58:21.487 D/CCodecBuffers(23370):   int32_t height = 1080
+11-23 08:58:21.487 D/CCodecBuffers(23370):   int32_t color-format = 2130708361
+11-23 08:58:21.487 D/CCodecBuffers(23370): }
+11-23 08:58:21.512 E/netd    (  867): dispachCmd:oplusGetRtt
+11-23 08:58:21.513 E/netd    (  867): handleGetRttCmd: netId = 100, uid = 10302
+11-23 08:58:21.514 E/netd    (  867): dispachCmd cmd:oplusGetRtt  result:0
+11-23 08:58:21.515 I/Husk    (23370): video|bridge|output-format|android._color-format: int32(2135033992), android._video-scaling: int32(1), sar-width: int32(1), color-standard: int32(1), color-range: int32(2), color-transfer: int32(3), android._dataspace: int32(260), width: int32(1920), rotation-degrees: int32(0), sar-height: int32(1), max-width: int32(1920), max-height: int32(1080), priority: int32(-1), mime: string(video/raw), crop: Rect(0, 0, 1919, 1079), hdr-static-info: data, frame-rate: int32(30), height: int32(1080), color-format: int32(2130708361)}|color=Some(2130708361)|width=Some(1920)|height=Some(1080)|stride=None|slice-height=None
+11-23 08:58:21.515 D/OplusWifiConnect2( 1687): clientModeManager == null, getOplusSta2ConnectionInfo null
+11-23 08:58:21.515 I/Husk    (23370): video|bridge|frame|n=1|pts=0|bytes=1|flags=0x0
+11-23 08:58:21.516 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#351] first render dataSpace=260
+11-23 08:58:21.517 I/Husk    (23370): video|bridge|ahb|n=1|timestamp_ns=0|ts_rc=0|size=1920x1080|layers=1|format=842094169|usage=0x103|stride=1920|native=0xb400007a25503e80|handle_version=12|num_fds=3|first_fd=212
+11-23 08:58:21.518 D/SurfaceFlinger( 1024): kickIdle 142, 111, 35, 0
+11-23 08:58:21.518 E/hwcomposer(  891): [DRMDEV] DRM_IOCTL_MTK_KICK_IDLE failed, drm_id_crtc: 64, error: -1  
+11-23 08:58:21.519 I/Husk    (23370): video|present|submit|n=1|1920x1080|previous=false|completed=0
+11-23 08:58:21.519 I/Husk    (23370): video|bridge|present|n=1|ok=true
+11-23 08:58:21.519 I/Husk    (23370): video|bridge|frame|n=2|pts=33333|bytes=1|flags=0x0
+11-23 08:58:21.521 I/Husk    (23370): video|present|submit|n=2|1920x1080|previous=true|completed=0
+11-23 08:58:21.521 I/Husk    (23370): video|bridge|present|n=2|ok=true
+11-23 08:58:21.521 I/Husk    (23370): video|bridge|frame|n=3|pts=66666|bytes=1|flags=0x0
+11-23 08:58:21.522 I/Husk    (23370): video|present|submit|n=3|1920x1080|previous=true|completed=0
+11-23 08:58:21.522 I/Husk    (23370): video|bridge|present|n=3|ok=true
+11-23 08:58:21.530 I/Husk    (23370): video|present|complete|n=1|slot=0|released=true|submitted=4|released_count=0
+11-23 08:58:21.530 I/Husk    (23370): video|present|complete|n=2|slot=1|released=true|submitted=4|released_count=1
+11-23 08:58:21.530 I/Husk    (23370): video|present|complete|n=3|slot=2|released=true|submitted=4|released_count=2
+11-23 08:58:21.604 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[31.000000,,160.000000,,64.000000,0.000000,41296822942718]
+11-23 08:58:21.716 D/OplusNetKit( 1687): interface name from LP: [wlan0]
+11-23 08:58:21.717 D/OplusNetKit( 1687): in getLpByInterface name from LP: [wlan0]
+11-23 08:58:21.717 D/OplusNetKit( 1687): in getLpByInterface name from LP: [wlan0]
+11-23 08:58:21.717 D/OplusNetKit( 1687): Route is ipv4 on wlan0 found, break
+11-23 08:58:21.763 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[31.000000,,140.000000,,64.000000,0.000000,41296982946780]
+11-23 08:58:21.786 D/SurfaceFlinger( 1024): kickIdle 267, 40, 35, 0
+11-23 08:58:21.786 E/hwcomposer(  891): [DRMDEV] DRM_IOCTL_MTK_KICK_IDLE failed, drm_id_crtc: 64, error: -1  
+11-23 08:58:21.924 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41297142940949]
+11-23 08:58:21.929 D/TRS     (  893): DpAsyncBlit: in: job (3723 181) (1920, 1088, 61440, 30720, C12bu, P0), sec0, flush 0 Buffer 16: plane=2 bufVA={0x3f,0x3f,0x0} bufMVA={0x0,0x0,0x0} bufSize={0x1fe000,0xff000,0x0} proxy={0xecd31860,0x0,0x0}fence=-1
+11-23 08:58:21.929 D/TRS     (  893): DpAsyncBlit: out0: (1920, 1080, 1920, 960, C8s, P0), misc: (X:0, Y:0, R:0, F:0, S:0, A:0, D:0), sec0, flush 0 Buffer 16: plane=3 bufVA={0x3d,0x3d,0x3d} bufMVA={0x0,0x0,0x0} bufSize={0x1fa400,0x7e900,0x7e900} proxy={0xec8859c0,0x0,0x0}fence=-1
+11-23 08:58:21.929 D/TRS     (  893): DpAsyncBlit: crop0: (0, 0, 1920, 1080, 0, 0, 0, 0)
+11-23 08:58:22.084 I/sensors-hal-OriginChannel(  903): wise light debug, data[4].type is 65627,data[4].sensor is 91:[31.000000,,140.000000,,64.000000,0.000000,41297302953520]
+11-23 08:58:22.244 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[31.000000,,140.000000,,64.000000,0.000000,41297462956694]
+11-23 08:58:22.352 D/OplusAtlas.OplusMessageHandler( 3599): handleMessage: Msg { when=-1ms what=0 target=com.oplus.atlas.OplusMessageHandler$MyHandler }
+11-23 08:58:22.374 I/OplusFeedbackInfo(23370): 0xb400007aa6301580 c2.mtk.avc.decoder 1920x1080 inputFps=32 outputFps=34 renderFps=29, discardFps=0
+11-23 08:58:22.374 D/OplusFeedbackInfo(23370): mVppFilterStutter:no_stutter
+11-23 08:58:22.374 D/AtlasEventUploadUtils(23370): setEvent event:atlas_event_atlasserver_feedback
+11-23 08:58:22.376 D/OplusAtlas.OplusAtlasEventDispatch( 3599): setEvent:atlas_event_atlasserver_feedback info:MM_FB_EventID#11012#ClientPid#23370#Component#c2.mtk.avc.decoder#VppStutter#no_stutter#VideoInputFps#32#VideoOutputFps#34#VideoRenderFps#29#VideoHeight#1080#VideoWidth#1920#FpsArray#32/
+11-23 08:58:22.376 I/OplusFeedbackInfo(23370): send vpp stutter message MM_FB_EventID#11012#ClientPid#23370#Component#c2.mtk.avc.decoder#VppStutter#no_stutter#VideoInputFps#32#VideoOutputFps#34#VideoRenderFps#29#VideoHeight#1080#VideoWidth#1920#FpsArray#32/
+11-23 08:58:22.376 D/OplusAtlasFeedback( 3599): callback success event:atlas_event_atlasserver_feedback eventInfo:MM_FB_EventID#11012#ClientPid#23370#Component#c2.mtk.avc.decoder#VppStutter#no_stutter#VideoInputFps#32#VideoOutputFps#34#VideoRenderFps#29#VideoHeight#1080#VideoWidth#1920#FpsArray#32/
+11-23 08:58:22.377 D/OplusAtlas.OplusMessageHandler( 3599): handleMessage: Msg { when=0 what=1 obj=com.oplus.atlas.OplusAtlasEvent@a998e80 target=com.oplus.atlas.OplusMessageHandler$MyHandler }
+11-23 08:58:22.377 D/OplusAtlasFeedback( 3599): uploadMMCollectData MM_FB_EventID#11012#ClientPid#23370#Component#c2.mtk.avc.decoder#VppStutter#no_stutter#VideoInputFps#32#VideoOutputFps#34#VideoRenderFps#29#VideoHeight#1080#VideoWidth#1920#FpsArray#32/
+11-23 08:58:22.383 I/Husk    (23370): video|bridge|frame|n=30|pts=966666|bytes=1|flags=0x0
+11-23 08:58:22.385 I/Husk    (23370): video|bridge|ahb|n=30|timestamp_ns=966666000|ts_rc=0|size=1920x1080|layers=1|format=842094169|usage=0x103|stride=1920|native=0xb400007a255ee200|handle_version=12|num_fds=3|first_fd=245
+11-23 08:58:22.386 I/Husk    (23370): video|present|submit|n=30|1920x1080|previous=true|completed=29
+11-23 08:58:22.386 I/Husk    (23370): video|bridge|present|n=30|ok=true
+11-23 08:58:22.402 I/Husk    (23370): video|present|complete|n=30|slot=29|released=true|submitted=30|released_count=29
+11-23 08:58:22.404 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[30.000000,,160.000000,,66.000000,0.000000,41297622959448]
+11-23 08:58:22.565 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[31.000000,,160.000000,,64.000000,0.000000,41297782924876]
+11-23 08:58:22.744 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,120.000000,,62.000000,0.000000,41297962955270]
+11-23 08:58:22.760 E/OplusArpPeer_euclid_psw( 1687): ARP read failure: android.system.ErrnoException: read failed: EAGAIN (Try again)
+11-23 08:58:22.766 E/OplusArpPeer_euclid_psw( 1687):  OplusArpPeer close
+11-23 08:58:22.865 D/vendor.oplus.hardware.charger@1.0-service(  959): getPsyUsbType type: USB, ret_value = 3
+11-23 08:58:22.865 D/vendor.oplus.hardware.charger@1.0-service(  959): getPsyUsbType type: USB is usb charging.
+11-23 08:58:22.880 D/vendor.oplus.hardware.charger@1.0-service(  959): getPsyUsbType type: USB, ret_value = 3
+11-23 08:58:22.882 D/vendor.oplus.hardware.charger@1.0-service(  959): getPsyUsbType type: USB is usb charging.
+11-23 08:58:22.924 I/sensors-hal-OriginChannel(  903): wise light debug, data[4].type is 65627,data[4].sensor is 91:[31.000000,,160.000000,,60.000000,0.000000,41298142953093]
+11-23 08:58:23.084 I/sensors-hal-OriginChannel(  903): wise light debug, data[4].type is 65627,data[4].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41298302954429]
+11-23 08:58:23.244 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[31.000000,,160.000000,,64.000000,0.000000,41298462966280]
+11-23 08:58:23.337 E/OplusNetworkStatsNative( 1687): bpfGetAppPurStatsTotal return 0
+11-23 08:58:23.341 D/OplusSmartBrightnessController( 1687): handleMessage MSG_LUX_CHANGED, mLux:3.0 luxQueue=[3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0]
+11-23 08:58:23.356 D/OplusAtlas.OplusMessageHandler( 3599): handleMessage: Msg { when=-2ms what=0 target=com.oplus.atlas.OplusMessageHandler$MyHandler }
+11-23 08:58:23.376 I/OplusFeedbackInfo(23370): 0xb400007aa6301580 c2.mtk.avc.decoder 1920x1080 inputFps=30 outputFps=30 renderFps=30, discardFps=0
+11-23 08:58:23.383 I/Husk    (23370): video|bridge|frame|n=60|pts=1966666|bytes=1|flags=0x0
+11-23 08:58:23.385 I/Husk    (23370): video|bridge|ahb|n=60|timestamp_ns=1966666000|ts_rc=0|size=1920x1080|layers=1|format=842094169|usage=0x103|stride=1920|native=0xb400007a255eda80|handle_version=12|num_fds=3|first_fd=230
+11-23 08:58:23.387 I/Husk    (23370): video|present|submit|n=60|1920x1080|previous=true|completed=59
+11-23 08:58:23.388 I/Husk    (23370): video|bridge|present|n=60|ok=true
+11-23 08:58:23.399 I/Husk    (23370): video|present|complete|n=60|slot=59|released=true|submitted=60|released_count=59
+11-23 08:58:23.404 I/sensors-hal-OriginChannel(  903): wise light debug, data[4].type is 65627,data[4].sensor is 91:[30.000000,,120.000000,,66.000000,0.000000,41298622967592]
+11-23 08:58:23.565 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41298782925953]
+11-23 08:58:23.724 I/sensors-hal-OriginChannel(  903): wise light debug, data[3].type is 65627,data[3].sensor is 91:[31.000000,,140.000000,,64.000000,0.000000,41298942937113]
+11-23 08:58:23.727 D/AALLightSensor( 1271): oldLux=0 [SA:2 LA:0] newLux=0 (oriLux: 3)
+11-23 08:58:23.818 D/SurfaceFlinger( 1024): kickIdle 2032, 46, 35, 0
+11-23 08:58:23.819 E/hwcomposer(  891): [DRMDEV] DRM_IOCTL_MTK_KICK_IDLE failed, drm_id_crtc: 64, error: -1  
+11-23 08:58:23.884 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[31.000000,,140.000000,,64.000000,0.000000,41299102932232]
+11-23 08:58:23.919 D/SurfaceFlinger( 1024): kickIdle 100, 47, 35, 0
+11-23 08:58:23.919 E/hwcomposer(  891): [DRMDEV] DRM_IOCTL_MTK_KICK_IDLE failed, drm_id_crtc: 64, error: -1  
+11-23 08:58:24.020 D/SurfaceFlinger( 1024): kickIdle 101, 48, 35, 0
+11-23 08:58:24.021 E/hwcomposer(  891): [DRMDEV] DRM_IOCTL_MTK_KICK_IDLE failed, drm_id_crtc: 64, error: -1  
+11-23 08:58:24.032 D/ExtensionsLoader(26352): createInstance(64bit) : createExtendedFactory
+11-23 08:58:24.033 D/ExtensionsLoader(26352): Opened libguiextimpl.so
+11-23 08:58:24.043 D/AVStageUtils(26352): Opened liboplusavenhancements.so
+11-23 08:58:24.043 D/AVStageUtils(26352): createInstance(64bit): createVendorAVUtils success!
+11-23 08:58:24.043 D/OplusUtils(26352): OplusUtils [89]: 
+11-23 08:58:24.044 D/AVMediaServiceFactory(26352): Opened liboplusavenhancements.so
+11-23 08:58:24.044 D/AVMediaServiceFactory(26352): createInstance(64bit): createExtendedMediaServiceFactory success!
+11-23 08:58:24.044 D/AVNuFactory(26352): Opened liboplusavenhancements.so
+11-23 08:58:24.044 D/AVNuFactory(26352): createInstance(64bit): createExtendedNuFactory success!
+11-23 08:58:24.044 I/sensors-hal-OriginChannel(  903): wise light debug, data[4].type is 65627,data[4].sensor is 91:[30.000000,,140.000000,,66.000000,0.000000,41299262945396]
+11-23 08:58:24.044 D/AVStageFactory(26352): Opened liboplusavenhancements.so
+11-23 08:58:24.044 D/AVStageFactory(26352): createInstance(64bit): createVendorAVFactory success!
+11-23 08:58:24.044 D/AVStageUtils(26352): createInstance(64bit): createVendorAVUtils success!
+11-23 08:58:24.044 D/OplusUtils(26352): OplusUtils [89]: 
+11-23 08:58:24.044 D/AVStageFactory(26352): createInstance(64bit): createVendorAVFactory success!
+11-23 08:58:24.044 D/AVStageUtils(26352): createInstance(64bit): createVendorAVUtils success!
+11-23 08:58:24.044 D/OplusUtils(26352): OplusUtils [89]: 
+11-23 08:58:24.044 D/AVMediaServiceFactory(26352): createInstance(64bit): createExtendedMediaServiceFactory success!
+11-23 08:58:24.044 D/AVNuFactory(26352): createInstance(64bit): createExtendedNuFactory success!
+11-23 08:58:24.044 D/AVStageFactory(26352): Opened liboplusavenhancements.so
+11-23 08:58:24.044 D/AVStageFactory(26352): createInstance(64bit): createVendorAVFactory success!
+11-23 08:58:24.044 D/AVStageUtils(26352): createInstance(64bit): createVendorAVUtils success!
+11-23 08:58:24.044 D/OplusUtils(26352): OplusUtils [89]: 
+11-23 08:58:24.045 E/screencap(26352): createInstance(64bit) : createExtendedFactory
+11-23 08:58:24.047 E/screencap(26352): createInstance(64bit) : createExtendedFactory
+11-23 08:58:24.047 E/screencap(26352): Opened libinputextensionsimpl.so
+11-23 08:58:24.047 E/screencap(26352): Opened libinputextensionsimpl.so
+11-23 08:58:24.047 E/screencap(26352): createInstance(64bit) : createExtendedFactory
+11-23 08:58:24.047 E/screencap(26352): createInstance(64bit) : createExtendedFactory
+11-23 08:58:24.047 E/screencap(26352): Opened libsensorextimpl.so
+11-23 08:58:24.047 E/screencap(26352): Opened libsensorextimpl.so
+11-23 08:58:24.049 W/ProcessState(26352): Extra binder thread started, but 0 threads requested. Do not use *startThreadPool when zero threads are requested.
+11-23 08:58:24.079 I/servicemanager(  628): Could not find android.hardware.graphics.allocator.IAllocator/default in the VINTF manifest.
+11-23 08:58:24.081 E/ion     (26352): ioctl c0044901 failed with code -1: Invalid argument
+11-23 08:58:24.204 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[30.000000,,140.000000,,66.000000,0.000000,41299422944769]
+11-23 08:58:24.273 W/RefBase (26352): RefBase: Explicit destruction, weak count = 0 (in 0x708e3acf40). Use sp<> to manage this object.
+11-23 08:58:24.276 D/RefBase (26352): #00 pc 00000000000efaa8  /apex/com.android.runtime/lib64/bionic/libc.so (__cxa_finalize+280)
+11-23 08:58:24.276 D/RefBase (26352): #01 pc 00000000000e1948  /apex/com.android.runtime/lib64/bionic/libc.so (exit+24)
+11-23 08:58:24.276 D/RefBase (26352): #02 pc 0000000000074dd4  /apex/com.android.runtime/lib64/bionic/libc.so (__libc_init+100)
+11-23 08:58:24.361 D/OplusAtlas.OplusMessageHandler( 3599): handleMessage: Msg { when=-1ms what=0 target=com.oplus.atlas.OplusMessageHandler$MyHandler }
+11-23 08:58:24.377 I/OplusFeedbackInfo(23370): 0xb400007aa6301580 c2.mtk.avc.decoder 1920x1080 inputFps=30 outputFps=29 renderFps=30, discardFps=0
+11-23 08:58:24.382 I/Husk    (23370): video|bridge|frame|n=90|pts=2966666|bytes=1|flags=0x0
+11-23 08:58:24.384 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[31.000000,,160.000000,,64.000000,0.000000,41299602939857]
+11-23 08:58:24.384 I/Husk    (23370): video|bridge|ahb|n=90|timestamp_ns=2966666000|ts_rc=0|size=1920x1080|layers=1|format=842094169|usage=0x103|stride=1920|native=0xb400007a255ed780|handle_version=12|num_fds=3|first_fd=197
+11-23 08:58:24.386 I/Husk    (23370): video|present|submit|n=90|1920x1080|previous=true|completed=89
+11-23 08:58:24.387 I/Husk    (23370): video|bridge|present|n=90|ok=true
+11-23 08:58:24.394 I/Husk    (23370): video|present|complete|n=90|slot=89|released=true|submitted=90|released_count=89
+11-23 08:58:24.532 E/netd    (  867): dispachCmd:oplusGetRtt
+11-23 08:58:24.532 E/netd    (  867): handleGetRttCmd: netId = 100, uid = 10302
+11-23 08:58:24.536 E/netd    (  867): dispachCmd cmd:oplusGetRtt  result:0
+11-23 08:58:24.539 D/OplusWifiConnect2( 1687): clientModeManager == null, getOplusSta2ConnectionInfo null
+11-23 08:58:24.544 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[31.000000,,160.000000,,64.000000,0.000000,41299762950404]
+11-23 08:58:24.606 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#351] DEBUG: elapsed: mInputMetEos 16, hasPendingOutputsInClient 0, n=1 [in=4 pipeline=0 out=12]
+11-23 08:58:24.606 D/PipelineWatcher(23370): [0xb400007a3a72e480] elapsed: mFramesInPipeline 1, n 16
+11-23 08:58:24.619 D/SurfaceFlinger( 1024): kickIdle 598, 49, 35, 0
+11-23 08:58:24.620 E/hwcomposer(  891): [DRMDEV] DRM_IOCTL_MTK_KICK_IDLE failed, drm_id_crtc: 64, error: -1  
+11-23 08:58:24.671 I/DRS_LOG_ChinaTimeWindowPolicy[DRS-Scheduler-1](13737): [DEFAULT] time=08:58, window=BASELINE, base=15m, scale=1.00, result=15m
+11-23 08:58:24.672 I/DRS_LOG_ThreadTimer[DRS-Scheduler-1](13737): NON_REALTIME triggered, next=15m, base=15m, config:15min(OBUS), policy=ChinaTimeWindow(baseline 1.0x)
+11-23 08:58:24.673 I/DRS_LOG_UploadPipelineV2[DRS-Scheduler-1](13737): triggerNr() called, channelMode=STANDALONE, gate=UploadGateFacade{
+11-23 08:58:24.673 I/DRS_LOG_UploadPipelineV2[DRS-Scheduler-1](13737):   BusinessRuleGate{mode=STANDALONE, enableNetRequest=false}
+11-23 08:58:24.673 I/DRS_LOG_UploadPipelineV2[DRS-Scheduler-1](13737):   NetworkGate{networkReady=true, isWifi=true}
+11-23 08:58:24.673 I/DRS_LOG_UploadPipelineV2[DRS-Scheduler-1](13737):   PerformanceGate{skipped(STANDALONE)}
+11-23 08:58:24.673 I/DRS_LOG_UploadPipelineV2[DRS-Scheduler-1](13737):   EnvRecoveryDetector: EnvRecoveryDetector{standalone=true, state=IDLE, snapshot=EnvSnapshot{net=true, normalOk=true, rtOk=true}, lastNormalOk=true, lastRtOk=true}
+11-23 08:58:24.673 I/DRS_LOG_UploadPipelineV2[DRS-Scheduler-1](13737):   envRecoveryListeners: 2
+11-23 08:58:24.673 I/DRS_LOG_UploadPipelineV2[DRS-Scheduler-1](13737): }
+11-23 08:58:24.674 I/DRS_LOG_GateStateManager[DRS-Scheduler-1](13737): resetCompensationBudget[NonRealtime]: budget=2
+11-23 08:58:24.674 I/DRS_LOG_ChannelTaskRunner[DRS-Scheduler-1](13737): [NR] upload_trigger request=ChannelTaskRequest{channelType=NonRealtime, triggerReason=NR_PERIODIC, requestTimeMs=1795395504674, skipGateCheck=false, scheduledRun=false}
+11-23 08:58:24.674 I/DRS_LOG_ThreadTimer[DRS-Scheduler-1](13737): NON_REALTIME thread scheduled, reason=loop, delay=15m
+11-23 08:58:24.675 I/DRS_LOG_UploadGateFacade[DRS-Upload-Nr-1](13737): allowUpload[NonRealtime]: GateResult{BLOCKED by BusinessRule: enableNetRequest=false}
+11-23 08:58:24.675 I/DRS_LOG_ChannelTaskRunner[DRS-Upload-Nr-1](13737): [NR] gate_blocked reason=enableNetRequest=false request=ChannelTaskRequest{channelType=NonRealtime, triggerReason=NR_PERIODIC, requestTimeMs=1795395504674, skipGateCheck=false, scheduledRun=false}
+11-23 08:58:24.704 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[31.000000,,140.000000,,64.000000,0.000000,41299922945707]
+11-23 08:58:24.715 E/TetherController(  867): property_get sys.radio.data.modem_share_flag return 0, 1!
+11-23 08:58:24.864 I/sensors-hal-OriginChannel(  903): wise light debug, data[3].type is 65627,data[3].sensor is 91:[32.000000,,140.000000,,62.000000,0.000000,41300082942053]
+11-23 08:58:24.923 E/IHansComunication( 8177): HANS printMessageBody: RCV message: type = 0,port = 86870,caller_pid = 1687,caller_uid = 1000,target_pid = 6015,target_uid = 10293,pkg_cmd = -1,rpc = com.android.internal.telephony.IPhoneStateListener/10
+11-23 08:58:24.926 E/IHansComunication( 8177): HANS printMessageBody: RCV message: type = 0,port = 86870,caller_pid = 1687,caller_uid = 1000,target_pid = 6158,target_uid = 99910293,pkg_cmd = -1,rpc = com.android.internal.telephony.IPhoneStateListener/10
+11-23 08:58:24.934 D/OplusTelephonyController( 2604): onSignalStrengthChanged: SignalStrength=SignalStrength:{mCdma=CellSignalStrengthCdma: cdmaDbm=2147483647 cdmaEcio=2147483647 evdoDbm=2147483647 evdoEcio=2147483647 evdoSnr=2147483647 level=0,mGsm=CellSignalStrengthGsm: rssi=2147483647 ber=2147483647 mTa=2147483647 mLevel=0,mWcdma=CellSignalStrengthWcdma: ss=2147483647 ber=2147483647 rscp=2147483647 ecno=2147483647 level=0,mTdscdma=CellSignalStrengthTdscdma: rssi=2147483647 ber=2147483647 rscp=2147483647 level=0,mLte=CellSignalStrengthLte: rssi=-91 rsrp=-102 rsrq=-11 rssnr=4 cqiTableIndex=2147483647 cqi=0 ta=0 level=3 parametersUseForLevel=0,mNr=CellSignalStrengthNr:{ csiRsrp = 2147483647 csiRsrq = 2147483647 csiCqiTableIndex = 2147483647 csiCqiReport = [] ssRsrp = 2147483647 ssRsrq = 2147483647 ssSinr = 2147483647 level = 0 parametersUseForLevel = 0 },primary=CellSignalStrengthLte}, phoneId=0, mMtkLevel=0, mMtkRsrpOnly=false, mMtkLteRsrpThreshold=null, mMtkLteRssnrThreshold=null
+11-23 08:58:25.024 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[31.000000,,140.000000,,64.000000,0.000000,41300242965543]
+11-23 08:58:25.135 W/mk_process_exit(25791): main process importance=400, importanceReasonCode=0, importanceReasonComponent=null
+11-23 08:58:25.141 W/mk_process_exit(25791): decider block, reason=min_interval
+11-23 08:58:25.143 E/FileStrategy(25791): java.io.IOException: Read-only file system
+11-23 08:58:25.149 W/mk_process_exit(25791): countdown start, delay=60000, activeCount=0, lastTasks=[force_pkg]
+11-23 08:58:25.184 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[31.000000,,160.000000,,64.000000,0.000000,41300402959918]
+11-23 08:58:25.341 D/OplusSmartBrightnessController( 1687): handleMessage MSG_LUX_CHANGED, mLux:3.0 luxQueue=[3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0]
+11-23 08:58:25.345 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[30.000000,,160.000000,,66.000000,0.000000,41300563305202]
+11-23 08:58:25.366 D/OplusAtlas.OplusMessageHandler( 3599): handleMessage: Msg { when=-1ms what=0 target=com.oplus.atlas.OplusMessageHandler$MyHandler }
+11-23 08:58:25.377 I/OplusFeedbackInfo(23370): 0xb400007aa6301580 c2.mtk.avc.decoder 1920x1080 inputFps=30 outputFps=31 renderFps=30, discardFps=0
+11-23 08:58:25.382 I/Husk    (23370): video|bridge|frame|n=120|pts=3966666|bytes=1|flags=0x0
+11-23 08:58:25.384 I/Husk    (23370): video|bridge|ahb|n=120|timestamp_ns=3966666000|ts_rc=0|size=1920x1080|layers=1|format=842094169|usage=0x103|stride=1920|native=0xb400007a255ed480|handle_version=12|num_fds=3|first_fd=224
+11-23 08:58:25.386 I/Husk    (23370): video|present|submit|n=120|1920x1080|previous=true|completed=119
+11-23 08:58:25.386 I/Husk    (23370): video|bridge|present|n=120|ok=true
+11-23 08:58:25.410 I/Husk    (23370): video|present|complete|n=120|slot=119|released=true|submitted=120|released_count=119
+11-23 08:58:25.504 I/sensors-hal-OriginChannel(  903): wise light debug, data[4].type is 65627,data[4].sensor is 91:[32.000000,,140.000000,,62.000000,0.000000,41300723202996]
+11-23 08:58:25.664 I/sensors-hal-OriginChannel(  903): wise light debug, data[4].type is 65627,data[4].sensor is 91:[31.000000,,140.000000,,64.000000,0.000000,41300882938053]
+11-23 08:58:25.824 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[31.000000,,160.000000,,64.000000,0.000000,41301042951905]
+11-23 08:58:26.004 I/sensors-hal-OriginChannel(  903): wise light debug, data[3].type is 65627,data[3].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41301222944827]
+11-23 08:58:26.164 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41301382936577]
+11-23 08:58:26.324 I/sensors-hal-OriginChannel(  903): wise light debug, data[4].type is 65627,data[4].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41301542943039]
+11-23 08:58:26.355 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#351] input EOS
+11-23 08:58:26.355 D/C2MtkVdec(  893): [0xEBDA0000] mSawInputEOS was set.
+11-23 08:58:26.356 D/VCodec  (  893): [VCodecV4L2] No Enque Input Buffer: index: -1, 
+11-23 08:58:26.366 D/C2MtkVdec(  893): [0xEBDA0000] EOS frame produced
+11-23 08:58:26.368 D/BufferPoolAccessor2.0(23370): bufferpool2 0xb400007a3a795e28 : 10(20971520 size) total buffers - 8(16777216 size) used buffers - 0/10 (recycle/alloc) - 10/152 (fetch/transfer)
+11-23 08:58:26.368 D/BufferPoolAccessor2.0(23370): evictor expired: 1, evicted: 1
+11-23 08:58:26.374 D/OplusAtlas.OplusMessageHandler( 3599): handleMessage: Msg { when=-2ms what=0 target=com.oplus.atlas.OplusMessageHandler$MyHandler }
+11-23 08:58:26.376 I/Husk    (23370): video|bridge|frame|n=150|pts=4966666|bytes=1|flags=0x0
+11-23 08:58:26.377 I/Husk    (23370): video|bridge|ahb|n=150|timestamp_ns=4966666000|ts_rc=0|size=1920x1080|layers=1|format=842094169|usage=0x103|stride=1920|native=0xb400007a255ed180|handle_version=12|num_fds=3|first_fd=218
+11-23 08:58:26.378 I/OplusFeedbackInfo(23370): 0xb400007aa6301580 c2.mtk.avc.decoder 1920x1080 inputFps=31 outputFps=31 renderFps=31, discardFps=0
+11-23 08:58:26.379 I/Husk    (23370): video|present|submit|n=150|1920x1080|previous=true|completed=149
+11-23 08:58:26.379 I/Husk    (23370): video|bridge|present|n=150|ok=true
+11-23 08:58:26.381 I/Husk    (23370): video|bridge|frame|n=151|pts=0|bytes=0|flags=0x4
+11-23 08:58:26.381 I/Husk    (23370): video|bridge|EOS_OK frames=151 images=150 output_bytes=150
+11-23 08:58:26.383 I/Husk    (23370): video|present|clear|submitted=150|completed=149|released=149
+11-23 08:58:26.384 D/MediaCodec(23370): [0xb400007a2555a000] [c2.mtk.avc.decoder] stop
+11-23 08:58:26.384 D/MediaCodec(23370): [0xb400007a2555a000] setState: 9
+11-23 08:58:26.384 D/OplusCCodec(23370): initiateShutdown [883]: (0xb400007a3a795200) keepComponentAllocated=1
+11-23 08:58:26.384 I/OplusFeedbackInfo(23370): [sendFeedbackInfo:L335]  send:MM_FB_EventID#21001#ClientPid#23370#ReportLevel#0#timeUsage#5#videoComponent#c2.mtk.avc.decoder#videoHeight#1080#videoMime#video/avc#videoWidth#1920
+11-23 08:58:26.384 D/AtlasEventUploadUtils(23370): setEvent event:atlas_event_atlasserver_feedback
+11-23 08:58:26.385 D/OplusAtlas.OplusAtlasEventDispatch( 3599): setEvent:atlas_event_atlasserver_feedback info:MM_FB_EventID#21001#ClientPid#23370#ReportLevel#0#timeUsage#5#videoComponent#c2.mtk.avc.decoder#videoHeight#1080#videoMime#video/avc#videoWidth#1920
+11-23 08:58:26.386 D/OplusAtlasFeedback( 3599): callback success event:atlas_event_atlasserver_feedback eventInfo:MM_FB_EventID#21001#ClientPid#23370#ReportLevel#0#timeUsage#5#videoComponent#c2.mtk.avc.decoder#videoHeight#1080#videoMime#video/avc#videoWidth#1920
+11-23 08:58:26.386 D/OplusAtlas.OplusMessageHandler( 3599): handleMessage: Msg { when=0 what=1 obj=com.oplus.atlas.OplusAtlasEvent@3ccdcb9 target=com.oplus.atlas.OplusMessageHandler$MyHandler }
+11-23 08:58:26.387 D/OplusAtlasFeedback( 3599): uploadMMCollectData MM_FB_EventID#21001#ClientPid#23370#ReportLevel#0#timeUsage#5#videoComponent#c2.mtk.avc.decoder#videoHeight#1080#videoMime#video/avc#videoWidth#1920
+11-23 08:58:26.387 I/Husk    (23370): video|present|complete|n=150|slot=149|released=true|submitted=150|released_count=150
+11-23 08:58:26.387 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#351] MediaCodec discarded an unknown buffer
+11-23 08:58:26.388 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#351] MediaCodec discarded an unknown buffer
+11-23 08:58:26.388 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#351] MediaCodec discarded an unknown buffer
+11-23 08:58:26.389 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#351] MediaCodec discarded an unknown buffer
+11-23 08:58:26.389 D/C2MtkComponent(  893): [0xEBDA0000] stop
+11-23 08:58:26.389 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#351] MediaCodec discarded an unknown buffer
+11-23 08:58:26.389 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#351] MediaCodec discarded an unknown buffer
+11-23 08:58:26.389 D/C2MtkBufferManager(  893): [0xEC8B8210] wakeUpFetchThread release mThreadSem mCcThreadSem
+11-23 08:58:26.410 D/C2BqBuffer(  893): configuring null producer: igbp_information(0)
+11-23 08:58:26.412 D/MediaCodec(23370): [0xb400007a2555a000] [c2.mtk.avc.decoder] kWhatStopCompleted
+11-23 08:58:26.412 D/MediaCodec(23370): [0xb400007a2555a000] setState: 2
+11-23 08:58:26.412 D/MediaCodec(23370): [0xb400007a2555a000] [c2.mtk.avc.decoder] disconnectFromSurface: mSurface 0xb400007aa63b6000
+11-23 08:58:26.412 D/SurfaceUtils(23370): disconnecting from surface 0xb400007aa63b6010, reason disconnectFromSurface
+11-23 08:58:26.422 D/MediaCodec(23370): [0xb400007a2555a000] [c2.mtk.avc.decoder] release
+11-23 08:58:26.423 D/MediaCodec(23370): [0xb400007a2555a000] setState: 10
+11-23 08:58:26.423 D/OplusCCodec(23370): initiateShutdown [883]: (0xb400007a3a795200) keepComponentAllocated=0
+11-23 08:58:26.425 D/C2MtkComponent(  893): [0xEBDA0000] release
+11-23 08:58:26.425 D/C2MtkVdec(  893): [0xEBDA0000] onRelease
+11-23 08:58:26.425 D/C2MtkVdec(  893): [0xEBDA0000] mOnCancel
+11-23 08:58:26.425 D/C2MtkBufferManager(  893): [0xEC8B8210] wakeUpFetchThread release mThreadSem mCcThreadSem
+11-23 08:58:26.426 I/mtkpower_client( 1278): perf_lock_rel, hdl:2029, tid:1382
+11-23 08:58:26.427 I/VCodecDrv( 1278): set display thredhold to 100ms is finished
+11-23 08:58:26.428 I/libPowerHal(  912): [perfLockRel] hdl:2029, idx:4
+11-23 08:58:26.428 I/libPowerHal(  912): [PD] vpud update cmd:240c000 param:50
+11-23 08:58:26.438 D/C2MtkVdec(  893): [0xEBDA0000] VCodec destroyed.
+11-23 08:58:26.438 D/C2MtkVdec(  893): [0xEBDA0000] mBMLock lock by onRelease
+11-23 08:58:26.438 D/C2MtkBufferManager(  893): [0xEC8B8210] stopFetchThread, BM fetch thread join
+11-23 08:58:26.439 D/C2MtkBufferManager(  893): C2MtkBMFetchThread terminated
+11-23 08:58:26.440 D/C2MtkBufferManager(  893): [0xEC8B8210] stopFetchThread, BM fetch thread join complete
+11-23 08:58:26.440 D/C2MtkBufferManager(  893): [0xEC8B8210] stopFetchThread, BM CC fetch thread join
+11-23 08:58:26.440 D/C2MtkBufferManager(  893): C2MtkBMCcFetchThread terminated
+11-23 08:58:26.440 D/C2MtkBufferManager(  893): [0xEC8B8210] stopFetchThread, BM CC fetch thread join complete
+11-23 08:58:26.440 D/C2MtkBufferManager(  893): [0xEC8B8210] stopFetchThread
+11-23 08:58:26.440 I/mtkpower_client(  893): perf_lock_acq, hdl:2028, dur:0, num:2, tid:26337
+11-23 08:58:26.445 I/libPowerHal(  912): [PU] scn:2, update
+11-23 08:58:26.445 I/libPowerHal(  912): [unsetGPUFreq] current min:40, max:0; scn_gpu_min:-1, scn_gpu_max:-1; scn_gpu_min(HL):-1, scn_gpu_max(HL):-1
+11-23 08:58:26.446 I/libPowerHal(  912): [setGPUFreq] Soft min/max = (40, 0); Hard min/max = (40, 0)
+11-23 08:58:26.446 I/libPowerHal(  912): [setGPUFreq] final min/max = (40, 0)
+11-23 08:58:26.446 I/libPowerHal(  912): c2@1.2-mediatek: set gpu opp level: 40
+11-23 08:58:26.446 I/libPowerHal(  912): c2@1.2-mediatek: set gpu opp level max: 0
+11-23 08:58:26.448 I/mtkpower_client(  893): ret_hdl:2028
+11-23 08:58:26.448 D/C2MtkVdec(  893): [0xEBDA0228] clearClientPid: perfLockAcq mFpsLockHandle 2028 pid 23370
+11-23 08:58:26.448 I/mtkpower_client(  893): perf_lock_rel, hdl:2028, tid:26337
+11-23 08:58:26.451 I/libPowerHal(  912): [fpsgo_set_video_pid_thread] 23370, 0xb4000077d8201ec0
+11-23 08:58:26.452 E/libPowerHal(  912): Could not open '/sys/kernel/fpsgo/fstb/set_video_pid'
+11-23 08:58:26.452 E/libPowerHal(  912): error : 2, No such file or directory
+11-23 08:58:26.452 I/libPowerHal(  912): [fpsgo_clear_video_pid_thread] 23370, 0xb4000077d8201ec0
+11-23 08:58:26.452 E/libPowerHal(  912): Could not open '/sys/kernel/fpsgo/fstb/clear_video_pid'
+11-23 08:58:26.452 E/libPowerHal(  912): error : 2, No such file or directory
+11-23 08:58:26.453 D/C2MtkVdec(  893): [0xEBDA0228] clearClientPid: perfLockRel mFpsLockHandle 2028 pid 23370
+11-23 08:58:26.453 V/C2MtkVdec(  893): Number of instances decreased to 0(c2.mtk.avc.decoder)
+11-23 08:58:26.454 D/C2BqBuffer(  893): configuring null producer: igbp_information(0)
+11-23 08:58:26.455 I/libPowerHal(  912): [perfLockRel] hdl:2028, idx:2
+11-23 08:58:26.455 D/MediaCodec(23370): [0xb400007a2555a000] [c2.mtk.avc.decoder] kWhatReleaseCompleted
+11-23 08:58:26.455 D/MediaCodec(23370): [0xb400007a2555a000] setState: 0
+11-23 08:58:26.457 I/hw-BpHwBinder(23370): onLastStrongRef automatically unlinking death recipients
+11-23 08:58:26.459 D/C2MtkVdec(  893): [0xEBDA0000] onRelease
+11-23 08:58:26.459 D/C2MtkVdec(  893): [0xEBDA0000] mOnCancel
+11-23 08:58:26.459 D/C2MtkVdec(  893): [0xEBDA0000] VCodec destroyed.
+11-23 08:58:26.459 D/C2MtkVdec(  893): [0xEBDA0000] mBMLock lock by onRelease
+11-23 08:58:26.459 D/C2MtkVdec(  893): [0xEBDA0000] ~C2MtkVdec
+11-23 08:58:26.464 D/MediaCodec(23370): [0xb400007a2555a000] ~MediaCodec
+11-23 08:58:26.465 D/MediaCodec(23370): flushMediametrics
+11-23 08:58:26.466 D/OplusCCodec(23370): ~OplusCCodec [188]: (0xb400007a3a795200)
+11-23 08:58:26.468 D/OplusFeedbackInfo(23370): ~OplusAnalysisFPS
+11-23 08:58:26.468 D/AtlasEventUploadUtils(23370): setEvent event:atlas_event_video_monitor_network_switch
+11-23 08:58:26.469 D/OplusAtlas.OplusAtlasEventDispatch( 3599): setEvent:atlas_event_video_monitor_network_switch info:STOP,23370,Key,-5476376620108343936
+11-23 08:58:26.469 I/libPowerHal(  912): [fpsgo_clear_video_pid_thread] 23370, 0xb4000077d8201ec0
+11-23 08:58:26.469 E/libPowerHal(  912): Could not open '/sys/kernel/fpsgo/fstb/clear_video_pid'
+11-23 08:58:26.469 E/libPowerHal(  912): error : 2, No such file or directory
+11-23 08:58:26.469 I/libPowerHal(  912): [PD] c2@1.2-mediatek update ONESHOT cmd:2084100 param:23370
+11-23 08:58:26.470 D/OplusAtlasVideo( 3599): callback success event:atlas_event_video_monitor_network_switch eventInfo:STOP,23370,Key,-5476376620108343936
+11-23 08:58:26.471 D/C2MtkVdecExt(  893): [0xECD67810] ~ExtImpl
+11-23 08:58:26.474 D/BufferQueueConsumer(23370): [ImageReader-1920x1080f22u256m4-23370-1](id:5b4a00000003,api:0,p:-1,c:23370) disconnect
+11-23 08:58:26.474 D/C2MtkConvert(  893): [0xEBDD5310] ~C2MtkConvert
+11-23 08:58:26.474 I/Husk    (23370): video|bridge|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=151 output_bytes=150 images_last=150 stop_rc=0 delete_rc=0
+11-23 08:58:26.475 D/C2MtkBufferManager(  893): [0xEC8B8210] mFetchLock by cancelAllBuffers
+11-23 08:58:26.475 D/C2MtkBufferManager(  893): [0xEC8B8210]   mBufferLock by cancelAllBuffers
+11-23 08:58:26.476 I/Husk    (23370): video|bridge|client|disconnected
+11-23 08:58:26.477 D/C2MtkBufferManager(  893): [0xEC8B8210] mCcFetchLock by cancelAllBuffers
+11-23 08:58:26.477 D/C2MtkBufferManager(  893): [0xEC8B8210]   mCcBufferLock by cancelAllBuffers
+11-23 08:58:26.478 D/C2MtkBufferManager(  893): [0xEC8B8210] cancelAllBuffers, Free all Buffers Done!
+11-23 08:58:26.478 D/C2MtkBufferManager(  893): [0xEC8B8210] ~C2MtkBufferManager
+11-23 08:58:26.479 V/C2MtkVdec(  893): in DestroyCodec2AvcFactory
+11-23 08:58:26.480 V/C2MtkVdec(  893): in DestroyCodec2AvcFactory
+11-23 08:58:26.480 D/C2MtkVdec(  893): [0xec8e2010] removeInputMemoryUsageEntry: entryCount: 0, totalUsage: 0
+11-23 08:58:26.480 D/C2MtkComponentStore(  893): onNumberOfVideoInstancesChanged: Decoder 0, Encoder 0
+11-23 08:58:26.480 V/C2MtkVdec(  893): Number of instances for debug decreased to 0(c2.mtk.avc.decoder)
+11-23 08:58:26.480 D/C2MtkVdec(  893): [0xEC8E2010] VCodec destroyed.
+11-23 08:58:26.484 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[31.000000,,120.000000,,64.000000,0.000000,41301702949986]
+11-23 08:58:26.644 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,120.000000,,62.000000,0.000000,41301862947510]
+11-23 08:58:26.804 I/sensors-hal-OriginChannel(  903): wise light debug, data[4].type is 65627,data[4].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41302022955506]
+11-23 08:58:26.964 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41302182945139]
+11-23 08:58:27.096 E/VirtualSensors(  903): pedo minute, step_count = 0, report_count = 688 move_statust = 0 ,time_gap = 0 , step_run_count = 0 , step_walk_count = 0
+11-23 08:58:27.096 E/power   (  903): ISystemSuspend::getService() failed.
+11-23 08:58:27.096 E/VirtualSensors(  903): post_events : call
+11-23 08:58:27.101 V/SystemSensorManagerExtImpl( 2314): Pedometer minute step counter dispatchSensorEvent step 0.0 to + l.a$a@3700273
+11-23 08:58:27.101 V/SystemSensorManagerExtImpl( 2314): Pedometer minute step counter dispatchSensorEvent step 0.0 to + k.b$b@4149bad
+11-23 08:58:27.101 I/StepApp_StepDataPreHandler( 2314): (main)onSensorChanged raw data: step=0.0 state=0.0 minuteDelta=0.0 timestamp=41302314627630 steprun=0.0 stepwalk=0.0 formatted data: step=0 state=0 timestamp=41302314627630 time=1795395507094 steprun=0 stepwalk=0
+11-23 08:58:27.103 I/StepApp_StepDataSaver( 2314): (StepDataDispatcher)getNewFixedOffsetStep type is STEP
+11-23 08:58:27.104 I/StepApp_StepDataSaver( 2314): (StepDataDispatcher)isRebootCountStep:false	 lastRealTimeStamp = 1795395420000	 bootTimestamp = 1795354204780	 mLastModifiedMinuteTime = 2026-11-23-08-57
+11-23 08:58:27.104 I/StepApp_StepDataSaver( 2314): (StepDataDispatcher)calOffSet:sensorStep = 0	 lastModifiedStep = 0	 offSet = 0
+11-23 08:58:27.104 I/StepApp_StepDataSaver( 2314): (StepDataDispatcher)getNewFixedOffsetStep type is RUN
+11-23 08:58:27.104 I/StepApp_StepDataSaver( 2314): (StepDataDispatcher)isRebootCountStep:false	 lastRealTimeStamp = 1795395420000	 bootTimestamp = 1795354204779	 mLastModifiedMinuteTime = 2026-11-23-08-57
+11-23 08:58:27.105 I/StepApp_StepDataSaver( 2314): (StepDataDispatcher)calOffSet:sensorStep = 0	 lastModifiedStep = 0	 offSet = 0
+11-23 08:58:27.105 I/StepApp_StepDataSaver( 2314): (StepDataDispatcher)getNewFixedOffsetStep type is WALK
+11-23 08:58:27.105 I/StepApp_StepDataSaver( 2314): (StepDataDispatcher)isRebootCountStep:false	 lastRealTimeStamp = 1795395420000	 bootTimestamp = 1795354204780	 mLastModifiedMinuteTime = 2026-11-23-08-57
+11-23 08:58:27.105 I/StepApp_StepDataSaver( 2314): (StepDataDispatcher)calOffSet:sensorStep = 0	 lastModifiedStep = 0	 offSet = 0
+11-23 08:58:27.125 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41302342959952]
+11-23 08:58:27.284 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,100.000000,,62.000000,0.000000,41302503336880]
+11-23 08:58:27.369 D/BufferPoolAccessor2.0(23370): evictor expired: 1, evicted: 0
+11-23 08:58:27.380 D/OplusAtlas.OplusMessageHandler( 3599): handleMessage: Msg { when=-2ms what=0 target=com.oplus.atlas.OplusMessageHandler$MyHandler }
+11-23 08:58:27.465 I/sensors-hal-OriginChannel(  903): wise light debug, data[4].type is 65627,data[4].sensor is 91:[32.000000,,140.000000,,62.000000,0.000000,41302682803933]
+11-23 08:58:27.468 D/OplusSmartBrightnessController( 1687): handleMessage MSG_LUX_CHANGED, mLux:3.0 luxQueue=[3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0]
+11-23 08:58:27.552 E/netd    (  867): dispachCmd:oplusGetRtt
+11-23 08:58:27.553 E/netd    (  867): handleGetRttCmd: netId = 100, uid = 10302
+11-23 08:58:27.554 E/netd    (  867): dispachCmd cmd:oplusGetRtt  result:0
+11-23 08:58:27.555 D/OplusWifiConnect2( 1687): clientModeManager == null, getOplusSta2ConnectionInfo null
+11-23 08:58:27.573 E/OPLUS_KEVENT_RECORD( 1414): oplus_kevent Receive message from kernel, event_type=3
+11-23 08:58:27.573 E/OPLUS_KEVENT_RECORD( 1414): OPLUS_KEVENT payload:10302,path@@/data/app/~~weE42Pyr-B6BOPmwr7MSJQ==/com.linuxhub.husk-Uf9W08H0eGGJHfvaN_9I3A==/lib/arm64/libld.so
+11-23 08:58:27.573 I/OPLUS_KEVENT_RECORD( 1414): oplus_put_exec_kevent_to_list
+11-23 08:58:27.568 W/libld.so(26370): type=1400 audit(0.0:69547): avc: granted { execute } for path="/data/user/0/com.linuxhub.husk/files/rootfs-full/usr/local/bin/video-bridge" dev="tmemory-0" ino=254713 scontext=u:r:runas_app:s0:c46,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c46,c257,c512,c768 tclass=file app=com.linuxhub.husk
+11-23 08:58:27.568 W/libld.so(26370): type=1400 audit(0.0:69548): avc: granted { execute } for path="/data/data/com.linuxhub.husk/files/rootfs-full/usr/lib/aarch64-linux-gnu/libgcc_s.so.1" dev="tmemory-0" ino=248088 scontext=u:r:runas_app:s0:c46,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c46,c257,c512,c768 tclass=file app=com.linuxhub.husk
+11-23 08:58:27.568 W/libld.so(26370): type=1400 audit(0.0:69549): avc: granted { execute } for path="/data/data/com.linuxhub.husk/files/rootfs-full/usr/lib/aarch64-linux-gnu/libc.so.6" dev="tmemory-0" ino=247879 scontext=u:r:runas_app:s0:c46,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c46,c257,c512,c768 tclass=file app=com.linuxhub.husk
+11-23 08:58:27.579 D/SurfaceFlinger( 1024): kickIdle 2960, 1083, 35, 0
+11-23 08:58:27.580 E/hwcomposer(  891): [DRMDEV] DRM_IOCTL_MTK_KICK_IDLE failed, drm_id_crtc: 64, error: -1  
+11-23 08:58:27.593 I/Husk    (23370): video|bridge|client|connected|fd=3
+11-23 08:58:27.596 D/MediaCodec(23370): CreateByComponentName: name c2.mtk.avc.decoder
+11-23 08:58:27.598 D/CCodecBufferChannel(23370): mBufferCountDebug=0 mIsUserLoad=1
+11-23 08:58:27.598 D/OplusCCodec(23370): OplusCCodec [169]: (0xb400007a3a795200)
+11-23 08:58:27.598 W/libc    (23370): Access denied finding property "vendor.oplus.media.vpp.stutter"
+11-23 08:58:27.599 D/MMListService( 1231): getListValueByUid module:sr-osie-whitelist, uid:10302
+11-23 08:58:27.599 D/CCodecBufferChannel(23370): mBufferCountDebug=0 mIsUserLoad=1
+11-23 08:58:27.600 D/MediaCodec(23370): [0xb400007a2555a000] init: CCodec 0xb400007a3a795200, CCodecBufferChannel 0xb400007a3a72e018
+11-23 08:58:27.601 D/MediaCodec(23370): [0xb400007a2555a000] setState: 1
+11-23 08:58:27.601 D/CCodec  (23370): allocate(c2.mtk.avc.decoder)
+11-23 08:58:27.604 I/CCodec  (23370): setting up 'default' as default (vendor) store
+11-23 08:58:27.605 D/C2MtkComponentStore(  893): trytofind: name=c2.mtk.avc.decoder
+11-23 08:58:27.605 D/C2MtkComponentStore(  893): find: name=c2.mtk.avc.decoder, key=c2.mtk.avc.decoder
+11-23 08:58:27.605 V/C2MtkVdec(  893): in CreateCodec2AvcFactory
+11-23 08:58:27.606 D/C2MtkVdec(  893): [0xEF90B118] cpu.boost.multiple.instances: cluster = 0,1,2, minFrequency = 2000000,2600000,1108000
+11-23 08:58:27.606 V/C2MtkVdec(  893): in CreateCodec2InitFactory
+11-23 08:58:27.607 D/C2MtkVdec(  893): [0xEF90B380] cpu.boost.multiple.instances: cluster = 0,1,2, minFrequency = 2000000,2600000,1108000
+11-23 08:58:27.607 D/C2MtkVdec(  893): [0xEF90B380] createInterface:TotalInputMemoryUsage:0, inputMemoryLimitation:0 (c2.mtk.avc.decoder)
+11-23 08:58:27.608 D/C2MtkVdec(  893): [0xEF90B118] createComponent:TotalInputMemoryUsage:0, inputMemoryLimitation:0 (c2.mtk.avc.decoder)
+11-23 08:58:27.608 D/C2MtkComponentStore(  893): onNumberOfVideoInstancesChanged: Decoder 1, Encoder 0
+11-23 08:58:27.608 V/C2MtkVdec(  893): Number of instances increased to 1(c2.mtk.avc.decoder)
+11-23 08:58:27.608 D/C2MtkVdec(  893): [0xEC8E2010] IntfImpl: name=c2.mtk.avc.decoder, kind=1, domain=1, mediaType=video/avc, driverIntf=v4l2
+11-23 08:58:27.612 D/C2MtkVdec(  893): [0xEC8E2010] Max supported level: 20496
+11-23 08:58:27.612 D/C2MtkVdec(  893): [0xEC8E2010] Supported resolution: max(width 4096, height 2176), min(width 16, height 16)
+11-23 08:58:27.612 D/C2MtkVdec(  893): [0xEC8E2010] Alignment required for output buffer: width 16, height 32
+11-23 08:58:27.612 D/C2MtkVdec(  893): (video/avc): MaxInputSizeSetter: 2097152 -> 2097152 bytes, width 320, height 240
+11-23 08:58:27.612 D/C2MtkVdec(  893): [0xec8e2010] updateInputMemoryUsage: bufferSize: 2097152 (x8: 16777216), entryCount: 1, totalUsage: 16777216
+11-23 08:58:27.613 V/C2MtkVdec(  893): Pixel format 0x0 not supported
+11-23 08:58:27.613 D/C2MtkVdec(  893): CropSetter: old 319,239 : new 319,239
+11-23 08:58:27.613 V/C2MtkVdec(  893): OutputBufferAllocConfigSetter: old 1 : new 1
+11-23 08:58:27.613 V/C2MtkVdec(  893): OplusCpuBoostModeSetter preferIdle=0 cluster0Min=0 cluster1Min=0 cluster2Min=0 limitOpRate=0
+11-23 08:58:27.613 V/C2MtkVdec(  893): OplusMediaSchedModeSetter value=0
+11-23 08:58:27.613 D/C2MtkVdecExt(  893): [0xEF93D5EC] ExtIntfImpl: name=c2.mtk.avc.decoder, kind=1, domain=1, mediaType=video/avc
+11-23 08:58:27.613 D/C2MtkVdecExt(  893): VdecOplusVppEngineSetter: me.oplusVppEngine.featureOn 0
+11-23 08:58:27.613 D/C2MtkVdecExt(  893): VdecExtForceCcSetter: VdecExtForceCC 0
+11-23 08:58:27.613 D/C2MtkComponent(  893): [0xEBDA0010] setWorkflow: PROCESSED->COMPLETED
+11-23 08:58:27.613 D/C2MtkComponent(  893): [0xEBDA0010] setWorkflow: UNPROCESSED->PROCESSED
+11-23 08:58:27.614 D/C2MtkComponent(  893): [0xEBDA0000] c2.mtk.avc.decoder.preproc thread stared.
+11-23 08:58:27.614 D/C2MtkComponent(  893): [0xEBDA0000] c2.mtk.avc.decoder.postproc thread stared.
+11-23 08:58:27.614 D/C2MtkComponent(  893): [0xEBDA0000] c2.mtk.avc.decoder.postprocasyncs1 thread stared.
+11-23 08:58:27.614 D/C2MtkComponent(  893): [0xEBDA0000] c2.mtk.avc.decoder.postprocasyncs2 thread stared.
+11-23 08:58:27.615 D/C2MtkVdec(  893): [0xEBDA0000] C2MtkVdec: name=c2.mtk.avc.decoder, kind=1, domain=1, mediaType=video/avc
+11-23 08:58:27.615 D/C2MtkVdec(  893): [0xEBDA0000] Client: mCallingUid 10302, mCallingPid 23370
+11-23 08:58:27.615 D/C2MtkVdecExt(  893): [0xECD67C10] mEnableAiSdr2Hdr 0, mEnableAiScencePq 1
+11-23 08:58:27.615 D/C2MtkVdecExt(  893): [0xECD67C10] ExtImpl: name=c2.mtk.avc.decoder, kind=1, domain=1, mediaType=video/avc
+11-23 08:58:27.615 D/C2MtkVdecExt(  893): [0xECD67C10] formatAfbcEnabled not output AFBC format by ged hint hdl:0xef91a450
+11-23 08:58:27.615 D/C2MtkVdec(  893): [0xEBDA0000] Supported params 61
+11-23 08:58:27.615 D/RPU     (  893): [0xEF90B9AC] extent() != 1 for single value type: algo.buffers.max-count.values
+11-23 08:58:27.615 D/RPU     (  893): [0xEF90B9AC] extent() != 1 for single value type: output.subscribed-indices.values
+11-23 08:58:27.615 D/RPU     (  893): [0xEF90B9AC] extent() != 1 for single value type: input.buffers.allocator-ids.values
+11-23 08:58:27.615 D/RPU     (  893): [0xEF90B9AC] extent() != 1 for single value type: output.buffers.allocator-ids.values
+11-23 08:58:27.615 D/RPU     (  893): [0xEF90B9AC] extent() != 1 for single value type: algo.buffers.allocator-ids.values
+11-23 08:58:27.615 D/RPU     (  893): [0xEF90B9AC] extent() != 1 for single value type: output.buffers.pool-ids.values
+11-23 08:58:27.615 D/RPU     (  893): [0xEF90B9AC] extent() != 1 for single value type: algo.buffers.pool-ids.values
+11-23 08:58:27.615 D/RPU     (  893): [0xEF90B9AC] ignored struct field coded.color-format.locations
+11-23 08:58:27.617 I/CCodec  (23370): Created component [c2.mtk.avc.decoder]
+11-23 08:58:27.618 D/CCodecBufferChannel(23370): [0xb400007a3a72e018] setComponent: mName c2.mtk.avc.decoder#634, mPipelineWatcher 0xb400007a3a72e480
+11-23 08:58:27.618 D/CCodecBufferChannel(23370): PipelineWatcher debug info [c2.mtk.avc.decoder#634] enable=0
+11-23 08:58:27.618 D/CCodecConfig(23370): read media type: video/avc
+11-23 08:58:27.621 D/ReflectedParamUpdater(23370): extent() != 1 for single value type: algo.buffers.max-count.values
+11-23 08:58:27.622 D/ReflectedParamUpdater(23370): extent() != 1 for single value type: output.subscribed-indices.values
+11-23 08:58:27.622 D/ReflectedParamUpdater(23370): extent() != 1 for single value type: input.buffers.allocator-ids.values
+11-23 08:58:27.622 D/ReflectedParamUpdater(23370): extent() != 1 for single value type: output.buffers.allocator-ids.values
+11-23 08:58:27.622 D/ReflectedParamUpdater(23370): extent() != 1 for single value type: algo.buffers.allocator-ids.values
+11-23 08:58:27.623 D/ReflectedParamUpdater(23370): extent() != 1 for single value type: output.buffers.pool-ids.values
+11-23 08:58:27.623 D/ReflectedParamUpdater(23370): extent() != 1 for single value type: algo.buffers.pool-ids.values
+11-23 08:58:27.625 D/ReflectedParamUpdater(23370): ignored struct field coded.color-format.locations
+11-23 08:58:27.630 D/CCodecConfig(23370): ignoring local param raw.size (0xd2001800) as it is already supported
+11-23 08:58:27.630 D/CCodecConfig(23370): ignoring local param raw.crop (0xd2001801) as it is already supported
+11-23 08:58:27.630 D/CCodecConfig(23370): ignoring local param default.color (0x5200180b) as it is already supported
+11-23 08:58:27.630 D/CCodecConfig(23370): ignoring local param raw.hdr-static-info (0xd200180a) as it is already supported
+11-23 08:58:27.632 I/CCodecConfig(23370): query failed after returning 17 values (BAD_INDEX)
+11-23 08:58:27.632 D/CCodecConfig(23370): c2 config diff is Dict {
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::i32 algo.priority.value = 1
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::float algo.rate.value = 0
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::float coded.frame-rate.value = 30
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::u32 coded.pl.level = 20496
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::u32 coded.pl.profile = 20481
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::u32 coded.vui.color.matrix = 0
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::u32 coded.vui.color.primaries = 0
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::u32 coded.vui.color.range = 2
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::u32 coded.vui.color.transfer = 0
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::u32 default.color.matrix = 0
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::u32 default.color.primaries = 0
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::u32 default.color.range = 0
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::u32 default.color.transfer = 0
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::u32 input.buffers.max-size.value = 2097152
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::u32 input.delay.value = 4
+11-23 08:58:27.632 D/CCodecConfig(23370):   string input.media-type.value = "video/avc"
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::u32 output.delay.value = 12
+11-23 08:58:27.632 D/CCodecConfig(23370):   string output.media-type.value = "video/raw"
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::u32 raw.color.matrix = 0
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::u32 raw.color.primaries = 0
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::u32 raw.color.range = 2
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::u32 raw.color.transfer = 0
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::u32 raw.crop.height = 239
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::u32 raw.crop.left = 0
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::u32 raw.crop.top = 0
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::u32 raw.crop.width = 319
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::float raw.hdr-static-info.mastering.blue.x = 0
+11-23 08:58:27.632 D/CCodecConfig(23370):   c2::float raw.hdr-s
+11-23 08:58:27.633 W/ColorUtils(23370): expected specified color aspects (2:0:0:0)
+11-23 08:58:27.634 D/MediaCodec(23370): [0xb400007a2555a000] setState: 2
+11-23 08:58:27.636 I/Husk    (23370): video|bridge|codec|requested=c2.mtk.avc.decoder|actual=c2.mtk.avc.decoder
+11-23 08:58:27.638 D/BufferQueueConsumer(23370): [](id:5b4a00000004,api:0,p:-1,c:23370) connect: controlledByApp=true
+11-23 08:58:27.639 I/MediaCodec(23370): [0xb400007a2555a000] [c2.mtk.avc.decoder] configure, format : AMessage(what = 0x00000000) = {
+11-23 08:58:27.639 I/MediaCodec(23370):   string mime = "video/avc"
+11-23 08:58:27.639 I/MediaCodec(23370):   int32_t width = 1920
+11-23 08:58:27.639 I/MediaCodec(23370):   int32_t height = 1080
+11-23 08:58:27.639 I/MediaCodec(23370):   int32_t max-input-size = 2097152
+11-23 08:58:27.639 I/MediaCodec(23370):   Buffer csd-0 = {
+11-23 08:58:27.639 I/MediaCodec(23370):     00000000:  00 00 00 01 67 42 c0 28  da 01 e0 08 9f 97 01 10  ....gB.(........
+11-23 08:58:27.639 I/MediaCodec(23370):     00000010:  00 00 03 00 10 00 00 03  03 c8 f1 83 2a           ............*
+11-23 08:58:27.639 I/MediaCodec(23370):   }
+11-23 08:58:27.639 I/MediaCodec(23370):   Buffer csd-1 = {
+11-23 08:58:27.639 I/MediaCodec(23370):     00000000:  00 00 00 01 68 ce 0f c8                           ....h...
+11-23 08:58:27.639 I/MediaCodec(23370):   }
+11-23 08:58:27.639 I/MediaCodec(23370): }
+11-23 08:58:27.639 D/MediaCodec(23370): flushMediametrics
+11-23 08:58:27.640 D/MediaCodec(23370): [0xb400007a2555a000] [c2.mtk.avc.decoder] connectToSurface: surface 0xb400007aa63b6000, mSurface 0x0
+11-23 08:58:27.640 D/SurfaceUtils(23370): connecting to surface 0xb400007aa63b6010, reason connectToSurface
+11-23 08:58:27.640 I/MediaCodec(23370): [c2.mtk.avc.decoder] setting surface generation to 23930883
+11-23 08:58:27.640 D/SurfaceUtils(23370): disconnecting from surface 0xb400007aa63b6010, reason connectToSurface(reconnect)
+11-23 08:58:27.640 D/SurfaceUtils(23370): connecting to surface 0xb400007aa63b6010, reason connectToSurface(reconnect)
+11-23 08:58:27.641 D/MediaCodec(23370): [0xb400007a2555a000] setState: 3
+11-23 08:58:27.641 D/MediaCodec(23370): [c2.mtk.avc.decoder] config set c2 sleep timeout 500 kC2SleepTimeoutMs=500
+11-23 08:58:27.641 D/OplusCCodec(23370): [initiateConfigureComponent:L791] OplusFeedbackInfo  mFeedbackID:-5476376621915483648
+11-23 08:58:27.641 W/AString (23370): ctor got NULL, using empty string instead
+11-23 08:58:27.641 D/MMListService( 1231): uid 10302 no permission to getPackageNameByPid
+11-23 08:58:27.642 D/AtlasEventUploadUtils(23370): setEvent event:atlas_event_video_monitor_network_switch
+11-23 08:58:27.643 D/MMListService( 1231): getListValueByUid module:video-resolution-blurry, uid:10302
+11-23 08:58:27.642 D/OplusAtlas.OplusAtlasEventDispatch( 3599): setEvent:atlas_event_video_monitor_network_switch info:START,23370,Key,-5476376620108343936,Component,c2.mtk.avc.decoder,Width,1920,Height,1080,IsMediaPlayer,0
+11-23 08:58:27.643 D/MMListService( 1231): getListValueByUid module:sr-osie-whitelist, uid:10302
+11-23 08:58:27.643 D/OplusCCodec(23370): debug enabled , debugType :0
+11-23 08:58:27.643 D/OplusCCodec(23370): [configOplusVppTypeV2:L287] whitelist:sr-osie-whitelist
+11-23 08:58:27.643 D/MMListService( 1231): getListValueByUid module:sr-osie-whitelist, uid:10302
+11-23 08:58:27.643 D/OplusAtlasVideo( 3599): callback success event:atlas_event_video_monitor_network_switch eventInfo:START,23370,Key,-5476376620108343936,Component,c2.mtk.avc.decoder,Width,1920,Height,1080,IsMediaPlayer,0
+11-23 08:58:27.643 D/OplusCCodec(23370): [configOplusVppTypeV2:L305] value:  - 0
+11-23 08:58:27.644 V/ListServiceUtils(23370): getListValueByTopActivity module:mtk-vdec-cpu-boost pid:23370 cost 187us return 0
+11-23 08:58:27.644 D/MMListService( 1231): getListValueByUid module:media-sched-boost, uid:10302
+11-23 08:58:27.645 D/OplusMediaCodecUtils(23370): getProcessName: pid=23370 name=[com.linuxhub.husk] success
+11-23 08:58:27.645 V/ListServiceUtils(23370): getListValueByTopActivity module:mtk-ext-param pid:23370 cost 156us return 0
+11-23 08:58:27.645 D/OplusCCodec(23370): configureInputDelay [901]: (0xb400007a3a795200)
+11-23 08:58:27.645 D/MMListService( 1231): getListValueByUid module:codec2-input-delay, uid:10302
+11-23 08:58:27.645 D/MMListService( 1231): getListValueByUid module:media-sched-boost, uid:10302
+11-23 08:58:27.645 D/OplusMediaCodecUtils(23370): getProcessName: pid=23370 name=[com.linuxhub.husk] success
+11-23 08:58:27.645 D/CCodec  (23370): [c2.mtk.avc.decoder] buffers are bound to CCodec for this session
+11-23 08:58:27.646 D/CCodecConfig(23370): no c2 equivalents for csd-1
+11-23 08:58:27.646 D/CCodecConfig(23370): no c2 equivalents for tp-ux-tid
+11-23 08:58:27.646 D/OplusAtlas.OplusMessageHandler( 3599): handleMessage: Msg { when=0 what=0 target=com.oplus.atlas.OplusMessageHandler$MyHandler }
+11-23 08:58:27.646 D/CCodecConfig(23370): no c2 equivalents for native-window
+11-23 08:58:27.646 D/CCodecConfig(23370): no c2 equivalents for flags
+11-23 08:58:27.646 D/ReflectedParamUpdater(23370): vendor.oplus.vpp.white.list.value found, but param #1107330561 isn't present to update
+11-23 08:58:27.646 D/C2MtkVdec(  893): (video/avc): MaxInputSizeSetter: 2097152 -> 2097152 bytes, width 1920, height 1080
+11-23 08:58:27.646 D/C2MtkVdec(  893): [0xec8e2010] updateInputMemoryUsage: bufferSize: 2097152 (x8: 16777216), entryCount: 1, totalUsage: 16777216
+11-23 08:58:27.647 D/CCodecConfig(23370): c2 config diff is   c2::u32 raw.pixel-format.value = 34
+11-23 08:58:27.647 D/CCodecConfig(23370):   c2::u32 raw.size.height = 1080
+11-23 08:58:27.647 D/CCodecConfig(23370):   c2::u32 raw.size.width = 1920
+11-23 08:58:27.647 D/CCodecConfig(23370):   c2::u32 vendor.mtk.vdec.buffer.fetch.timeout.ms.value = 500
+11-23 08:58:27.648 W/Codec2Client(23370): query -- param skipped: index = 1107298332.
+11-23 08:58:27.648 D/CCodec  (23370): encoding statistics level = 0
+11-23 08:58:27.648 D/CCodec  (23370): setup formats input: AMessage(what = 0x00000000) = {
+11-23 08:58:27.648 D/CCodec  (23370):   string mime = "video/avc"
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t width = 1920
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t profile = 65536
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t priority = -1
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t frame-rate = 30
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t height = 1080
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t level = 65536
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t max-input-size = 2097152
+11-23 08:58:27.648 D/CCodec  (23370):   Rect crop(0, 0, 318, 238)
+11-23 08:58:27.648 D/CCodec  (23370): }
+11-23 08:58:27.648 D/CCodec  (23370): setup formats output: AMessage(what = 0x00000000) = {
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t android._color-format = 2130708361
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t android._video-scaling = 1
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t sar-width = 1
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t color-standard = 4
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t color-range = 2
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t color-transfer = 3
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t android._dataspace = 259
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t width = 1920
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t rotation-degrees = 0
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t sar-height = 1
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t max-width = 320
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t max-height = 240
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t priority = -1
+11-23 08:58:27.648 D/CCodec  (23370):   string mime = "video/raw"
+11-23 08:58:27.648 D/CCodec  (23370):   Rect crop(0, 0, 318, 238)
+11-23 08:58:27.648 D/CCodec  (23370):   Buffer hdr-static-info = {
+11-23 08:58:27.648 D/CCodec  (23370):     00000000:  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  ................
+11-23 08:58:27.648 D/CCodec  (23370):     00000010:  00 00 00 00 00 00 00 00  00                       .........
+11-23 08:58:27.648 D/CCodec  (23370):   }
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t frame-rate = 30
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t height = 1080
+11-23 08:58:27.648 D/CCodec  (23370):   int32_t color-format = 2130708361
+11-23 08:58:27.648 D/CCodec  (23370): }
+11-23 08:58:27.649 I/CCodecConfig(23370): query failed after returning 18 values (BAD_INDEX)
+11-23 08:58:27.649 D/CCodecConfig(23370): c2 config diff is   c2::u32 raw.max-size.height = 1080
+11-23 08:58:27.649 D/CCodecConfig(23370):   c2::u32 raw.max-size.width = 1920
+11-23 08:58:27.649 D/MediaCodec(23370): [0xb400007a2555a000] setState: 4
+11-23 08:58:27.650 D/MediaCodec(23370): [0xb400007a2555a000] setState: 5
+11-23 08:58:27.650 D/C2MtkComponent(  893): [0xEBDA0000] start
+11-23 08:58:27.651 D/C2MtkComponent(  893): [0xEBDA0010] setWorkflow: PROCESSED->COMPLETED
+11-23 08:58:27.651 D/C2MtkComponent(  893): [0xEBDA0010] setWorkflow: UNPROCESSED->PROCESSED
+11-23 08:58:27.651 D/C2MtkVdec(  893): [0xEBDA0000] RealTime: priority 1, operating rate 0.000000
+11-23 08:58:27.651 D/C2MtkVdec(  893): [0xEBDA0000] Picture size: width 1920, height 1080
+11-23 08:58:27.651 D/C2MtkVdec(  893): [0xEBDA0000] Aligned size: width 1920, height 1088
+11-23 08:58:27.653 I/VPUD    ( 1278): == handle_init_msg()- == ret=0 kernel vcu:18446743885758913424, mem_inst[0] 0xec1edd88
+11-23 08:58:27.653 I/VPUD    ( 1278): 
+11-23 08:58:27.655 D/C2MtkVdec(  893): [0xEBDA0000] VCodec started.
+11-23 08:58:27.658 I/mtkpower_client(  893): perf_lock_acq, hdl:0, dur:0, num:2, tid:26375
+11-23 08:58:27.661 I/mtkpower_client(  893): Loaded mtkperf HAL 1.0 service
+11-23 08:58:27.661 I/mtkpower_client(  893): Loaded mtkperf HAL 1.1 service
+11-23 08:58:27.661 I/mtkpower_client(  893): Loaded mtkperf HAL 1.2 service
+11-23 08:58:27.662 I/mtkpower_client(  893): ret_hdl:2030
+11-23 08:58:27.662 D/C2MtkVdec(  893): [0xEBDA0228] setClientPid: perfLockAcq mFpsLockHandle 2030 pid 23370
+11-23 08:58:27.663 I/libPowerHal(  912): [fpsgo_set_video_pid_thread] 23370, 0xb4000077d8201ec0
+11-23 08:58:27.663 W/Codec2Client(23370): query -- param skipped: index = 1342179345.
+11-23 08:58:27.663 W/Codec2Client(23370): query -- param skipped: index = 2415921170.
+11-23 08:58:27.663 W/Codec2Client(23370): query -- param skipped: index = 1610614798.
+11-23 08:58:27.663 E/libPowerHal(  912): Could not open '/sys/kernel/fpsgo/fstb/set_video_pid'
+11-23 08:58:27.663 E/libPowerHal(  912): error : 2, No such file or directory
+11-23 08:58:27.664 I/sensors-hal-OriginChannel(  903): wise light debug, data[4].type is 65627,data[4].sensor is 91:[32.000000,,100.000000,,62.000000,0.000000,41302882940544]
+11-23 08:58:27.664 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#634] Created input block pool with allocatorID 16 => poolID 19 - OK (0)
+11-23 08:58:27.664 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#634] Query output surface allocator returned 0 params => BAD_INDEX (6)
+11-23 08:58:27.665 I/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#634] Created output block pool with allocatorID 18 => poolID 51 - OK
+11-23 08:58:27.665 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#634] Configured output block pool ids 51 => OK
+11-23 08:58:27.665 D/CCodecBufferChannel(23370): [0xb400007a3a72e018] [c2.mtk.avc.decoder#634] start: output->outputDelay 12, output->numSlots 16
+11-23 08:58:27.665 D/Codec2-OutputBufferQueue(23370): remote graphic buffer migration 0/0
+11-23 08:58:27.665 D/Codec2Client(23370): setOutputSurface -- generation=23930883 consumer usage=0x900
+11-23 08:58:27.667 D/C2BqBuffer(  893): local generation change 23930883 , bqId: 100373385707524 migrated buffers # 0
+11-23 08:58:27.667 D/Codec2Client(23370): Surface configure completed
+11-23 08:58:27.668 D/C2MtkComponentStore(  893): setIonUsage: usage 5, flags 65539, minAlign 0, heapMask 1024 for decoder and encoder.
+11-23 08:58:27.669 W/ResourceManagerService( 1196): Ignoring request to add new resource entry with value <= 0
+11-23 08:58:27.670 D/MediaCodec(23370): [0xb400007a2555a000] setState: 6
+11-23 08:58:27.671 D/SurfaceFlinger( 1024): kickIdle 91, 66, 35, 0
+11-23 08:58:27.671 E/hwcomposer(  891): [DRMDEV] DRM_IOCTL_MTK_KICK_IDLE failed, drm_id_crtc: 64, error: -1  
+11-23 08:58:27.672 I/Husk    (23370): video|present|clear|submitted=150|completed=150|released=150
+11-23 08:58:27.672 I/Husk    (23370): video|present|session|BEGIN
+11-23 08:58:27.672 I/Husk    (23370): video|bridge|OPEN|OPEN_READY slots=4 slot_size=2097152 bytes=8392960 codec=c2.mtk.avc.decoder
+11-23 08:58:27.672 D/C2MtkComponent(  893): [0xEBDA0000] Using output block pool with poolID 51 => got 51 - 0
+11-23 08:58:27.672 D/C2MtkVdec(  893): [0xEBDA0000] Using DEC block pool => got 51 - 0
+11-23 08:58:27.673 D/C2MtkBufferManager(  893): [0xEC8B8610] C2MtkBufferManager, allocId:18
+11-23 08:58:27.673 D/C2MtkVdecExt(  893): [0xECD67C10] setBufferManager: bufferManager 0xec8b8610
+11-23 08:58:27.673 D/C2MtkBufferManager(  893): [0xEC8B8610] setBufferFetchTimeout mThreadTimeout set to 500
+11-23 08:58:27.673 D/C2MtkVdec(  893): [0xEBDA0000] mBufferManager created.
+11-23 08:58:27.673 D/C2MtkVdec(  893): [0xEBDA0000] mSawInputCSD was set.
+11-23 08:58:27.673 D/C2MtkVdec(  893): [0xEBDA0000] mSawInputCSD was set.
+11-23 08:58:27.673 D/C2MtkBufferManager(  893): C2MtkBMFetchThread Start
+11-23 08:58:27.674 D/CCodecBuffers(23370): [c2.mtk.avc.decoder#634:1D-Input.Impl[N]] converted 8 buffers to array mode of 8
+11-23 08:58:27.700 I/VPUD    ( 1278): [Vdec_Drv_H264_open] eDecodeMode: 5
+11-23 08:58:27.717 I/mtkpower_client( 1278): perf_lock_acq, hdl:0, dur:0, num:2, tid:1382
+11-23 08:58:27.718 I/mtkpower_client( 1278): ret_hdl:2031
+11-23 08:58:27.718 I/VCodecDrv( 1278): perfLockAcq hdl:2031
+11-23 08:58:27.720 D/C2MtkVdecExt(  893): [0xECD67C10] formatAfbcEnabled not output AFBC format by ged hint hdl:0xef91a408
+11-23 08:58:27.721 D/C2MtkVdec(  893): [0xEBDA0000] Output buffer: usage 1, ccUsage 1, width 1920, height 1088, format 32315679, ccFormat 32315659, BufferCount 8
+11-23 08:58:27.721 D/C2MtkBufferManager(  893): [0xEC8B8610] setCcBuffersParams Params: ((1920,1088) 0x32315659, total:8, type:1, mParamChanged:0)
+11-23 08:58:27.721 D/C2MtkBufferManager(  893): [0xEC8B8610] mFetchLock by cancelAllBuffers
+11-23 08:58:27.721 D/C2MtkBufferManager(  893): [0xEC8B8610]   mBufferLock by cancelAllBuffers
+11-23 08:58:27.721 D/C2MtkBufferManager(  893): [0xEC8B8610] cancelAllBuffers, Free all Buffers Done!
+11-23 08:58:27.721 D/C2MtkBufferManager(  893): [0xEC8B8610] setBuffersParams Params: ((1920,1088) 0x32315679, total:8, type:1, mParamChanged:0)
+11-23 08:58:27.725 D/VCodec  (  893): [V4L2Device] output VIDIOC_DQBUF failed, err: 22, Invalid argument, fail count = 1
+11-23 08:58:27.726 D/C2MtkVdec(  893): [0xEBDA0000] FormatChange: width 1920, height 1088, mColorFormat 0x10f, crop(Width 1920, Height 1080, Left 0, Top 0, BufferCount 8 -> 12)
+11-23 08:58:27.726 D/C2MtkVdec(  893): CropSetter: old 319,239 : new 1920,1080
+11-23 08:58:27.726 D/C2MtkVdec(  893): [0xEBDA0000] NotifyEvent: getAlwaysColorConvertChecker_l: 1, isAlwaysCc: 0, isFirstAlwaysCcCheck: 1
+11-23 08:58:27.726 D/C2MtkComponent(  893): [0xEBDA0010] setWorkflow: ASYNCPOSTPROCESSED->COMPLETED
+11-23 08:58:27.726 D/C2MtkComponent(  893): [0xEBDA0010] setWorkflow: PROCESSED->ASYNCPOSTPROCESSED
+11-23 08:58:27.726 D/C2MtkComponent(  893): [0xEBDA0010] setWorkflow: UNPROCESSED->PROCESSED
+11-23 08:58:27.726 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#634] flushed work; ignored.
+11-23 08:58:27.726 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#634] Discard frames from previous generation.
+11-23 08:58:27.726 D/PipelineWatcher(23370): onWorkDone: frameIndex not found (18446744073709551615); ignored
+11-23 08:58:27.726 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#634] flushed work not feedInput.
+11-23 08:58:27.728 D/C2MtkVdec(  893): [0xEBDA0000] Reset CC block pool => got 51 - 0
+11-23 08:58:27.728 D/C2MtkBufferManager(  893): C2MtkBMCcFetchThread Start
+11-23 08:58:27.730 D/C2MtkVdec(  893): [0xEBDA0000] Reset DEC block pool => got 1 - 0
+11-23 08:58:27.730 D/C2MtkVdecExt(  893): [0xECD67C10] formatAfbcEnabled not output AFBC format by ged hint hdl:0xef91a7c8
+11-23 08:58:27.730 D/C2MtkBufferManager(  893): [0xEC8B8610] mFetchLock by cancelAllBuffers
+11-23 08:58:27.730 D/C2MtkBufferManager(  893): [0xEC8B8610]   mBufferLock by cancelAllBuffers
+11-23 08:58:27.731 D/C2MtkBufferManager(  893): [0xEC8B8610] mCcFetchLock by cancelAllBuffers
+11-23 08:58:27.731 D/C2MtkBufferManager(  893): [0xEC8B8610]   mCcBufferLock by cancelAllBuffers
+11-23 08:58:27.731 D/C2MtkBufferManager(  893): [0xEC8B8610] cancelAllBuffers, Free all Buffers Done!
+11-23 08:58:27.731 D/C2MtkBufferManager(  893): [0xEC8B8610] setCcBuffersParams Params: ((1920,1080) 0x32315659, total:12, type:1, mParamChanged:0)
+11-23 08:58:27.732 D/C2MtkBufferManager(  893): [0xEC8B8610] mFetchLock by cancelAllBuffers
+11-23 08:58:27.732 D/C2MtkBufferManager(  893): [0xEC8B8610]   mBufferLock by cancelAllBuffers
+11-23 08:58:27.732 D/C2MtkBufferManager(  893): [0xEC8B8610] mCcFetchLock by cancelAllBuffers
+11-23 08:58:27.732 D/C2MtkBufferManager(  893): [0xEC8B8610]   mCcBufferLock by cancelAllBuffers
+11-23 08:58:27.732 D/C2MtkBufferManager(  893): [0xEC8B8610] cancelAllBuffers, Free all Buffers Done!
+11-23 08:58:27.732 D/C2MtkBufferManager(  893): [0xEC8B8610] setBuffersParams Params: ((1920,1080) 0x10f, total:12, type:1, mParamChanged:0)
+11-23 08:58:27.732 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#634] onWorkDone: updating output delay 12
+11-23 08:58:27.732 I/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#634] onWorkDone: updating max output delay 19
+11-23 08:58:27.732 D/Codec2-OutputBufferQueue(23370): set max dequeue count 19 from update
+11-23 08:58:27.748 D/C2MtkVdec(  893): [0xEBDA0000] CSD work returned: workId 1, mFrameIndex 0
+11-23 08:58:27.749 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#634] Ignoring stale input buffer done callback: last flush index = 0, frameIndex = 0
+11-23 08:58:27.751 D/C2MtkVdec(  893): [0xEBDA0000] CSD work returned: workId 2, mFrameIndex 1
+11-23 08:58:27.753 E/VPUD    ( 1278): [Info] frame packing 67 0!!
+11-23 08:58:27.764 D/C2MtkVdec(  893): [0xEBDA0000] configUpdate(1920 x 1080) with ts: 3
+11-23 08:58:27.764 D/C2MtkVdecExt(  893): [0xECD67C10] postprocessAsyncS1: isAlwaysCc 1, isBasicGraphicPool 0
+11-23 08:58:27.766 E/FmtSync (  893): [0xec884560] createTimeline() can't open /dev/fmt_sync
+11-23 08:58:27.766 E/FmtSync (  893): [0xec884560] createTimeline() can't create fmt_sync_timeline -1
+11-23 08:58:27.766 D/C2MtkConvert(  893): [0xEC8FED10] Using CC block pool => got 51, mFmtSupportLevel 0
+11-23 08:58:27.766 D/C2MtkVdecExt(  893): [0xECD67C10] LastSrcConfig: size(w 1920, h 1088), crop(w 1920, h 1080, l 0, t 0), fmt 0x10f, rot 0
+11-23 08:58:27.766 D/C2MtkConvert(  893): [0xEC8FED10] Dst buffer change: width 1920, height 1080, format 32315659
+11-23 08:58:27.766 D/C2MtkConvert(  893): [0xEC8FED10] Src buffer change: width 1920, height 1088, format 10f
+11-23 08:58:27.766 D/C2MtkConvert(  893): [0xEC8FED10] updateConfig: Src(format 271(HAL_PIXEL_FORMAT_UFO), size(1920,1088), crop(1920,1080), (secure 0), (doFlush 0)), Dst(format 842094169(HAL_PIXEL_FORMAT_YV12), size(1920,1080), crop(1920,1080), (secure 0), (doFlush 0))
+11-23 08:58:27.766 D/MDP     (  893): [PQ][PQSession] init HDR handle
+11-23 08:58:27.767 D/TRS     (  893): DpAsyncBlit: in: job (3857 30) (1920, 1088, 61440, 30720, C12bu, P0), sec0, flush 0 Buffer 0: plane=2 bufVA={0x35,0x35,0x0} bufMVA={0x0,0x0,0x0} bufSize={0x1fe000,0xff000,0x0} proxy={0xecd317a0,0x0,0x0}fence=-1
+11-23 08:58:27.767 D/TRS     (  893): DpAsyncBlit: out0: (1920, 1080, 1920, 960, C8s, P0), misc: (X:0, Y:0, R:0, F:0, S:0, A:0, D:0), sec0, flush 1 Buffer 0: plane=3 bufVA={0x41,0x41,0x41} bufMVA={0x0,0x0,0x0} bufSize={0x1fa400,0x7e900,0x7e900} proxy={0xec885810,0x0,0x0}fence=-1
+11-23 08:58:27.767 D/TRS     (  893): DpAsyncBlit: crop0: (0, 0, 1920, 1080, 0, 0, 0, 0)
+11-23 08:58:27.767 E/MDP     (  893): [PQ][DpAIPqControl] workerLoop: Failed to get service
+11-23 08:58:27.781 D/CCodecConfig(23370): c2 config diff is   c2::u32 raw.crop.height = 1080
+11-23 08:58:27.781 D/CCodecConfig(23370):   c2::u32 raw.crop.width = 1920
+11-23 08:58:27.781 D/CCodecConfig(23370):   c2::u32 raw.pixel-format.value = 842094169
+11-23 08:58:27.782 D/CCodecBuffers(23370): [c2.mtk.avc.decoder#634:2D-Output] popFromStashAndRegister: at 0us, output format changed to AMessage(what = 0x00000000) = {
+11-23 08:58:27.782 D/CCodecBuffers(23370):   int32_t android._color-format = 2135033992
+11-23 08:58:27.782 D/CCodecBuffers(23370):   int32_t android._video-scaling = 1
+11-23 08:58:27.782 D/CCodecBuffers(23370):   int32_t sar-width = 1
+11-23 08:58:27.782 D/CCodecBuffers(23370):   int32_t color-standard = 1
+11-23 08:58:27.782 D/CCodecBuffers(23370):   int32_t color-range = 2
+11-23 08:58:27.782 D/CCodecBuffers(23370):   int32_t color-transfer = 3
+11-23 08:58:27.782 D/CCodecBuffers(23370):   int32_t android._dataspace = 260
+11-23 08:58:27.782 D/CCodecBuffers(23370):   int32_t width = 1920
+11-23 08:58:27.782 D/CCodecBuffers(23370):   int32_t rotation-degrees = 0
+11-23 08:58:27.782 D/CCodecBuffers(23370):   int32_t sar-height = 1
+11-23 08:58:27.782 D/CCodecBuffers(23370):   int32_t max-width = 1920
+11-23 08:58:27.782 D/CCodecBuffers(23370):   int32_t max-height = 1080
+11-23 08:58:27.782 D/CCodecBuffers(23370):   int32_t priority = -1
+11-23 08:58:27.782 D/CCodecBuffers(23370):   string mime = "video/raw"
+11-23 08:58:27.782 D/CCodecBuffers(23370):   Rect crop(0, 0, 1919, 1079)
+11-23 08:58:27.782 D/CCodecBuffers(23370):   Buffer hdr-static-info = {
+11-23 08:58:27.782 D/CCodecBuffers(23370):     00000000:  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  ................
+11-23 08:58:27.782 D/CCodecBuffers(23370):     00000010:  00 00 00 00 00 00 00 00  00                       .........
+11-23 08:58:27.782 D/CCodecBuffers(23370):   }
+11-23 08:58:27.782 D/CCodecBuffers(23370):   int32_t frame-rate = 30
+11-23 08:58:27.782 D/CCodecBuffers(23370):   int32_t height = 1080
+11-23 08:58:27.782 D/CCodecBuffers(23370):   int32_t color-format = 2130708361
+11-23 08:58:27.782 D/CCodecBuffers(23370): }
+11-23 08:58:27.810 I/Husk    (23370): video|bridge|output-format|android._color-format: int32(2135033992), android._video-scaling: int32(1), sar-width: int32(1), color-standard: int32(1), color-range: int32(2), color-transfer: int32(3), android._dataspace: int32(260), width: int32(1920), rotation-degrees: int32(0), sar-height: int32(1), max-width: int32(1920), max-height: int32(1080), priority: int32(-1), mime: string(video/raw), crop: Rect(0, 0, 1919, 1079), hdr-static-info: data, frame-rate: int32(30), height: int32(1080), color-format: int32(2130708361)}|color=Some(2130708361)|width=Some(1920)|height=Some(1080)|stride=None|slice-height=None
+11-23 08:58:27.811 I/Husk    (23370): video|bridge|frame|n=1|pts=0|bytes=1|flags=0x0
+11-23 08:58:27.812 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#634] first render dataSpace=260
+11-23 08:58:27.813 I/Husk    (23370): video|bridge|ahb|n=1|timestamp_ns=0|ts_rc=0|size=1920x1080|layers=1|format=842094169|usage=0x103|stride=1920|native=0xb400007a25503e80|handle_version=12|num_fds=3|first_fd=211
+11-23 08:58:27.815 D/SurfaceFlinger( 1024): kickIdle 143, 123, 35, 0
+11-23 08:58:27.815 E/hwcomposer(  891): [DRMDEV] DRM_IOCTL_MTK_KICK_IDLE failed, drm_id_crtc: 64, error: -1  
+11-23 08:58:27.816 I/Husk    (23370): video|present|submit|n=1|1920x1080|previous=false|completed=0
+11-23 08:58:27.816 I/Husk    (23370): video|bridge|present|n=1|ok=true
+11-23 08:58:27.817 I/Husk    (23370): video|bridge|frame|n=2|pts=33333|bytes=1|flags=0x0
+11-23 08:58:27.819 I/Husk    (23370): video|present|submit|n=2|1920x1080|previous=true|completed=0
+11-23 08:58:27.819 I/Husk    (23370): video|bridge|present|n=2|ok=true
+11-23 08:58:27.819 I/Husk    (23370): video|bridge|frame|n=3|pts=66666|bytes=1|flags=0x0
+11-23 08:58:27.821 I/Husk    (23370): video|present|submit|n=3|1920x1080|previous=true|completed=0
+11-23 08:58:27.821 I/Husk    (23370): video|bridge|present|n=3|ok=true
+11-23 08:58:27.824 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41303042943741]
+11-23 08:58:27.825 D/AALLightSensor( 1271): oldLux=0 [SA:2 LA:0] newLux=0 (oriLux: 3)
+11-23 08:58:27.832 D/MDP     (  891): [PQ][PQSession] init HDR handle
+11-23 08:58:27.833 D/TRS     (  891): DpAsyncBlit: in: job (725 185) (1920, 1080, 1920, 960, C8s, P1), sec0, flush 0 Buffer 362: plane=3 bufVA={0xb9,0xb9,0xb9} bufMVA={0x0,0x0,0x0} bufSize={0x1fa400,0x7e900,0x7e900} proxy={0xb4000075cf14f300,0x0,0x0}fence=-1
+11-23 08:58:27.833 D/TRS     (  891): DpAsyncBlit: out0: (1080, 608, 2176, 0, C5, P1), misc: (X:0, Y:0, R:0, F:0, S:0, A:0, D:0), sec0, flush 0 Buffer 362: plane=1 bufVA={0x89,0x0,0x0} bufMVA={0x0,0x0,0x0} bufSize={0x4fb000,0x0,0x0} proxy={0xb4000075cf14f640,0x0,0x0}fence=107
+11-23 08:58:27.833 D/TRS     (  891): DpAsyncBlit: crop0: (0, 0, 1920, 1080, 0, 0, 0, 0)
+11-23 08:58:27.833 I/Husk    (23370): video|present|complete|n=1|slot=0|released=true|submitted=4|released_count=0
+11-23 08:58:27.834 I/Husk    (23370): video|present|complete|n=2|slot=1|released=true|submitted=4|released_count=1
+11-23 08:58:27.834 I/Husk    (23370): video|present|complete|n=3|slot=2|released=true|submitted=4|released_count=2
+11-23 08:58:27.909 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#634] DEBUG: elapsed: mInputMetEos 16, hasPendingOutputsInClient 0, n=1 [in=4 pipeline=0 out=12]
+11-23 08:58:27.909 D/PipelineWatcher(23370): [0xb400007a3a72e480] elapsed: mFramesInPipeline 1, n 16
+11-23 08:58:27.984 I/sensors-hal-OriginChannel(  903): wise light debug, data[4].type is 65627,data[4].sensor is 91:[32.000000,,140.000000,,62.000000,0.000000,41303202945308]
+11-23 08:58:27.985 D/ScreenStatusProducer( 4073): Current queue status: isIdle = true, isPolling = true
+11-23 08:58:28.145 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41303362947092]
+11-23 08:58:28.144 D/metis_v2_StepProviderChannel( 5199): HealthService step onChanged
+11-23 08:58:28.147 D/metis_v2_HealthServiceAdapter( 5199): todayDate 2026-11-23, lastDate 2026-11-23
+11-23 08:58:28.165 D/metis_v2_HealthServiceAdapter( 5199): todayStepRecord DayStepData(mDate=2026-11-23, mTimestamp=0, mStep=0, mOffset=0, mStepRun=0, mStepWalk=0, mOffsetRun=0, mOffsetWalk=0)
+11-23 08:58:28.216 D/SurfaceFlinger( 1024): kickIdle 400, 42, 35, 0
+11-23 08:58:28.216 E/hwcomposer(  891): [DRMDEV] DRM_IOCTL_MTK_KICK_IDLE failed, drm_id_crtc: 64, error: -1  
+11-23 08:58:28.223 D/TRS     (  893): DpAsyncBlit: in: job (3873 182) (1920, 1088, 61440, 30720, C12bu, P0), sec0, flush 0 Buffer 16: plane=2 bufVA={0x4a,0x4a,0x0} bufMVA={0x0,0x0,0x0} bufSize={0x1fe000,0xff000,0x0} proxy={0xecd32760,0x0,0x0}fence=-1
+11-23 08:58:28.223 D/TRS     (  893): DpAsyncBlit: out0: (1920, 1080, 1920, 960, C8s, P0), misc: (X:0, Y:0, R:0, F:0, S:0, A:0, D:0), sec0, flush 0 Buffer 16: plane=3 bufVA={0x1f,0x1f,0x1f} bufMVA={0x0,0x0,0x0} bufSize={0x1fa400,0x7e900,0x7e900} proxy={0xec885930,0x0,0x0}fence=-1
+11-23 08:58:28.223 D/TRS     (  893): DpAsyncBlit: crop0: (0, 0, 1920, 1080, 0, 0, 0, 0)
+11-23 08:58:28.304 I/sensors-hal-OriginChannel(  903): wise light debug, data[3].type is 65627,data[3].sensor is 91:[31.000000,,140.000000,,64.000000,0.000000,41303522954462]
+11-23 08:58:28.464 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[31.000000,,140.000000,,64.000000,0.000000,41303682957933]
+11-23 08:58:28.624 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,140.000000,,62.000000,0.000000,41303842922765]
+11-23 08:58:28.649 D/OplusAtlas.OplusMessageHandler( 3599): handleMessage: Msg { when=-2ms what=0 target=com.oplus.atlas.OplusMessageHandler$MyHandler }
+11-23 08:58:28.670 I/OplusFeedbackInfo(23370): 0xb400007aa6301580 c2.mtk.avc.decoder 1920x1080 inputFps=32 outputFps=33 renderFps=29, discardFps=0
+11-23 08:58:28.671 D/OplusFeedbackInfo(23370): mVppFilterStutter:no_stutter
+11-23 08:58:28.671 D/AtlasEventUploadUtils(23370): setEvent event:atlas_event_atlasserver_feedback
+11-23 08:58:28.672 D/OplusAtlas.OplusAtlasEventDispatch( 3599): setEvent:atlas_event_atlasserver_feedback info:MM_FB_EventID#11012#ClientPid#23370#Component#c2.mtk.avc.decoder#VppStutter#no_stutter#VideoInputFps#32#VideoOutputFps#33#VideoRenderFps#29#VideoHeight#1080#VideoWidth#1920#FpsArray#32/
+11-23 08:58:28.673 I/OplusFeedbackInfo(23370): send vpp stutter message MM_FB_EventID#11012#ClientPid#23370#Component#c2.mtk.avc.decoder#VppStutter#no_stutter#VideoInputFps#32#VideoOutputFps#33#VideoRenderFps#29#VideoHeight#1080#VideoWidth#1920#FpsArray#32/
+11-23 08:58:28.674 D/OplusAtlasFeedback( 3599): callback success event:atlas_event_atlasserver_feedback eventInfo:MM_FB_EventID#11012#ClientPid#23370#Component#c2.mtk.avc.decoder#VppStutter#no_stutter#VideoInputFps#32#VideoOutputFps#33#VideoRenderFps#29#VideoHeight#1080#VideoWidth#1920#FpsArray#32/
+11-23 08:58:28.674 D/OplusAtlas.OplusMessageHandler( 3599): handleMessage: Msg { when=0 what=1 obj=com.oplus.atlas.OplusAtlasEvent@99088fe target=com.oplus.atlas.OplusMessageHandler$MyHandler }
+11-23 08:58:28.674 D/OplusAtlasFeedback( 3599): uploadMMCollectData MM_FB_EventID#11012#ClientPid#23370#Component#c2.mtk.avc.decoder#VppStutter#no_stutter#VideoInputFps#32#VideoOutputFps#33#VideoRenderFps#29#VideoHeight#1080#VideoWidth#1920#FpsArray#32/
+11-23 08:58:28.677 I/Husk    (23370): video|bridge|frame|n=30|pts=966666|bytes=1|flags=0x0
+11-23 08:58:28.679 I/Husk    (23370): video|bridge|ahb|n=30|timestamp_ns=966666000|ts_rc=0|size=1920x1080|layers=1|format=842094169|usage=0x103|stride=1920|native=0xb400007a25502c80|handle_version=12|num_fds=3|first_fd=250
+11-23 08:58:28.682 I/Husk    (23370): video|present|submit|n=30|1920x1080|previous=true|completed=29
+11-23 08:58:28.682 I/Husk    (23370): video|bridge|present|n=30|ok=true
+11-23 08:58:28.697 I/Husk    (23370): video|present|complete|n=30|slot=29|released=true|submitted=30|released_count=29
+11-23 08:58:28.784 I/sensors-hal-OriginChannel(  903): wise light debug, data[3].type is 65627,data[3].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41304002925943]
+11-23 08:58:28.944 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41304162927986]
+11-23 08:58:29.004 D/vendor.oplus.hardware.charger@1.0-service(  959): getPsyUsbType type: USB, ret_value = 3
+11-23 08:58:29.004 D/vendor.oplus.hardware.charger@1.0-service(  959): getPsyUsbType type: USB is usb charging.
+11-23 08:58:29.021 D/vendor.oplus.hardware.charger@1.0-service(  959): getPsyUsbType type: USB, ret_value = 3
+11-23 08:58:29.021 D/vendor.oplus.hardware.charger@1.0-service(  959): getPsyUsbType type: USB is usb charging.
+11-23 08:58:29.029 I/thermal_repeater( 1242): [recvMdThermalInfo] ret=24, strLen=127,  3, 26, -50, 0, 32767, 0
+11-23 08:58:29.081 D/SurfaceFlinger( 1024): kickIdle 865, 44, 35, 0
+11-23 08:58:29.082 E/hwcomposer(  891): [DRMDEV] DRM_IOCTL_MTK_KICK_IDLE failed, drm_id_crtc: 64, error: -1  
+11-23 08:58:29.084 D/UsageStatsService( 1687): User[0] type=0 b=1795395310640 e=1795395509082 cb=1795348800120 ce=1795395458126 disk=0 all=6
+11-23 08:58:29.124 I/sensors-hal-OriginChannel(  903): wise light debug, data[4].type is 65627,data[4].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41304342932881]
+11-23 08:58:29.284 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41304503467943]
+11-23 08:58:29.444 I/sensors-hal-OriginChannel(  903): wise light debug, data[3].type is 65627,data[3].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41304662887550]
+11-23 08:58:29.541 D/OplusSmartBrightnessController( 1687): handleMessage MSG_LUX_CHANGED, mLux:3.0 luxQueue=[3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0]
+11-23 08:58:29.604 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,140.000000,,62.000000,0.000000,41304822942410]
+11-23 08:58:29.614 D/SurfaceFlinger( 1024): kickIdle 532, 45, 35, 0
+11-23 08:58:29.615 E/hwcomposer(  891): [DRMDEV] DRM_IOCTL_MTK_KICK_IDLE failed, drm_id_crtc: 64, error: -1  
+11-23 08:58:29.653 D/OplusAtlas.OplusMessageHandler( 3599): handleMessage: Msg { when=-1ms what=0 target=com.oplus.atlas.OplusMessageHandler$MyHandler }
+11-23 08:58:29.673 I/OplusFeedbackInfo(23370): 0xb400007aa6301580 c2.mtk.avc.decoder 1920x1080 inputFps=30 outputFps=30 renderFps=30, discardFps=0
+11-23 08:58:29.711 I/Husk    (23370): video|bridge|frame|n=60|pts=1966666|bytes=1|flags=0x0
+11-23 08:58:29.713 I/Husk    (23370): video|bridge|ahb|n=60|timestamp_ns=1966666000|ts_rc=0|size=1920x1080|layers=1|format=842094169|usage=0x103|stride=1920|native=0xb400007a255edc00|handle_version=12|num_fds=3|first_fd=238
+11-23 08:58:29.714 D/SurfaceFlinger( 1024): kickIdle 100, 46, 35, 0
+11-23 08:58:29.715 E/hwcomposer(  891): [DRMDEV] DRM_IOCTL_MTK_KICK_IDLE failed, drm_id_crtc: 64, error: -1  
+11-23 08:58:29.716 I/Husk    (23370): video|present|submit|n=60|1920x1080|previous=true|completed=59
+11-23 08:58:29.716 I/Husk    (23370): video|bridge|present|n=60|ok=true
+11-23 08:58:29.727 I/Husk    (23370): video|present|complete|n=60|slot=59|released=true|submitted=61|released_count=59
+11-23 08:58:29.730 E/TetherController(  867): property_get sys.radio.data.modem_share_flag return 0, 1!
+11-23 08:58:29.764 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,140.000000,,62.000000,0.000000,41304982938132]
+11-23 08:58:29.814 D/SurfaceFlinger( 1024): kickIdle 99, 46, 35, 0
+11-23 08:58:29.815 E/hwcomposer(  891): [DRMDEV] DRM_IOCTL_MTK_KICK_IDLE failed, drm_id_crtc: 64, error: -1  
+11-23 08:58:29.916 D/SensorService( 1687): onUidStateChanged uid = 10161, state = UID_STATE_IDLE
+11-23 08:58:29.924 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,160.000000,,65.000000,0.000000,41305142958444]
+11-23 08:58:29.981 D/SurfaceFlinger( 1024): kickIdle 166, 46, 35, 0
+11-23 08:58:29.981 E/hwcomposer(  891): [DRMDEV] DRM_IOCTL_MTK_KICK_IDLE failed, drm_id_crtc: 64, error: -1  
+11-23 08:58:30.037 E/IHansComunication( 8177): HANS printMessageBody: RCV message: type = 0,port = 86870,caller_pid = 1687,caller_uid = 1000,target_pid = 6015,target_uid = 10293,pkg_cmd = -1,rpc = com.android.internal.telephony.IPhoneStateListener/10
+11-23 08:58:30.038 E/IHansComunication( 8177): HANS printMessageBody: RCV message: type = 0,port = 86870,caller_pid = 1687,caller_uid = 1000,target_pid = 6158,target_uid = 99910293,pkg_cmd = -1,rpc = com.android.internal.telephony.IPhoneStateListener/10
+11-23 08:58:30.051 D/OplusTelephonyController( 2604): onSignalStrengthChanged: SignalStrength=SignalStrength:{mCdma=CellSignalStrengthCdma: cdmaDbm=2147483647 cdmaEcio=2147483647 evdoDbm=2147483647 evdoEcio=2147483647 evdoSnr=2147483647 level=0,mGsm=CellSignalStrengthGsm: rssi=2147483647 ber=2147483647 mTa=2147483647 mLevel=0,mWcdma=CellSignalStrengthWcdma: ss=2147483647 ber=2147483647 rscp=2147483647 ecno=2147483647 level=0,mTdscdma=CellSignalStrengthTdscdma: rssi=2147483647 ber=2147483647 rscp=2147483647 level=0,mLte=CellSignalStrengthLte: rssi=-91 rsrp=-102 rsrq=-11 rssnr=4 cqiTableIndex=2147483647 cqi=0 ta=0 level=3 parametersUseForLevel=0,mNr=CellSignalStrengthNr:{ csiRsrp = 2147483647 csiRsrq = 2147483647 csiCqiTableIndex = 2147483647 csiCqiReport = [] ssRsrp = 2147483647 ssRsrq = 2147483647 ssSinr = 2147483647 level = 0 parametersUseForLevel = 0 },primary=CellSignalStrengthLte}, phoneId=0, mMtkLevel=0, mMtkRsrpOnly=false, mMtkLteRsrpThreshold=null, mMtkLteRssnrThreshold=null
+11-23 08:58:30.084 I/sensors-hal-OriginChannel(  903): wise light debug, data[4].type is 65627,data[4].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41305302951368]
+11-23 08:58:30.181 D/SurfaceFlinger( 1024): kickIdle 200, 47, 35, 0
+11-23 08:58:30.182 E/hwcomposer(  891): [DRMDEV] DRM_IOCTL_MTK_KICK_IDLE failed, drm_id_crtc: 64, error: -1  
+11-23 08:58:30.244 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[31.000000,,160.000000,,64.000000,0.000000,41305462955987]
+11-23 08:58:30.325 D/ExtensionsLoader(26391): createInstance(64bit) : createExtendedFactory
+11-23 08:58:30.325 D/ExtensionsLoader(26391): Opened libguiextimpl.so
+11-23 08:58:30.335 D/AVStageUtils(26391): Opened liboplusavenhancements.so
+11-23 08:58:30.335 D/AVStageUtils(26391): createInstance(64bit): createVendorAVUtils success!
+11-23 08:58:30.335 D/OplusUtils(26391): OplusUtils [89]: 
+11-23 08:58:30.336 D/AVMediaServiceFactory(26391): Opened liboplusavenhancements.so
+11-23 08:58:30.336 D/AVMediaServiceFactory(26391): createInstance(64bit): createExtendedMediaServiceFactory success!
+11-23 08:58:30.336 D/AVNuFactory(26391): Opened liboplusavenhancements.so
+11-23 08:58:30.336 D/AVNuFactory(26391): createInstance(64bit): createExtendedNuFactory success!
+11-23 08:58:30.337 D/AVStageFactory(26391): Opened liboplusavenhancements.so
+11-23 08:58:30.337 D/AVStageFactory(26391): createInstance(64bit): createVendorAVFactory success!
+11-23 08:58:30.337 D/AVStageUtils(26391): createInstance(64bit): createVendorAVUtils success!
+11-23 08:58:30.337 D/OplusUtils(26391): OplusUtils [89]: 
+11-23 08:58:30.337 D/AVStageFactory(26391): createInstance(64bit): createVendorAVFactory success!
+11-23 08:58:30.337 D/AVStageUtils(26391): createInstance(64bit): createVendorAVUtils success!
+11-23 08:58:30.337 D/OplusUtils(26391): OplusUtils [89]: 
+11-23 08:58:30.337 D/AVMediaServiceFactory(26391): createInstance(64bit): createExtendedMediaServiceFactory success!
+11-23 08:58:30.337 D/AVNuFactory(26391): createInstance(64bit): createExtendedNuFactory success!
+11-23 08:58:30.337 D/AVStageFactory(26391): Opened liboplusavenhancements.so
+11-23 08:58:30.337 D/AVStageFactory(26391): createInstance(64bit): createVendorAVFactory success!
+11-23 08:58:30.337 D/AVStageUtils(26391): createInstance(64bit): createVendorAVUtils success!
+11-23 08:58:30.337 D/OplusUtils(26391): OplusUtils [89]: 
+11-23 08:58:30.338 E/screencap(26391): createInstance(64bit) : createExtendedFactory
+11-23 08:58:30.339 E/screencap(26391): createInstance(64bit) : createExtendedFactory
+11-23 08:58:30.339 E/screencap(26391): Opened libinputextensionsimpl.so
+11-23 08:58:30.339 E/screencap(26391): Opened libinputextensionsimpl.so
+11-23 08:58:30.339 E/screencap(26391): createInstance(64bit) : createExtendedFactory
+11-23 08:58:30.339 E/screencap(26391): createInstance(64bit) : createExtendedFactory
+11-23 08:58:30.339 E/screencap(26391): Opened libsensorextimpl.so
+11-23 08:58:30.339 E/screencap(26391): Opened libsensorextimpl.so
+11-23 08:58:30.343 W/ProcessState(26391): Extra binder thread started, but 0 threads requested. Do not use *startThreadPool when zero threads are requested.
+11-23 08:58:30.373 I/servicemanager(  628): Could not find android.hardware.graphics.allocator.IAllocator/default in the VINTF manifest.
+11-23 08:58:30.376 E/ion     (26391): ioctl c0044901 failed with code -1: Invalid argument
+11-23 08:58:30.403 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41305622964343]
+11-23 08:58:30.562 W/RefBase (26391): RefBase: Explicit destruction, weak count = 0 (in 0x79c9de2f40). Use sp<> to manage this object.
+11-23 08:58:30.564 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,120.000000,,62.000000,0.000000,41305782932285]
+11-23 08:58:30.566 D/RefBase (26391): #00 pc 00000000000efaa8  /apex/com.android.runtime/lib64/bionic/libc.so (__cxa_finalize+280)
+11-23 08:58:30.566 D/RefBase (26391): #01 pc 00000000000e1948  /apex/com.android.runtime/lib64/bionic/libc.so (exit+24)
+11-23 08:58:30.566 D/RefBase (26391): #02 pc 0000000000074dd4  /apex/com.android.runtime/lib64/bionic/libc.so (__libc_init+100)
+11-23 08:58:30.585 E/netd    (  867): dispachCmd:oplusGetRtt
+11-23 08:58:30.585 E/netd    (  867): handleGetRttCmd: netId = 100, uid = 10302
+11-23 08:58:30.589 E/netd    (  867): dispachCmd cmd:oplusGetRtt  result:0
+11-23 08:58:30.592 D/OplusWifiConnect2( 1687): clientModeManager == null, getOplusSta2ConnectionInfo null
+11-23 08:58:30.657 D/OplusAtlas.OplusMessageHandler( 3599): handleMessage: Msg { when=-1ms what=0 target=com.oplus.atlas.OplusMessageHandler$MyHandler }
+11-23 08:58:30.674 I/OplusFeedbackInfo(23370): 0xb400007aa6301580 c2.mtk.avc.decoder 1920x1080 inputFps=30 outputFps=30 renderFps=30, discardFps=0
+11-23 08:58:30.679 I/Husk    (23370): video|bridge|frame|n=90|pts=2966666|bytes=1|flags=0x0
+11-23 08:58:30.681 I/Husk    (23370): video|bridge|ahb|n=90|timestamp_ns=2966666000|ts_rc=0|size=1920x1080|layers=1|format=842094169|usage=0x103|stride=1920|native=0xb400007a255ed900|handle_version=12|num_fds=3|first_fd=232
+11-23 08:58:30.683 I/Husk    (23370): video|present|submit|n=90|1920x1080|previous=true|completed=89
+11-23 08:58:30.683 I/Husk    (23370): video|bridge|present|n=90|ok=true
+11-23 08:58:30.707 I/Husk    (23370): video|present|complete|n=90|slot=89|released=true|submitted=90|released_count=89
+11-23 08:58:30.744 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41305962947757]
+11-23 08:58:30.904 I/sensors-hal-OriginChannel(  903): wise light debug, data[4].type is 65627,data[4].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41306122958430]
+11-23 08:58:31.064 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,120.000000,,62.000000,0.000000,41306282920030]
+11-23 08:58:31.224 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,140.000000,,62.000000,0.000000,41306442928555]
+11-23 08:58:31.238 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#634] DEBUG: elapsed: mInputMetEos 16, hasPendingOutputsInClient 0, n=0 [in=4 pipeline=0 out=12]
+11-23 08:58:31.238 D/PipelineWatcher(23370): [0xb400007a3a72e480] elapsed: mFramesInPipeline 1, n 16
+11-23 08:58:31.384 I/sensors-hal-OriginChannel(  903): wise light debug, data[4].type is 65627,data[4].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41306602940933]
+11-23 08:58:31.544 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41306762944228]
+11-23 08:58:31.663 D/OplusAtlas.OplusMessageHandler( 3599): handleMessage: Msg { when=-1ms what=0 target=com.oplus.atlas.OplusMessageHandler$MyHandler }
+11-23 08:58:31.674 I/OplusFeedbackInfo(23370): 0xb400007aa6301580 c2.mtk.avc.decoder 1920x1080 inputFps=30 outputFps=31 renderFps=30, discardFps=0
+11-23 08:58:31.679 I/Husk    (23370): video|bridge|frame|n=120|pts=3966666|bytes=1|flags=0x0
+11-23 08:58:31.681 I/Husk    (23370): video|bridge|ahb|n=120|timestamp_ns=3966666000|ts_rc=0|size=1920x1080|layers=1|format=842094169|usage=0x103|stride=1920|native=0xb400007a255ed600|handle_version=12|num_fds=3|first_fd=226
+11-23 08:58:31.683 I/Husk    (23370): video|present|submit|n=120|1920x1080|previous=true|completed=119
+11-23 08:58:31.683 I/Husk    (23370): video|bridge|present|n=120|ok=true
+11-23 08:58:31.703 I/Husk    (23370): video|present|complete|n=120|slot=119|released=true|submitted=120|released_count=119
+11-23 08:58:31.704 I/sensors-hal-OriginChannel(  903): wise light debug, data[3].type is 65627,data[3].sensor is 91:[32.000000,,140.000000,,62.000000,0.000000,41306922946766]
+11-23 08:58:31.707 D/OplusSmartBrightnessController( 1687): handleMessage MSG_LUX_CHANGED, mLux:3.0 luxQueue=[3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0]
+11-23 08:58:31.864 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41307082951026]
+11-23 08:58:31.866 D/AALLightSensor( 1271): oldLux=0 [SA:2 LA:0] newLux=0 (oriLux: 3)
+11-23 08:58:32.024 I/sensors-hal-OriginChannel(  903): wise light debug, data[4].type is 65627,data[4].sensor is 91:[31.000000,,120.000000,,64.000000,0.000000,41307242953815]
+11-23 08:58:32.203 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41307422574348]
+11-23 08:58:32.371 D/BufferPoolAccessor2.0(23370): bufferpool2 0xb400007a3a795e28 : 0(0 size) total buffers - 0(0 size) used buffers - 0/10 (recycle/alloc) - 10/152 (fetch/transfer)
+11-23 08:58:32.371 D/BufferPoolAccessor2.0(23370): evictor expired: 1, evicted: 1
+11-23 08:58:32.384 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41307602940160]
+11-23 08:58:32.544 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41307762949660]
+11-23 08:58:32.651 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#634] input EOS
+11-23 08:58:32.652 D/C2MtkVdec(  893): [0xEBDA0000] mSawInputEOS was set.
+11-23 08:58:32.653 D/VCodec  (  893): [VCodecV4L2] No Enque Input Buffer: index: -1, 
+11-23 08:58:32.658 D/C2MtkVdec(  893): [0xEBDA0000] EOS frame produced
+11-23 08:58:32.660 D/VCodec  (  893): [VCodecV4L2] last_buffer_received: 1, 
+11-23 08:58:32.668 D/OplusAtlas.OplusMessageHandler( 3599): handleMessage: Msg { when=-2ms what=0 target=com.oplus.atlas.OplusMessageHandler$MyHandler }
+11-23 08:58:32.671 I/Husk    (23370): video|bridge|frame|n=150|pts=4966666|bytes=1|flags=0x0
+11-23 08:58:32.673 I/Husk    (23370): video|bridge|ahb|n=150|timestamp_ns=4966666000|ts_rc=0|size=1920x1080|layers=1|format=842094169|usage=0x103|stride=1920|native=0xb400007a255ed300|handle_version=12|num_fds=3|first_fd=220
+11-23 08:58:32.675 I/OplusFeedbackInfo(23370): 0xb400007aa6301580 c2.mtk.avc.decoder 1920x1080 inputFps=31 outputFps=31 renderFps=31, discardFps=0
+11-23 08:58:32.675 I/Husk    (23370): video|present|submit|n=150|1920x1080|previous=true|completed=149
+11-23 08:58:32.675 I/Husk    (23370): video|bridge|present|n=150|ok=true
+11-23 08:58:32.678 I/Husk    (23370): video|bridge|frame|n=151|pts=0|bytes=0|flags=0x4
+11-23 08:58:32.679 I/Husk    (23370): video|bridge|EOS_OK frames=151 images=150 output_bytes=150
+11-23 08:58:32.682 I/Husk    (23370): video|present|clear|submitted=150|completed=149|released=149
+11-23 08:58:32.682 D/MediaCodec(23370): [0xb400007a2555a000] [c2.mtk.avc.decoder] stop
+11-23 08:58:32.682 D/MediaCodec(23370): [0xb400007a2555a000] setState: 9
+11-23 08:58:32.682 D/OplusCCodec(23370): initiateShutdown [883]: (0xb400007a3a795200) keepComponentAllocated=1
+11-23 08:58:32.682 I/OplusFeedbackInfo(23370): [sendFeedbackInfo:L335]  send:MM_FB_EventID#21001#ClientPid#23370#ReportLevel#0#timeUsage#5#videoComponent#c2.mtk.avc.decoder#videoHeight#1080#videoMime#video/avc#videoWidth#1920
+11-23 08:58:32.682 D/AtlasEventUploadUtils(23370): setEvent event:atlas_event_atlasserver_feedback
+11-23 08:58:32.682 I/Husk    (23370): video|present|complete|n=150|slot=149|released=true|submitted=150|released_count=150
+11-23 08:58:32.682 D/OplusAtlas.OplusAtlasEventDispatch( 3599): setEvent:atlas_event_atlasserver_feedback info:MM_FB_EventID#21001#ClientPid#23370#ReportLevel#0#timeUsage#5#videoComponent#c2.mtk.avc.decoder#videoHeight#1080#videoMime#video/avc#videoWidth#1920
+11-23 08:58:32.683 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#634] MediaCodec discarded an unknown buffer
+11-23 08:58:32.683 D/OplusAtlasFeedback( 3599): callback success event:atlas_event_atlasserver_feedback eventInfo:MM_FB_EventID#21001#ClientPid#23370#ReportLevel#0#timeUsage#5#videoComponent#c2.mtk.avc.decoder#videoHeight#1080#videoMime#video/avc#videoWidth#1920
+11-23 08:58:32.684 D/C2MtkComponent(  893): [0xEBDA0000] stop
+11-23 08:58:32.684 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#634] MediaCodec discarded an unknown buffer
+11-23 08:58:32.684 D/OplusAtlas.OplusMessageHandler( 3599): handleMessage: Msg { when=0 what=1 obj=com.oplus.atlas.OplusAtlasEvent@ebbe85f target=com.oplus.atlas.OplusMessageHandler$MyHandler }
+11-23 08:58:32.684 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#634] MediaCodec discarded an unknown buffer
+11-23 08:58:32.684 D/C2MtkBufferManager(  893): [0xEC8B8610] wakeUpFetchThread release mThreadSem mCcThreadSem
+11-23 08:58:32.684 D/OplusAtlasFeedback( 3599): uploadMMCollectData MM_FB_EventID#21001#ClientPid#23370#ReportLevel#0#timeUsage#5#videoComponent#c2.mtk.avc.decoder#videoHeight#1080#videoMime#video/avc#videoWidth#1920
+11-23 08:58:32.684 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#634] MediaCodec discarded an unknown buffer
+11-23 08:58:32.685 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#634] MediaCodec discarded an unknown buffer
+11-23 08:58:32.685 D/CCodecBufferChannel(23370): [c2.mtk.avc.decoder#634] MediaCodec discarded an unknown buffer
+11-23 08:58:32.704 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41307922945737]
+11-23 08:58:32.704 D/C2BqBuffer(  893): configuring null producer: igbp_information(0)
+11-23 08:58:32.706 D/MediaCodec(23370): [0xb400007a2555a000] [c2.mtk.avc.decoder] kWhatStopCompleted
+11-23 08:58:32.706 D/MediaCodec(23370): [0xb400007a2555a000] setState: 2
+11-23 08:58:32.706 D/MediaCodec(23370): [0xb400007a2555a000] [c2.mtk.avc.decoder] disconnectFromSurface: mSurface 0xb400007aa63b6000
+11-23 08:58:32.706 D/SurfaceUtils(23370): disconnecting from surface 0xb400007aa63b6010, reason disconnectFromSurface
+11-23 08:58:32.717 D/MediaCodec(23370): [0xb400007a2555a000] [c2.mtk.avc.decoder] release
+11-23 08:58:32.717 D/MediaCodec(23370): [0xb400007a2555a000] setState: 10
+11-23 08:58:32.717 D/OplusCCodec(23370): initiateShutdown [883]: (0xb400007a3a795200) keepComponentAllocated=0
+11-23 08:58:32.719 D/C2MtkComponent(  893): [0xEBDA0000] release
+11-23 08:58:32.719 D/C2MtkVdec(  893): [0xEBDA0000] onRelease
+11-23 08:58:32.719 D/C2MtkVdec(  893): [0xEBDA0000] mOnCancel
+11-23 08:58:32.719 D/C2MtkBufferManager(  893): [0xEC8B8610] wakeUpFetchThread release mThreadSem mCcThreadSem
+11-23 08:58:32.721 I/mtkpower_client( 1278): perf_lock_rel, hdl:2031, tid:1382
+11-23 08:58:32.722 I/VCodecDrv( 1278): set display thredhold to 100ms is finished
+11-23 08:58:32.722 I/libPowerHal(  912): [perfLockRel] hdl:2031, idx:4
+11-23 08:58:32.723 I/libPowerHal(  912): [PD] vpud update cmd:240c000 param:50
+11-23 08:58:32.733 D/C2MtkVdec(  893): [0xEBDA0000] VCodec destroyed.
+11-23 08:58:32.733 D/C2MtkVdec(  893): [0xEBDA0000] mBMLock lock by onRelease
+11-23 08:58:32.733 D/C2MtkBufferManager(  893): [0xEC8B8610] stopFetchThread, BM fetch thread join
+11-23 08:58:32.734 D/C2MtkBufferManager(  893): C2MtkBMFetchThread terminated
+11-23 08:58:32.734 D/C2MtkBufferManager(  893): [0xEC8B8610] stopFetchThread, BM fetch thread join complete
+11-23 08:58:32.734 D/C2MtkBufferManager(  893): [0xEC8B8610] stopFetchThread, BM CC fetch thread join
+11-23 08:58:32.734 D/C2MtkBufferManager(  893): C2MtkBMCcFetchThread terminated
+11-23 08:58:32.735 D/C2MtkBufferManager(  893): [0xEC8B8610] stopFetchThread, BM CC fetch thread join complete
+11-23 08:58:32.735 D/C2MtkBufferManager(  893): [0xEC8B8610] stopFetchThread
+11-23 08:58:32.735 I/mtkpower_client(  893): perf_lock_acq, hdl:2030, dur:0, num:2, tid:26375
+11-23 08:58:32.736 I/mtkpower_client(  893): ret_hdl:2030
+11-23 08:58:32.737 D/C2MtkVdec(  893): [0xEBDA0228] clearClientPid: perfLockAcq mFpsLockHandle 2030 pid 23370
+11-23 08:58:32.737 I/mtkpower_client(  893): perf_lock_rel, hdl:2030, tid:26375
+11-23 08:58:32.737 I/libPowerHal(  912): [PU] scn:2, update
+11-23 08:58:32.738 I/libPowerHal(  912): [unsetGPUFreq] current min:40, max:0; scn_gpu_min:-1, scn_gpu_max:-1; scn_gpu_min(HL):-1, scn_gpu_max(HL):-1
+11-23 08:58:32.738 I/libPowerHal(  912): [setGPUFreq] Soft min/max = (40, 0); Hard min/max = (40, 0)
+11-23 08:58:32.738 I/libPowerHal(  912): [setGPUFreq] final min/max = (40, 0)
+11-23 08:58:32.738 I/libPowerHal(  912): c2@1.2-mediatek: set gpu opp level: 40
+11-23 08:58:32.738 I/libPowerHal(  912): c2@1.2-mediatek: set gpu opp level max: 0
+11-23 08:58:32.742 I/libPowerHal(  912): [fpsgo_set_video_pid_thread] 23370, 0xb4000077d8201ec0
+11-23 08:58:32.743 E/libPowerHal(  912): Could not open '/sys/kernel/fpsgo/fstb/set_video_pid'
+11-23 08:58:32.743 E/libPowerHal(  912): error : 2, No such file or directory
+11-23 08:58:32.743 I/libPowerHal(  912): [fpsgo_clear_video_pid_thread] 23370, 0xb4000077d8201ec0
+11-23 08:58:32.743 E/libPowerHal(  912): Could not open '/sys/kernel/fpsgo/fstb/clear_video_pid'
+11-23 08:58:32.743 E/libPowerHal(  912): error : 2, No such file or directory
+11-23 08:58:32.745 D/C2MtkVdec(  893): [0xEBDA0228] clearClientPid: perfLockRel mFpsLockHandle 2030 pid 23370
+11-23 08:58:32.745 V/C2MtkVdec(  893): Number of instances decreased to 0(c2.mtk.avc.decoder)
+11-23 08:58:32.745 I/libPowerHal(  912): [perfLockRel] hdl:2030, idx:2
+11-23 08:58:32.746 D/C2BqBuffer(  893): configuring null producer: igbp_information(0)
+11-23 08:58:32.746 I/libPowerHal(  912): [fpsgo_clear_video_pid_thread] 23370, 0xb4000077d8201ec0
+11-23 08:58:32.747 E/libPowerHal(  912): Could not open '/sys/kernel/fpsgo/fstb/clear_video_pid'
+11-23 08:58:32.747 D/MediaCodec(23370): [0xb400007a2555a000] [c2.mtk.avc.decoder] kWhatReleaseCompleted
+11-23 08:58:32.747 D/MediaCodec(23370): [0xb400007a2555a000] setState: 0
+11-23 08:58:32.748 E/libPowerHal(  912): error : 2, No such file or directory
+11-23 08:58:32.748 I/libPowerHal(  912): [PD] c2@1.2-mediatek update ONESHOT cmd:2084100 param:23370
+11-23 08:58:32.748 I/hw-BpHwBinder(23370): onLastStrongRef automatically unlinking death recipients
+11-23 08:58:32.749 D/C2MtkVdec(  893): [0xEBDA0000] onRelease
+11-23 08:58:32.749 D/C2MtkVdec(  893): [0xEBDA0000] mOnCancel
+11-23 08:58:32.749 D/C2MtkVdec(  893): [0xEBDA0000] VCodec destroyed.
+11-23 08:58:32.749 D/C2MtkVdec(  893): [0xEBDA0000] mBMLock lock by onRelease
+11-23 08:58:32.749 D/C2MtkVdec(  893): [0xEBDA0000] ~C2MtkVdec
+11-23 08:58:32.750 D/BufferPoolAccessor2.0(23370): bufferpool2 0xb400007a3a7fee28 : 0(0 size) total buffers - 0(0 size) used buffers - 0/10 (recycle/alloc) - 10/152 (fetch/transfer)
+11-23 08:58:32.752 D/MediaCodec(23370): [0xb400007a2555a000] ~MediaCodec
+11-23 08:58:32.753 W/AMessage(23370): failed to deliver message as target handler 11 is gone.
+11-23 08:58:32.754 D/MediaCodec(23370): flushMediametrics
+11-23 08:58:32.755 D/OplusCCodec(23370): ~OplusCCodec [188]: (0xb400007a3a795200)
+11-23 08:58:32.757 D/OplusFeedbackInfo(23370): ~OplusAnalysisFPS
+11-23 08:58:32.757 D/AtlasEventUploadUtils(23370): setEvent event:atlas_event_video_monitor_network_switch
+11-23 08:58:32.758 D/OplusAtlas.OplusAtlasEventDispatch( 3599): setEvent:atlas_event_video_monitor_network_switch info:STOP,23370,Key,-5476376620108343936
+11-23 08:58:32.759 D/OplusAtlasVideo( 3599): callback success event:atlas_event_video_monitor_network_switch eventInfo:STOP,23370,Key,-5476376620108343936
+11-23 08:58:32.761 D/C2MtkVdecExt(  893): [0xECD67C10] ~ExtImpl
+11-23 08:58:32.763 D/BufferQueueConsumer(23370): [ImageReader-1920x1080f22u256m4-23370-2](id:5b4a00000004,api:0,p:-1,c:23370) disconnect
+11-23 08:58:32.764 I/Husk    (23370): video|bridge|CLOSE_OK mime=video/avc codec=c2.mtk.avc.decoder size=1920x1080 frames=151 output_bytes=150 images_last=150 stop_rc=0 delete_rc=0
+11-23 08:58:32.765 D/C2MtkConvert(  893): [0xEC8FED10] ~C2MtkConvert
+11-23 08:58:32.766 I/Husk    (23370): video|bridge|client|disconnected
+11-23 08:58:32.766 D/C2MtkBufferManager(  893): [0xEC8B8610] mFetchLock by cancelAllBuffers
+11-23 08:58:32.766 D/C2MtkBufferManager(  893): [0xEC8B8610]   mBufferLock by cancelAllBuffers
+11-23 08:58:32.767 D/C2MtkBufferManager(  893): [0xEC8B8610] mCcFetchLock by cancelAllBuffers
+11-23 08:58:32.767 D/C2MtkBufferManager(  893): [0xEC8B8610]   mCcBufferLock by cancelAllBuffers
+11-23 08:58:32.768 D/C2MtkBufferManager(  893): [0xEC8B8610] cancelAllBuffers, Free all Buffers Done!
+11-23 08:58:32.768 D/C2MtkBufferManager(  893): [0xEC8B8610] ~C2MtkBufferManager
+11-23 08:58:32.769 V/C2MtkVdec(  893): in DestroyCodec2AvcFactory
+11-23 08:58:32.770 V/C2MtkVdec(  893): in DestroyCodec2AvcFactory
+11-23 08:58:32.770 D/C2MtkVdec(  893): [0xec8e2010] removeInputMemoryUsageEntry: entryCount: 0, totalUsage: 0
+11-23 08:58:32.771 D/C2MtkComponentStore(  893): onNumberOfVideoInstancesChanged: Decoder 0, Encoder 0
+11-23 08:58:32.771 V/C2MtkVdec(  893): Number of instances for debug decreased to 0(c2.mtk.avc.decoder)
+11-23 08:58:32.771 D/C2MtkVdec(  893): [0xEC8E2010] VCodec destroyed.
+11-23 08:58:32.865 I/sensors-hal-OriginChannel(  903): wise light debug, data[3].type is 65627,data[3].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41308082942666]
+11-23 08:58:33.024 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41308242946983]
+11-23 08:58:33.184 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,140.000000,,62.000000,0.000000,41308402950290]
+11-23 08:58:33.344 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,160.000000,,65.000000,0.000000,41308562936516]
+11-23 08:58:33.345 E/OplusNetworkStatsNative( 1687): bpfGetAppPurStatsTotal return 0
+11-23 08:58:33.504 I/sensors-hal-OriginChannel(  903): wise light debug, data[4].type is 65627,data[4].sensor is 91:[32.000000,,160.000000,,62.000000,0.000000,41308722924142]
+11-23 08:58:33.610 E/netd    (  867): dispachCmd:oplusGetRtt
+11-23 08:58:33.610 E/netd    (  867): handleGetRttCmd: netId = 100, uid = 10302
+11-23 08:58:33.613 E/netd    (  867): dispachCmd cmd:oplusGetRtt  result:0
+11-23 08:58:33.616 D/OplusWifiConnect2( 1687): clientModeManager == null, getOplusSta2ConnectionInfo null
+11-23 08:58:33.665 I/sensors-hal-OriginChannel(  903): wise light debug, data[4].type is 65627,data[4].sensor is 91:[32.000000,,140.000000,,65.000000,0.000000,41308882938907]
+11-23 08:58:33.673 D/OplusAtlas.OplusMessageHandler( 3599): handleMessage: Msg { when=-2ms what=0 target=com.oplus.atlas.OplusMessageHandler$MyHandler }
+11-23 08:58:33.742 D/OplusSmartBrightnessController( 1687): handleMessage MSG_LUX_CHANGED, mLux:3.0 luxQueue=[3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0]
+11-23 08:58:33.843 I/sensors-hal-OriginChannel(  903): wise light debug, data[0].type is 65627,data[0].sensor is 91:[32.000000,,160.000000,,65.000000,0.000000,41309062939632]

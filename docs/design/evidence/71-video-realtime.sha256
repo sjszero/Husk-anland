@@ -1,0 +1,5 @@
+285e4f7135f329f31feee0655bf02a6277fba00429138cce5cc1d6ce25667968  app/app/build/outputs/apk/debug/app-debug.apk
+05e39bfff905bc0e8225cf5934cb434191fb44a8f67c393b749bea46d38a300f  app/app/src/main/jniLibs/arm64-v8a/libhuskapp.so
+e8dadebd659daa399c416ea5b1677dfdb993f5dc8cc32894739043f7bcfbc18e  runtime/target/aarch64-unknown-linux-gnu/release/video-bridge
+3f94651ff4d09f5c23d5226ac0b591fa5bdfe0f320d141044bc532c5b87ae0fb  docs/design/evidence/71-video-realtime-surface-1.png
+654d59e098bcbac17c06f33af43e02af322d4877e3e01a0595e91c664c30592c  docs/design/evidence/71-video-realtime-surface-2.png

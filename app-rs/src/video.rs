@@ -23,6 +23,7 @@
 use core::ffi::{c_char, c_int, c_void};
 
 mod bridge;
+mod present;
 use std::ffi::{CStr, CString};
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -490,7 +491,18 @@ unsafe fn consume_image(sink: &mut ImageSink, files: &Path, tag: &str) -> Result
             "AHardwareBuffer has no dmabuf-native-handle: native={native:p} fds={num_fds} fd={first_fd}"
         ));
     }
+    let presented = if tag == "bridge" {
+        present::present_if_enabled(files, buffer, desc.width, desc.height)
+    } else {
+        false
+    };
     (sink.api.image_delete)(image);
+    if sink.seen <= 3 || sink.seen % 30 == 0 {
+        result(
+            files,
+            &format!("video|{tag}|present|n={}|ok={presented}", sink.seen),
+        );
+    }
     Ok(())
 }
 

@@ -32,7 +32,9 @@
 > 视频侧已在 app 进程内用真实 MTK Codec2 硬解 1080p30 H.264 / HEVC，并通过 ImageReader
 > 从 `AHardwareBuffer` native handle 取得 dma-buf fd（evidence 67）；guest 压缩帧通道、
 > memfd ring 与真实 `c2.mtk.avc.decoder` 已打通，guest 在 rootfs 隔离下可直连
-> `/run/husk/video.sock`（evidence 69 / 70）；dma-buf 回传与 `MEM_IMPORT` 尚未完成。
+> `/run/husk/video.sock`（evidence 69 / 70）；evidence 71 又把解码后的 150 个 AHB 连续直接
+> 提交到 `husk-video` SurfaceControl 子层，两次实时会话均 `150/150` 完成并截图证明动态播放。
+> 仍缺解码 AHB 经 kbase `MEM_IMPORT` 回导 guest、guest 侧 WSI、AV 同步和 10 分钟门禁。
 > 音频调试发现的 path root-fd 被 guest 关闭问题已修复，当前 loader 功能矩阵 31/31（evidence 61）。
 
 ---
@@ -137,7 +139,8 @@ Husk 的取舍是：**运行时不做任何系统调用拦截。**
   音量控制、持续 AAudio 会话，以及 PulseAudio pipe → Rust relay → 标准 guest `paplay`
   （evidence 60 / 62 / 63）；610 秒连续会话和 fd/RSS 稳定性已通过，AV 同步仍未完成。
   SurfaceFlinger 内部等待 trace、
-  MediaCodec 硬解回传、AAudio 产品化通路都还没完成；
+  MediaCodec 解码 AHB 已能在 app 内实时上屏（evidence 71），但 `MEM_IMPORT` 回导 guest、
+  guest 侧 WSI、AV 同步与 AAudio 产品化通路都还没完成；
 - `execl` 系列函数不生效；`freopen`、`glob`、`nftw`、`dlmopen` 未覆盖；
 - **libc 内部调用**（NSS / locale / `/etc/hosts` / `ld.so.cache`）仍读宿主，槽位方案未实现，
   因此 `apt`/`dpkg`/locale 在完整 rootfs 里尚不可靠；

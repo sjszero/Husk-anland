@@ -1,5 +1,22 @@
 # 变更记录
 
+## 2026-11-23 — MediaCodec AHB 实时硬解上屏
+
+- **evidence 71**：guest 通过正常 `rootfs-full` 内的 `/run/husk/video.sock` 实时发送
+  1920x1080@30 AVC 的 150 个 access unit；app 用 `c2.mtk.avc.decoder` 产出 150 个
+  AHardwareBuffer，并逐个直接提交到持久 `husk-video` SurfaceControl 子层。
+- 两次独立会话均 `RESULT PASS`、约 5.1 秒；presenter 两次均为 `submitted=150`、
+  `completed=150`、`released=150`，release fence 全部成功。两张截图显示不同时间码与运动位置，
+  证明是连续动态播放而非单帧停留。
+- 追加两轮 5 秒会话时，app fd 在 133-135 之间波动，RSS 约 155 MiB；只记录为短时有界，
+  不冒充 10 分钟无泄漏验收。
+- **边界**：这是 app 容器内的硬解输出直接上屏，不是把解码 AHB 经 kbase `MEM_IMPORT` 回导
+  guest。guest GL/X11/Wayland WSI、AV 同步、GStreamer/VA-API、Chromium、HEVC/VP9/AV1 bridge、
+  10 分钟门禁仍未完成。
+- `libhuskapp.so` sha256 `05e39bfff905bc0e8225cf5934cb434191fb44a8f67c393b749bea46d38a300f`；
+  `video-bridge` sha256 `e8dadebd659daa399c416ea5b1677dfdb993f5dc8cc32894739043f7bcfbc18e`；
+  debug APK sha256 `285e4f7135f329f31feee0655bf02a6277fba00429138cce5cc1d6ce25667968`。
+
 ## 2026-11-23 — Guest 可见 Unix socket 路径隔离打通
 
 - **evidence 70**：path-shim 新增 pathname `AF_UNIX` 的 `connect(2)` 翻译，guest 在正常

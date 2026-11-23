@@ -398,6 +398,7 @@ impl<'a> Session<'a> {
     }
 
     unsafe fn close(&mut self) -> String {
+        super::present::finish_session();
         let mut stopped = 0;
         let mut deleted = 0;
         if !self.codec.is_null() {
@@ -470,6 +471,7 @@ unsafe fn handle_client(files: &Path, api: &Api, mut stream: UnixStream) {
                 } else {
                     match Session::open(api, files, &line) {
                         Ok((active, ring_fd)) => {
+                            super::present::begin_session();
                             let open_line = format!(
                                 "OPEN_READY slots={} slot_size={} bytes={} codec={}",
                                 DEFAULT_SLOTS,

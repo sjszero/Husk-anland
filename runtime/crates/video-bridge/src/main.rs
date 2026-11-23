@@ -148,6 +148,7 @@ fn main() {
         .get(2)
         .and_then(|v| v.parse::<u32>().ok())
         .unwrap_or(u32::MAX);
+    let realtime = std::env::var_os("HUSK_VIDEO_REALTIME").is_some();
 
     let outcome = (|| -> Result<(), String> {
         let file = File::open(media).map_err(|e| format!("open {media}: {e}"))?;
@@ -254,6 +255,13 @@ fn main() {
                 println!("guest|SAMPLE_PREFIX|{head}");
             }
             let pts = sample_pts_us(&sample, timescale);
+            if realtime && pts > 0 {
+                let target = Duration::from_micros(pts as u64);
+                let elapsed = started.elapsed();
+                if target > elapsed {
+                    std::thread::sleep(target - elapsed);
+                }
+            }
             let flags = if sample.is_sync {
                 BUFFER_FLAG_KEY_FRAME
             } else {
