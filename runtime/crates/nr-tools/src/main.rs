@@ -232,16 +232,28 @@ impl Elf {
 
 const SVC: u32 = 0xD400_0001;
 const NOP: u32 = 0xD503_201F;
+const MOVN_X0_37: u32 = 0x9280_04A0; // -38 == -ENOSYS
+const CMP_X0_0: u32 = 0xF100_001F;
 
 /// Accelerators we neutralise: the caller provably ignores the result.
 fn patchable(nr: u32) -> bool {
     nr == 99
 }
-/// Accelerators we only locate: their callers inspect the value.
+
+/// Syscalls that must return ENOSYS without entering Android's seccomp trap.
+/// The caller already has a legacy fallback for ENOSYS; unlike `patchable`,
+/// its result is deliberately inspected.
+fn enosys_patchable(nr: u32, next: u32) -> bool {
+    nr == 435 && next == CMP_X0_0
+}
+
+/// Syscalls we locate in reports. `clone3` is patched to ENOSYS; `rseq` is
+/// disabled by GLIBC_TUNABLES because its callers inspect the result.
 fn accelerator_name(nr: u32) -> Option<&'static str> {
     match nr {
         99 => Some("set_robust_list"),
         293 => Some("rseq"),
+        435 => Some("clone3"),
         _ => None,
     }
 }
@@ -427,6 +439,8 @@ pub(crate) fn scan_main(args: &[String]) -> ExitCode {
             hex8(s.next),
             if ignored {
                 "result ignored"
+            } else if enosys_patchable(s.nr, s.next) {
+                "result used; ENOSYS fallback"
             } else {
                 "RESULT USED - do not nop"
             }
@@ -454,6 +468,14 @@ pub(crate) fn scan_main(args: &[String]) -> ExitCode {
         println!("REFUSING: {bad} patchable site(s) use the syscall's return value; a nop there would change behaviour");
         return ExitCode::from(1);
     }
+    let bad_enosys = sites
+        .iter()
+        .filter(|s| s.nr == 435 && !enosys_patchable(s.nr, s.next))
+        .count();
+    if bad_enosys > 0 {
+        println!("REFUSING: {bad_enosys} clone3 site(s) do not have the expected result check; refusing an unsafe ENOSYS rewrite");
+        return ExitCode::from(1);
+    }
     for (name, count) in &expect {
         let got = sites.iter().filter(|s| s.name == name.as_str()).count() as i64;
         if got != *count {
@@ -467,14 +489,22 @@ pub(crate) fn scan_main(args: &[String]) -> ExitCode {
     if let Some(out) = out {
         let mut d = elf.data.clone();
         for s in &sites {
-            if !patchable(s.nr) {
-                continue;
-            }
             let o = elf.vaddr_to_off(s.vaddr);
-            put_u32(&mut d, o, NOP);
+            if patchable(s.nr) {
+                put_u32(&mut d, o, NOP);
+            } else if enosys_patchable(s.nr, s.next) {
+                // Replacing the syscall instruction with `movn x0, #37`
+                // leaves x8=435 in place but makes the helper return -ENOSYS,
+                // which is the documented signal that makes glibc fall back
+                // to the legacy clone(2) path.
+                put_u32(&mut d, o, MOVN_X0_37);
+            }
         }
         fs::write(&out, &d).unwrap_or_else(|e| die(format!("{out}: {e}")));
-        let n = sites.iter().filter(|s| patchable(s.nr)).count();
+        let n = sites
+            .iter()
+            .filter(|s| patchable(s.nr) || enosys_patchable(s.nr, s.next))
+            .count();
         println!("patched {n} site(s) -> {out}");
     }
     ExitCode::SUCCESS

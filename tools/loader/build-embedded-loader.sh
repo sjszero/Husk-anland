@@ -67,8 +67,15 @@ embed "$SHIM" ld-stage1.so init-hook.bin ld-embedded.so
 # installed into the rootfs by whoever provisions it. Point LIBC at a pristine
 # copy to rebuild it.
 if [ -n "${LIBC:-}" ]; then
-    scan patch "$LIBC" libc-nop.so.6 \
-        --version 2.39 --expect set_robust_list=2 --expect rseq=1
+    # The guest libc needs both build-time transforms, in this order:
+    #   1. slot entries for calls libc makes internally (no GOT to patch);
+    #   2. clone3 -> ENOSYS because Android seccomp kills the process before
+    #      glibc can take its legacy clone fallback.
+    # Running only `scan patch` produced a loader-compatible libc that still
+    # missed the slot page; keep the chain here so the artifact is reproducible.
+    "$TOOLS" libc-interpose "$LIBC" libc-slots.so.6 libc-interpose.txt
+    scan patch libc-slots.so.6 libc-nop.so.6 \
+        --version 2.39 --expect set_robust_list=2 --expect rseq=1 --expect clone3=1
 fi
 
 mkdir -p "$OUT"

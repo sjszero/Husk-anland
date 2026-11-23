@@ -57,6 +57,12 @@ non-zero without writing anything (`docs/design/evidence/15`).
 so the runtime keeps glibc from trying rseq with its own documented switch,
 `GLIBC_TUNABLES=glibc.pthread.rseq=0`.
 
+`clone3` is different: glibc 2.39 inspects its result and falls back to the legacy
+`clone(2)` path only when it receives `ENOSYS`. The scanner therefore replaces
+the `clone3` `svc` with `movn x0,#37` after asserting that the next instruction
+checks x0. This keeps the guest process out of Android's `SECCOMP_RET_TRAP`
+while preserving glibc's normal fork/thread bookkeeping.
+
 `./build-embedded-loader.sh` runs all of it and drops the result into the probe
 APK's `jniLibs`. With `LIBC=<pristine libc.so.6>` it also emits `libc-nop.so.6`,
 which is the file that must be installed into the guest rootfs (the device copy
