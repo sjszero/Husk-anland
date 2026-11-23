@@ -554,7 +554,7 @@ unsafe fn find_sym(l_addr: u64, l_ld: usize, name: usize, len: usize) -> u64 {
 unsafe fn resolve(main_map: usize, name: usize, len: usize) -> u64 {
     let mut l = main_map;
     let mut guard = 0;
-    while l != 0 && guard < 64 {
+    while l != 0 && guard < 4096 {
         let l_addr = rd8(l + L_ADDR);
         let l_ld = rd8(l + L_LD) as usize;
         if debug2_on() {
@@ -850,7 +850,7 @@ pub unsafe extern "C" fn nr_boot(
     let mut objects = 0;
     let mut patched = 0;
     let mut patch_failures = 0;
-    while l != 0 && guard < 64 {
+    while l != 0 && guard < 4096 {
         let l_addr = rd8(l + L_ADDR);
         let l_ld = rd8(l + L_LD) as usize;
         let (n_here, failed_here) = patch_object(l_addr, l_ld, base, interp, count);
@@ -1214,7 +1214,7 @@ unsafe fn flush_icache(at: usize, len: usize) {
 unsafe fn patch_libc_bodies(base: usize, interp: usize, main_map: usize) -> usize {
     let mut l = main_map;
     let mut guard = 0;
-    while l != 0 && guard < 64 {
+    while l != 0 && guard < 4096 {
         let nm = rd8(l + L_NAME) as usize;
         let len = if nm != 0 { strlen(nm) } else { 0 };
         if len >= 9 && mem_eq(nm + len - 9, b"libc.so.6".as_ptr() as usize, 9) {

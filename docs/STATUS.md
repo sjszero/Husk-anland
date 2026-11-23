@@ -3,6 +3,19 @@
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
 
+## 最新（2026-11-23 16:20）
+
+`mutter 46.2` 在 Husk loader 下能跑了（evidence 96）。过程中挖出两个真问题：
+
+1. **loader 的 link_map 遍历上限 64**：任何依赖超过 64 个 DSO 的程序都被判
+   "link_map chain truncated"（返回 70）。mutter 就是这种程序。上限改 4096，bash 回归通过。
+2. **mutter 的库在 `usr/lib/aarch64-linux-gnu/mutter-14/`**，不在默认库路径里；
+   启动器（`tools/device-tests/gexec.sh`）补上 `mutter-14` 与 `gnome-shell` 两个目录。
+
+`mutter --headless` 已经走到 "Running Mutter as a Wayland display server"，卡在
+`Unable to initialize the Clutter backend: no available drivers found` —— 需要把我们的
+DRM 语义层（renderD128 → kbase）与 Mesa 驱动喂给 mutter。这是显示路线 B 的剩余部分。
+
 ## 最新（2026-11-23 16:05）
 
 输入桥第一次端到端跑通（evidence 95）：`adb input tap/keyevent/swipe` → app 手势识别 →
