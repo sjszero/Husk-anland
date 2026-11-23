@@ -7,6 +7,7 @@
 #![no_std]
 
 mod boot;
+mod plan;
 
 use core::panic::PanicInfo;
 use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicUsize, Ordering};
@@ -3368,10 +3369,21 @@ unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt)
                     return drm_api_open(&api);
                 }
                 if !drm_shim_off() {
-                    return drm_fake_open();
+                    match plan::gpu_family() {
+                        // Our DRM semantics layer on top of the vendor kbase.
+                        plan::GPU_MALI => return drm_fake_open(),
+                        // A render node that really opens: use it, never shadow it.
+                        plan::GPU_DRM => {}
+                        // No adapter for this family yet: say why in the log, then
+                        // hand the guest a plain ENOENT so Mesa picks llvmpipe.
+                        _ => {
+                            plan::log_plan_once(b"drm node");
+                            return set_errno(2);
+                        }
+                    }
                 }
             }
-            if is_drm_dir(&gp[..n]) {
+            if is_drm_dir(&gp[..n]) && plan::gpu_family() == plan::GPU_MALI {
                 if let Some(d) = drm_dir_host() {
                     return ret_or_errno(syscall4(
                         SYS_OPENAT,
@@ -3437,7 +3449,14 @@ unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt)
         if let Some(api) = drm_api() {
             return drm_api_open(&api);
         }
-        return drm_fake_open();
+        match plan::gpu_family() {
+            plan::GPU_MALI => return drm_fake_open(),
+            plan::GPU_DRM => {}
+            _ => {
+                plan::log_plan_once(b"drm node");
+                return set_errno(2);
+            }
+        }
     }
     ret_or_errno(syscall4(
         SYS_OPENAT,
@@ -7942,6 +7961,7 @@ unsafe fn drm_fake_open() -> CInt {
             0,
         );
         if fd < 0 {
+            plan::log_plan_once(b"mali0 open");
             return set_errno(2);
         }
         DRM_MALI_FD = fd as CInt;
