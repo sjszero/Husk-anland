@@ -955,7 +955,21 @@ unsafe extern "C" fn end_picture(ctx: VADriverContextP, context: VAContextID) ->
         }
 
         if picture_params.is_none() {
-            picture_params = state.picture_params.get(&context).cloned();
+            // gst-vaapi submits the picture parameter buffer in its own
+            // vaRenderPicture call, so it is not always part of this picture's
+            // buffer list. Taking the create-time copy is wrong twice over: the
+            // client fills the struct after vaMapBuffer, so that copy is zeros.
+            // Use the newest non-empty picture buffer instead.
+            picture_params = state
+                .buffers
+                .iter()
+                .filter(|(_, buffer)| {
+                    buffer.type_ == VABufferType_VAPictureParameterBufferType
+                        && buffer.data.iter().any(|byte| *byte != 0)
+                })
+                .max_by_key(|(id, _)| **id)
+                .map(|(_, buffer)| buffer.data.clone())
+                .or_else(|| state.picture_params.get(&context).cloned());
         }
         if trace {
             static DUMPED: std::sync::atomic::AtomicBool =
