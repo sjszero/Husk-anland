@@ -10054,7 +10054,19 @@ pub unsafe extern "C" fn send(fd: CInt, buf: usize, len: usize, flags: CInt) -> 
     if nl_is_fake(fd) {
         return nl_handle(fd, buf as *const u8, len);
     }
-    ret_or_errno(syscall4(SYS_SENDTO_NR, fd as usize, buf, len, flags as usize)) as Ssize
+    // sendto is a six-argument syscall: leaving x4/x5 unset hands the kernel a
+    // garbage destination pointer, which comes back as EINVAL. That is what made
+    // every curl "Send failure: Invalid argument" while a raw connect() and
+    // python's send() worked.
+    ret_or_errno(syscall6(
+        SYS_SENDTO_NR,
+        fd as usize,
+        buf,
+        len,
+        flags as usize,
+        0,
+        0,
+    )) as Ssize
 }
 
 #[no_mangle]

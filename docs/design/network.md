@@ -2,8 +2,9 @@
 
 > 目标：guest 里的程序能像在普通 Linux 上一样看到网卡、地址、路由，能解析主机名。
 > 前提：不 root、不解 BL、不开虚拟化、不扩大 seccomp 拦截面。设备 RMX3357 / 4.19.191 /
-> 4 KiB / `untrusted_app`。本文件只讲**内核网络表的读取**（D 段）；发包能力属于平台限制，
-> 不在本阶段承诺范围内。
+> 4 KiB / `untrusted_app`。本文件讲两件事：**内核网络表的读取**（`ip`/`ss`/`getaddrinfo`）
+> 和**出口流量**（DNS/TCP/UDP/HTTP/HTTPS，见 §5）。"
+
 
 ## 0. 先看前人（开工门禁）
 
@@ -60,7 +61,36 @@ glibc 自己的实现要 bind netlink，本域必 `EACCES`。`getaddrinfo` 崩�
 - 无 IPv6 地址（`SIOCGIFCONF` 只给 IPv4）。
 - 无默认网关（本内核不给，合成表里只列 link-scope 前缀路由）。
 - `ss` 的 `sockstat`/`snmpstat` 是 netlink `SOCK_DIAG`，本域 `EACCES` → 只出表头、空表。可接受。
-- 只有"读"：`RTM_NEWADDR`/`RTM_NEWROUTE` 这类**改**网络的请求返回 `EPERM`，不假装成功。
+- 只有"读"（指 netlink 表）：`RTM_NEWADDR`/`RTM_NEWROUTE` 这类**改**网络的请求返回 `EPERM`，不假装成功。
+  这不影响出口流量：`connect`/`send`/`recv` 走的是普通 socket，本来就能用（§5）。
+
+## 5. 出口流量（FACT）
+
+guest 里的程序可以直接连外网，不需要任何代理或中转：
+
+| 能力 | 状态 | 路径 |
+|---|---|---|
+| DNS | 可用 | `/etc/resolv.conf` + glibc 解析器，`getent`/`getaddrinfo` 都通 |
+| UDP | 可用 | 普通 `SOCK_DGRAM`，直发 8.8.8.8:53 能收到应答 |
+| TCP | 可用 | 普通 `SOCK_STREAM`，`connect` 到公网 80 成功 |
+| HTTP / HTTPS | 可用 | `curl -4` 取 `ports.ubuntu.com/.../Release` 得 200（HTTP 与 TLS 都是 200） |
+| `apt-get update` / `install` | 可用 | 真实下载并安装（`Get:1 ... cmatrix [33.5 kB]` + `Setting up`） |
+| 原始 ICMP（`ping`） | **不可用** | `ping` 要 `prctl`/raw socket 提权，本域拒；平台限制 |
+
+### 5.1 曾经不通，原因是一个 syscall 参数个数错误
+
+在一段时间里 `curl` 每次都是 `Send failure: Invalid argument`，而裸 `connect()` 和 Python 的
+`s.send()` 都正常。根因是 shim 新加的 `send` interpose：
+
+```rust
+// 错：sendto 是 6 个参数的系统调用，只传 4 个，x4/x5 是调用者留下的垃圾，
+//     内核把它当成 dest_addr 指针 → EINVAL
+ret_or_errno(syscall4(SYS_SENDTO_NR, fd, buf, len, flags))
+```
+
+改成 `syscall6(..., 0, 0)` 之后 HTTP/HTTPS/apt 全部恢复。这一类错误（少传参数让内核读到
+未定义寄存器）在 arm64 上不会报"参数太少"，只会变成一个语义莫名的 errno，所以测试要按
+**真实客户端**（curl/apt）判，而不是只看 `connect()` 成功。
 
 ## 4. 验收
 
