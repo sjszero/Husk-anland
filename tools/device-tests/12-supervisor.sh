@@ -5,13 +5,20 @@
 # gexec.sh (ld.so cannot run a static binary). Run this directly as the app:
 #   adb push runtime/target/aarch64-unknown-linux-gnu/release/husk-init /data/local/tmp/husk-init
 #   adb push tools/device-tests/12-supervisor.sh /data/local/tmp/12.sh
-#   adb shell 'run-as com.linuxhub.husk sh /data/local/tmp/12.sh'
+#   adb shell 'run-as <pkg> sh /data/local/tmp/12.sh'
+#
+# Overridable so the same script covers any tree/package without editing it:
+#   FILES  app-private files dir   (default /data/data/com.linuxhub.husk/files)
+#   ROOT   rootfs, relative to FILES (default rootfs-full)
+#   LD     loader, relative to FILES (default libld39.so)
 P=0; F=0
 ok()  { P=$((P+1)); echo "  PASS  $1"; }
 bad() { F=$((F+1)); echo "  FAIL  $1"; }
 
-FILES=/data/data/com.linuxhub.husk/files
-R=$FILES/rootfs-full
+FILES=${FILES:-/data/data/com.linuxhub.husk/files}
+RS=${ROOT:-rootfs-full}
+LDS=${LD:-libld39.so}
+R=$FILES/$RS
 cd "$R" || { echo "no rootfs"; exit 1; }
 mkdir -p etc/husk var/log/husk tmp
 cp /data/local/tmp/husk-init usr/bin/husk-init || { echo "push husk-init first"; exit 1; }
@@ -31,7 +38,7 @@ echo 'failure  on-failure  /usr/bin/bash /tmp/boom.sh'   >> etc/husk/services.co
 
 rm -f tmp/tick.log var/log/husk/*.log
 export NR_ROOTFS=$R
-export NR_LD=$FILES/libld39.so
+export NR_LD=$FILES/$LDS
 ./usr/bin/husk-init > /dev/null 2>&1 &
 INIT=$!
 
