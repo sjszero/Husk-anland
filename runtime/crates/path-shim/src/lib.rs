@@ -10,7 +10,7 @@ mod boot;
 mod plan;
 
 use core::panic::PanicInfo;
-use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU8, AtomicUsize, Ordering};
 use runtime_core as rc;
 
 type CChar = i8;
@@ -3240,8 +3240,12 @@ unsafe fn copy_file(
     let src = src as CInt;
     let mut st = [0u8; 128];
     let mut mode = 0o644u32;
+    let mut id_dev = 0u64;
+    let mut id_ino = 0u64;
     if syscall4(SYS_FSTAT, src as usize, st.as_ptr() as usize, 0, 0) == 0 {
         mode = rd4u(st.as_ptr().add(16)) & 0o7777;
+        id_dev = core::ptr::read_unaligned(st.as_ptr() as *const u64);
+        id_ino = core::ptr::read_unaligned(st.as_ptr().add(8) as *const u64);
     }
     let dst = syscall4(
         SYS_OPENAT,
@@ -3268,6 +3272,7 @@ unsafe fn copy_file(
                 LINK_COPY_NOTICED = 1;
                 dbg(&[b"nrshim: hard link emulated by copy (kernel denies link in app data)\n"]);
             }
+            alias_register(tfd, id_dev, id_ino, to);
             return 0;
         }
         let mut off = 0usize;
@@ -3290,6 +3295,224 @@ unsafe fn copy_file(
     rc::close(src);
     rc::close(dst);
     -1
+}
+
+// ------------------------------------------------------- hard-link aliases
+// Android refuses link(2) inside app data (EACCES), so link() is emulated by a
+// copy. A copy is only an approximation: the caller may keep writing through
+// its own descriptor after publishing the second name, and those writes land in
+// the now-unlinked source inode. glibc's localedef does exactly that for
+// /usr/lib/locale/locale-archive (mkstemp, fill in through a mapping, link the
+// temp into place, keep using the original fd), which is why the first locale
+// of every archive vanished. Remember each emulated link by source inode and
+// re-copy the data when that inode is closed.
+const ALIAS_MAX: usize = 8;
+const ALIAS_PATH_MAX: usize = 512;
+static mut ALIAS_DEV: [u64; ALIAS_MAX] = [0; ALIAS_MAX];
+static mut ALIAS_INO: [u64; ALIAS_MAX] = [0; ALIAS_MAX];
+static mut ALIAS_PATH: [[u8; ALIAS_PATH_MAX]; ALIAS_MAX] = [[0; ALIAS_PATH_MAX]; ALIAS_MAX];
+static ALIAS_MASK: AtomicU32 = AtomicU32::new(0);
+
+/// A read-only descriptor for the inode behind `fd`, via /proc/self/fd. The
+/// literal path is passed straight to the kernel, so no guest path resolution
+/// happens here.
+unsafe fn proc_fd_read(fd: CInt) -> Ssize {
+    const O_RDONLY: usize = 0;
+    const O_CLOEXEC: usize = 0o2000000;
+    let mut p = [0u8; 32];
+    let mut n = 0usize;
+    for c in b"/proc/self/fd/" {
+        p[n] = *c;
+        n += 1;
+    }
+    let mut digits = [0u8; 12];
+    let mut d = 0usize;
+    let mut x = if fd < 0 { 0 } else { fd as u64 };
+    loop {
+        digits[d] = b'0' + (x % 10) as u8;
+        d += 1;
+        x /= 10;
+        if x == 0 {
+            break;
+        }
+    }
+    while d > 0 {
+        d -= 1;
+        p[n] = digits[d];
+        n += 1;
+    }
+    p[n] = 0;
+    syscall4(SYS_OPENAT, AT_FDCWD as usize, p.as_ptr() as usize, O_RDONLY | O_CLOEXEC, 0)
+}
+
+unsafe fn alias_register(dirfd: CInt, dev: u64, ino: u64, dst: *const CChar) {
+    if dst.is_null() || dev == 0 {
+        return;
+    }
+    // Store an absolute path: the link target is opened again from close(),
+    // long after the caller's dirfd/cwd context may be gone.
+    let mut path = [0u8; ALIAS_PATH_MAX];
+    let mut n = 0usize;
+    if *dst != b'/' as CChar {
+        if dirfd == AT_FDCWD {
+            let r = syscall4(
+                SYS_READLINKAT,
+                AT_FDCWD as usize,
+                b"/proc/self/cwd\0".as_ptr() as usize,
+                path.as_mut_ptr() as usize,
+                ALIAS_PATH_MAX - 8,
+            );
+            if r <= 0 {
+                return;
+            }
+            n = r as usize;
+        } else {
+            // Resolve the directory descriptor to a real path now: the caller
+            // may close it long before the copy is refreshed.
+            let mut link = [0u8; 40];
+            let mut k = 0usize;
+            for c in b"/proc/self/fd/" {
+                link[k] = *c;
+                k += 1;
+            }
+            let mut digits = [0u8; 12];
+            let mut d = 0usize;
+            let mut x = dirfd as u64;
+            loop {
+                digits[d] = b'0' + (x % 10) as u8;
+                d += 1;
+                x /= 10;
+                if x == 0 {
+                    break;
+                }
+            }
+            while d > 0 {
+                d -= 1;
+                link[k] = digits[d];
+                k += 1;
+            }
+            link[k] = 0;
+            let r = syscall4(
+                SYS_READLINKAT,
+                AT_FDCWD as usize,
+                link.as_ptr() as usize,
+                path.as_mut_ptr() as usize,
+                ALIAS_PATH_MAX - 8,
+            );
+            if r <= 0 {
+                return;
+            }
+            n = r as usize;
+        }
+        path[n] = b'/';
+        n += 1;
+    }
+    let mut m = 0usize;
+    while n + m + 1 < ALIAS_PATH_MAX && *dst.add(m) != 0 {
+        m += 1;
+    }
+    if *dst.add(m) != 0 || m == 0 {
+        return; // longer than we can remember: the copy stays as it is
+    }
+    core::ptr::copy_nonoverlapping(dst as *const u8, path.as_mut_ptr().add(n), m);
+    n += m;
+    path[n] = 0;
+    let mask = ALIAS_MASK.load(Ordering::Relaxed);
+    let mut slot = usize::MAX;
+    let mut i = 0usize;
+    while i < ALIAS_MAX {
+        if mask & (1u32 << i) == 0 {
+            slot = i;
+            break;
+        }
+        i += 1;
+    }
+    if slot == usize::MAX {
+        return;
+    }
+    ALIAS_DEV[slot] = dev;
+    ALIAS_INO[slot] = ino;
+    core::ptr::copy_nonoverlapping(path.as_ptr(), ALIAS_PATH[slot].as_mut_ptr(), n);
+    ALIAS_PATH[slot][n] = 0;
+    ALIAS_MASK.fetch_or(1u32 << slot, Ordering::Relaxed);
+}
+
+/// Re-copy an emulated link's target from the still-open source fd. Called from
+/// close(), i.e. when the writer is finished with its own descriptor.
+unsafe fn alias_refresh(fd: CInt) {
+    if ALIAS_MASK.load(Ordering::Relaxed) == 0 || fd < 0 {
+        return;
+    }
+    let mut st = [0u8; 128];
+    if syscall4(SYS_FSTAT, fd as usize, st.as_ptr() as usize, 0, 0) != 0 {
+        return;
+    }
+    let dev = core::ptr::read_unaligned(st.as_ptr() as *const u64);
+    let ino = core::ptr::read_unaligned(st.as_ptr().add(8) as *const u64);
+    const O_WRONLY: usize = 0o1;
+    const O_TRUNC: usize = 0o1000;
+    const O_CLOEXEC: usize = 0o2000000;
+    let mut i = 0usize;
+    while i < ALIAS_MAX {
+        let bit = 1u32 << i;
+        if ALIAS_MASK.load(Ordering::Relaxed) & bit != 0
+            && ALIAS_DEV[i] == dev
+            && ALIAS_INO[i] == ino
+        {
+            // The writer's descriptor is usually write-only, so read the same
+            // inode through /proc/self/fd. Only truncate the copy once this
+            // succeeds, otherwise a failed refresh would empty a good copy.
+            let rfd = proc_fd_read(fd);
+            if rfd < 0 {
+                i += 1;
+                continue;
+            }
+            let rfd = rfd as CInt;
+            let dst = syscall4(
+                SYS_OPENAT,
+                AT_FDCWD as usize,
+                ALIAS_PATH[i].as_ptr() as usize,
+                O_WRONLY | O_TRUNC | O_CLOEXEC,
+                0,
+            );
+            if dst >= 0 {
+                let dst = dst as CInt;
+                let mut buf = [0u8; 65536];
+                let mut off = 0usize;
+                loop {
+                    let n = syscall4(
+                        SYS_PREAD64,
+                        rfd as usize,
+                        buf.as_ptr() as usize,
+                        buf.len(),
+                        off,
+                    );
+                    if n <= 0 {
+                        break;
+                    }
+                    let mut w = 0usize;
+                    while w < n as usize {
+                        let k = syscall4(
+                            SYS_WRITE,
+                            dst as usize,
+                            buf.as_ptr().add(w) as usize,
+                            n as usize - w,
+                            0,
+                        );
+                        if k <= 0 {
+                            break;
+                        }
+                        w += k as usize;
+                    }
+                    off += n as usize;
+                }
+                rc::close(dst);
+            }
+            rc::close(rfd);
+            ALIAS_MASK.fetch_and(!bit, Ordering::Relaxed);
+        }
+        i += 1;
+    }
 }
 
 #[no_mangle]
@@ -5045,6 +5268,7 @@ pub unsafe extern "C" fn close(fd: CInt) -> CInt {
     if fd >= 0 && nl_is_fake(fd) {
         nl_forget(fd);
     }
+    alias_refresh(fd);
     ret_or_errno(syscall4(SYS_CLOSE, fd as usize, 0, 0, 0))
 }
 
@@ -5987,7 +6211,6 @@ pub unsafe extern "C" fn execve(
 
     let root = guest_root();
     let suf = b"/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1";
-    let libsuf = b"/usr/lib/aarch64-linux-gnu";
     let mut ld = [0u8; PATH_MAX];
     let mut lib = [0u8; PATH_MAX];
     // NR_LD points at an executable copy of the guest ld.so (normally
@@ -6014,13 +6237,17 @@ pub unsafe extern "C" fn execve(
     let mut ld2 = [0u8; PATH_MAX];
     ld2[..ldn].copy_from_slice(ld_path);
     ld2[ldn] = 0;
-    if root.len() + libsuf.len() + 1 >= PATH_MAX {
+    // `--library-path` replaces the loader's normal search path, so every
+    // exec must inherit the same complete list as the top-level process.
+    // Rebuilding only `<root>/usr/lib/aarch64-linux-gnu` here dropped private
+    // package directories (measured first with systemd's
+    // libsystemd-shared-255.so) and made otherwise valid postinst programs
+    // fail with "cannot open shared object file". The launcher exports the
+    // exact path it gave the loader; the fallback keeps direct device tests
+    // working when they use only NR_ROOTFS/NR_LD.
+    if exec_library_path(root, envp, &mut lib).is_none() {
         return set_errno(36);
     }
-    lib[..root.len()].copy_from_slice(root);
-    lib[root.len()..root.len() + libsuf.len()].copy_from_slice(libsuf);
-    let libn = root.len() + libsuf.len();
-    lib[libn] = 0;
 
     let mut args: [*const CChar; 64] = [core::ptr::null(); 64];
     let mut k = 0usize;
@@ -6055,6 +6282,64 @@ pub unsafe extern "C" fn execve(
         envp as usize,
         0,
     ))
+}
+
+const DEFAULT_LIBRARY_DIRS: &[&[u8]] = &[
+    b"lib/aarch64-linux-gnu",
+    b"usr/lib/aarch64-linux-gnu",
+    b"usr/lib/aarch64-linux-gnu/systemd",
+    b"usr/lib/aarch64-linux-gnu/mutter-14",
+    b"usr/lib/gnome-shell",
+    b"usr/lib/aarch64-linux-gnu/gvfs",
+];
+
+/// Build the loader `--library-path` used by nested execs.
+///
+/// NR_LIBRARY_PATH is an internal launcher-to-shim contract: it contains the
+/// absolute host paths the top-level loader received. It is optional for
+/// callers that only set the documented NR_ROOTFS/NR_LD pair; in that case we
+/// derive the same multiarch/private directories below the guest root.
+unsafe fn exec_library_path(
+    root: &[u8],
+    envp: *const *const CChar,
+    out: &mut [u8; PATH_MAX],
+) -> Option<usize> {
+    let env = if envp.is_null() {
+        environ as *const *const CChar
+    } else {
+        envp
+    };
+    if let Some(p) = env_lookup_list(env, b"NR_LIBRARY_PATH") {
+        if !p.is_empty() && p.len() < PATH_MAX {
+            out[..p.len()].copy_from_slice(p);
+            out[p.len()] = 0;
+            return Some(p.len());
+        }
+    }
+    let mut n = 0usize;
+    let mut i = 0usize;
+    while i < DEFAULT_LIBRARY_DIRS.len() {
+        if i != 0 {
+            if n >= PATH_MAX {
+                return None;
+            }
+            out[n] = b':';
+            n += 1;
+        }
+        let dir = DEFAULT_LIBRARY_DIRS[i];
+        if root.len() + 1 + dir.len() + 1 > PATH_MAX {
+            return None;
+        }
+        out[n..n + root.len()].copy_from_slice(root);
+        n += root.len();
+        out[n] = b'/';
+        n += 1;
+        out[n..n + dir.len()].copy_from_slice(dir);
+        n += dir.len();
+        i += 1;
+    }
+    out[n] = 0;
+    Some(n)
 }
 
 // --------------------------------------------------------------- temp names
@@ -7299,7 +7584,13 @@ unsafe fn spawn_common(
     argv: *const *const CChar,
     envp: *const *const CChar,
 ) -> CInt {
-    if pid.is_null() || path.is_null() {
+    // `pid` may legitimately be NULL. glibc's spawni.c only writes the child
+    // pid through it when the caller passed a pointer, and Ubuntu's localedef
+    // passes NULL while piping a compressed charmap through `gzip -d -c`
+    // (measured on the guest `localedef`; see evidence 133). Rejecting NULL
+    // here made every `.gz` charmap look missing: `localedef -f UTF-8` said
+    // "character map file `UTF-8' not found" although `UTF-8.gz` opened fine.
+    if path.is_null() {
         return EFAULT;
     }
     if dbg_on() {
@@ -7346,7 +7637,9 @@ unsafe fn spawn_common(
         }
         syscall4(SYS_EXIT_GROUP, 127, 0, 0, 0);
     }
-    *pid = child;
+    if !pid.is_null() {
+        *pid = child;
+    }
     0
 }
 

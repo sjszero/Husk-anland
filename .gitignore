@@ -14,3 +14,7 @@ tools/probe-app/app/src/main/jniLibs/
 # 本地构建产物
 app/local.properties
 dist/*.apk
+
+# loader 构建中间产物（由 build-embedded-loader.sh 生成）
+tools/loader/libc-slots.so.6
+tools/loader/libc-interpose.txt

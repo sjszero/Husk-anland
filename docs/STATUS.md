@@ -6,13 +6,16 @@
 
 ## 接手须知（冷启动只读这一节 + 本文件的表）
 
-**设备**：`adb` serial `UKHMMB8PYTGECMNV`（RMX3357），应用 `com.linuxhub.husk`，
-rootfs 在 `files/rootfs-full`，loader 在 `files/libld*.so`（当前 `files/libld3.so`）。
+**设备**：`adb` serial `UKHMMB8PYTGECMNV`（RMX3357）。2.0 集成现场是应用
+`com.linuxhub.myth.husk`（debug 包名后缀），rootfs 在
+`files/linux/distributions/ubuntu-24.04/rootfs`，loader 在 `files/linux/husk/libld.so`，
+资产版本标记 `files/linux/husk/assets.version`（当前 `husk-runtime-spawn-link-4`）。
+旧测试会话的 `com.linuxhub.husk`（`files/rootfs-full`、`files/libld3.so`）不要动。
 
 **启动契约（两个变量必须同时设，缺一个就"看起来像 shim 坏了"）**：
 
 ```sh
-NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径>   <loader> --library-path <rootfs>/lib/aarch64-linux-gnu:<rootfs>/usr/lib/aarch64-linux-gnu   usr/bin/bash -c '...'          # 程序路径必须相对
+NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY_PATH=<完整库路径>   <loader> --library-path "$NR_LIBRARY_PATH"   usr/bin/bash -c '...'          # 程序路径必须相对
 ```
 
 **构建 loader**：`NDK=<ndk>/bin OUT=/tmp/x sh tools/loader/build-embedded-loader.sh`
@@ -70,6 +73,10 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径>   <loader>
 | 装包 / dpkg | `apt-get install` / `--reinstall` / `-f install` 全通；dpkg 库零半配置包 | 106 / 109 |
 | `scandir` / `dpkg-deb` | `scandir` interpose 补齐；guest `/tmp` 临时控制目录可见，`dpkg-deb -I` 与真实 `dpkg -i acl` 均返回 0 | 131 |
 | ld.so.cache | 自研 Rust writer（1.1 格式），glibc 自己的静态阅读器接受 | 109 |
+| 嵌套 exec 的库路径 | `NR_LIBRARY_PATH` 由 launcher 传给 shim，所有 nested exec 复用同一份完整 `--library-path`；只设 `NR_ROOTFS`/`NR_LD` 时走内置多目录 fallback。旧行为只重建 `<rootfs>/usr/lib/aarch64-linux-gnu`，`systemd` 私有目录在第二层进程消失（`libsystemd-shared-255.so` 找不到） | 133 |
+| `posix_spawn` 的 NULL pid | glibc 允许 `pid == NULL`（`spawni.c` 只非空才回写），Ubuntu `localedef` 正是这样把 `.gz` charmap 交给 `gzip -d -c`；shim 原先把 NULL 当 EFAULT，导致所有压缩 charmap 报"not found" | 134 |
+| 硬链接的 copy 模拟 | 本域 `link(2)` 被拒（EACCES），一直 copy 兜底；但"发布后再写"的模式（glibc 的 locale-archive：mkstemp→mmap→link→unlink→继续写原 fd）会丢掉全部后续写入。现在 copy 后登记"源 inode→目标绝对路径"，`close()` 时经 `/proc/self/fd/<fd>` 重同步 | 134 |
+| locale | `locale-gen` 全量生成 `zh_CN.utf8`/`zh_SG.utf8` 进 `/usr/lib/locale/locale-archive`，`LC_ALL=zh_CN.UTF-8 locale charmap` → `UTF-8` | 134 |
 | 服务器表面 | `/proc` 合成、`/sys/class/net`、`/dev/log` 落地；79 PASS / 5 PARTIAL / 6 FAIL | 107 / 109 / 111 / 112 |
 | 挂载 | bind、tmpfs、只读 bind 的命名空间等价物（`mount`/`umount2` + 路径层，`/proc/mounts` 一致）；只读对目录描述符同样生效，元数据写入（chmod/chown/utimensat/xattr）同样 `EROFS`，表有锁、存储目录不留残留 | 112 / 113 / 117 |
 | 服务监督器 | `husk-init`（freestanding 静态，无 libc）按 `etc/husk/services.conf` 起服务、崩溃按 1→30s 退避重启、`once` 不重启、`on-failure` 只在失败时重启、stdout/stderr 落到 `var/log/husk/<name>.log`、`PR_SET_CHILD_SUBREAPER` 收孤儿、SIGTERM 0.5s 内停且零残留零僵尸 | 120 |
