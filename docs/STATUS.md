@@ -32,6 +32,7 @@
 | ld.so.cache | 自研 Rust writer（1.1 格式），glibc 自己的静态阅读器接受 | 109 |
 | 服务器表面 | `/proc` 合成、`/sys/class/net`、`/dev/log` 落地；79 PASS / 5 PARTIAL / 6 FAIL | 107 / 109 / 111 / 112 |
 | 挂载 | bind、tmpfs、只读 bind 的命名空间等价物（`mount`/`umount2` + 路径层，`/proc/mounts` 一致）；只读对目录描述符同样生效，元数据写入（chmod/chown/utimensat/xattr）同样 `EROFS`，表有锁、存储目录不留残留 | 112 / 113 / 117 |
+| 进程视图 | `ps -e`/`top`/`free`/`uptime` 只看到 guest 进程，且用真实程序名（`prctl(PR_SET_NAME)` 从 cmdline 取 basename）；`pgrep -x bash` 能命中；宿主 `/proc/<pid>` 读不到 | 119 |
 | 设备节点 | `/dev/{null,zero,random,urandom,shm,pts/*,mali0,videoN}` 按名字打开全部正常，`mkfifo` 可用；三条平台墙已定性并写成断言：`/dev` 列不了目录（SELinux，不经 loader 也一样）、`/dev/full` 做不到 `ENOSPC`（要拦 `write(2)`，且 glibc stdio 走内部 `__write_nocancel`，判定为**不支持**）、`/dev/tty` 缺控制终端（`ENXIO`，属终端载体） | 118 |
 | 网络表面 | `ip addr`/`ip route`/`ip link`/`ip -br`/`hostname -I`/`/proc/net/{dev,route}`/`if_nameindex`/`getent`/`getaddrinfo` 全通；netlink 用 `socketpair(AF_UNIX)` 冒充，改网络的动词回 `EPERM`（不假成功），`ip route get` 与 `ip neigh` 回 `EOPNOTSUPP`；MAC 全 0、无 IPv6、无默认网关、`ss` 空表 | 116 |
 | 账号管理 | 自研 `husk-usermgr`（useradd/groupadd/usermod/userdel/groupdel/chpasswd/passwd/chfn/chsh）；`apt-get install tor` 的 postinst 建号成功 | 111 |
@@ -58,16 +59,13 @@
 1. **E：服务监督器**（container 式 init）——启动、重启、回收到零僵尸、日志落盘；
    参考 youki 的 pid1 分层与 Droidspaces 的能力面，形状写 `docs/design/supervisor.md`。
    验收：一套服务配置起停三次、杀掉子进程立即被回收、日志可按服务分开读。
-2. **E：`top`/`ps` 的进程名**——目前 guest 进程的 comm 是 `libld39.so`（ps 的 COMMAND
-   列因此难看，`pgrep -x bash` 也不命中）；需要把 guest 程序名传给子进程并在 shim 里
-   `prctl(PR_SET_NAME)`。属可用度，不是正确性。
-3. **F：16K/64K 实机**——本机只有 4 KiB；`nr-tools check-elf` 已能静态体检，
+2. **F：16K/64K 实机**——本机只有 4 KiB；`nr-tools check-elf` 已能静态体检，
    需要一台 16K 设备把 `mmap`/`mprotect`/动态库加载跑一遍，没机器就写 UNKNOWN。
-4. **F：GPU 家族适配器**——本机只验了 Mali(kbase)。Adreno(kgsl + Turnip) 与通用 DRM
+3. **F：GPU 家族适配器**——本机只验了 Mali(kbase)。Adreno(kgsl + Turnip) 与通用 DRM
    按 `docs/design/device-adapters.md` 的表结构补适配器，没设备的一律 UNKNOWN。
-5. **2.0 集成**：替换 proot 运行时，逐项删除 proot 专用补丁（用 artifacts/rollback 里的
+4. **2.0 集成**：替换 proot 运行时，逐项删除 proot 专用补丁（用 artifacts/rollback 里的
    已知好包做对照）。
-6. **G（延后）**：GNOME 帧出屏。前置未解：会话进程须 `NR_FAKE_ROOT=0`、GDBus 的
+5. **G（延后）**：GNOME 帧出屏。前置未解：会话进程须 `NR_FAKE_ROOT=0`、GDBus 的
    `SCM_CREDENTIALS` 在 fake root 下 EPERM、gnome-shell 46 会 `free(): invalid pointer` 崩。
 
 ## 已知环境细节（踩过的坑，别再踩）

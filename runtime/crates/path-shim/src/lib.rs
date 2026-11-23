@@ -908,7 +908,104 @@ unsafe fn move_root_high(fd: CInt) -> CInt {
     }
 }
 
+static NAME_STATE: AtomicU8 = AtomicU8::new(0);
+
+/// `comm` is inherited from the file the kernel executed, and for a guest
+/// process that file is always the loader - so every process in the container
+/// used to show up as "libld39.so" in `ps`/`top`/`htop`, and `pgrep -x bash`
+/// never matched. The real program is the first argument that is not one of the
+/// loader's own options, so take that basename and rename the process once.
+unsafe fn name_once() {
+    if NAME_STATE.load(Ordering::Relaxed) != 0 {
+        return;
+    }
+    NAME_STATE.store(1, Ordering::Relaxed);
+    const SYS_OPENAT: usize = 56;
+    const SYS_READ: usize = 63;
+    const SYS_CLOSE: usize = 57;
+    const SYS_PRCTL: usize = 167;
+    const PR_SET_NAME: usize = 15;
+    let mut buf = [0u8; 2048];
+    let fd = syscall4(
+        SYS_OPENAT,
+        AT_FDCWD as usize,
+        b"/proc/self/cmdline\0".as_ptr() as usize,
+        0, // O_RDONLY
+        0,
+    );
+    if fd < 0 {
+        return;
+    }
+    let n = syscall4(SYS_READ, fd as usize, buf.as_mut_ptr() as usize, buf.len(), 0);
+    syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+    if n <= 0 {
+        return;
+    }
+    let n = n as usize;
+    let mut i = 0usize;
+    let mut idx = 0usize;
+    let mut skip_value = false;
+    let mut prog: Option<(usize, usize)> = None;
+    while i < n {
+        let start = i;
+        while i < n && buf[i] != 0 {
+            i += 1;
+        }
+        let len = i - start;
+        i += 1; // the NUL itself
+        idx += 1;
+        if idx == 1 {
+            continue; // the loader
+        }
+        if skip_value {
+            skip_value = false;
+            continue; // value of --library-path
+        }
+        if len == 14 && &buf[start..start + 14] == b"--library-path" {
+            skip_value = true;
+            continue;
+        }
+        if len >= 2 && buf[start] == b'-' && buf[start + 1] == b'-' {
+            continue; // any other loader option
+        }
+        if len > 0 {
+            prog = Some((start, len));
+            break;
+        }
+    }
+    let (start, len) = match prog {
+        Some(v) => v,
+        None => return,
+    };
+    // basename, at most TASK_COMM_LEN-1 bytes, NUL terminated
+    let mut base = start;
+    let mut k = start;
+    while k < start + len {
+        if buf[k] == b'/' {
+            base = k + 1;
+        }
+        k += 1;
+    }
+    let mut name = [0u8; 16];
+    let mut j = 0usize;
+    while base + j < start + len && j < 15 {
+        name[j] = buf[base + j];
+        j += 1;
+    }
+    if j == 0 {
+        return;
+    }
+    syscall4(
+        SYS_PRCTL,
+        PR_SET_NAME,
+        name.as_ptr() as usize,
+        0,
+        0,
+    );
+}
+
 unsafe fn rootfd() -> CInt {
+    name_once();
     if ROOT_STATE.load(Ordering::Acquire) == 2 {
         if rootfd_alive(ROOTFD) {
             return ROOTFD;
