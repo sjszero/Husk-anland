@@ -59,8 +59,7 @@ preset=1 (GENERIC)     → peak=640      # 环境噪声，97.6% 非零样本，R
 
 `mWakefulness=Asleep`、`mCurrentFocus=NotificationShade` 的两次运行里，
 AAudio 输入照样 open 成功，读出来的全是 0；亮屏解锁并让 Husk 在前台后立刻正常。
-这与 prior art（DroidNative `docs/device-passthrough.md`）写的
-"后台只有静音"一致，是平台行为，不是我们的 bug。
+这与平台行为一致（非前台应用录音只能拿到静音），不是我们的 bug。
 
 ## 权限：这台 ROM 上只有一条路能自动化
 
@@ -77,7 +76,7 @@ adb shell dumpsys appops --package com.linuxhub.husk | grep RECORD_AUDIO
 
 `-g` 走的是安装期授予，不需要 shell 自己持有 `GRANT_RUNTIME_PERMISSIONS`。
 这条只用于我们自己的开发机循环；**产品路径必须是在 native 生命周期回调里
-（主线程）调 `Activity.requestPermissions`**，见 `docs/design/audio-input-prior-art.md` §4。
+（主线程）调 `Activity.requestPermissions`**。
 
 ## 另一个实测到的结构性 bug：guest 打不开 rootfs 之外的 socket
 
@@ -91,10 +90,9 @@ adb shell dumpsys appops --package com.linuxhub.husk | grep RECORD_AUDIO
 `rootfs-full/run/husk/audio-in.sock`。relay 用后者后一次通过。
 
 
-## 按需开关麦克风（借用 prior art 的 `mic.active` 语义）
+## 按需开关麦克风（`mic.active` 语义）
 
-DroidNative 用 `pactl subscribe | while read` 写 `mic.active`，app 只在有录音流时开
-Android 麦克风。Husk 复刻同一语义但不用 shell：`audio-capture ... gate=1 pactl=/usr/bin/pactl`
+app 只在有录音流时开 Android 麦克风。Husk 复刻同一语义但不用 shell：`audio-capture ... gate=1 pactl=/usr/bin/pactl`
 每 300 ms 调一次 `pactl list short source-outputs`，只统计挂在我们 `husk_mic`（不是
 `husk_pipe.monitor`）上的流；没有就发 `CLOSE` 并停手，有就重新 `OPEN`。
 

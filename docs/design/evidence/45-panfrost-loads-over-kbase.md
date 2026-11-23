@@ -55,10 +55,10 @@ gl|initialize|FAIL|EGL 0.0 (0x3001)
 - `panfrost_open_device()` 返回非 0（屏幕创建失败）。下一步按 A 计划：对着 Mesa 25.2 的
   `panfrost_screen_create` / `panfrost_open_device` 逐项核对它需要的 ioctl 和参数语义
   （尤其是 `GET_PARAM` 的编码是否符合 panfrost 位定义，而不是 kbase 原始值）。
-- 参考实现规格书：[../mali-kbase-prior-art.md](../mali-kbase-prior-art.md)
+- 命令字来源：厂商 `libGLES_mali.so` 反读（证据 35）
   （`mesa-kbase-j4lte` 的 libdrm-kbase 1785 行、atom/fence 模型都已抄进文档）。
 - 若 panfrost gallium 在 Valhall + kbase 上确实走不通，兜底 = panvk kbase fork 编 glibc 版 + Zink
-  （已有 Mali-G77 实机验证的先例，见 references.md §3）。
+  （Mali-G77 + kbase 在别的设备上已有实机验证先例，我们按同一路线自查）。
 
 ## 复现
 
@@ -79,5 +79,5 @@ adb shell 'run-as com.linuxhub.husk sh -c "cd files && \
    没有任何 `CREATE_BO` / VM 相关 ioctl。说明失败点在 `panfrost_open_device()` 内部
    （`pan_kmod_vm_create` 或更早），不是我们的 BO/提交层。
 4. 结论（JUDGMENT）：继续在"Ubuntu 25.2 panfrost + DRM 语义层"上投入的收益在下降；
-   下一步按 `references.md` §3 走**前人已验证过 G77 的 panvk kbase 路线**（编 glibc 版 + Zink），
+   下一步走 **kbase 路线的 PanVK**（编 glibc 版 + Zink），
    同时保留当前 DRM 语义层代码作为已完成的 M1/M2 资产。

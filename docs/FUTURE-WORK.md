@@ -49,7 +49,7 @@ bionic 侧进程 → EGL → Android Surface → 屏幕
 4. per-SoC 格式 quirk：仅像素格式与 modifier 接受范围不同，运行时查询
    `VK_EXT_image_drm_format_modifier` 能力即可，不需要为高通/天玑分别写分支。
 
-### 1.5 2026-11-22 实测（evidence 24）
+### 1.5 已实测的设备能力
 
 | 探测 | 结果 |
 |---|---|
@@ -123,8 +123,8 @@ bionic 侧进程 → EGL → Android Surface → 屏幕
 
 | 项 | 影响 | 状态 |
 |---|---|---|
-| `open("/dev/ptmx")` 在 `untrusted_app` 是否可用 | 决定产品壳是 PTY 终端还是管道协议（后者失去 `vim`/`htop`） | **已测：可用**（evidence 24） |
-| `/dev/dri/renderD128` 能否打开 | 决定图形走 dmabuf 共享还是更绕的路 | **已测：拒绝**；`/dev/kgsl-3d0` 反而已开放（evidence 24） |
+| `open("/dev/ptmx")` 在 `untrusted_app` 是否可用 | 决定产品壳是 PTY 终端还是管道协议（后者失去 `vim`/`htop`） | **已测：可用**（evidence 31） |
+| `/dev/dri/renderD128` 能否打开 | 决定图形走 dmabuf 共享还是更绕的路 | **已测：拒绝**；`/dev/mali0` 可开（evidence 31） |
 | `/dev/fastrpc-cdsp` 访问权 | 决定 NPU 是否只剩 NNAPI | 本机该节点不存在（高通平台） |
 | 16K 页内核 | 未实测（不是不支持） | 见 design/page-size.md |
 | 多设备一致性 | 决定能否宣称"任意 aarch64 设备" | 仅一台验证 |

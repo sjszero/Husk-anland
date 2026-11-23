@@ -117,7 +117,7 @@ sigsys|unexpected source code=-6|arch=0
 GUEST_RC=159
 ```
 
-The normal seccomp fallback path remains covered by evidence 20/32; no claim is
+The normal seccomp fallback path remains covered by evidence 32 and tools/device-tests/sigsys-check.sh; no claim is
 made that every Android vendor policy uses the same trap set.
 
 ## GOT completeness gate

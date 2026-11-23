@@ -14,8 +14,7 @@ software-encoded.
 - `app-rs/src/encoder.rs` — MediaCodec encoder bridge on
   `rootfs-full/run/husk/encoder.sock` (`INFO` / `OPEN` / `FRAME` / `STOP`,
   NV12 uplink, Annex-B access units downlink with MediaCodec flags).
-  Prior art: `docs/design/prior-art-video.md` (lfdevs/termux-va encodes on the
-  same kind of daemon socket, NV12 uplink, synthesised CSD).
+  形态：daemon socket + NV12 上行 + 合成 CSD。
 - `runtime/crates/husk-record` — guest recorder: `/dev/videoN` capture (V4L2
   shim) → encoder socket → file. Writes `.h264` or `.mp4`.
 - `runtime/crates/husk-record/src/mp4.rs` — minimal but complete MP4 muxer

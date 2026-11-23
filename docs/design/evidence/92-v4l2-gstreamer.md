@@ -33,9 +33,8 @@ ERROR: from element /GstPipeline:pipeline0/GstV4l2Src:v4l2src0: Failed to alloca
 own descriptor) and issues `STREAMON`/`STREAMOFF` on the duplicate. A table keyed by
 fd number is structurally blind to that.
 
-This is exactly what DroidNative's prior art avoids, and it is why the audit was worth
-reading line by line: `dn_v4l2.c:137 device_of_fd()` keeps **no table at all**. On every
-ioctl it asks the kernel:
+这类问题正是「不要按 fd 号建表、每个 ioctl 直接问内核」这条经验的由来。我们现在也改成
+**不按 fd 号建表**，每个 ioctl 先问内核要“这个 fd 指向哪个设备”：
 
 ```c
 snprintf(path, sizeof(path), "/proc/%d/fd/%d", tracee->pid, fd);

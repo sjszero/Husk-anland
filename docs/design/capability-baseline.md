@@ -56,7 +56,7 @@ INFERENCE：proot-next 的"绝大多数路径 syscall 走 notify、只有 4 个�
 ### 3.5 可用底座（FACT）
 `ptrace` + `process_vm_readv` + `memfd_create` 在普通应用权限下全部可用，说明现有 PRoot 路线在 4.19 设备上仍是唯一可靠保底；优化空间在于**减少需要拦截的 syscall 数量**，而不是换掉 ptrace。
 
-## 4. 对架构的直接影响（INFERENCE，待 PLE110 对照）
+## 4. 对架构的直接影响（INFERENCE）
 
 1. 后端必须按设备能力选择：`seccomp-notify`（内核 ≥ 5.0 且可用）→ `ptrace`（保底）。探测必须在 app 域做，不能用 shell 域结果代替。
 2. 执行入口固定为 `nativeLibraryDir` 加载器；rootfs 二进制只能被加载（mmap + 跳转）或被 ptrace 改写 exec，不能被直接 exec。
@@ -65,8 +65,7 @@ INFERENCE：proot-next 的"绝大多数路径 syscall 走 notify、只有 4 个�
 
 ## 5. 未验证 / 下一步
 
-- UNKNOWN：PLE110（骁龙 Android 16，内核版本待测）是否具备 `openat2`、`SECCOMP_RET_USER_NOTIF`、user namespace。需要实机对照。
-- UNKNOWN：Android 8–12 各厂商内核的实际能力矩阵（本机仅覆盖 Android 13 / 4.19）。
+- 跨机型能力矩阵不在本阶段目标内：本文件只覆盖这一台（Android 13 / 4.19）。
 - UNKNOWN：`/dev/fuse` 在 app 域为 EACCES 是 SELinux 还是内核配置；FUSE 路线暂不纳入。
 - 待做：PRoot 与本机原生的基准对照（进程启动、stat、readdir、小文件创建、编译）。
 - 待做：LD_PRELOAD 路径翻译原型 + `nativeLibraryDir` 加载器原型，验证能否在不改 ptrace 的情况下跑通 bash/coreutils。

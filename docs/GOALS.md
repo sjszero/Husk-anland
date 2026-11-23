@@ -1,141 +1,121 @@
-# 目标（Husk）
+# Husk 目标（v52，2026-11-23）
 
-> 本文件是目标的**权威规格**。会话里的 goal 对象不可编辑，重建 goal 时以本文件为准；
-> 改目标就改这里，再把下面的「粘贴块」整段贴进去。纯文本版：`docs/goal-objective.txt`。
+## 总目标
 
-最后更新：2026-11-23（v50：evidence 86/87 —— 合成 CSD 修好：不带 `HUSK_VA_SPS/PPS` 旁路，`vaapih264dec ! videoconvert ! I420` 也能拿到真实硬解帧（11 帧 1080p，合成头 `67 42 c0 28` 与真实流逐字节一致）；根因是取值时序（客户端在 `vaMapBuffer` 后自己写参数，`vaEndPicture` 时已是全 0），现在在 `vaUnmapBuffer` 取快照；同时把 level 按 `MaxFS` 修对、并发第二个视频会话改成明确拒绝。**新暴露的硬上限：VA 系统层取帧吞吐只有 ≈18 fps（只提交 33 fps），瓶颈是一次进一次出≈55 ms/帧，做满 1080p30 需要帧级流水或走 evidence 80 的 AHB 路径**；HEVC/VP9/AV1、Chromium、AV 同步、上屏仍未做）；v51：按前人工作（lfdevs/termux-va，免 root + proot，AVC/HEVC/VP9/AV1 解码 + 编码）审计后调整视频计划——合成 CSD 是标准做法、HEVC 合成有蓝本、1080p30 验收改用 FFmpeg 系（gst-vaapi 一帧一结）、Chromium 硬解在 MTK 属上游已知不可用，详见 docs/design/prior-art-video.md
+Husk（纯 Rust 原生 Linux 运行时）在 **RMX3357**（MT6893 / Dimensity 1200 / Mali-G77，
+Android 13 / kernel 4.19.191 / 4 KiB 页 / arm64）上端到端跑通，做到能替代 LinuxHub 2.0 的
+产品化程度。
 
----
+「全硬件」= 该机**普通应用（`untrusted_app`，无 root）能合法访问的每一类硬件**：
+GPU、显示、视频解码、视频编码、音频输出、音频输入、相机、输入、传感器，
+以及平台允许的 USB / 蓝牙 / GPS / NFC / 指纹。
 
-## 粘贴块（可直接复制进 goal 字段）
+能直接打开节点的（`/dev/mali0`）走 guest 直连；被沙箱拒绝的（`/dev/snd`、`/dev/video*`、`/dev/dri`）
+必须走 app 内平台 API / HAL + AHardwareBuffer / dma-buf / socket 桥，**但仍必须是硬件路径**，
+禁止用软解、软件渲染、假设备或静态单帧冒充完成。缺任何一类不算完成。
+跨机型适配不属于本阶段目标；单台设备失败不外推成平台结论。
 
-总目标：Husk（纯 Rust 原生 Linux 运行时，仓库 /Users/l/Documents/Codex/2026-08-10/husk）在 RMX3357（MT6893 / Dimensity 1200 / Mali-G77，Android 13 / kernel 4.19.191 / 4 KiB 页 / arm64）上端到端跑通，做到能替代 LinuxHub 2.0 的产品化程度；原生直连 SoC 的四件事——GPU / 显示 / 视频 / 音频——与运行时核心同级，必须做完，缺一条不算完成。
+## 硬约束
 
-硬约束：不 root、不解 BL、不开虚拟化；运行时零 syscall 拦截（shim 只在必要处 interpose，不再扩大拦截面）；能 Rust 就 Rust（零 Java、零 Python、零 C，只有内核 ABI 强制的裸汇编 stub 例外）；绝不读写 com.linuxhub.myth 的任何数据，只用自己私有目录里的副本；单台旧设备的问题不外推到所有设备；结论只按实测下，推断必须标注。每次正式改动都提交本地并推 GitHub。
+- 不 root、不解 BL、不开虚拟化。
+- 运行时零 syscall 拦截（shim 只在必要处 interpose，不扩大拦截面）。
+- 能 Rust 就 Rust（零 Java、零 Python、零 C；只有内核 ABI 强制的裸汇编 stub 例外）。
+- 绝不读写 `com.linuxhub.myth` 的任何数据，只用自己私有目录里的副本。
+- 动手前先确认有没有现成实现（笔记留在仓库外）；**仓库只放我们自己的东西**。
+- 结论只按实测下，FACT / INFERENCE / UNKNOWN 分开标注。
+- 每次正式改动提交本地并推 GitHub。
 
-【已完成 · 不再是任务，只保留回归门禁】
-· SIGSYS 全链路：interpose + ENOSYS 仿真可用，10 分钟长稳通过（600s / 11360 次 fork-exec / 零僵尸，evidence 32）。
-· 壳应用生命周期：全部回调接上，旋转 / Surface 重建 / 切后台 / 息屏冷启动不重启会话，唯一 reaper + subreaper，零僵尸零重启风暴（docs/design/lifecycle.md + evidence 68）。
-· 页大小：`nr-tools check-elf` 能做 4K/16K/64K 静态同余体检；loader 追加段通过，但 `libhuskapp.so` 64K 同余失败，16K/64K 内核实机运行仍是 UNKNOWN（evidence 30/64）。
-· 终端渲染 ANSI（SGR 颜色 / UTF-8 宽字符）：**不做**。终端壳只是演示载体，不属于运行时范围，不作为验收项。
-· GPU 计算/离屏与 surfaceless renderer：compute job、离屏 graphics draw、Zink surfaceless EGL 均在上机通过（evidence 46 / 47）；窗口/WSI 仍归 GPU/显示待办，不属于此门禁。
-· 显示零拷贝连续帧：同一 guest AHB 经 `ASurfaceControl` 直接上屏（evidence 53）；3-buffer ring、slot 复用、SF release fence + app→guest RELEASE 背压已通过（evidence 54）；eventfd completion bridge 连续 120 帧通过（evidence 55）；真实 pending kbase sync_file 已接进 FristOneRR PanVK `vkGetFenceFdKHR(SYNC_FD)`（evidence 58）；3-slot 持久 Vulkan 资源池连续 10,000 帧 / 665.385 秒通过，10,000/10,000 帧全部为真实 `SYNC_FD`，7,106 帧导出时 pending，completion/回读 10,000/10,000，fallback=0，app transaction 10,000/10,000，fd/RSS 无累积增长（evidence 59）。eventfd 只保留为 fallback；SurfaceFlinger 内部等待 trace、WSI、窗口生命周期仍归显示待办。
+## 已完成（回归门禁，改动后必须重跑）
 
-【A. 真实场景验证】
-1）2.0 完整 rootfs 已能起 GNOME Shell 46（evidence 33），只剩两件：① libc 内部调用槽位方案（docs/design/libc-interpose.md，未实现）——否则 apt/dpkg/locale 仍读宿主文件；② 浏览器 / 文件管理器 / 终端三个可用性验收。
+| 项 | 证据 |
+|---|---|
+| 运行时核心：loader + path-shim + exec / PTY / 信号 / 生命周期 | 27 / 28 / 32 / 34 / 72 |
+| SIGSYS 拦截收敛：10 分钟长稳、零僵尸、无重启风暴 | 32 |
+| 页大小：`nr-tools check-elf` 支持 4K/16K/64K 静态体检（16K/64K 实机 UNKNOWN） | 30 |
+| GPU 计算与离屏：PanVK logical device、compute、离屏 graphics、Zink surfaceless | 46 / 47 |
+| 显示零拷贝主路径：AHB → dma-buf → SurfaceControl，3-buffer ring、真实 SYNC_FD、release fence 背压、10,000 帧 / 665 秒、fd/RSS 无增长 | 53–59 / 73 |
+| 视频 H.264：`c2.mtk.avc.decoder` + MediaCodec + AHB，1080p30 连续 600 秒、dropped=0 | 74–80 |
+| 音频输出最小闭环：枚举、音量、PCM 经独立通道到 AAudio，610 秒 | 60 / 62 / 63 |
+| 音频输入：声学回环 440 Hz | 88 |
+| 相机：guest `/dev/videoN` V4L2，取流 / 拍照 / 录像 | 91 / 92 / 93 |
+| 输入：触摸 / 键盘 / 鼠标经 mutter `RemoteDesktop` 注入 | 95 / 98 |
+| 桌面：2.0 rootfs 起 GNOME Shell 46（Wayland 显示服务器） | 101 |
 
-【B. 原生直连 SoC】
-环境事实（guest 侧实测）：只有 `/dev/mali0`（rw 可开，kbase UAPI 11.38）；`/dev/kgsl-3d0` 不存在；`/dev/dri` 打不开；`/dev/dma_heap` 不存在；`/dev/snd` EACCES；`/dev/ion` guest 侧 EACCES（待复核）；`/dev/video0-4` 为 `0660 media:system`（untrusted_app 打不开，且是相机采集节点、不是编解码器，guest 无法直连硬解）。厂商 libGLES_mali.so 带 25 个 bionic DT_NEEDED，不能在 glibc guest 内加载，此路线已排除。
-2）GPU：唯一验收目标 = guest 进程自己打开 /dev/mali0，直连厂商 kbase，不经中转服务、不留独立 GPU 进程。上游 Mesa（25.2 与 main）没有 kbase 后端（FACT，evidence 36）。证据 45：Ubuntu 25.2.8 的 Mesa panfrost 已能在 guest 内加载并通过 Rust DRM 语义层读到 Mali-G77 的真实参数，但模型表无 G77/G78，且在 CREATE_BO 之前失败（egl: failed to create dri2 screen）；伪装成 G57 仍失败。当前主动实现路线（JUDGMENT）= `FristOneRR-Admin/FristOneRR-Panvk-Source`（commit `0c9dce35094dbe89c412b79bf57c6067c7b97e59`，Mesa 26.3.0-devel，glibc 交叉构建）+ 发行版 Zink；evidence 46 已实测 physical/logical device、queue、host-visible storage buffer，并通过 `vkCmdDispatch` + `vkQueueSubmit` + fence 读回 GPU 写入 `0x4855534b`；同一 probe 还用真实顶点缓冲、vertex/fragment SPIR-V、render pass 与 `vkCmdDraw` 完成离屏 graphics 管线，连续两次回读红色像素 `0xff0000ff`。`MEM_EXEC_INIT` 的 EPERM 已通过 EXEC_VA 先于 JIT 的顺序修复消除。evidence 47 又用发行版 Zink 在 **surfaceless EGL** 创建了 EGL 1.5 上下文，`eglinfo -B` 与纯 Rust `gl_probe` 都报出 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`。evidence 51 进一步把 app 分配的 AHB dma-buf 按 `DRM_FORMAT_MOD_LINEAR`、offset 0、rowPitch 256 导入成 external 2D image，GPU clear 后 staging buffer 和直接 dma-buf 视图均回读 9/9 红色；每次外部 memory import 使用独立 `dup(fd)`。evidence 52 已把同一 AHB 经 app EGLImage + GPU 采样上屏，`eglSwapBuffers=1` 且整屏红色，说明 Android 展示链路可通；evidence 53 又由纯 Rust JNI 给当前 Activity 挂接平台 SurfaceView，读取 `mBlastSurfaceControl.mNativeObject`，经 `ASurfaceControl_create` + `ASurfaceTransaction_setBuffer` 把同一 AHB 直接提交给 SurfaceFlinger，截图正文 24,192/24,192 个采样点为纯红，SF 层树确认 `husk-ahb` BufferStateLayer 可见且为 DEVICE 合成。**静态单帧零拷贝展示已验收；evidence 54 又完成 3-buffer ring 连续 12 帧、slot 复用、SF release fence 与 app→guest RELEASE 背压。evidence 55 进一步用 eventfd completion bridge 完成 120 帧，SurfaceFlinger 接受 acquire fd，资源回收通过；但 eventfd 不是 Vulkan `SYNC_FD`，也不是无 CPU 等待的 pending producer fence。** evidence 57 已打通 kbase 真实 pending sync_file；evidence 58 已接进 PanVK `vkGetFenceFdKHR(SYNC_FD)` 和 SurfaceControl ring，120/120 帧全部使用真实 sync_file，其中 11 帧导出时 pending。最小探针、禁止重跑的失败组合见 `docs/design/acquire-fence.md`。evidence 56 将同一 ring 跑到 5,600 帧 / 134 秒，app 与 guest 均全量完成；这仍不是 10 分钟门禁。evidence 59 已完成 3-slot 持久资源池与 10,000 帧 / 665.385 秒长稳（10,000/10,000 真实 `SYNC_FD`、fallback=0、fd/RSS 无累积增长）；GBM / Wayland / X11、WSI / swapchain、旋转 / DPI / 多窗口仍未验证。Rust DRM 语义层作为已完成的 M1/M2 资产和后备保留。验收不变：guest 内 eglinfo/glxinfo 报出 Mali-G77 真实 renderer；硬件 vs llvmpipe 帧率对比表；不崩、可降级。
-3）显示：guest 渲染面与 Android Surface 零拷贝。零拷贝方向已定（evidence 41）：r32 UAPI 只有 MEM_IMPORT、没有 export——所以是 app 侧分配 AHardwareBuffer/dma-buf → 交 guest → MEM_IMPORT 拿到 GPU VA → GPU 直接渲染进去 → app 把同一块 buffer 提交给 SurfaceFlinger；kbase 自建的中间 BO 走 CPU 拷贝回 app，开销实测并写进 evidence。AHB → dma-buf → LINEAR 2D image → GPU write 已上机通过（evidence 49–51）；evidence 73 又补齐 `STICKY_RESOURCE_MAP`，证明 app AHB 经 `MEM_IMPORT` 后可由 guest CPU 和 guest PanVK GPU 写回，并由 app 回读上屏。evidence 53 已完成 app 侧 `ASurfaceControl` 静态单帧零拷贝提交并实拍上屏：纯 Rust JNI 读取平台 SurfaceView 的 BLAST `SurfaceControl`，`ASurfaceTransaction_setBuffer` 直接提交同一 AHB，不再依赖 EGLImage 采样；截图正文全红，SF 层树确认 `husk-ahb` 为可见 DEVICE 合成层。`ASurfaceControl_createFromWindow` 在 NativeActivity 窗口仍返回 null（AOSP BLAST 路径 BAD_VALUE），SurfaceView handle 是当前可用路径。evidence 54 已继续完成 3-buffer ring 连续 12 帧、slot 复用与 release-fence 背压：app 用 `ASurfaceTransaction_setOnComplete` 取得上一 buffer 的 release fence，signal 后回 RELEASE 给 guest。evidence 55 又用 eventfd completion bridge 完成 120 帧，app 收到 acquire fd、SurfaceFlinger 完成 transaction，fd 回收和 release 背压通过。该 eventfd 不是 Vulkan `SYNC_FD`；evidence 57 已生成真实 pending kbase sync_file，evidence 58 已让 PanVK `vkGetFenceFdKHR(SYNC_FD)` 在同一条 SurfaceControl ring 连续跑通 120 帧（11 帧导出时 pending，app 120/120 完成，eventfd fallback 为 0）。最小探针与安全接入顺序见 `docs/design/acquire-fence.md`。evidence 59 已将同一 ring 改为 3-slot 持久资源池并跑到 10,000 帧 / 665.385 秒，completion/回读 10,000/10,000，fallback=0。剩余还有 SurfaceFlinger 内部等待 trace、GBM / Wayland / X11、WSI / swapchain、旋转 / DPI / 多窗口。验收：可交互、拖动不掉帧、旋转与 DPI 正确、多窗口正常、连续 10 分钟无泄漏。
-4）视频：guest 里的播放器与 Chromium 都要出画出声，且必须是硬解，不许拿软解当完成。
-   **已实测（evidence 67）**：app 进程内的纯 Rust 探针已真实选中 `c2.mtk.avc.decoder` /
-   `c2.mtk.hevc.decoder`，两条路径各完成 1920x1080@30 的 150/150 帧 + EOS；MediaCodec
-   输出经 `AImageReader(AIMAGE_FORMAT_PRIVATE)` 变成 AHardwareBuffer，每个 native handle
-   有 3 个 fd，格式 `842094169 / 0x32315659 ("YV12" private FourCC)`、stride 1920，codec/ImageReader/extractor 均正常释放。
-  evidence 69 已把正式所有权边界前移：正常 `rootfs-full` 根内的 guest 用纯 Rust MP4 reader
-  解复用 150 个 AVC access unit，经 4×2 MiB memfd ring 和控制 socket 送到 app；app 真实选中
-  `c2.mtk.avc.decoder` 并产出 150 个 AHB，guest `RESULT PASS`，app 日志累计 14 个相同会话全成功。
-  evidence 70 已把控制路径改成 guest 可见的 `/run/husk/video.sock`，并在 rootfs 隔离下
-  验证 `connect(2)` 翻译。evidence 71 已把 app 内 MediaCodec 输出 AHB 直接提交到持久
-  `husk-video` SurfaceControl 子层：150 帧实时播放，SurfaceFlinger `completed/released`
-  均 150/150，连续两次会话约 5.1 秒且截图时间码/运动位置不同。当前 v1 仍只支持单条 AVC
-  轨；RGBA 测试 AHB 的 `MEM_IMPORT` / sticky / PanVK GPU 写回已由 evidence 73 打通；evidence 74 进一步把真实 MediaCodec 三平面 YUV AHB 导入 guest PanVK，Y/plane1/plane2 三个 GPU 回读哈希均与 app 侧一致；evidence 75 把这条路径推进到 150/150 帧逐帧交接；evidence 76 又把整场会话改成一条持久 Unix socket，最多保留 3 个在途 AImage，并在 CLOSE 前排空尾部帧，150/150 全部 ACK/RELEASE。evidence 77 进一步把 ByteBuffer 输出改为应用预分配 3 个固定 YV12 AHB 的 ring，150/150 帧、3 次 import、147 次 reuse 通过；evidence 78 已把其中一个真实 YV12 dma-buf 作为 PanVK external storage buffer 导入，compute 转 RGBA8 后第一帧 9/9 采样点 CPU/GPU 逐位一致。evidence 79 已把转换器改为固定 slot 的持久对象并实际上屏；evidence 80 用 6 个固定 slot、600 秒合成 AVC 源完成 1080p30 长门禁：真实 `c2.mtk.avc.decoder` 18000/18000、dropped=0，app sent/completed/presented=18000/18000/18000、present_fail=0，耗时 600.097 秒，资源在第二次短会话后不再增长。下一步优先接 GStreamer/VA-API/Chromium 的现有路径并补 HEVC 门禁；decoder→GPU 零拷贝、AV 同步和硬软解 CPU 对比仍未完成。
-  evidence 72 又完成播放中的横竖旋转布局与 Home/前台恢复：旧 NativeWindow 销毁后，JNI 刷新
-  发现新的 parent SurfaceControl，presenter 按回调代际退役旧层并重建，恢复后继续上屏；无窗口
-  期间解出的帧明确计入跳过，不把后台丢帧写成全部显示。
-   事实（evidence 39）：guest 直连硬解不可行——`/dev/video*` 是 `0660 media:system` 的相机采集节点，不是编解码器；厂商解码 .so 带 bionic DT_NEEDED，glibc guest 内加载不了。本机硬解器在 bionic 侧：`c2.mtk.avc.decoder` / `c2.mtk.hevc.decoder` / `c2.mtk.vp9.decoder` / `c2.mtk.av1.decoder`（取自 /vendor/etc/media_codecs_c2.xml），厂商自报 1080p 帧率 113–276 fps。
-   形状：解复用 + 音视频同步留在 guest（ffmpeg/GStreamer 不动），压缩帧走独立通道（AF_UNIX socketpair + 共享内存 ring，不复用输入/剪贴板/音频通道）递到 app 进程里我们的 Rust 解码线程 → NDK `AMediaCodec`（dlopen libmediandk.so，纯 Rust 调用）→ 输出 AHardwareBuffer；优先经 MEM_IMPORT（0xc0188016）把 dma-buf 交回 guest，走第 3 条同一条零拷贝 Surface 路径；evidence 73 已在 RGBA 测试面证明 import + sticky + PanVK GPU write + app 回读上屏；evidence 74 已覆盖真实解码 AHB 的三平面 YUV layout，并用 GPU 分别回读 Y/plane1/plane2 与 app 哈希对照；evidence 75 已把单帧诊断推进到 150/150 帧逐帧交接；evidence 76 已把交接收敛为单连接、3 个在途 AImage 的有界背压；evidence 77 已完成预分配 3-slot YV12 AHB ring 的 150/150 复用门禁；evidence 78 已用 PanVK compute 把真实 YV12 转成 RGBA8 并通过 9/9 CPU 对照；evidence 79 已完成持久 per-slot converter、逐帧 RGBA 写回 AHB、SurfaceControl 实际显示和 150/150 门禁。下一步是推进 decoder→GPU 零拷贝、guest WSI 和 VA-API/GStreamer/Chromium；不能导出才退化 CPU 拷贝并写开销。不留独立解码进程、不留 gst 中转服务。
-   接口（v11 补，evidence 81 已开始落地）：Chromium 与 GStreamer 都不直接调 AMediaCodec，它们说的是 VA-API。所以第 4 条的重心是**在 guest 内实现一个 Rust VA-API 后端（libva 驱动名 `husk`）**：`vaInitialize` / `vaQueryConfigProfiles` / `vaCreateConfig` / `vaCreateContext` / `vaCreateSurfaces` / `vaBeginPicture` / `vaRenderPicture` / `vaEndPicture` / `vaSyncSurface` / `vaExportSurfaceHandle`，把 bitstream 和参数经同一条通道送到 app 侧 AMediaCodec，解出的帧用 dma-buf 导出（走第 3 条零拷贝路径，导不出才 CPU 拷贝）。两条路共用这一个后端，只写一份：Chromium 侧不改不重编，只加 `--use-gl=egl --enable-features=VaapiVideoDecoder,VaapiIgnoreDriverChecks --ignore-gpu-blocklist`；GStreamer 侧用 `vah264dec` / `vah265dec` / `vavp9dec`（rootfs 缺这些元素就退回 `avdec_*` 软解并在日志写明原因）。VA 驱动同时提供 `vaQuerySurfaceAttributes`，让上层能拿到本机真实上限（分辨率 / 帧率 / profile）。evidence 81 已由 `vainfo` 和 `gst-inspect-1.0` 实测驱动加载、H.264/HEVC profile、NV12 image format 及 4 个 gstreamer-vaapi element；surface/context/buffer/render/sync/export 仍是显式未实现，不能把元素注册当成硬解完成。
-   验收：1080p30 H.264 与 HEVC 各连续 10 分钟不掉帧（丢帧 <0.5%，日志里有 dropped 计数）；CPU 占用（按核采样 /proc/pid/stat）硬解 vs 软解对比表；AV 同步偏差 <40ms 且写明测量方法；Chromium `<video>` 与 GNOME 播放器两条路径都出画；不支持的编码退化软解并写日志原因，任何一条都不许崩；退出后无残留解码线程与 fd；guest 内 `vainfo` 必须报出 `husk` 驱动与 H.264 / HEVC profile，日志里必须打出实际 decoder 名（c2.mtk.*）作为"确实硬解"的证据。
-   依赖关系：不阻塞在第 2 条后面——dma-buf 回传没打通之前，先用 CPU 拷贝版本出画，数字照实写。
-5）音频：/dev/snd 打不开，只能在 app 进程内用 AAudio 开流；guest ↔ app 用独立通道传 PCM（不与输入/剪贴板/视频争通道），Rust 实现。已实测最小闭环（evidence 60）：guest 枚举 7 个 Android 输出设备，`STREAM_MUSIC` 音量可读写并恢复，3 秒 PCM16 经独立 Unix socket 进入 app，AAudio 真开流并写入 144,000 frames / 288,000 bytes。已实测持续路径（evidence 62）：app 提供持续 `OPEN/DATA/CLOSE` 会话，纯 Rust `audio-relay` 读取 PulseAudio `module-pipe-sink` FIFO，标准 guest `paplay` 成功播放；10 秒写入 87,035 frames / 348,140 bytes，buffer 2052→1026（一个 burst），queue-depth latency avg 104.680 ms / max 106.667 ms、1 次 xrun。平台仍拒绝 `AAUDIO_PERFORMANCE_MODE_LOW_LATENCY=12` 并返回 `perf=10 (NONE)`，不能写成低延迟。已实测最终 loader 的 610 秒连续会话（evidence 63）：28,818,432 frames / 115,273,728 bytes，标准 guest `paplay` 与 relay 均返回 0，app/relay fd/RSS 稳定；仍有 1 次 xrun。`audio-setup` 已 Rust 化并通过两次幂等回归。剩余验收：GStreamer/桌面播放器可播，实际出声需有人耳或回环验证，与第 4 条同时跑时 AV 同步偏差 <40 ms 并写明测量方法；低延迟仍被 vendor policy 拒绝（`perf=10 (NONE)`），不能写成已完成。**麦克风（输入）已打通**（evidence 88）：纯 Rust `audio-capture` 把 AAudio 输入灌进 guest 的 `module-pipe-source`，声学回环（guest 放 440 Hz → 扬声器 → 手机麦克风 → guest 录音）在放音窗口出现 440 Hz 能量（放音前 0.0 / 放音中 467.1 / 放音后 0.3），440/880 谐波对比可判；`parec` 落盘 1,921,024 字节。踩到并修掉三个坑：`module-pipe-source` 不接受已存在 FIFO；`AAUDIO_INPUT_PRESET_UNPROCESSED` 返回全 0 静音（改 `GENERIC`，与 prior art 的 `AudioSource.MIC` 一致）；guest 打不开 rootfs 之外的 socket（输出桥已增开 `rootfs-full/run/husk/audio-out.sock`）。权限：本 ROM `pm grant` / `appops` 被 shell 权限拒绝，只有 `install -g` 可自动化；产品路径仍是 native 主线程 `requestPermissions`。边界：仅 48k/2ch/前台可见，长稳与并发未测。
+## A. 统一硬件后端层
 
-6）探测与降级：SoC 与节点能力写成代码里的表（/dev/mali0、/dev/kgsl-3d0、/dev/dri/renderD128、/dev/video*、ro.hardware.egl、ro.hardware.vulkan、ro.board.platform、MediaCodecList 里的 c2.mtk.\*）；适配器按芯片家族实现（Mali kbase / Adreno kgsl / DRM；MediaCodec 按 MIME + 厂商前缀选），不按机型做一次性适配；探测失败必须有明确降级路径（软件渲染 / 软解 + 日志说明原因），任何一条都不能崩。
+1）Rust 侧定义统一硬件后端接口与能力表，按**设备类**而不是按机型组织：
+GPU、display、video-decode、video-encode、audio-out、audio-in、camera、input、sensors、
+platform-peripherals。每个后端必须有：能力探测、打开/关闭、错误码、降级路径、日志、fd 生命周期。
+探测失败必须写明原因，任何一条不能崩。
+验收：guest 与 app 两侧打印同一份能力矩阵；不支持项显示 UNKNOWN 或 DEGRADED。
 
-【C. 工程纪律】
-7）每步留可复现命令与证据（docs/design/evidence/、docs/STATUS.md、docs/GOALS.md），事实与推断分开标注；一项做完先上机验证再写"完成"，未验证就写未验证。判定「内核/驱动不支持某能力」前，必须先从真实客户端（厂商 .so、sysfs、/vendor/etc 配置）取到命令字或参数，再用最小合法参数打一次，禁止用猜的组合下结论（2026-11-22 JOB_SUBMIT 假阴性即此错）。验证当前 App 时必须显式使用 `$(cat files/libdir)/libld.so`；`files/gexec2.sh` 默认的 `files/libld39.so` 是旧 loader。参考仓库先审计再选，实际要用的按固定 commit 拉取并在 `docs/design/references.md` 记录；原始 120 条清单、120/120 审计矩阵和机器快照必须保留。GitHub 优先直连；只有直连失败时才临时使用本机代理，命令级生效，用完立即关闭，不写永久环境变量。收尾时设备息屏，会话不留僵尸。
+## B. GPU 与显示
 
-【D. 落地：用 Husk 替换 LinuxHub 2.0 的 proot】
-8）集成：Husk 达到第 2 条（GPU）验收后，替换 2.0 的 proot 运行时——`LinuxContainerManager.prootCommand()` 改成直接 exec 我们的 loader，2.0 的 UI/会话/桌面资产不动。基线包（可回滚，已校验）：`artifacts/rollback/LinuxHub-Myth-Prometheus.apk`，sha256 `c4951876599b5a8a388170952039a724959f5c48004aec8f92e1de7379adc2b7`，1,037,527,072 字节，与 `artifacts/release/` 逐字节一致。
-9）一次性消除 proot 带来的补丁（FACT：以下均已在 2.0 源码中定位，消除后不得残留）：
-   · 启动方式：`-0` 假 root、`--link2symlink`、`-b` 绑定挂载、`-w`、`-r`，以及 `PROOT_LOADER` / `PROOT_TMP_DIR` / 改写的 `TMPDIR`；
-   · 依赖库：`libtalloc.so.2`、`libandroid-shmem.so` 及其拷贝与 `LD_LIBRARY_PATH` 指向；
-   · 网络桥：`LD_PRELOAD=libgetifaddrs_bridge.so` 及 `/etc/profile.d/doro.sh` 里写死它的那行、`unset LD_PRELOAD` 补丁——由 Husk shim 的 interpose 直接提供 getifaddrs；
-   · fake-root 副作用补丁：`ensureAndroidGroupNamesScript()` 往 `/etc/group` 注入 `android_gid_*`、靠 `/proc/self/status` 的 Groups 行绕开 proot 对 getgroups 的拦截——由 Husk 的 uid/gid 映射直接给出正确语义；
-   · 伪 /proc 与设备补丁：`/proc/stat`、`/proc/version`、`/proc/bus/pci/devices`（Chromium 需要）、`/run/doro-audio` 之类为绕过 proot 而造的假文件；
-   · GPU：`doro-gpu-run.sh` + virgl/virpipe + virgl server 进程——由原生 kbase 路径（第 2 条）替代，不留中转进程；
-   · 音频：`/run/doro-audio` 桥——由 AAudio + socketpair 替代；
-   · 视频：为在 proot 里凑合播放而加的东西（强制软解的 GST/LIBVA 环境变量、关闭硬解的配置、为绕行而设的软解参数通道）若存在，一并清除，改走第 4 条的 MediaCodec 硬解 + dma-buf 回传。
-10）验收（全部可在设备上复现）：运行期 `ps -A` 里 proot 计数为 0、无 virgl server / 无独立解码进程；guest 内 `env | grep PROOT` 为空、`LD_PRELOAD` 为空；`/proc/<guest pid>/maps` 里无 `talloc` / `shmem` / `getifaddrs_bridge`；GNOME Shell 46 能起，浏览器 / 文件管理器 / 终端可用；`eglinfo` 报 Mali-G77 硬件 renderer；音频出声且延迟有实测数字；1080p30 H.264 与 HEVC 播放不掉帧、硬解 vs 软解 CPU 对比数字、AV 同步 <40ms、Chromium `<video>` 可播；回滚直接用上面那个 APK。
+2）GPU：保持 guest 直开 `/dev/mali0` + PanVK，补齐 WSI / swapchain；需要时由 guest 合成器
+直接使用 dma-buf / AHB，不经中转服务、不留独立 GPU 进程。
+验收：eglinfo / glxinfo 报 Mali-G77；窗口连续渲染 10 分钟；硬件 vs llvmpipe 帧率对比表；
+失败可降级且日志说明原因。
 
----
+3）显示：SurfaceControl 零拷贝继续作为 Android 窗口出口；补齐多窗口、DPI、旋转后代际替换、
+SurfaceView / Surface 生命周期、SurfaceFlinger 内部等待 trace。
+验收：拖动不掉帧、旋转正确、多窗口可用、连续 10 分钟无泄漏。
 
-## 附一：怎么拿到 2.0 的 rootfs（不碰它的数据）
+## C. 视频
 
-FACT：`com.linuxhub.myth` 不是 debuggable 包，`run-as` 直接拒绝（`package not debuggable`），
-设备无 root，所以**读不到** `/data/user/0/com.linuxhub.myth/files/...`。这与签名无关，是 Android 沙箱。
+4）解码：在 H.264 基础上补齐 HEVC / VP9 / AV1；完成 VA-API 系统层（`vaEndPicture` 不再
+UNIMPLEMENTED）、MediaCodec AHB 回传、decoder → guest GPU 零拷贝或明确记录 CPU 拷贝开销。
+验收：每种编码 1080p30 连续 10 分钟、dropped < 0.5%、日志有实际 decoder 名、
+硬解 vs 软解 CPU 对比表、AV 同步 < 40ms。
 
-**唯一资产来源是 LinuxHub 2.0（FACT，2026-11-22 实测目录）**：
+5）编码：MediaCodec 硬件编码路径，guest 能采集并编码。
+验收：guest 内录 1080p30 H.264，文件可播放，编码器名与帧率有日志，CPU 占用有数字。
 
-```
-/Users/l/Documents/Codex/2026-08-10/linuxhub/LinuxHub-2.0/app/src/main/assets/
-  rootfs/ubuntu-base-24.04.4-base-arm64.tar                    31 MB
-  offline/bootstrap-arm64.tar                                 349 MB
-  offline/gnome-24.04-arm64.tar                               532 MB
-  offline/vendor-apps-arm64.tar                               403 MB
-  offline/mesa-for-android-container_27.0.0-devel-20261025-r2_ubuntu_noble_arm64.tar  12 MB
-  offline/{bootstrap-packages.txt,gnome-packages.txt,vendor-packages.txt,vendor-dependencies.txt}
-  desktop/            GNOME 默认值、图标、壁纸、zh_CN 翻译、会话总线配置、doro-fetch.sh
-  desktop/profile/    2.0 的 GPU 分派脚本（doro-gpu-run.sh），作为对照基线
-  x11/xkb-data.tar    X11 键盘数据
-  runtime/arm64-v8a/{loader,proot,libandroid-shmem.so,libgetifaddrs_bridge.so,libtalloc.so.2}
-  gpu/virgl/arm64-v8a/{libvirglrenderer.so,libepoxy.so,virgl_test_server_android}  ← 2.0 的 virgl 链，只作对照
-```
+6）播放器：Chromium `<video>`、GStreamer、GNOME 播放器走同一 Rust 后端；
+不支持的编码退化软解并写日志，不许崩。
 
-**Asset list 到此为止：只用上面这份 2.0 的 24.04 链，没有其它来源。**
+## D. 音频
 
-用法：直接复制进 Husk 私有目录（例如 `/data/data/com.linuxhub.husk/files/rootfs-full`），
-**不读也不写** `com.linuxhub.myth`。
+7）输出：在 610 秒基础上做到低延迟 20–50 ms；记录 xrun。
+验收：延迟测量方法、avg/max 数字、10 分钟 xrun 计数。
 
-## 附二：2.0 的 GPU 现状（对照基线，不是要照抄）
+8）输入：app 侧 AAudio 输入流 → 独立通道 → guest 录音应用。
+验收：guest 能枚举麦克风、录音文件可播放、延迟有数字。
 
-- 判定逻辑：`DeviceGpuProbe.kt` —— 高通 Adreno + `/dev/kgsl-3d0` 可读写 → `zink`（Turnip）；
-  联发科 + guest 内有 `virtio_gpu_dri.so`/`virpipe_dri.so` → `virgl`；否则 `software`。
-- 实际执行：`desktop/profile/doro-gpu-run.sh`，GNOME Shell 本体固定 llvmpipe，硬件只给应用进程。
-- 本机（MT6893 / Mali）走的就是 `virgl`：guest → virpipe → 主机侧 virgl server → vendor EGL。
-  这条链里有一个独立服务进程和一段 virtio 传输，正是 Husk C5 要拿掉的部分。
+9）AV 同步：音视频同时跑 10 分钟，偏差 < 40ms，测量方法写清。
 
-## 附三：C 段的实测锚点（写代码前先看这张表）
+## E. 相机、输入、传感器
 
-| 事实 | 值 | 出处 |
-|---|---|---|
-| GPU 设备节点 | 只有 `/dev/mali0`（0666 root:root） | evidence 31 |
-| kbase UAPI | 11.38（vendor 不校验请求版本） | evidence 31 |
-| VERSION_CHECK 编码 | `_IOC(RW, 0x80, 0, 4)`；size=0 是 ENOTTY | evidence 31 |
-| SET_FLAGS 编码 | `_IOC(W, 0x80, 1, 4)`，guest 内返回 0 | evidence 31 |
-| 命令面（26 条，取自厂商 .so） | `0xc0048000` VERSION_CHECK / `0x40048001` SET_FLAGS / **`0x40108002` JOB_SUBMIT** / `0xc0208005` mem_alloc / `0xc0108006` mem_query / 其余见 evidence 35 表 | evidence 35 |
-| JOB_SUBMIT | **可达**：`0x40108002` 传 `nr_atoms=0` 返回 EINVAL(22)，不是 ENOTTY；提交结构 `{u64 addr; u32 nr_atoms; u32 stride}`；64 B v2 与 72 B 结构各自要求匹配 stride | evidence 35 / 36 / 57 |
-| mem_alloc | in/out：返回 0，字段0 回写实际 flags（`0x200f`），字段1 回写 GPU VA（`0x41000`）；flags=0 时 ENOMEM | evidence 36 |
-| mmap 规则 | `prot` 必须等于 `mem_alloc` 输入 flags 的低两位，offset = 回写 VA，len = va_pages<<12；不符即 EPERM；写 PROT_READ 映射 → SIGSEGV | evidence 36 |
-| 上游 Mesa | 25.2.0 与 main 的 `src/panfrost/lib/kmod/` 只有 panfrost(DRM)/panthor/virtio，**无 kbase**；rootfs 无 panvk ICD | evidence 36 |
-| `/dev/ion` | guest 侧 EACCES；app 侧曾成功 → 待复核 | evidence 26 / 31 |
-| `/dev/dma_heap` | 不存在 | evidence 31 |
-| `/dev/dri` | card0 EACCES，无 renderD128 | evidence 31 |
-| `/dev/snd` | EACCES | evidence 31 |
-| 厂商 EGL | 25 个 bionic DT_NEEDED → guest 内不可加载 | evidence 31 |
-| `/dev/video0-4` | `0660 media:system`，相机采集节点（不是编解码器）→ guest 无法直连硬解 | evidence 39 |
-| 本机硬解器 | `c2.mtk.{avc,hevc,vp9,av1}.decoder`（另有 mpeg4/h263/mpeg2/vc1/heif） | evidence 39 |
-| 硬解容量 | 厂商自报 1080p：avc 113–248 fps / hevc 125–276 / vp9 114–251（未实测） | evidence 39 |
-| 硬解可达面 | 只能从 bionic 侧 NDK `AMediaCodec` 调；guest 侧无路 | evidence 39 |
-| 内核 kbase 自报版本 | `K:r32p1-00bet5(GPL)`（`GET_DDK_VERSION` 0x4010800d） | evidence 40 |
-| atom 结构 | 两套：64 B `base_jd_atom_v2`（atom_number@0x28/core_req@0x2c）或 72 B `base_jd_atom`（jc@0x08/atom_number@0x30/core_req@0x34）；两者不能混用 | evidence 40 / 57 |
-| timeline fd | **不是完成通道**：任何被接受的 submit 都触发 POLLIN，read() → EINVAL | evidence 40 |
-| kbase soft event / sync_file | **通过**：64 B v2 `SOFT_EVENT_WAIT -> SOFT_FENCE_TRIGGER(ORDER)` 生成真实 pending `mali-mali.timeline*` sync_file，status 0→1；此前“无效果”是布局/cookie 错误 | evidence 57 |
-| `ro.hardware.egl` / `.vulkan` | `meow` / `mali` | evidence 26 |
-| CSF / panthor | `CS_GET_GLB_IFACE`（`0xc0188033`）= **ENOTTY** → 内核只编了 JM，panthor 排除 | evidence 41 |
-| kbase 导出 dma-buf | **不存在**（UAPI 无 export）；只有 `MEM_IMPORT`（`0xc0188016`，实测可达） | evidence 41 |
-| rootfs 的 Mesa | **25.2.8**；`dri/` 有 `panfrost_dri.so` / `panthor_dri.so` / `zink_dri.so` / `swrast_dri.so` | evidence 41 |
-| kinstr 语义 | `COMPLETE` 对"成功"和 `JOB_INVALID` **同义**；只有 `START` 能证明进了硬件槽 | evidence 41 |
-| 硬件 atom 现状 | 用真实 GPU VA 当 jc 仍只有 `QUEUE→COMPLETE`、无 `START`；手搓 atom 到此为止 | evidence 41 |
-| kbase 的硬件参数 | `GET_GPUPROPS` = `0x40108003`（_IOW）；变长记录流，返回 723 字节；panfrost 要的 24+16 条**全覆盖** | evidence 42 |
+10）相机：app 进程用 Camera2 / Camera HAL 打开真实相机，输出 AHardwareBuffer / dma-buf，
+经零拷贝路径交给 guest。禁止假摄像头、静态图、软件模拟。
+验收：guest 预览有画面、拍照文件有效、录像 30 秒可播放、前后摄像头切换正确、权限拒绝有明确降级。
+
+11）输入：触摸、软键盘、物理键盘、鼠标事件从 app InputQueue 转到 guest 合成器。
+验收：guest 桌面可点击、可输入、可拖动窗口。
+
+12）传感器：app 侧读加速度、陀螺仪、光线、距离等，经独立通道送 guest。
+验收：guest 内能读到真实变化，无传感器时明确报 UNKNOWN。
+
+## F. 平台外设
+
+13）USB / 蓝牙 / GPS / NFC / 指纹按普通应用可用 API 逐项探测；能接的做 Rust 桥，
+不能接的写成平台限制和原因，禁止绕过沙箱。每类都要有 guest 可见接口或明确不可用结论。
+
+## G. 2.0 集成与补丁清除
+
+14）上述硬件类验收通过后，替换 LinuxHub 2.0 的 proot 运行时，UI / 会话 / 桌面资产不动。
+基线包只读保留：`artifacts/rollback/LinuxHub-Myth-Prometheus.apk`，
+sha256 `c4951876599b5a8a388170952039a724959f5c48004aec8f92e1de7379adc2b7`。
+
+15）逐项删除 proot 专用补丁：`-0`、`--link2symlink`、`-b`、`PROOT_LOADER`、`PROOT_TMP_DIR`、
+`libtalloc`、`libandroid-shmem`、`getifaddrs` bridge、伪 `/proc`、`doro-gpu-run.sh`、
+virgl / virpipe、`/run/doro-audio`、强制软解环境变量。每删一项都要有替代能力已验收的证据。
+验收：`ps` 中 proot=0、无 virgl server、无独立解码进程；guest 内 `PROOT` 变量为空、
+`LD_PRELOAD` 为空；2.0 的 GNOME、浏览器、文件管理器、终端、相机、音频、视频全部可用。
+
+## H. 工程纪律
+
+16）每步留可复现命令与证据（`docs/design/evidence/`、`docs/STATUS.md`、
+`docs/RESULTS.md`）；先上机验证再写完成；未验证写 UNKNOWN。
+判定「内核/驱动不支持某能力」前，必须先从真实客户端（厂商 `.so`、sysfs、`/vendor/etc`）
+取到命令字或参数，再用最小合法参数打一次，禁止用猜的组合下结论。
+设备操作不用 `rm -f`；收尾息屏、精确清理，不误杀 guest 会话。

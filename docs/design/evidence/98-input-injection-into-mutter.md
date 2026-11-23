@@ -13,8 +13,7 @@ Android MotionEvent/KeyEvent
   → Clutter 虚拟输入设备 → 合成器
 ```
 
-不使用 `/dev/input`、libinput、udev、XTEST，也不改 mutter。这与 anland 的注入点相同
-（`anland-deep-read.md` §3），只是走的是 mutter 官方 D-Bus 接口。
+不使用 `/dev/input`、libinput、udev、XTEST，也不改 mutter：走的是 mutter 官方 D-Bus 接口。
 
 ## 真实按键的 mutter 侧日志（FACT）
 

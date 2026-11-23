@@ -37,8 +37,7 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
 6. 事实、推断、未知必须分开写；没上机验证就不能写“完成”。
 7. 每次正式改动都要提交本地并推 GitHub；不能只留在工作区或聊天里。
 8. 收尾时设备息屏，不留下僵尸进程、调试服务或临时中转进程。
-9. 每个新模块或子路线写代码前，必须先审计 `docs/design/references.md`、
-   `docs/design/reference-audit-matrix.md` 和原始参考清单；涉及 LinuxHub 2.0 已有能力时只读检查
+9. 每个新模块或子路线写代码前，先确认有没有现成实现（笔记留在仓库外）；涉及 LinuxHub 2.0 已有能力时只读检查
    2.0 源码，并在模块设计文档记录固定 commit、可复用点和不采用理由。已有成熟实现优先复用，
    不自造轮子。
 
@@ -231,30 +230,14 @@ GPU 验收后替换 2.0 的 proot 启动方式，UI/会话/桌面资产不动。
 guest 内 `env | grep PROOT` 为空、`LD_PRELOAD` 为空；GNOME、浏览器、文件管理器、终端可用；
 eglinfo 报 Mali-G77；音频出声并有延迟数字；H.264/HEVC 硬解、AV 同步、Chromium `<video>` 通过。
 
-## 7. 前人植树：参考仓库纪律
+## 7. 外部实现怎么用
 
-- 原始用户清单：`docs/design/reference-request-20261122.md`（逐字保留，仅作资料）。
-- 功能归并结论：`docs/design/references.md`。
-- 120/120 逐条矩阵：`docs/design/reference-audit-matrix.md`；机器快照：
-  `docs/design/reference-audit-20261123.json`。
-- 2026-11-23 审计口径：69 条 GitHub、45 条官方上游/组件、6 条 UNKNOWN；
-  GitHub 身份用 `gh api` 核对，官方源用代理实测 HTTP 200，UNKNOWN 不猜链接。
-- 不是每个仓库都逐行读过。A 级 28 条是下一阶段优先源码阅读面，不能把“已定位”冒充“已采纳”。
-- Mali kbase 源码级规格：`docs/design/mali-kbase-prior-art.md`。
-- 规则：先审计别人怎么做，再决定自己写；清单里的名字不等于真实仓库；参考实现不等于可直接依赖。
-- 只把**当前会用到的**仓库拉到 `/tmp/refs2`，记录 URL + commit；不要把大仓库 vendoring 进 Husk。
-- 已拉取/使用的参考源（2026-11-23）：
-
-| 仓库 | commit | 用途 |
-|---|---|---|
-| `faux123/panvk-faux123-driver-rp4pro` | `cb72a0ba2ec7f160b818917be0c826bf4d57750b` | G77 + kbase + Android 13 / r32p1 实机先例 |
-| `BkaNeko/panvk-mtk-driver` | `594efbf6d2038df81ce0a75603cce72f4c866879` | MTK `MEM_ALLOC_EX` / AFBC / CSF 回退补丁 |
-| `manoedinata/mesa-kbase-j4lte` | `3fd6fc3f0271d2538f93bc5a51a19cedf267b8dd` | libdrm-kbase / panfrost 语义规格 |
-| `zenithblue-oss/panvk-kbase-android` | `cf70e02b918e1864cbcd746a7fefa57b96c673ce` | 通用 Mali kbase PanVK 构建、profile、验证 |
-| `FristOneRR/FristOneRR-Panvk-Driver` | `e62405dbe3c9bea626a4afe534746180cea06586` | 发布二进制审计；bionic 依赖，不能直接用于 glibc guest |
-| `FristOneRR-Admin/FristOneRR-Panvk-Source` | `0c9dce35094dbe89c412b79bf57c6067c7b97e59` | **当前 glibc PanVK 交叉构建源**；G77 + kbase CPU sync + JM |
-| `coderredlab/proroot` | `c01039ab017448263a4ddbd9221ecb88e737553c` | **零 ptrace 原生 runtime 的产品旁证**；仅二进制、专有，不能作为依赖或抄代码 |
-| `funnymdzz/mesa` tag `kbase-v0.1.2` | `4e5323ef35dc580a6140f8d433a6d13ae3724c07` | 已实测 `drmSyncobjCreate()` 失败；保留为对照 |
+- 动手前先在本地确认这件事有没有现成实现，**读别人的源码，但不把别人的东西搬进仓库**：
+  仓库只放我们自己的设计、代码、实测证据。
+- 外部实现只以两种形式出现在仓库里：① `docs/DEPENDENCIES.md` 里登记的**构建依赖**
+  （我们要编译/链接的东西，含 URL 与 commit）；② 代码里必要的许可声明。
+- 参考笔记（源码阅读记录、清单、对照表）留在仓库外，不进版本库。
+- 规则：先看再做；但"看见了"不等于"可以抄"，协议与语义可以照做，实现层必须自己写。
 
 ## 8. 网络与代理
 
@@ -276,7 +259,7 @@ eglinfo 报 Mali-G77；音频出声并有延迟数字；H.264/HEVC 硬解、AV �
 
 ## 10. 下一次接手的顺序
 
-1. 读本文件、`GOALS.md`、`STATUS.md`、`references.md`、`mali-kbase-prior-art.md`。
+1. 读本文件、`GOALS.md`、`STATUS.md`、`docs/RESULTS.md`。
 2. 查 `git status --short --branch`，确认没有未提交改动；没有用户授权不要动 LinuxHub 2.0 分支。
 3. 继续显示主线：FristOneRR glibc PanVK 已完成 compute job、离屏 graphics、surfaceless Zink
    （evidence 46–47）、AHB LINEAR 2D image GPU 写入（evidence 51）、EGLImage 回退（evidence 52）、

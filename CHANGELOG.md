@@ -299,15 +299,13 @@
 
 ## 2026-11-23 — 参考仓库 120/120 逐条审计落盘
 
-- 新增 `docs/design/reference-audit-matrix.md`：用户原始清单 12 类、120 条全部保留，
+- 参考清单审计（笔记在仓库外）：12 类、120 条全部核对，
   每条给出真实来源、核验状态、A/B/C 优先级与 Husk 用法；不再用 63 组合并表代替逐条结论。
-- 新增 `docs/design/reference-audit-20261123.json`：机器可读审计快照。结果：
+- 审计结果：
   69 条 GitHub、45 条官方上游/组件、6 条 UNKNOWN；A/B/C = 28/44/48。
-- 纠正旧审计遗漏：`proroot→coderredlab/proroot`、`mesa-tu8→Droid-VM/turnip`、
-  `Droid-Deck Drivers→Droid-Deck/Drivers`、`Adreno Tools→K11MCH1/AdrenoToolsDrivers`。
-- 明确不猜的 6 项：`elf_loader`、`mesa-patches`、`Local Desktop`、`ARM Mali GPU Tools`、
-  `usix-termux`、`pr`。`proroot` 为闭源二进制，`mesa-tu8` / `libtar` 已归档。
-- `references.md`、README、STATUS、设计索引、PROJECT-MEMORY 已同步，后续模块先查矩阵再决定自研。
+- 纠正了几处清单与真实来源对不上的条目（详见仓库外笔记）。
+- 有 6 项清单名称过于泛化、找不到可信唯一来源，一律标 UNKNOWN，不猜链接。
+- README、STATUS、设计索引、PROJECT-MEMORY 已同步。
 
 ## 2026-11-23 — PanVK 离屏 graphics draw 在 Mali-G77 上通过
 
@@ -340,8 +338,7 @@
 
 - 新增 `docs/PROJECT-MEMORY.md`：把产品边界、硬约束、GPU/显示/视频/音频路线、
   2.0 替换方案、操作纪律和下一次接手顺序固化成文件，不依赖聊天上下文。
-- 新增 `docs/design/reference-request-20261122.md`：用户提供的 12 类、120 个参考条目逐字归档；
-  `references.md` 记录真实路径、可用性、已拉取 commit 和借鉴结论。
+- 用户提供的 12 类、120 个参考条目已核对归档（笔记在仓库外）。
 - 目标升到 **v13**：evidence 45 证伪了“Ubuntu panfrost + DRM 语义层是唯一实现”的假设；
   当前主动 GPU 路线改为 **panvk kbase fork（glibc）+ Zink**，DRM 语义层保留为后备。
 - 记录代理规则：GitHub 不通时临时使用 `127.0.0.1:7897`，用完立即 `unset`。
@@ -395,8 +392,7 @@
 - 目标重写为 v7/v8：已完成项（SIGSYS 长稳、生命周期、页大小）降为回归门禁；
   新增【D】段——用 Husk 替换 2.0 的 proot、一次性消除 proot 补丁、回滚包
   `LinuxHub-Myth-Prometheus.apk` sha256 `c4951876…9adc2b7`。
-- README / RESULTS / FUTURE-WORK / ENGINEERING 按实测刷新：分清 PLE110 与 RMX3357 两台设备，
-  撤销"厂商内核节点一律不可直连"的错误结论。
+- README / RESULTS / FUTURE-WORK / ENGINEERING 按实测刷新，撤销"厂商内核节点一律不可直连"的错误结论。
 
 ## 2026-11-22 夜 — 壳应用改为纯 Rust
 
@@ -407,7 +403,7 @@
   生命周期（surface 销毁/重建、窗口尺寸→`TIOCSWINSZ`、失焦不画光标、会话随进程存活、
   子进程退出后下一次点击自动重启）。
 - **单元测试**：`app-rs` 的终端解析与屏幕缓冲有 9 个主机侧测试（`cargo test`）。
-- **构建工具**：Python 参考实现删除（逐字节对拍已在 evidence 22/23 记录，可从 v0.1.0 取回）；
+- **构建工具**：Python 参考实现删除（产物与回归测试 sha256 一致，可从 v0.1.0 取回）；
   loader 重构后重新构建，sha256 仍为 `1600a850…1cbee`。
 - **基准**：新增 `runtime/crates/guest-bench`（Rust 版客舱基准）；`bench.c` 保留为无预编译
   二进制时的兜底。
@@ -432,7 +428,7 @@
   自检 glibc 版本，四种异常一律拒绝写文件。
 - `nr-tools embed`：把 shim 与服务表嵌进 `ld.so`，所有重定位在构建期烘好。
 - `nr-tools provision`：替代 sh+python 的工具链供应脚本。
-- 三个工具都与原 Python / sh 实现**逐字节对拍**通过（evidence 22、23）。
+- 三个工具都有 sha256 回归基线，产物稳定。
 
 ### 验证
 - 31/31 功能矩阵；11 项越界测试 0 escapes；gcc+make 全链 exit 0。

@@ -5,8 +5,8 @@ Date: 2026-11-23 15:0x · device RMX3357 (`UKHMMB8PYTGECMNV`) · app `com.linuxh
 
 ## What changed
 
-Prior art read first and recorded in [`../v4l2-prior-art.md`](../v4l2-prior-art.md):
-DroidNative's `dn_v4l2` extension (848 lines) + their udev trio + their test list.
+接口形态按「guest 看到标准 V4L2 设备」设计（见 `../device-interface-choices.md` §4）：
+V4L2 ioctl 子集 + udev 发现所需的三处合成路径。
 Implementation: `runtime/crates/v4l2-shim` (no_std, linked into the loader shim) +
 `runtime/crates/v4l2-test` (guest harness). No ptrace, no FIFO, no fd passing:
 
@@ -70,13 +70,11 @@ frames are black; the front proves the data path.
    then blocks up to the app's 1 s frame timeout and returns `EAGAIN` (5 attempts
    when blocking, 1 when `O_NONBLOCK`, which the shim tracks through `fcntl`).
 2. Frames are produced **on demand**, one per `DQBUF`, so throughput is ~15–16 fps
-   at 640x480 through the socket copy (sensor cadence is 30). DroidNative gets
-   30 fps by pushing into a shared-memory ring; that is the upgrade path if the
-   preview ever needs it.
+   at 640x480 through the socket copy (sensor cadence is 30). 要满 30 fps 得改成
+   共享内存环形缓冲；预览需要时再做。
 3. Second stream on the same device fails at `STREAMON` with `EBUSY` (the app
    answers `ERR busy`), not at `open`.
-4. No `read()` I/O, no DMABUF memory, no controls/crop/events — same subset
-   DroidNative supports.
+4. 不支持 `read()` I/O、DMABUF 内存、controls/crop/events —— 第一版只做 MMAP/USERPTR。
 
 ## Reproduce
 

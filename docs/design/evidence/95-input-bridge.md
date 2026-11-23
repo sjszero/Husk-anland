@@ -24,7 +24,7 @@ input|ev|ABS|ABS_X|15609 …  ← 拖动期间连续 ABS 移动
 input|done|24
 ```
 
-语义与先人一致（`input-prior-art.md`）：点 = 左键按下+抬起、拖 = 左键按住移动、
+语义约定：点 = 左键按下+抬起、拖 = 左键按住移动、
 双指上下 = `REL_WHEEL`、长按 500 ms = 右键。手势在 app 侧识别，跨进程只传结果。
 
 ## 修掉的三个真 bug（都是"看起来像没事件"的根因）
@@ -41,8 +41,7 @@ input|done|24
 
 ## 为什么不是 `/dev/input` + libinput
 
-见 `anland-deep-read.md`：anland（GNOME/KDE 在 Android 上的成熟实现）与 DroidNative
-都把输入注入到**合成器**，没有一家走 evdev。我们下一步的注入端是 XTEST（X11 桌面）
+输入必须注入到**合成器**，不是 evdev：我们下一步的注入端是 XTEST（X11 桌面）
 或 RemoteDesktop/EIS（mutter Wayland），所以这层 evdev 记录只是**传输格式**，
 不假装成内核设备。
 

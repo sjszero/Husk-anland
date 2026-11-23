@@ -63,9 +63,8 @@ HUSK_VA_BRIDGE_OPEN_FAILED context=1 size=1920x1088 video bridge OPEN failed: OP
 ```
 
 surface 池被 queue 吃光 → 解码器拿不到新 surface → 死锁。**gst-vaapi 是设计上一帧一结的**，
-深度只能由客户端决定。对照 `lfdevs/termux-va`（见 `docs/design/prior-art-video.md`）：
-他们桥的流水线深度是 6，流畅的客户端是 **FFmpeg 系**；Chromium/Firefox 硬解在
-非骁龙 SoC（含 MTK）上是已知不可用。
+深度只能由客户端决定。同类桥接实现的流水线深度普遍在 6 左右，**流畅的客户端是 FFmpeg 系**；
+Chromium/Firefox 硬解在非骁龙 SoC（含 MTK）上是已知不可用。
 
 ## 三、两个踩过的坑（写给下一个我）
 

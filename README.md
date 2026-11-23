@@ -1,233 +1,82 @@
 # Husk（壳）
 
-**Husk 是一个 Android 运行时，让完整的 Linux 发行版（glibc 用户态）以普通应用进程的身份，
-直接由 Android 内核执行——不需要 root、不需要解锁 Bootloader、不需要硬件虚拟化。**
+**Husk 是一个 Android 运行时：让完整的 Linux 发行版（glibc 用户态）以普通应用进程的身份，
+直接被 Android 内核执行——不需要 root、不需要解 Bootloader、不需要硬件虚拟化、不做 ptrace。**
 
-它不拦截系统调用，因此性能与原生应用处于同一量级。
-
-> 当前状态：**运行时核心已验证；SoC 直连（GPU / 显示 / 视频 / 音频）进行中；与 LinuxHub 2.0 的集成尚未开始。**
-> 2026-11-23 真机（RMX3357 / Android 13 / kernel 4.19.191 / 4 KiB 页 / 普通应用权限 `untrusted_app`）：
-> shell、常用工具、gcc 13.3 + make 全链路通过；2.0 的完整 Ubuntu 24.04 rootfs 能起 GNOME Shell 46；
-> 生命周期（旋转 / 切后台 / Surface 重建 / 息屏冷启动 / 会话不重启）全部实测通过；
-> SoC 侧 guest 进程可直接打开 `/dev/mali0`，分配 GPU 显存并在 CPU 侧读写（kbase 11.38）。
-> GPU 最新证据：FristOneRR PanVK 的 glibc 构建已在 guest 内枚举 Mali-G77 MC9；纯 Rust 探针
-> 已提交 compute job、完成离屏 graphics 三角形 draw + GPU 像素回读；发行版 Zink 也已在
-> surfaceless EGL 报出 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`。同一 guest AHB 已通过
-> 平台 SurfaceView 的 BLAST SurfaceControl 直接提交给 SurfaceFlinger；3-buffer AHB ring 已连续
-> 上屏 12 帧，并按 SF release fence 回收 slot；eventfd completion bridge 又把连续运行推进到
-> 120 帧，并完成 5,600 帧 / 134 秒短 soak，SurfaceFlinger 接受 acquire fd 且 fd 回收通过。
-> eventfd 不是 Vulkan `SYNC_FD`；evidence 57 已在 guest 内直接生成真实 pending kbase
-> `sync_file`（status 0→1，同一 fd pending→readable）。evidence 58 已把它接进 FristOneRR
-> PanVK 的 `vkGetFenceFdKHR(SYNC_FD)`：同一 3-buffer SurfaceControl ring 连续 120 帧全部使用
-> 真实 `mali-mali.timeline*` fd，其中 11 帧导出时 pending，app 120/120 transaction complete，
-> eventfd fallback 为 0。evidence 59 已改为 3-slot 持久 Vulkan 资源池，并连续跑完
-> 10,000 帧 / 665.385 秒：10,000/10,000 帧均为真实 `SYNC_FD`，7,106 帧导出时仍 pending，
-> completion 与 9 点 GPU 回读均 10,000/10,000，fallback=0，app transaction 10,000/10,000，
-> app/guest fd 与 RSS 无累积增长。WSI 与 SurfaceFlinger 内部等待 trace 仍未验收；窗口生命周期已由 evidence 72
-> 覆盖旋转和 Home/前台 SurfaceControl 重建（见 evidence 53–59 与 `docs/PROJECT-MEMORY.md`）。音频最小闭环已跑通：guest 枚举 7 个
-> Android 输出设备、控制 `STREAM_MUSIC` 音量，并通过独立 Unix socket 把 PCM16 交给 app 内
-> AAudio 真开流写入；平台拒绝 low-latency 请求并降为 `perf=NONE`。随后又打通 PulseAudio
-> `module-pipe-sink` → 纯 Rust relay → 持续 `OPEN/DATA/CLOSE` AAudio 会话，标准 guest
-> `paplay` 已成功播放（evidence 60 / 62），并完成 610 秒连续会话（evidence 63）；AV 同步仍未完成。
-> 视频侧已在 app 进程内用真实 MTK Codec2 硬解 1080p30 H.264 / HEVC，并通过 ImageReader
-> 从 `AHardwareBuffer` native handle 取得 dma-buf fd（evidence 67）；guest 压缩帧通道、
-> memfd ring 与真实 `c2.mtk.avc.decoder` 已打通，guest 在 rootfs 隔离下可直连
-> `/run/husk/video.sock`（evidence 69 / 70）；evidence 71 又把解码后的 150 个 AHB 连续直接
-> 提交到 `husk-video` SurfaceControl 子层，两次实时会话均 `150/150` 完成并截图证明动态播放。
-> evidence 72 进一步验证播放中旋转，以及 Home/前台恢复时 NativeWindow 与 SurfaceControl 代际
-> 替换：旧层按回调代际退役、新层重建后继续上屏。evidence 73 又完成 app AHB dma-buf 到
-> guest 的 `MEM_IMPORT` + `STICKY_RESOURCE_MAP`，同一 block 可由 guest CPU 写、由 guest
-> PanVK 当作 LINEAR 2D image 执行 GPU clear，再由 app 回读并上屏。evidence 74 已补齐真实
-> 解码 AHB 的三平面 YUV layout 回导；evidence 75 完成 **150/150 帧逐帧交接**；
-> evidence 76 又把整场解码会话收敛为**一条持久 Unix socket + 最多 3 个在途 AImage**，
-> app 收到 guest ACK 才释放 AImage，并在 CLOSE 前排空尾部帧，150/150 全部送达。它仍不是
-> 预分配 3-slot AHB import ring，guest 仍每帧创建/导入/销毁 Vulkan image；
-> YUV→RGB 渲染、guest 侧 WSI、VA-API/GStreamer/Chromium、AV 同步和 10 分钟门禁仍未完成。
-> 音频调试发现的 path root-fd 被 guest 关闭问题已修复，当前 loader 功能矩阵 31/31（evidence 61）。
+它不拦截系统调用。路径虚拟化在 loader 里一次完成（改写 GOT），之后程序自己的 `svc` 直接进内核，
+因此性能与原生 Android 应用同量级。
 
 ---
 
-## 1. 它是什么
+## 当前状态（唯一目标机：RMX3357 / Android 13）
 
-Husk 是**运行时**，不是终端模拟器：终端只是它的一个前端。
-
-用户在应用里选择一个发行版（例如 Ubuntu），该发行版的用户态——shell、常用命令、
-包管理、编译工具链——就以当前应用进程的身份运行。**一个发行版实例称为一个 husk。**
-
-本仓库自带这个运行时目前唯一的载体：`app/` 里的 Android 应用。
-
-名字取自"壳"：我们加在 Linux 用户态外面的唯一东西就是一层壳，用来适配 Android 的运行环境，
-而不改变它本身的执行方式。
-
-## 2. 它在哪里运行
-
-运行载体是 **LinuxHub 应用本身**：一个普通的 Android APK，不需要任何额外环境、辅助应用或权限。
-
-- 应用在自己的进程里启动 guest 的动态链接器，由它加载 guest 程序；
-- guest 的文件系统位于应用的私有存储目录内，应用卸载即随之清除；
-- 用户看到的是应用里的一个会话窗口，而不是一个独立的操作系统。
-
-`app/` 把 guest 的 `bash` 跑在一个真正的 PTY 里，这是目前唯一的用户入口。
-壳应用本身没有 Java 也没有 C：APK 声明 `android.app.NativeActivity`，入口直接落在
-`app-rs/` 编出来的 Rust 库里（PTY、EGL 渲染、字体光栅化、输入、生命周期全在里面）。
-界面仍是演示级——提示符渲染与滚动回看尚未完成。
-`tools/probe-app` 是最小探针，只用于设备测试。
-
-## 3. 它解决什么问题
-
-在 Android 上运行 Linux 的既有做法都有明显代价：
-
-| 做法 | 代价 |
+| 项 | 事实 |
 |---|---|
-| 系统调用重定向类方案（以 ptrace 实现） | 每个系统调用一次上下文切换，一次目录遍历就是数万次往返，整体慢一个数量级 |
-| 容器类方案（chroot / namespace） | 需要 root 权限，普通应用不可用 |
-| 虚拟机 | 需要硬件虚拟化支持 |
+| 设备 | RMX3357，MT6893（天玑 1200），Mali-G77，Android 13（SDK 33），kernel 4.19.191，4 KiB 页，arm64 |
+| 运行域 | `untrusted_app`，无 root、无 Shizuku |
+| 运行时 | loader 内嵌 path-shim（零 ptrace）；exec / PTY / 信号 / 生命周期已闭环 |
+| 桌面 | LinuxHub 2.0 的 Ubuntu 24.04 rootfs 能起 GNOME Shell 46（Wayland 显示服务器），GTK4 客户端可连 |
+| GPU | guest 进程直开 `/dev/mali0`，PanVK（Mali-G77）logical device / compute / 离屏 graphics / Zink surfaceless 全通 |
+| 显示 | `AHardwareBuffer` → dma-buf → `SurfaceControl` 零拷贝上屏；3-buffer ring + 真实 `SYNC_FD`；10,000 帧 / 665 秒长稳，fd/RSS 无增长 |
+| 视频 | H.264 1080p30 经 `c2.mtk.avc.decoder` + AHB，连续 600 秒，dropped=0 |
+| 音频 | guest 枚举输出设备、控音量，PCM 经独立通道进 app AAudio；610 秒连续会话 |
+| 相机 | guest 内 `/dev/videoN` V4L2，GStreamer 可取流、可拍照、可录像 |
+| 输入 | 触摸 / 键盘 / 鼠标经 mutter `RemoteDesktop` 注入到 guest 合成器 |
 
-Husk 的取舍是：**运行时不做任何系统调用拦截。**
+**进行中**：GNOME 桌面把帧交给 Android Surface（ScreenCast → PipeWire → AHB → SurfaceControl）。
 
-需要在启动前确定的适配——路径视角的转换、以及 Android 安全策略会拒绝的两个启动期系统调用——
-全部在**构建期**写入 guest 的动态链接器；运行时由内核直接执行 guest 代码。
-这是它能接近原生性能的根本原因。
+**未开始**：WSI / swapchain、HEVC / VP9 / AV1 解码、硬件编码、相机零拷贝、传感器、GPS、
+USB / 蓝牙 / NFC / 指纹，以及把 LinuxHub 2.0 的 proot 运行时整体替换成 Husk。
 
-## 4. 工作方式
+> 只写实测过的结论；未上机的一律标 UNKNOWN，不写 PASS。逐项证据在
+> [`docs/design/evidence/`](docs/design/evidence/)，当前进度在 [`docs/STATUS.md`](docs/STATUS.md)。
 
-1. **路径**：guest 视角的绝对路径（如 `/etc/os-release`）在进入系统调用之前，被解析为应用
-   私有目录下的真实路径。符号链接与 `..` 均在 rootfs 边界内解析，无法逃逸。
-2. **启动期安全策略**：Android 对普通应用进程禁用两个启动期系统调用，而 guest 的 C 运行库
-   在动态链接器内部就会使用它们。这两处调用在构建期被移除，并由受控的替代路径补齐，
-   因此启动阶段不需要任何拦截机制。
-3. **子进程**：启动新程序时沿用同一个动态链接器，子进程自动具备相同行为，无需环境变量或包装脚本。
+---
 
-实现细节与边界情况见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+## 它和容器 / 虚拟机 / PRoot 的区别
 
-## 5. 实测表现
+| | 传统容器 | 虚拟机 | PRoot 一类 | **Husk** |
+|---|---|---|---|---|
+| 内核 | 宿主内核（要 namespace/cgroup） | 自带内核 | 宿主内核 + ptrace | **宿主内核，零拦截** |
+| 权限 | root / user namespace | 虚拟化 | 普通应用 + ptrace | **普通应用** |
+| 每个 syscall 成本 | 原生 | 陷入虚拟机 | 一次 ptrace 往返 | **原生（0 额外）** |
+| 路径隔离 | mount namespace | 完整隔离 | ptrace 逐条改写 | **loader 首次解析后改 GOT，一次到位** |
 
-真机环境：**PLE110 / Android 16 / kernel 6.6**（历史测值；当前目标机 RMX3357 / Android 13 / 4.19.191 尚未重测性能表）。guest 为 Ubuntu 24.04 / glibc 2.39。
+---
 
-| 指标 | Husk | 对照 |
-|---|---|---|
-| 启动一个程序（fork + exec + wait） | **2.5 ms** | 同进程内 Android 原生程序 6.8–8.0 ms |
-| `getpid` 等无路径参数的调用 | **196 ns** | 与原生一致 |
-| `stat`，单层路径 | **5.4 µs** | 同一路径不经解析 2.9 µs |
-| `stat`，四层路径 | **11 µs** | — |
+## 架构
 
-路径解析是唯一存在额外成本的环节；其余系统调用没有额外开销。
-完整数据与来源见 [docs/RESULTS.md](docs/RESULTS.md)。
+```
+ Android app 进程 (untrusted_app)
+ ├─ 壳：NativeActivity（Rust）——窗口 / Surface / 生命周期
+ ├─ 硬件后端（Rust）——GPU、显示、视频、音频、相机、输入、传感器……
+ │    └─ 平台 API / HAL（NDK、AHardwareBuffer、AAudio、MediaCodec、Camera2）
+ └─ guest：自研 loader（内嵌 path-shim）+ Ubuntu 24.04 用户态
+      ├─ 路径虚拟化：装载时重写 GOT，运行期零拦截
+      ├─ exec：自己解析 PT_INTERP 与 shebang，递归回到 guest 根
+      └─ 设备：能直开的节点（/dev/mali0）直开；被沙箱拒绝的走 app 内硬件后端
+```
 
-## 6. 当前能力
+- 设计取舍与接口形态：[`docs/design/device-interface-choices.md`](docs/design/device-interface-choices.md)
+- 运行时分层与预算：[`docs/design/runtime.md`](docs/design/runtime.md)
+- 硬件后端接口边界：[`docs/design/husk-backend-interface.md`](docs/design/husk-backend-interface.md)
 
-- **Shell 与常用工具**：bash、ls、find、cp、mv、chmod、sort、sha256sum、管道、重定向、子 shell
-- **编译工具链**：gcc 13.3 全链路（预处理、编译、汇编、链接）与 make（并行、增量、clean）
-- **兼容性验证**：31 项功能用例全部通过；11 项越界测试无逃逸
-- **运行环境**：普通应用权限，无需 root 与开发者选项之外的任何配置
-- **完整发行版**：2.0 的 Ubuntu 24.04.4 链（817 个 `usr/bin`、1.9 GB）可解到私有目录并起
-  GNOME Shell 46.0 / gjs / dbus-daemon / Xwayland（evidence 33）
-- **内核级兼容**：`#!` 脚本（解释器映射进 rootfs）、`/proc/self/exe` 返回 guest 路径（evidence 34）
-- **SoC 底座**：guest 直开 `/dev/mali0`；kbase `VERSION_CHECK` / `SET_FLAGS` / `mem_alloc` /
-  `mmap`（CPU 读写显存）实测通过（evidence 35 / 36）
+---
 
-## 7. 当前限制
-
-- **GPU 窗口渲染部分打通**：FristOneRR PanVK 已枚举 Mali-G77，logical device、host-visible
-  storage buffer、compute job、离屏 graphics draw + 像素回读均通过；发行版 Zink 的 surfaceless
-  EGL 也已报出 Mali-G77 renderer；同一 AHB 已通过平台 SurfaceView SurfaceControl 零拷贝上屏，
-  3-buffer ring 连续 12 帧并依据 release fence 复用（evidence 53 / 54）；eventfd completion
-  bridge 已连续 120 帧并把 acquire fd 交给 SurfaceFlinger（evidence 55），但它不是
-  `SYNC_FD`；kbase 层真实 pending `sync_file` 已生成（evidence 57），并已由 PanVK
-  `vkGetFenceFdKHR(SYNC_FD)` 接到 SurfaceControl ring，120 帧全部使用真实 fd（evidence 58）；
-  3-slot 持久资源池又完成 10,000 帧 / 665.385 秒长稳，fd/RSS 无累积增长（evidence 59）。
-  GBM / Wayland / X11、WSI / swapchain、旋转 / DPI / 多窗口和窗口生命周期尚未验证，
-  不能把当前正确性探针当成完整 GPU 验收；
-  DRM 语义层保留为后备；
-- **显示 / 视频 / 音频桥进行中**：AHB dma-buf 已跨进程导入 PanVK 并由 GPU 访问，3-buffer ring
-  已连续零拷贝上屏 12 帧并按 release fence 复用；eventfd completion bridge 已连续 120 帧并将
-  acquire fd 交给 SurfaceFlinger。kbase pending `sync_file` 已单独验证（evidence 57），PanVK
-  `vkGetFenceFdKHR(SYNC_FD)` 已在同一 SurfaceControl ring 连续跑通 120 帧（evidence 58）；
-  3-slot 持久资源池完成 10,000 帧 / 665.385 秒长稳（evidence 59）。音频已跑通设备枚举、
-  音量控制、持续 AAudio 会话，以及 PulseAudio pipe → Rust relay → 标准 guest `paplay`
-  （evidence 60 / 62 / 63）；610 秒连续会话和 fd/RSS 稳定性已通过，AV 同步仍未完成。
-  SurfaceFlinger 内部等待 trace、
-  MediaCodec 解码 AHB 已能在 app 内实时上屏（evidence 71）；AHB dma-buf 的
-  `MEM_IMPORT` / `STICKY_RESOURCE_MAP` 与 guest PanVK GPU 写回已在 RGBA 测试面通过
-  （evidence 73）；真实 `c2.mtk.avc.decoder` 的三平面 YUV AHB 也已导入 guest，Y、plane1、
-  plane2 三个 GPU 回读哈希均与 app 侧一致（evidence 74）；evidence 75 完成 150/150 帧逐帧交接，
-  evidence 76 又把交接收敛为单连接、3 个在途 AImage 的有界背压并修复尾部丢帧。但仍缺预分配
-  3-slot import ring、YUV→RGB 渲染、guest 侧 WSI、
-  VA-API/GStreamer/Chromium、AV 同步与 AAudio 产品化通路都还没完成；
-- `execl` 系列函数不生效；`freopen`、`glob`、`nftw`、`dlmopen` 未覆盖；
-- **libc 内部调用**（NSS / locale / `/etc/hosts` / `ld.so.cache`）仍读宿主，槽位方案未实现，
-  因此 `apt`/`dpkg`/locale 在完整 rootfs 里尚不可靠；
-- 页大小：4K 设备实测；16K / 64K 只有构建期同余保证与 `check-elf` 体检，**未在 16K 设备上跑过**；
-- 终端界面：提示符 / 光标 / 滚动回看 / 旋转 / 生命周期已可用；SGR 颜色、UTF-8 宽字符未做，
-  且终端壳属演示载体，不作为运行时验收项；
-- rootfs 靠 `adb` 手工导入，应用内尚无导入 / 选择 / 删除流程；
-- 与 LinuxHub 2.0 的集成（替换 proot、消除 proot 补丁）未开始。
-
-## 8. 仓库结构
+## 仓库结构
 
 | 路径 | 内容 |
 |---|---|
-| `app/` | APK 打包工程（manifest + gradle）；**全部逻辑在一个 Rust 动态库里** |
-| `runtime/` | 运行时本体与构建工具（Rust workspace，`no_std` 路径层 + `nr-tools`） |
-| `tools/loader/` | loader 手术：`init-hook.S`、构建脚本、Python 参考实现 |
-| `tools/device-tests/` | 设备验收脚本（`run-as` 下跑矩阵、越界、gcc/make） |
-| `tools/probe-app/` | 最小探针应用，只用于测试 |
-| `binaries/` | 产物指纹文件（sha256 锚点） |
-| `docs/` | 文档、设计与设备证据 |
+| `runtime/` | 纯 Rust 运行时：loader 侧 shim、exec、PTY、信号、路径解析 |
+| `app-rs/` | 纯 Rust 壳应用（NativeActivity），窗口 / Surface / 输入 |
+| `tools/` | 构建工具（`nr-tools`）、设备测试脚本 |
+| `docs/` | 设计、证据、验收记录 |
+| `docs/design/evidence/` | 每一步的设备原始输出，结论都能指回这里 |
+| [`QUICKSTART.md`](QUICKSTART.md) | 从零跑起来 |
+| [`CHANGELOG.md`](CHANGELOG.md) | 版本与改动记录 |
 
-## 9. 文档
+---
 
-| 文档 | 内容 |
-|---|---|
-| [架构](docs/ARCHITECTURE.md) | 分层、适配点、路径解析、已知边界 |
-| [实测数据](docs/RESULTS.md) | 功能矩阵、越界测试、性能数据、对照与未验证项 |
-| [工程设计](docs/ENGINEERING.md) | 组件划分、构建工具、产物指纹、语言构成 |
-| [后续工作](docs/FUTURE-WORK.md) | GPU/音频桥、发行形态、厂商接口可行度、待验证前提 |
-| [设计索引](docs/design/) | 设计文档与证据的入口 |
-| [长期记忆](docs/PROJECT-MEMORY.md) | 接手手册：目标、硬约束、路线变更、参考仓库、操作纪律 |
-| [运行时方案](docs/design/runtime.md) | 运行时架构、验收标准、剩余工作 |
-| [目标](docs/GOALS.md) | 权威目标：已完成项、剩余工作、验收标准、回滚包指纹 |
-| [状态](docs/STATUS.md) | 逐日进度、修掉的 bug、待办 |
-| [生命周期规格](docs/design/lifecycle.md) | 会话 / PTY / fd / 信号 / 关停的完整契约与不变量 |
-| [libc 内部调用](docs/design/libc-interpose.md) | 槽位方案设计（未实现） |
-| [证据](docs/design/evidence/) | 01–82：设备原始输出，与方案引用一一对应 |
-| [参考仓库原始清单](docs/design/reference-request-20261122.md) | 用户提供的 12 类、120 个条目，逐字保存 |
-| [参考仓库审计](docs/design/references.md) | 真实路径、可用性、已拉取 commit 与借鉴结论 |
-| [参考仓库逐条矩阵](docs/design/reference-audit-matrix.md) | 原始 120 条逐项对应：69 GitHub + 45 官方上游/组件 + 6 UNKNOWN |
-| [参考仓库机器记录](docs/design/reference-audit-20261123.json) | 120 条审计快照：来源、级别、star、push 日期、状态 |
-| [变更记录](CHANGELOG.md) | 版本与已完成事项 |
+## 许可
 
-开发者上手请见 [QUICKSTART.md](QUICKSTART.md)。
-
-## 10. SoC 直连现状（2026-11-23）
-
-| 项 | 状态 |
-|---|---|
-| `/dev/mali0` | guest 可 rw 打开；kbase UAPI 11.38 |
-| 命令面 | 26 条，取自厂商 `libGLES_mali.so`（r32p1）反汇编，不是猜 header |
-| `JOB_SUBMIT` | `0x40108002`（W,16）：实测 EINVAL（命令可达，参数被拒），不是 ENOTTY |
-| 显存 | `mem_alloc` + `mmap` 实测可分配并 CPU 读写（`prot` 必须等于 flags 低两位） |
-| 上游 Mesa | 25.2 与 main 均**没有** kbase 后端；Ubuntu 25.2.8 panfrost 模型表也无 G77/G78 |
-| 当前 GPU 路线 | FristOneRR PanVK（Mesa 26.3.0-devel，glibc 构建）+ 发行版 Zink；DRM 语义层保留为后备 |
-| PanVK / Zink 验证 | `vulkaninfo` + 纯 Rust probe：Mali-G77 / logical device / compute job / 离屏 graphics draw + GPU 像素回读 PASS；Zink surfaceless renderer 也报 Mali-G77；Android 窗口 3-buffer ring 连续 12 帧零拷贝上屏，eventfd acquire bridge 连续 120 帧并完成 5,600 帧短 soak；PanVK `vkGetFenceFdKHR(SYNC_FD)` 已接到同一 SurfaceControl ring，120 帧全部使用真实 sync_file（evidence 58）；3-slot 持久资源池完成 10,000 帧 / 665.385 秒长稳，fd/RSS 无累积增长（evidence 59）；WSI / SurfaceFlinger 等待 trace 尚未验收 |
-| 显示 / 视频 / 音频 | 显示已完成 AHB→dmabuf→guest PanVK 导入、GPU 访问、3-buffer ring 零拷贝上屏、release-fence 复用、eventfd fallback 120 帧，以及 PanVK 真实 `SYNC_FD` 接入 SurfaceControl ring 120 帧（[evidence 49](docs/design/evidence/49-ahb-dmabuf-handle.md)、[evidence 50](docs/design/evidence/50-guest-dmabuf-panvk-import.md)、[evidence 53](docs/design/evidence/53-surfacecontrol-zero-copy.md)、[evidence 54](docs/design/evidence/54-surfacecontrol-ring.md)、[evidence 55](docs/design/evidence/55-eventfd-acquire-fence.md)、[evidence 56](docs/design/evidence/56-eventfd-ring-soak.md)、[evidence 57](docs/design/evidence/57-pending-kbase-syncfile.md)、[evidence 58](docs/design/evidence/58-panvk-syncfd-ring.md)、[evidence 59](docs/design/evidence/59-panvk-pooled-syncfd-soak.md)、[evidence 73](docs/design/evidence/73-ahb-kbase-sticky-panvk.md)）；真实 MediaCodec 三平面 YUV AHB 的 PanVK 导入与三平面 GPU 哈希校验已通过（[evidence 74](docs/design/evidence/74-media-codec-yuv-ahb-panvk.md)），150 帧逐帧交接完成（[evidence 75](docs/design/evidence/75-media-codec-yuv-ahb-per-frame.md)），并已收敛为单连接、最多 3 个在途 AImage 的持久交接（[evidence 76](docs/design/evidence/76-video-ahb-persistent-stream.md)）；音频已通设备枚举、音量、持续 AAudio 与 PulseAudio → Rust relay → `paplay`，并完成 610 秒连续会话（[evidence 60](docs/design/evidence/60-audio-aaudio-bridge.md)、[evidence 62](docs/design/evidence/62-audio-pulse-aaudio-continuous.md)、[evidence 63](docs/design/evidence/63-audio-aaudio-10min-final.md)）；SurfaceFlinger 内部等待 trace、预分配 3-slot 视频 import ring、YUV→RGB、VA-API/GStreamer/Chromium、AV 同步仍未完成 |
-
-细节与原始输出：[evidence 35](docs/design/evidence/35-gpu-ioctl-surface-from-vendor-driver.md)、
-[evidence 36](docs/design/evidence/36-gpu-route-reality-check.md)、
-[evidence 45](docs/design/evidence/45-panfrost-loads-over-kbase.md)、
-[evidence 46](docs/design/evidence/46-panvk-fristonerr-kbase-g77.md)、
-[evidence 47](docs/design/evidence/47-zink-eglinfo-surfaceless.md)、
-[evidence 48](docs/design/evidence/48-panvk-extension-scan.md)、
-[evidence 49](docs/design/evidence/49-ahb-dmabuf-handle.md)、
-[evidence 50](docs/design/evidence/50-guest-dmabuf-panvk-import.md)、
-[evidence 53](docs/design/evidence/53-surfacecontrol-zero-copy.md)、
-[evidence 54](docs/design/evidence/54-surfacecontrol-ring.md)、
-[evidence 55](docs/design/evidence/55-eventfd-acquire-fence.md)、
-[evidence 56](docs/design/evidence/56-eventfd-ring-soak.md)、
-[evidence 57](docs/design/evidence/57-pending-kbase-syncfile.md)、
-[evidence 58](docs/design/evidence/58-panvk-syncfd-ring.md)。
-
-## 11. 许可与来源
-
-路径适配的对象是 Ubuntu 24.04 的 glibc 二进制（LGPL），
-其衍生文件仅用于固定被测产物的身份，来源与许可说明见 [LICENSE](LICENSE)。
+见 [LICENSE](LICENSE)。

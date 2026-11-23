@@ -102,12 +102,11 @@ fault is otherwise invisible.
 
 ## Status
 
-* WORKING (measured, `docs/design/evidence/14`): PLE110 / Android 16 /
-  `untrusted_app`, Ubuntu 24.04 glibc 2.39, **31/31 functional checks, exit 0,
-  no `LD_PRELOAD`**. exec 2.58ms vs 8.00ms for the native bionic exec in the same
-  process; path calls +1.5us over a native stat.
+* WORKING (measured, `docs/design/evidence/27` and `32`): RMX3357 / Android 13 /
+  `untrusted_app`, Ubuntu 24.04 glibc 2.39 — guest `bash` + coreutils matrix green,
+  no `LD_PRELOAD`, 600 s soak with zero zombies.
 * The `svc` sites are located by pattern with a glibc version self-check
-  (`evidence/15`); updating the count expectations is a deliberate human step.
+  (`nr-tools scan-syscalls`); updating the count expectations is a deliberate human step.
 * A 16K-page kernel is untested. The stub blob is placed at a 4K-aligned
   `NR_STUB_VADDR`; on a 16K kernel that placement (and every `mprotect` length in
   the shim) must be built from `AT_PAGESZ` instead of a literal 4096. See

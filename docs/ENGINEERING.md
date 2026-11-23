@@ -59,10 +59,10 @@
 
 | 工具 | 作用 | 校验方式 |
 |---|---|---|
-| `nr-tools scan-syscalls` | 定位并改写启动期系统调用点 | 迁移时与 Python 参考实现逐行一致、产物同哈希（evidence 22） |
-| `nr-tools embed` | 生成成品动态链接器 | 迁移时与 Python 参考实现产物同哈希（evidence 22） |
+| `nr-tools scan-syscalls` | 定位并改写启动期系统调用点 | 产物与回归测试的 sha256 一致 |
+| `nr-tools embed` | 生成成品动态链接器 | 产物与回归测试的 sha256 一致 |
 | `nr-tools rootfs` | 在主机上生成 guest rootfs（包集 → 目录 → 打补丁的 libc → tar），并可用同一镜像的 `ld.so` 产出配套 loader | 产物可结构校验：253 个 `usr/bin`、usr-merge 链接、`dpkg` 状态库 61 项、libc 两处 `nop` |
-| `nr-tools provision` | 供应 gcc / make 工具链 | 迁移时与 sh+Python 版本阶段目录逐文件比对，2,866 项内容差异为零（evidence 23） |
+| `nr-tools provision` | 供应 gcc / make 工具链 | 阶段目录逐文件比对，2,866 项内容差异为零 |
 
 三个工具都是唯一实现。迁移期间的 Python / sh 参考实现在逐字节对拍通过后已从工作树删除
 （`git show v0.1.0:tools/loader/nr-embed.py` 可取回），构建路径上不存在第二种实现。
@@ -82,8 +82,7 @@
 
 | 项 | 版本 |
 |---|---|
-| 设备（历史测值） | PLE110（OPPO），Android 16，内核 6.6.118，页大小 4096 |
-| 设备（当前目标机） | RMX3357（MT6893 / Mali-G77），Android 13，内核 4.19.191，页大小 4096 |
+| 设备 | RMX3357（MT6893 / Mali-G77），Android 13，内核 4.19.191，页大小 4096 |
 | 安全域 | `untrusted_app`（uid 10512 / u0_a302），无 root、无 BL 解锁、无虚拟化 |
 | Guest | Ubuntu 24.04，glibc 2.39 |
 | 工具链 | Rust stable（`aarch64-unknown-linux-gnu`、`aarch64-linux-android`）、NDK r27+、JDK 17+ |
@@ -92,4 +91,4 @@
 
 - 未实测不写通过；证据保存在 `design/evidence/`，编号被方案与文档引用。
 - 每条结论标注为事实、推断或未知。
-- 构建工具的任何改动必须与参考实现逐字节一致，否则视为回归。
+- 构建工具的任何改动必须与仓库里的 sha256 基线一致，否则视为回归。

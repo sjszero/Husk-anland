@@ -5,7 +5,7 @@
 
 ## 1 想测什么
 
-`docs/design/display-frame-prior-art.md` 的未决项：mutter 46 的 ScreenCast 流到底是
+未决项：mutter 46 的 ScreenCast 流到底是
 **dmabuf** 还是 **system memory**（BGRx）。这决定帧那一侧能不能零拷贝。计划：
 `pipewire` + `gnome-shell --headless` + `husk-rd sc` → `pw-cli enum-params <node>
 Spa:Enum:ParamId:Buffers`。

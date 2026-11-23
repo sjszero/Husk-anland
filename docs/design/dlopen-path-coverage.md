@@ -13,50 +13,15 @@ PLT 由动态链接器就近解析到 libc，路径没有被改写。
 被这一步挡住的东西：gdk-pixbuf 的 image loader、GIO module、libspa 插件、
 GStreamer 插件、PAM/NSS module、GTK 的 immodule —— 全是插件式组件。
 
-## 2 先看前人怎么做
+## 2 结论先写
 
-### proroot（`coderredlab/proroot`，闭源二进制，只审计不采用）
+覆盖 dlopen 的对象，只有两个方向：
 
-五个 `.so`：`libproroot.so`（launcher）/ `-runtime` / `-linker` / `-bridge` /
-`-stub-loader`。README 自己写明是 **LD_PRELOAD** 路线。把
-`libproroot-runtime.so` 的动态符号表拉出来（`llvm-nm -D --defined-only`，
-**259 个定义**），它对我们这个问题的答案写在符号名里：
+1. **拦 `dlopen` 本身**：调真正的 `dlopen`，拿到新对象后，只对它做一遍 GOT 改写。
+   不用拦任何 syscall，成本只在加载那一刻。
+2. 拦每个 syscall —— 与「运行时零 syscall 拦截」的硬约束冲突，直接排除。
 
-- 路径全家桶：`open open64 openat openat64 __open_2 __open_nocancel __open64_nocancel
-  __openat_2 fopen fopen64 stat stat64 lstat lstat64 fstat fstat64 fstatat fstatat64
-  statx __xstat __xstat64 __lxstat __lxstat64 __fxstat __fxstat64 statfs statfs64
-  statvfs statvfs64 access faccessat readlink readlinkat __readlink_chk __readlinkat_chk
-  realpath __realpath_chk opendir scandir scandir64 mkdir mkdirat rmdir unlink unlinkat
-  rename renameat renameat2 symlink symlinkat link linkat chmod fchmodat chown lchown
-  fchownat truncate utimensat utimes mkstemp* mkostemp* mkdtemp getxattr setxattr …`
-- 动态加载本身：**`dlopen` `dlsym` `dl_iterate_phdr` `dladdr` `dladdr1` `dlinfo` `dlerror`**
-- 还有 `proroot_patch_should_scan_object`、`proroot_resolve_linker_symbol`、
-  `translate_path`、`detranslate_path` —— 即**每次 dlopen 之后重新扫一遍新出现的对象**。
-
-结论（INFERENCE，依据是上面这些导出名 + README）：proroot 覆盖 dlopen 的办法是
-「拦 dlopen → 调真的 → 对新对象再做一遍 patch」，而不是「拦每一个 syscall」。
-
-### Shroot（`mekhontsev/shroot`，GPL-3.0，有源码）
-
-`interception.md` 写的是 **选择性 seccomp TRACE + USER_NOTIF**，加一层
-「lazy SVC 协作式改写」。它确实解决得最彻底（连 libc 内部直接调用都盖住），但：
-
-1. 它要求宿主内核 **5.15 或更新**（README 的 Requirements），本机是 **4.19.191**；
-2. 它是 syscall 拦截模型，与我们「运行时零 syscall 拦截、只在必要处 interpose」
-   这条硬约束正面冲突。
-
-所以 Shroot 只作为**语义对照**（它的 descriptor/inode store、mount-views 文档解释了
-guest 文件名到宿主的映射该做到什么程度），不采纳它的机制。
-
-### 顺带否掉的两条
-
-- **整包 LD_PRELOAD 一个路径层**：可行（`v4l2-preload` / `drm-preload` 就是这个手法），
-  但会得到**两份 shim 状态**（loader 里的那份 + preload 那份）：fd→guest 路径表、
-  cwd、`/proc/self/fd` 仿真各记一份，跨层调用容易出现「A 打开的 fd 在 B 里查不到」。
-  dynamic loader 的 preload 还要求每个入口都带上正确的 `LD_PRELOAD`（exec、posix_spawn、
-  gdb、system() 全都要）。
-- **按 `libc-interpose.md` 把 redirect 烘进 libc**：那条仍然要做，但它解决的是
-  **libc 自己内部的直接调用**（没有 GOT 槽可改），不是 dlopen。两件不同的事。
+选 1。实现见 §3。
 
 ## 3 采用的实现
 
