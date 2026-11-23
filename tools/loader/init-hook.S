@@ -68,13 +68,47 @@ nr_dl_init_hook:
 	add	x20, x19, x20
 
 	/* the embedded object arrives read-only; its .data/.bss/GOT must be
-	 * writable before nr_boot touches anything, including its own statics */
-	ldr	x0, [x20, #24]
-	add	x0, x19, x0
-	ldr	x1, [x20, #32]
+	 * writable before nr_boot touches anything, including its own statics.
+	 *
+	 * The shim is linked with a 4 KiB maximum page size, so its writable
+	 * segment begins on a 4 KiB boundary - which is not necessarily a 16 KiB
+	 * or 64 KiB one, and mprotect() returns EINVAL for a start address that is
+	 * not aligned to the *kernel's* page size. The kernel page size is not
+	 * known at this point (the auxv has not been read yet), so ask for 4, then
+	 * 16, then 64 KiB: every one of those is a legal request on any of those
+	 * kernels, and the kernel accepts exactly the ones it can honour. Ignoring
+	 * the result here is what turned a 16 KiB kernel into a silent SIGSEGV on
+	 * the first write to our own statics. */
+	ldr	x5, [x20, #24]
+	add	x5, x19, x5			/* rw_start, absolute */
+	ldr	x6, [x20, #32]
+	add	x6, x5, x6			/* rw_end, absolute */
+	mov	x9, #4096
+.Lmp_try:
+	neg	x10, x9
+	sub	x11, x9, #1
+	and	x0, x5, x10			/* start rounded down */
+	add	x1, x6, x11
+	and	x1, x1, x10			/* end rounded up */
+	sub	x1, x1, x0
 	mov	x2, #3				/* PROT_READ|PROT_WRITE */
 	mov	x8, #226			/* mprotect */
 	svc	#0
+	cbz	x0, .Lmp_ok
+	lsl	x9, x9, #2			/* 4 KiB -> 16 KiB -> 64 KiB */
+	cmp	x9, #0x10000
+	b.ls	.Lmp_try
+	/* no page size worked: fail loudly, never interpose a read-only object */
+	adr	x0, .Lmsg_mp
+	mov	x1, #(.Lmsg_mp_end - .Lmsg_mp)
+	mov	x2, #2
+	mov	x8, #64				/* write */
+	svc	#0
+	mov	x0, #98
+	mov	x8, #94				/* exit_group */
+	svc	#0
+	b	.
+.Lmp_ok:
 
 	mov	x0, x19				/* base */
 	ldr	x1, [sp, #16]			/* main_map */
@@ -141,6 +175,10 @@ nr_fault:
 	svc	#0
 	b	.
 
+
+.Lmsg_mp:
+	.ascii "nr-hook: mprotect of the shim's writable segment failed at 4K, 16K and 64K\n"
+.Lmsg_mp_end:
 	.balign 8
 nr_hook_data:
 	.quad	0x4e52484b4f4f4b31		/* "NRHOOK1" */

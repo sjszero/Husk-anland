@@ -501,9 +501,25 @@ const LD_START_BL: usize = 0x1AA74; // `bl _dl_init` inside _start
 const LD_DL_INIT: u64 = 0x4BB0; // its target == _dl_init
 const LD_TEXT_END: u64 = 0x41348; // end of the loader's last segment (vaddr)
 const F_BASE: u64 = 0x32000; // where the shim lands inside the loader
-const V_BASE: u64 = 0x42000;
-/// Alignment declared for the shim's segment. V_BASE - F_BASE == SEG_ALIGN, so
-/// the segment is congruent modulo every page size Android ships (4K/16K/64K).
+/// Start of the shim's segment, and the reason it is not `F_BASE + SEG_ALIGN`:
+///
+/// the kernel maps every PT_LOAD from `ALIGN_DOWN(p_vaddr, page)` to
+/// `ALIGN_UP(p_vaddr + p_memsz, page)`, using *the kernel's* page size. The
+/// loader's last segment ends at 0x41348, so on a 4 KiB kernel it is mapped up
+/// to 0x42000 and a shim at 0x42000 starts exactly where it stops. On a 16 KiB
+/// kernel that same last segment is mapped up to 0x44000, and a shim at 0x42000
+/// would be mapped from 0x40000 - i.e. MAP_FIXED over the last 16 KiB of the
+/// loader's own .data/.got. The result is a SIGSEGV inside ld.so's startup
+/// before a single syscall of ours runs (measured 2026-11-23: 4 KiB device fine,
+/// 16 KiB kernel dead after execve with SEGV_ACCERR, no mprotect in strace).
+///
+/// So the shim must live at least one 64 KiB page above the loader's last
+/// segment, while staying congruent with F_BASE modulo SEG_ALIGN.
+const V_BASE: u64 = 0x52000;
+/// Alignment declared for the shim's segment: the largest page size we support.
+/// `(V_BASE - F_BASE) % SEG_ALIGN == 0` keeps p_offset == p_vaddr (mod SEG_ALIGN),
+/// and `V_BASE >= ALIGN(LD_TEXT_END, SEG_ALIGN)` keeps the shim out of the
+/// loader's own pages at every one of 4K/16K/64K.
 const SEG_ALIGN: u64 = 0x10000;
 
 /// Deliberately not interposed: our own entry points and compiler glue.
@@ -1178,11 +1194,14 @@ fn main() -> ExitCode {
             if args.len() < 5 {
                 die("usage: nr-tools embed <shim.so> <loader.orig> <hook.bin> <out.so>");
             }
-            if V_BASE < align(LD_TEXT_END, PAGE) {
-                die("shim would overlap the loader's own segments");
+            // Overlap is decided with the kernel's page size, not ours: on a
+            // 16K/64K kernel the loader's last segment is mapped past its
+            // p_memsz, so the comparison must use the largest page we support.
+            if V_BASE < align(LD_TEXT_END, SEG_ALIGN) + (F_BASE % SEG_ALIGN) {
+                die("shim would share a page with the loader's own segments");
             }
-            if F_BASE % PAGE != V_BASE % PAGE {
-                die("offset/vaddr must be congruent");
+            if F_BASE % SEG_ALIGN != V_BASE % SEG_ALIGN {
+                die("offset/vaddr must be congruent modulo the largest page size");
             }
             let s = embed(&args[1], &args[2], &args[3], &args[4]);
             // The output must be loadable on a 16 KiB-page kernel, not just on
