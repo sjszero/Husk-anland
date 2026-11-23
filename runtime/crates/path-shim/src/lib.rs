@@ -30,6 +30,10 @@ extern "C" {
     fn posix_spawnattr_getsigmask(attr: *const u8, sigmask: *mut u8) -> CInt;
     fn posix_spawnattr_getsigdefault(attr: *const u8, sigdefault: *mut u8) -> CInt;
     fn malloc(size: CSizet) -> *mut u8;
+    fn realloc(ptr: *mut u8, size: CSizet) -> *mut u8;
+    fn free(ptr: *mut u8);
+    fn readdir(dirp: *mut u8) -> *mut u8;
+    fn closedir(dirp: *mut u8) -> CInt;
 }
 
 // `bcmp` is what core::slice's compare_bytes calls on linux. glibc keeps it as a
@@ -5358,6 +5362,145 @@ pub unsafe extern "C" fn opendir(path: *const CChar) -> *mut u8 {
         rc::close(fd);
     }
     d
+}
+
+// glibc's scandir() is a separate entry point and does not go through opendir.
+// dpkg-deb uses it to enumerate its temporary control directory, so without
+// this interposer the create happens in the guest but the scan happens in the
+// host /tmp (measured on the RMX3357 test device).
+type ScandirSelect = Option<unsafe extern "C" fn(*const u8) -> CInt>;
+type ScandirCompar = Option<unsafe extern "C" fn(*const *const u8, *const *const u8) -> CInt>;
+
+unsafe fn scandir_free(list: *mut *mut u8, count: usize) {
+    if list.is_null() {
+        return;
+    }
+    let mut i = 0;
+    while i < count {
+        free(*list.add(i));
+        i += 1;
+    }
+    free(list as *mut u8);
+}
+
+unsafe fn scandir_sort(list: *mut *mut u8, count: usize, compar: ScandirCompar) {
+    let Some(compar) = compar else { return };
+    let mut i = 1usize;
+    while i < count {
+        let value = *list.add(i);
+        let mut j = i;
+        while j > 0 {
+            let prev = *list.add(j - 1);
+            let lhs = &prev as *const *mut u8 as *const *const u8;
+            let rhs = &value as *const *mut u8 as *const *const u8;
+            if compar(lhs, rhs) <= 0 {
+                break;
+            }
+            *list.add(j) = prev;
+            j -= 1;
+        }
+        *list.add(j) = value;
+        i += 1;
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn scandir(
+    path: *const CChar,
+    namelist: *mut *mut *mut u8,
+    select: ScandirSelect,
+    compar: ScandirCompar,
+) -> CInt {
+    if namelist.is_null() {
+        *__errno_location() = 22; // EINVAL
+        return -1;
+    }
+    *namelist = core::ptr::null_mut();
+
+    let dir = opendir(path);
+    if dir.is_null() {
+        return -1;
+    }
+
+    let item_size = core::mem::size_of::<*mut u8>();
+    let mut capacity = 8usize;
+    let mut list = malloc(capacity * item_size) as *mut *mut u8;
+    if list.is_null() {
+        closedir(dir);
+        *__errno_location() = 12; // ENOMEM
+        return -1;
+    }
+
+    let mut count = 0usize;
+    loop {
+        *__errno_location() = 0;
+        let ent = readdir(dir);
+        if ent.is_null() {
+            let error = *__errno_location();
+            if error != 0 {
+                scandir_free(list, count);
+                closedir(dir);
+                *__errno_location() = error;
+                return -1;
+            }
+            break;
+        }
+        if let Some(select) = select {
+            if select(ent) == 0 {
+                continue;
+            }
+        }
+
+        if count == capacity {
+            let Some(next) = capacity.checked_mul(2) else {
+                scandir_free(list, count);
+                closedir(dir);
+                *__errno_location() = 12; // ENOMEM
+                return -1;
+            };
+            let Some(bytes) = next.checked_mul(item_size) else {
+                scandir_free(list, count);
+                closedir(dir);
+                *__errno_location() = 12; // ENOMEM
+                return -1;
+            };
+            let grown = realloc(list as *mut u8, bytes) as *mut *mut u8;
+            if grown.is_null() {
+                scandir_free(list, count);
+                closedir(dir);
+                *__errno_location() = 12; // ENOMEM
+                return -1;
+            }
+            list = grown;
+            capacity = next;
+        }
+
+        // aarch64 glibc dirent: d_ino +0, d_off +8, d_reclen +16,
+        // d_type +18, d_name +19. Copy the kernel-provided record verbatim so
+        // the caller owns an ordinary libc dirent and can free() it itself.
+        let reclen = core::ptr::read_unaligned(ent.add(16) as *const u16) as usize;
+        if reclen < 19 {
+            scandir_free(list, count);
+            closedir(dir);
+            *__errno_location() = 5; // EIO
+            return -1;
+        }
+        let copy = malloc(reclen);
+        if copy.is_null() {
+            scandir_free(list, count);
+            closedir(dir);
+            *__errno_location() = 12; // ENOMEM
+            return -1;
+        }
+        core::ptr::copy_nonoverlapping(ent, copy, reclen);
+        *list.add(count) = copy;
+        count += 1;
+    }
+
+    closedir(dir);
+    scandir_sort(list, count, compar);
+    *namelist = list;
+    count as CInt
 }
 
 // ---------------------------------------------------------------------------
