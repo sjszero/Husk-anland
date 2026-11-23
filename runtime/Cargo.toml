@@ -17,6 +17,7 @@ members = [
     "crates/nr-tools",
     "crates/path-shim",
     "crates/logd",
+    "crates/husk-init",
     "crates/ldconfig",
     "crates/usermgr",
     "crates/runtime-core",

@@ -1,0 +1,9 @@
+[package]
+name = "husk-init"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "husk-init"
+path = "src/main.rs"
