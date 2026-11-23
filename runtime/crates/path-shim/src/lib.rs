@@ -7958,3 +7958,1533 @@ pub unsafe extern "C" fn fcntl(fd: CInt, cmd: CInt, arg: usize) -> CInt {
     }
     ret_or_errno(r)
 }
+
+// ------------------------------------------------------- SysV IPC: shm ---
+//
+// The kernel here has SysV IPC compiled out: `shmget`, `semget` and `msgget`
+// answer ENOSYS even from a plain shell, and `/proc/sysvipc` does not exist.
+// A container still has to hand programs shared memory the old way — X11,
+// PostgreSQL, Qt's shared pixmaps and a lot of older daemons all ask for it —
+// so the service is rebuilt from what a namespace of this shape does have:
+// files and mmap.
+//
+//   /run/husk/ipc/shm/<id>     the segment
+//   /run/husk/ipc/shm/<id>.m   key size mode cuid cgid cpid ctime rmid
+//   /run/husk/ipc/shm/<id>.a   one line per attached (host) pid
+//   /run/husk/ipc/keys         "key id" pairs
+//   /run/husk/ipc/nextid       the id counter
+//   /run/husk/ipc/lock         flock() target for every metadata operation
+//
+// `shmat` is `mmap(MAP_SHARED)` on the segment, so the pages really are shared
+// between guest processes and the kernel does the coherence; only the
+// bookkeeping is ours.
+
+const IPC_ROOT: &[u8] = b"/run/husk/ipc\0";
+const IPC_SHM: &[u8] = b"/run/husk/ipc/shm\0";
+const IPC_LOCK: &[u8] = b"/run/husk/ipc/lock\0";
+const IPC_NEXTID: &[u8] = b"/run/husk/ipc/nextid\0";
+const IPC_KEYS: &[u8] = b"/run/husk/ipc/keys\0";
+
+const SYS_FLOCK_NR: usize = 32;
+const SYS_MUNMAP_NR: usize = 215;
+
+const IPC_CREAT: CInt = 0o1000;
+const IPC_EXCL: CInt = 0o2000;
+const SHM_RDONLY: CInt = 0o10000;
+const IPC_RMID: CInt = 0;
+const IPC_SET: CInt = 1;
+const IPC_STAT: CInt = 2;
+const IPC_INFO: CInt = 3;
+const SHM_LOCK: CInt = 11;
+const SHM_UNLOCK: CInt = 12;
+
+#[derive(Clone, Copy)]
+struct ShmMeta {
+    key: i32,
+    size: u64,
+    mode: u32,
+    cuid: u32,
+    cgid: u32,
+    cpid: i32,
+    ctime: i64,
+    rmid: i32,
+}
+
+impl ShmMeta {
+    const fn empty() -> Self {
+        ShmMeta { key: 0, size: 0, mode: 0o660, cuid: 0, cgid: 0, cpid: 0, ctime: 0, rmid: 0 }
+    }
+}
+
+static IPC_LOCKW: AtomicU8 = AtomicU8::new(0);
+// Attached segments of this process: (mapped address, segment id).
+static mut SHM_ATT: [(usize, i32); 64] = [(0, -1); 64];
+
+unsafe fn ipc_lock() {
+    while IPC_LOCKW
+        .compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        core::hint::spin_loop();
+    }
+}
+
+unsafe fn ipc_unlock() {
+    IPC_LOCKW.store(0, Ordering::Release);
+}
+
+unsafe fn ipc_put_dec(out: &mut [u8], at: &mut usize, v: i64) {
+    let mut d = [0u8; 20];
+    let mut n = 0usize;
+    let neg = v < 0;
+    let mut u = if neg { (-(v as i128)) as u64 } else { v as u64 };
+    if u == 0 {
+        d[0] = b'0';
+        n = 1;
+    }
+    while u != 0 {
+        d[n] = b'0' + (u % 10) as u8;
+        u /= 10;
+        n += 1;
+    }
+    if neg {
+        out[*at] = b'-';
+        *at += 1;
+    }
+    while n > 0 {
+        n -= 1;
+        out[*at] = d[n];
+        *at += 1;
+    }
+}
+
+/// Parses whitespace separated integers; returns how many it filled.
+unsafe fn ipc_parse_ints(buf: &[u8], out: &mut [i64]) -> usize {
+    let mut n = 0usize;
+    let mut i = 0usize;
+    while i < buf.len() && n < out.len() {
+        while i < buf.len() && (buf[i] == b' ' || buf[i] == b'\n' || buf[i] == b'\t') {
+            i += 1;
+        }
+        if i >= buf.len() {
+            break;
+        }
+        let mut neg = false;
+        if buf[i] == b'-' {
+            neg = true;
+            i += 1;
+        }
+        let mut v = 0i64;
+        let mut any = false;
+        while i < buf.len() && buf[i].is_ascii_digit() {
+            v = v * 10 + (buf[i] - b'0') as i64;
+            i += 1;
+            any = true;
+        }
+        if !any {
+            break;
+        }
+        out[n] = if neg { -v } else { v };
+        n += 1;
+    }
+    n
+}
+
+unsafe fn ipc_mkdirs() {
+    mkdirat(AT_FDCWD, IPC_ROOT.as_ptr() as *const CChar, 0o700);
+    mkdirat(AT_FDCWD, IPC_SHM.as_ptr() as *const CChar, 0o700);
+}
+
+/// Takes the metadata lock. Returns the descriptor, or -1 with errno set.
+unsafe fn ipc_lockf() -> CInt {
+    let fd = openat(AT_FDCWD, IPC_LOCK.as_ptr() as *const CChar, 0o2 | 0o100, 0o600);
+    if fd < 0 {
+        return -1;
+    }
+    let r = syscall4(SYS_FLOCK_NR, fd as usize, 2 /* LOCK_EX */, 0, 0);
+    if r < 0 {
+        rc::close(fd);
+        return ret_or_errno(r);
+    }
+    fd
+}
+
+unsafe fn ipc_unlockf(fd: CInt) {
+    syscall4(SYS_FLOCK_NR, fd as usize, 8 /* LOCK_UN */, 0, 0);
+    rc::close(fd);
+}
+
+/// Copies `pref` + decimal `v` + `suf` (NUL terminated) into `out`.
+unsafe fn ipc_name(pref: &[u8], v: i64, suf: &[u8], out: &mut [u8; 96]) -> usize {
+    let mut at = 0usize;
+    out[..pref.len()].copy_from_slice(pref);
+    at += pref.len();
+    ipc_put_dec(out, &mut at, v);
+    out[at..at + suf.len()].copy_from_slice(suf);
+    at += suf.len();
+    out[at] = 0;
+    at
+}
+
+unsafe fn ipc_read_file(path: &[u8], buf: &mut [u8]) -> isize {
+    let fd = openat(AT_FDCWD, path.as_ptr() as *const CChar, 0, 0);
+    if fd < 0 {
+        return -1;
+    }
+    let r = syscall4(SYS_READ, fd as usize, buf.as_mut_ptr() as usize, buf.len(), 0) as isize;
+    rc::close(fd);
+    r
+}
+
+unsafe fn ipc_write_file(path: &[u8], data: &[u8]) -> CInt {
+    let fd = openat(
+        AT_FDCWD,
+        path.as_ptr() as *const CChar,
+        0o1 | 0o100 | 0o1000, // WRONLY|CREAT|TRUNC
+        0o600,
+    );
+    if fd < 0 {
+        return -1;
+    }
+    let mut left = data.len();
+    let mut p = data.as_ptr();
+    while left > 0 {
+        let w = syscall4(SYS_WRITE, fd as usize, p as usize, left, 0) as isize;
+        if w <= 0 {
+            rc::close(fd);
+            return set_errno(5);
+        }
+        left -= w as usize;
+        p = p.add(w as usize);
+    }
+    rc::close(fd);
+    0
+}
+
+unsafe fn shm_meta_path(id: i32, out: &mut [u8; 96]) -> usize {
+    ipc_name(b"/run/husk/ipc/shm/", id as i64, b".m\0", out);
+    out.iter().position(|c| *c == 0).unwrap_or(0)
+}
+
+unsafe fn shm_read_meta(id: i32, m: &mut ShmMeta) -> bool {
+    let mut p = [0u8; 96];
+    let n = shm_meta_path(id, &mut p);
+    let mut buf = [0u8; 256];
+    let r = ipc_read_file(&p[..n], &mut buf);
+    if r <= 0 {
+        return false;
+    }
+    let mut v = [0i64; 8];
+    if ipc_parse_ints(&buf[..r as usize], &mut v) < 8 {
+        return false;
+    }
+    *m = ShmMeta {
+        key: v[0] as i32,
+        size: v[1] as u64,
+        mode: v[2] as u32,
+        cuid: v[3] as u32,
+        cgid: v[4] as u32,
+        cpid: v[5] as i32,
+        ctime: v[6],
+        rmid: v[7] as i32,
+    };
+    true
+}
+
+unsafe fn shm_write_meta(id: i32, m: &ShmMeta) -> CInt {
+    let mut p = [0u8; 96];
+    let n = shm_meta_path(id, &mut p);
+    let mut b = [0u8; 160];
+    let mut at = 0usize;
+    for v in [
+        m.key as i64,
+        m.size as i64,
+        m.mode as i64,
+        m.cuid as i64,
+        m.cgid as i64,
+        m.cpid as i64,
+        m.ctime,
+        m.rmid as i64,
+    ] {
+        ipc_put_dec(&mut b, &mut at, v);
+        b[at] = b' ';
+        at += 1;
+    }
+    b[at] = b'\n';
+    at += 1;
+    ipc_write_file(&p[..n], &b[..at])
+}
+
+/// Live attachments, and prunes the entries of processes that are gone.
+unsafe fn shm_att_count(id: i32) -> i64 {
+    let mut p = [0u8; 96];
+    ipc_name(b"/run/husk/ipc/shm/", id as i64, b".a\0", &mut p);
+    let n = p.iter().position(|c| *c == 0).unwrap_or(0);
+    let mut buf = [0u8; 1024];
+    let r = ipc_read_file(&p[..n], &mut buf);
+    let mut count = 0i64;
+    if r > 0 {
+        let mut v = [0i64; 128];
+        let got = ipc_parse_ints(&buf[..r as usize], &mut v);
+        for i in 0..got {
+            let pid = v[i] as CInt;
+            if pid > 0 && syscall4(SYS_KILL_NR, pid as usize, 0, 0, 0) == 0 {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
+unsafe fn shm_att_add(id: i32) {
+    let mut p = [0u8; 96];
+    ipc_name(b"/run/husk/ipc/shm/", id as i64, b".a\0", &mut p);
+    let n = p.iter().position(|c| *c == 0).unwrap_or(0);
+    let fd = openat(
+        AT_FDCWD,
+        p.as_ptr() as *const CChar,
+        0o2 | 0o100 | 0o2000, // RDWR|CREAT|APPEND
+        0o600,
+    );
+    if fd < 0 {
+        return;
+    }
+    let mut b = [0u8; 24];
+    let mut at = 0usize;
+    ipc_put_dec(&mut b, &mut at, syscall4(172, 0, 0, 0, 0) as i64); // getpid
+    b[at] = b'\n';
+    at += 1;
+    syscall4(SYS_WRITE, fd as usize, b.as_ptr() as usize, at, 0);
+    rc::close(fd);
+}
+
+unsafe fn shm_att_remove(id: i32) {
+    let mut p = [0u8; 96];
+    ipc_name(b"/run/husk/ipc/shm/", id as i64, b".a\0", &mut p);
+    let n = p.iter().position(|c| *c == 0).unwrap_or(0);
+    let mut buf = [0u8; 1024];
+    let r = ipc_read_file(&p[..n], &mut buf);
+    if r <= 0 {
+        return;
+    }
+    let me = syscall4(172, 0, 0, 0, 0) as i64;
+    let mut v = [0i64; 128];
+    let got = ipc_parse_ints(&buf[..r as usize], &mut v);
+    let mut out = [0u8; 1024];
+    let mut at = 0usize;
+    let mut dropped = false;
+    for i in 0..got {
+        if !dropped && v[i] == me {
+            dropped = true;
+            continue;
+        }
+        ipc_put_dec(&mut out, &mut at, v[i]);
+        out[at] = b'\n';
+        at += 1;
+    }
+    ipc_write_file(&p[..n], &out[..at]);
+}
+
+unsafe fn keys_find(key: i32) -> i32 {
+    let mut buf = [0u8; 4096];
+    let r = ipc_read_file(IPC_KEYS, &mut buf);
+    if r <= 0 {
+        return -1;
+    }
+    let mut v = [0i64; 512];
+    let got = ipc_parse_ints(&buf[..r as usize], &mut v);
+    let mut i = 0usize;
+    while i + 1 < got {
+        if v[i] as i32 == key {
+            return v[i + 1] as i32;
+        }
+        i += 2;
+    }
+    -1
+}
+
+unsafe fn keys_add(key: i32, id: i32) {
+    let fd = openat(
+        AT_FDCWD,
+        IPC_KEYS.as_ptr() as *const CChar,
+        0o2 | 0o100 | 0o2000,
+        0o600,
+    );
+    if fd < 0 {
+        return;
+    }
+    let mut b = [0u8; 48];
+    let mut at = 0usize;
+    ipc_put_dec(&mut b, &mut at, key as i64);
+    b[at] = b' ';
+    at += 1;
+    ipc_put_dec(&mut b, &mut at, id as i64);
+    b[at] = b'\n';
+    at += 1;
+    syscall4(SYS_WRITE, fd as usize, b.as_ptr() as usize, at, 0);
+    rc::close(fd);
+}
+
+/// Drops key lines that point at `id`. A dead segment must not leave a key
+/// behind: the next `shmget(key, O_CREAT)` would find the stale id, fail to read
+/// its meta, and answer ENOENT instead of creating a fresh segment.
+unsafe fn keys_remove_id(id: i32) {
+    let mut buf = [0u8; 4096];
+    let r = ipc_read_file(IPC_KEYS, &mut buf);
+    if r <= 0 {
+        return;
+    }
+    let mut v = [0i64; 512];
+    let got = ipc_parse_ints(&buf[..r as usize], &mut v);
+    let mut out = [0u8; 4096];
+    let mut at = 0usize;
+    let mut i = 0usize;
+    while i + 1 < got {
+        if v[i + 1] as i32 != id {
+            ipc_put_dec(&mut out, &mut at, v[i]);
+            out[at] = b' ';
+            at += 1;
+            ipc_put_dec(&mut out, &mut at, v[i + 1]);
+            out[at] = b'\n';
+            at += 1;
+        }
+        i += 2;
+    }
+    ipc_write_file(IPC_KEYS, &out[..at]);
+}
+
+/// New id from the counter file. The caller holds the lock.
+unsafe fn ipc_nextid() -> i32 {
+    let mut buf = [0u8; 64];
+    let r = ipc_read_file(IPC_NEXTID, &mut buf);
+    let mut v = [0i64; 1];
+    let cur = if r > 0 && ipc_parse_ints(&buf[..r as usize], &mut v) == 1 {
+        v[0]
+    } else {
+        0
+    };
+    let next = cur + 1;
+    let mut b = [0u8; 24];
+    let mut at = 0usize;
+    ipc_put_dec(&mut b, &mut at, next);
+    b[at] = b'\n';
+    at += 1;
+    ipc_write_file(IPC_NEXTID, &b[..at]);
+    next as i32
+}
+
+unsafe fn shm_destroy(id: i32) {
+    keys_remove_id(id);
+    let mut p = [0u8; 96];
+    ipc_name(b"/run/husk/ipc/shm/", id as i64, b"\0", &mut p);
+    let n = p.iter().position(|c| *c == 0).unwrap_or(0);
+    unlinkat(AT_FDCWD, p.as_ptr() as *const CChar, 0);
+    if shm_meta_path(id, &mut p) > 0 {
+        let n = p.iter().position(|c| *c == 0).unwrap_or(0);
+        unlinkat(AT_FDCWD, p.as_ptr() as *const CChar, 0);
+    }
+    ipc_name(b"/run/husk/ipc/shm/", id as i64, b".a\0", &mut p);
+    let n = p.iter().position(|c| *c == 0).unwrap_or(0);
+    unlinkat(AT_FDCWD, p.as_ptr() as *const CChar, 0);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn shmget(key: i32, size: usize, shmflg: CInt) -> CInt {
+    ipc_mkdirs();
+    let lf = ipc_lockf();
+    if lf < 0 {
+        return -1;
+    }
+    let r = shmget_locked(key, size, shmflg);
+    ipc_unlockf(lf);
+    r
+}
+
+unsafe fn shmget_locked(key: i32, size: usize, shmflg: CInt) -> CInt {
+    let create = shmflg & IPC_CREAT != 0;
+    let excl = shmflg & IPC_EXCL != 0;
+    let private = key == 0;
+    if !private {
+        let id = keys_find(key);
+        if id >= 0 {
+            let mut m = ShmMeta::empty();
+            if !shm_read_meta(id, &mut m) {
+                // The segment died but its key line survived; drop it and let
+                // the create path below do its job.
+                keys_remove_id(id);
+            } else {
+            if create && excl {
+                return set_errno(17); // EEXIST
+            }
+            if size != 0 && size as u64 > m.size {
+                return set_errno(22); // EINVAL
+            }
+            return id;
+            }
+        }
+        if !create {
+            return set_errno(2); // ENOENT
+        }
+    }
+    if size == 0 {
+        return set_errno(22);
+    }
+    let id = ipc_nextid();
+    let mut p = [0u8; 96];
+    ipc_name(b"/run/husk/ipc/shm/", id as i64, b"\0", &mut p);
+    let n = p.iter().position(|c| *c == 0).unwrap_or(0);
+    let fd = openat(
+        AT_FDCWD,
+        p.as_ptr() as *const CChar,
+        0o2 | 0o100, // RDWR|CREAT
+        0o600,
+    );
+    if fd < 0 {
+        return -1;
+    }
+    let tr = syscall4(46 /* ftruncate */, fd as usize, size, 0, 0);
+    rc::close(fd);
+    if tr < 0 {
+        return ret_or_errno(tr);
+    }
+    let mut now = [0i64; 2];
+    syscall4(113, 0, now.as_mut_ptr() as usize, 0, 0); // clock_gettime(REALTIME)
+    let m = ShmMeta {
+        key,
+        size: size as u64,
+        mode: (shmflg as u32) & 0o777,
+        cuid: 0,
+        cgid: 0,
+        cpid: syscall4(172, 0, 0, 0, 0) as i32,
+        ctime: now[0],
+        rmid: 0,
+    };
+    shm_write_meta(id, &m);
+    if !private {
+        keys_add(key, id);
+    }
+    id
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn shmat(shmid: CInt, shmaddr: usize, shmflg: CInt) -> usize {
+    ipc_lock();
+    let r = shmat_inner(shmid, shmaddr, shmflg);
+    ipc_unlock();
+    r
+}
+
+unsafe fn shmat_inner(shmid: CInt, shmaddr: usize, shmflg: CInt) -> usize {
+    let mut m = ShmMeta::empty();
+    if !shm_read_meta(shmid, &mut m) {
+        *__errno_location() = 22;
+        return usize::MAX; // (void *) -1
+    }
+    let mut p = [0u8; 96];
+    ipc_name(b"/run/husk/ipc/shm/", shmid as i64, b"\0", &mut p);
+    let n = p.iter().position(|c| *c == 0).unwrap_or(0);
+    let ro = shmflg & SHM_RDONLY != 0;
+    let fd = openat(
+        AT_FDCWD,
+        p.as_ptr() as *const CChar,
+        if ro { 0 } else { 0o2 },
+        0,
+    );
+    if fd < 0 {
+        return usize::MAX;
+    }
+    let prot = if ro { 1 } else { 1 | 2 };
+    let addr = syscall6(
+        SYS_MMAP,
+        shmaddr,
+        m.size as usize,
+        prot,
+        1, // MAP_SHARED
+        fd as usize,
+        0,
+    );
+    rc::close(fd);
+    if addr as isize == -1 {
+        return usize::MAX;
+    }
+    let slot = SHM_ATT.iter().position(|e| e.1 < 0);
+    if let Some(i) = slot {
+        SHM_ATT[i] = (addr as usize, shmid);
+    }
+    shm_att_add(shmid);
+    addr as usize
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn shmdt(shmaddr: usize) -> CInt {
+    ipc_lock();
+    let mut found = -1i32;
+    for i in 0..SHM_ATT.len() {
+        if SHM_ATT[i].1 >= 0 && SHM_ATT[i].0 == shmaddr {
+            found = SHM_ATT[i].1;
+            SHM_ATT[i] = (0, -1);
+            break;
+        }
+    }
+    ipc_unlock();
+    if found < 0 {
+        return set_errno(22);
+    }
+    let r = syscall4(SYS_MUNMAP_NR, shmaddr, 0, 0, 0);
+    let lf = ipc_lockf();
+    if lf >= 0 {
+        shm_att_remove(found);
+        let mut m = ShmMeta::empty();
+        if shm_read_meta(found, &mut m) && m.rmid != 0 && shm_att_count(found) == 0 {
+            shm_destroy(found);
+        }
+        ipc_unlockf(lf);
+    }
+    ret_or_errno(r)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn shmctl(shmid: CInt, cmd: CInt, buf: usize) -> CInt {
+    let lf = ipc_lockf();
+    if lf < 0 {
+        return -1;
+    }
+    let r = shmctl_locked(shmid, cmd, buf);
+    ipc_unlockf(lf);
+    r
+}
+
+unsafe fn shmctl_locked(shmid: CInt, cmd: CInt, buf: usize) -> CInt {
+    let mut m = ShmMeta::empty();
+    if !shm_read_meta(shmid, &mut m) {
+        return set_errno(22);
+    }
+    match cmd {
+        IPC_STAT => {
+            if buf == 0 {
+                return set_errno(14);
+            }
+            let nattch = shm_att_count(shmid);
+            let b = buf as *mut u8;
+            core::ptr::write_bytes(b, 0, 112);
+            core::ptr::write_unaligned(b as *mut i32, m.key);
+            core::ptr::write_unaligned((b.add(4)) as *mut u32, m.cuid);
+            core::ptr::write_unaligned((b.add(8)) as *mut u32, m.cgid);
+            core::ptr::write_unaligned((b.add(12)) as *mut u32, m.cuid);
+            core::ptr::write_unaligned((b.add(16)) as *mut u32, m.cgid);
+            core::ptr::write_unaligned((b.add(20)) as *mut u32, m.mode);
+            core::ptr::write_unaligned((b.add(48)) as *mut u64, m.size);
+            core::ptr::write_unaligned((b.add(72)) as *mut i64, m.ctime);
+            core::ptr::write_unaligned((b.add(80)) as *mut i32, m.cpid);
+            core::ptr::write_unaligned((b.add(88)) as *mut u64, nattch as u64);
+            0
+        }
+        IPC_SET => {
+            if buf == 0 {
+                return set_errno(14);
+            }
+            let b = buf as *const u8;
+            m.mode = core::ptr::read_unaligned((b.add(20)) as *const u32);
+            m.cuid = core::ptr::read_unaligned((b.add(12)) as *const u32);
+            m.cgid = core::ptr::read_unaligned((b.add(16)) as *const u32);
+            shm_write_meta(shmid, &m)
+        }
+        IPC_RMID => {
+            m.rmid = 1;
+            shm_write_meta(shmid, &m);
+            // The segment dies when the last process detaches; if nobody is
+            // attached the grace period is already over.
+            if shm_att_count(shmid) == 0 {
+                shm_destroy(shmid);
+            }
+            0
+        }
+        SHM_LOCK | SHM_UNLOCK => 0, // nothing to pin: the pages are file-backed
+        IPC_INFO => set_errno(22),
+        _ => set_errno(22),
+    }
+}
+
+// ------------------------------------------------ SysV IPC: semaphores ---
+//
+// Same problem as shared memory (`semget` is ENOSYS here) and the same shape
+// of answer: the counting semaphores live in a small file, and every
+// check-and-update happens under `flock` on that file, so the all-or-nothing
+// rule of `semop` holds across processes without a broker in between.
+//
+//   /run/husk/ipc/sem/<id>     nsems int32 values
+//   /run/husk/ipc/sem/<id>.m   key nsems mode rmid
+
+const IPC_SEM: &[u8] = b"/run/husk/ipc/sem\0";
+const SYS_PREAD: usize = 67;
+const SYS_PWRITE: usize = 68;
+const SEM_MAX: usize = 128;
+const SEM_UNDO: CInt = 0o1000;
+const IPC_NOWAIT: CInt = 0o4000;
+const SETVAL: CInt = 16;
+const GETVAL: CInt = 12;
+const GETPID: CInt = 11;
+const GETNCNT: CInt = 14;
+const GETZCNT: CInt = 15;
+const GETALL: CInt = 13;
+const SETALL: CInt = 17;
+
+unsafe fn sem_mkdirs() {
+    ipc_mkdirs();
+    mkdirat(AT_FDCWD, IPC_SEM.as_ptr() as *const CChar, 0o700);
+}
+
+unsafe fn sem_meta_path(id: i32, out: &mut [u8; 96]) -> usize {
+    ipc_name(b"/run/husk/ipc/sem/", id as i64, b".m\0", out);
+    out.iter().position(|c| *c == 0).unwrap_or(0)
+}
+
+unsafe fn sem_val_path(id: i32, out: &mut [u8; 96]) -> usize {
+    ipc_name(b"/run/husk/ipc/sem/", id as i64, b"\0", out);
+    out.iter().position(|c| *c == 0).unwrap_or(0)
+}
+
+/// key nsems mode rmid
+unsafe fn sem_read_meta(id: i32, out: &mut [i64; 4]) -> bool {
+    let mut p = [0u8; 96];
+    let n = sem_meta_path(id, &mut p);
+    let mut buf = [0u8; 128];
+    let r = ipc_read_file(&p[..n], &mut buf);
+    if r <= 0 {
+        return false;
+    }
+    ipc_parse_ints(&buf[..r as usize], out) == 4
+}
+
+unsafe fn sem_write_meta(id: i32, m: &[i64; 4]) -> CInt {
+    let mut p = [0u8; 96];
+    let n = sem_meta_path(id, &mut p);
+    let mut b = [0u8; 96];
+    let mut at = 0usize;
+    for v in m.iter() {
+        ipc_put_dec(&mut b, &mut at, *v);
+        b[at] = b' ';
+        at += 1;
+    }
+    b[at] = b'\n';
+    at += 1;
+    ipc_write_file(&p[..n], &b[..at])
+}
+
+unsafe fn sem_get(id: i32, idx: usize) -> i32 {
+    let mut p = [0u8; 96];
+    let n = sem_val_path(id, &mut p);
+    let fd = openat(AT_FDCWD, p.as_ptr() as *const CChar, 0o2, 0);
+    if fd < 0 {
+        return -1;
+    }
+    let mut v = 0i32;
+    let r = syscall4(SYS_PREAD, fd as usize, &mut v as *mut i32 as usize, 4, idx * 4);
+    rc::close(fd);
+    if r != 4 {
+        return -1;
+    }
+    v
+}
+
+unsafe fn sem_set(id: i32, idx: usize, v: i32) -> bool {
+    let mut p = [0u8; 96];
+    let n = sem_val_path(id, &mut p);
+    let fd = openat(AT_FDCWD, p.as_ptr() as *const CChar, 0o2, 0);
+    if fd < 0 {
+        return false;
+    }
+    let r = syscall4(SYS_PWRITE, fd as usize, &v as *const i32 as usize, 4, idx * 4);
+    rc::close(fd);
+    r == 4
+}
+
+/// Locks the value file for a whole semop, so "check every op, then apply every
+/// op" is atomic against other processes and other threads.
+unsafe fn sem_lock(id: i32) -> CInt {
+    let mut p = [0u8; 96];
+    let n = sem_val_path(id, &mut p);
+    let fd = openat(AT_FDCWD, p.as_ptr() as *const CChar, 0o2, 0);
+    if fd < 0 {
+        return -1;
+    }
+    let r = syscall4(SYS_FLOCK_NR, fd as usize, 2, 0, 0);
+    if r < 0 {
+        rc::close(fd);
+        return ret_or_errno(r);
+    }
+    fd
+}
+
+unsafe fn sem_unlock(fd: CInt) {
+    syscall4(SYS_FLOCK_NR, fd as usize, 8, 0, 0);
+    rc::close(fd);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn semget(key: i32, nsems: CInt, semflg: CInt) -> CInt {
+    let entry_errno = *__errno_location();
+    sem_mkdirs();
+    let lf = ipc_lockf();
+    if lf < 0 {
+        return -1;
+    }
+    let r = semget_locked(key, nsems, semflg);
+    ipc_unlockf(lf);
+    if r >= 0 {
+        *__errno_location() = entry_errno;
+    }
+    r
+}
+
+unsafe fn semget_locked(key: i32, nsems: CInt, semflg: CInt) -> CInt {
+    let create = semflg & IPC_CREAT != 0;
+    let excl = semflg & IPC_EXCL != 0;
+    let private = key == 0;
+    if !private {
+        let id = keys_find(key);
+        if id >= 0 {
+            let mut m = [0i64; 4];
+            if !sem_read_meta(id, &mut m) {
+                keys_remove_id(id);
+            } else {
+                if create && excl {
+                    return set_errno(17);
+                }
+                if nsems != 0 && nsems as i64 > m[1] {
+                    return set_errno(22);
+                }
+                return id;
+            }
+        }
+        if !create {
+            return set_errno(2);
+        }
+    }
+    if nsems <= 0 || nsems as usize > SEM_MAX {
+        return set_errno(22);
+    }
+    let id = ipc_nextid();
+    let mut p = [0u8; 96];
+    let n = sem_val_path(id, &mut p);
+    let fd = openat(AT_FDCWD, p.as_ptr() as *const CChar, 0o2 | 0o100, 0o600);
+    if fd < 0 {
+        return -1;
+    }
+    let zeros = [0i32; SEM_MAX];
+    syscall4(SYS_PWRITE, fd as usize, zeros.as_ptr() as usize, nsems as usize * 4, 0);
+    let _ = syscall4(46, fd as usize, nsems as usize * 4, 0, 0);
+    rc::close(fd);
+    let m = [key as i64, nsems as i64, (semflg as u32 & 0o777) as i64, 0];
+    sem_write_meta(id, &m);
+    if !private {
+        keys_add(key, id);
+    }
+    id
+}
+
+/// struct sembuf { unsigned short sem_num; short sem_op; short sem_flg; } — 6
+/// bytes, packed, and that is what crosses this ABI.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+struct SembufRaw {
+    num: u16,
+    op: i16,
+    flg: i16,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn semop(semid: CInt, sops: usize, nsops: usize) -> CInt {
+    semop_impl(semid, sops, nsops, None)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn semtimedop(
+    semid: CInt,
+    sops: usize,
+    nsops: usize,
+    timeout: usize,
+) -> CInt {
+    semop_impl(semid, sops, nsops, Some(timeout))
+}
+
+unsafe fn semop_impl(semid: CInt, sops: usize, nsops: usize, timeout: Option<usize>) -> CInt {
+    if sops == 0 || nsops == 0 || nsops > SEM_MAX {
+        return set_errno(22);
+    }
+    let mut m = [0i64; 4];
+    if !sem_read_meta(semid, &mut m) || m[3] != 0 {
+        return set_errno(22);
+    }
+    let nsems = m[1] as usize;
+    let ops = core::slice::from_raw_parts(sops as *const SembufRaw, nsops);
+    for o in ops.iter() {
+        if o.num as usize >= nsems {
+            return set_errno(22);
+        }
+    }
+    // SEM_UNDO is not implemented; say so rather than silently changing the
+    // meaning of a program's semaphores.
+    for o in ops.iter() {
+        if o.flg & SEM_UNDO as i16 != 0 {
+            return set_errno(95); // EOPNOTSUPP
+        }
+    }
+    let nowait = ops.iter().any(|o| o.flg & IPC_NOWAIT as i16 != 0);
+    let mut deadline = [0i64; 2];
+    let timed = if let Some(t) = timeout {
+        if t != 0 {
+            let ts = core::slice::from_raw_parts(t as *const i64, 2);
+            deadline = [ts[0], ts[1]];
+        }
+        t != 0
+    } else {
+        false
+    };
+    let mut base = [0i64; 2];
+    if timed {
+        syscall4(113, 0, base.as_mut_ptr() as usize, 0, 0); // CLOCK_REALTIME
+    }
+    loop {
+        let fd = sem_lock(semid);
+        if fd < 0 {
+            return -1;
+        }
+        // Read the whole set once.
+        let mut vals = [0i32; SEM_MAX];
+        let mut ok = true;
+        for i in 0..nsems {
+            let mut v = 0i32;
+            let r = syscall4(
+                SYS_PREAD,
+                fd as usize,
+                &mut v as *mut i32 as usize,
+                4,
+                i * 4,
+            );
+            if r != 4 {
+                ok = false;
+                break;
+            }
+            vals[i] = v;
+        }
+        if !ok {
+            sem_unlock(fd);
+            return set_errno(22);
+        }
+        let mut ready = true;
+        for o in ops.iter() {
+            let v = vals[o.num as usize];
+            if o.op < 0 && v < -(o.op as i32) {
+                ready = false;
+                break;
+            }
+            if o.op == 0 && v != 0 {
+                ready = false;
+                break;
+            }
+        }
+        if ready {
+            for o in ops.iter() {
+                vals[o.num as usize] += o.op as i32;
+            }
+            let mut wrote = true;
+            for i in 0..nsems {
+                let r = syscall4(
+                    SYS_PWRITE,
+                    fd as usize,
+                    &vals[i] as *const i32 as usize,
+                    4,
+                    i * 4,
+                );
+                if r != 4 {
+                    wrote = false;
+                }
+            }
+            sem_unlock(fd);
+            return if wrote { 0 } else { set_errno(5) };
+        }
+        sem_unlock(fd);
+        if nowait {
+            return set_errno(11); // EAGAIN
+        }
+        if timed {
+            let mut now = [0i64; 2];
+            syscall4(113, 0, now.as_mut_ptr() as usize, 0, 0);
+            let elapsed = (now[0] - base[0]) * 1_000_000_000 + (now[1] - base[1]);
+            let limit = deadline[0] * 1_000_000_000 + deadline[1];
+            if elapsed >= limit {
+                return set_errno(110); // ETIMEDOUT
+            }
+        }
+        let ts = [0i64, 2_000_000];
+        syscall4(115, ts.as_ptr() as usize, 0, 0, 0);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn semctl(semid: CInt, semnum: CInt, cmd: CInt, arg: usize) -> CInt {
+    let lf = ipc_lockf();
+    if lf < 0 {
+        return -1;
+    }
+    let r = semctl_locked(semid, semnum, cmd, arg);
+    ipc_unlockf(lf);
+    r
+}
+
+unsafe fn semctl_locked(semid: CInt, semnum: CInt, cmd: CInt, arg: usize) -> CInt {
+    let mut m = [0i64; 4];
+    if !sem_read_meta(semid, &mut m) {
+        return set_errno(22);
+    }
+    let nsems = m[1] as usize;
+    match cmd {
+        IPC_RMID => {
+            m[3] = 1;
+            sem_write_meta(semid, &m);
+            keys_remove_id(semid);
+            let mut p = [0u8; 96];
+            let n = sem_val_path(semid, &mut p);
+            unlinkat(AT_FDCWD, p.as_ptr() as *const CChar, 0);
+            let n = sem_meta_path(semid, &mut p);
+            unlinkat(AT_FDCWD, p.as_ptr() as *const CChar, 0);
+            0
+        }
+        GETVAL => {
+            if semnum < 0 || semnum as usize >= nsems {
+                return set_errno(22);
+            }
+            sem_get(semid, semnum as usize)
+        }
+        SETVAL => {
+            if semnum < 0 || semnum as usize >= nsems {
+                return set_errno(22);
+            }
+            if sem_set(semid, semnum as usize, arg as i32) {
+                0
+            } else {
+                set_errno(22)
+            }
+        }
+        GETPID | GETNCNT | GETZCNT => 0,
+        GETALL => {
+            if arg == 0 {
+                return set_errno(14);
+            }
+            let out = core::slice::from_raw_parts_mut(arg as *mut u16, nsems);
+            for i in 0..nsems {
+                let v = sem_get(semid, i);
+                if v < 0 {
+                    return set_errno(22);
+                }
+                out[i] = v as u16;
+            }
+            0
+        }
+        SETALL => {
+            if arg == 0 {
+                return set_errno(14);
+            }
+            let inp = core::slice::from_raw_parts(arg as *const u16, nsems);
+            for i in 0..nsems {
+                sem_set(semid, i, inp[i] as i32);
+            }
+            0
+        }
+        IPC_STAT => {
+            // glibc 2.39 arm64 struct semid_ds, verified field by field on the
+            // device: ipc_perm 0..48, sem_otime 48, sem_ctime 56, sem_nsems 64.
+            // Only those 72 bytes are touched; whatever reserved tail the
+            // caller's struct has is left alone (writing past what we know
+            // corrupts callers that allocate the smaller layout).
+            if arg == 0 {
+                return set_errno(14);
+            }
+            let b = arg as *mut u8;
+            core::ptr::write_bytes(b, 0, 72);
+            core::ptr::write_unaligned(b as *mut i32, m[0] as i32);
+            core::ptr::write_unaligned((b.add(20)) as *mut u32, m[2] as u32);
+            core::ptr::write_unaligned((b.add(64)) as *mut u64, nsems as u64);
+            0
+        }
+        IPC_SET => 0,
+        _ => set_errno(22),
+    }
+}
+
+// -------------------------------------------------- SysV IPC: messages ---
+//
+//   /run/husk/ipc/msg/<id>/          one queue, a directory
+//   /run/husk/ipc/msg/<id>/<mtype>_<nsec>_<pid>
+// The file name starts with the message type zero-padded to 20 digits, so a
+// lexicographic scan of the directory is exactly the kernel's ordering: by
+// type, then FIFO.
+
+const IPC_MSG: &[u8] = b"/run/husk/ipc/msg\0";
+const MSG_NOERROR: CInt = 0o10000;
+const MSG_EXCEPT: CInt = 0o20000;
+
+unsafe fn msg_mkdirs() {
+    ipc_mkdirs();
+    mkdirat(AT_FDCWD, IPC_MSG.as_ptr() as *const CChar, 0o700);
+}
+
+unsafe fn msg_meta_path(id: i32, out: &mut [u8; 96]) -> usize {
+    ipc_name(b"/run/husk/ipc/msg/", id as i64, b".m\0", out);
+    out.iter().position(|c| *c == 0).unwrap_or(0)
+}
+
+unsafe fn msg_dir_path(id: i32, out: &mut [u8; 96]) -> usize {
+    ipc_name(b"/run/husk/ipc/msg/", id as i64, b"\0", out);
+    out.iter().position(|c| *c == 0).unwrap_or(0)
+}
+
+/// key mode qbytes rmid lspid lrpid stime rtime ctime
+unsafe fn msg_read_meta(id: i32, out: &mut [i64; 9]) -> bool {
+    let mut p = [0u8; 96];
+    let n = msg_meta_path(id, &mut p);
+    let mut buf = [0u8; 160];
+    let r = ipc_read_file(&p[..n], &mut buf);
+    if r <= 0 {
+        return false;
+    }
+    ipc_parse_ints(&buf[..r as usize], out) == 9
+}
+
+unsafe fn msg_write_meta(id: i32, m: &[i64; 9]) -> CInt {
+    let mut p = [0u8; 96];
+    let n = msg_meta_path(id, &mut p);
+    let mut b = [0u8; 200];
+    let mut at = 0usize;
+    for v in m.iter() {
+        ipc_put_dec(&mut b, &mut at, *v);
+        b[at] = b' ';
+        at += 1;
+    }
+    b[at] = b'\n';
+    at += 1;
+    ipc_write_file(&p[..n], &b[..at])
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn msgget(key: i32, msgflg: CInt) -> CInt {
+    let entry_errno = *__errno_location();
+    msg_mkdirs();
+    let lf = ipc_lockf();
+    if lf < 0 {
+        return -1;
+    }
+    let r = msgget_locked(key, msgflg);
+    ipc_unlockf(lf);
+    if r >= 0 {
+        *__errno_location() = entry_errno;
+    }
+    r
+}
+
+unsafe fn msgget_locked(key: i32, msgflg: CInt) -> CInt {
+    let create = msgflg & IPC_CREAT != 0;
+    let excl = msgflg & IPC_EXCL != 0;
+    let private = key == 0;
+    if !private {
+        let id = keys_find(key);
+        if id >= 0 {
+            let mut m = [0i64; 9];
+            if !msg_read_meta(id, &mut m) {
+                keys_remove_id(id);
+            } else {
+                if create && excl {
+                    return set_errno(17);
+                }
+                return id;
+            }
+        }
+        if !create {
+            return set_errno(2);
+        }
+    }
+    let id = ipc_nextid();
+    let mut p = [0u8; 96];
+    let n = msg_dir_path(id, &mut p);
+    mkdirat(AT_FDCWD, p.as_ptr() as *const CChar, 0o700);
+    let m = [
+        key as i64,
+        (msgflg as u32 & 0o777) as i64,
+        16384, // qbytes
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    ];
+    msg_write_meta(id, &m);
+    if !private {
+        keys_add(key, id);
+    }
+    id
+}
+
+/// Picks the message the kernel would pick, and returns its name.
+unsafe fn msg_pick(
+    id: i32,
+    msgtyp: i64,
+    except: bool,
+    out: &mut [u8; 64],
+    out_len: &mut usize,
+) -> bool {
+    let mut p = [0u8; 96];
+    let n = msg_dir_path(id, &mut p);
+    let dfd = openat(AT_FDCWD, p.as_ptr() as *const CChar, O_DIRECTORY, 0);
+    if dfd < 0 {
+        return false;
+    }
+    // Read one directory listing, then rewind for the next call.
+    let mut buf = [0u8; 4096];
+    let mut best_type = u64::MAX;
+    let mut best_name = [0u8; 64];
+    let mut best_len = 0usize;
+    let mut any = false;
+    let use_lowest = msgtyp < 0;
+    let limit_type = if msgtyp < 0 { (-msgtyp) as u64 } else { msgtyp as u64 };
+    loop {
+        let r = syscall4(61, dfd as usize, buf.as_mut_ptr() as usize, buf.len(), 0) as isize;
+        if r <= 0 {
+            break;
+        }
+        let mut off = 0usize;
+        while off < r as usize {
+            let reclen = u16::from_le_bytes([buf[off + 16], buf[off + 17]]) as usize;
+            if reclen == 0 {
+                break;
+            }
+            let nm = &buf[off + 19..off + reclen];
+            let len = nm.iter().position(|c| *c == 0).unwrap_or(nm.len());
+            let nm = &nm[..len];
+            if nm != b"." && nm != b".." && nm.len() > 20 {
+                let mut t = 0u64;
+                let mut ok = true;
+                for k in 0..20 {
+                    if !nm[k].is_ascii_digit() {
+                        ok = false;
+                        break;
+                    }
+                    t = t * 10 + (nm[k] - b'0') as u64;
+                }
+                if ok {
+                    let take = if msgtyp == 0 {
+                        true
+                    } else if msgtyp > 0 {
+                        if except { t != limit_type } else { t == limit_type }
+                    } else {
+                        t <= limit_type
+                    };
+                    if take {
+                        if use_lowest {
+                            if t < best_type || !any {
+                                best_type = t;
+                                best_name[..len].copy_from_slice(nm);
+                                best_len = len;
+                                any = true;
+                            }
+                        } else if !any {
+                            // First in directory order is already the oldest of
+                            // its type, and types come in name order.
+                            best_type = t;
+                            best_name[..len].copy_from_slice(nm);
+                            best_len = len;
+                            any = true;
+                        } else if msgtyp == 0 && t < best_type {
+                            best_type = t;
+                            best_name[..len].copy_from_slice(nm);
+                            best_len = len;
+                        }
+                    }
+                }
+            }
+            off += reclen;
+        }
+    }
+    rc::close(dfd);
+    if any {
+        out[..best_len].copy_from_slice(&best_name[..best_len]);
+        *out_len = best_len;
+    }
+    any
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn msgsnd(msqid: CInt, msgp: usize, msgsz: usize, msgflg: CInt) -> CInt {
+    msgsnd_impl(msqid, msgp, msgsz, msgflg)
+}
+
+unsafe fn msgsnd_impl(msqid: CInt, msgp: usize, msgsz: usize, _msgflg: CInt) -> CInt {
+    let mut m = [0i64; 9];
+    if !msg_read_meta(msqid, &mut m) {
+        return set_errno(22);
+    }
+    if msgp == 0 || msgsz > 8192 {
+        return set_errno(22);
+    }
+    let mtype = core::ptr::read_unaligned(msgp as *const i64);
+    if mtype < 1 {
+        return set_errno(22);
+    }
+    let mut p = [0u8; 96];
+    let n = msg_dir_path(msqid, &mut p);
+    let dfd = openat(AT_FDCWD, p.as_ptr() as *const CChar, O_DIRECTORY, 0);
+    if dfd < 0 {
+        return -1;
+    }
+    let mut name = [0u8; 64];
+    let mut at = 0usize;
+    // 20 digits so the name sorts by type numerically
+    let mut digits = [b'0'; 20];
+    let mut t = mtype as u64;
+    let mut k = 20;
+    while k > 0 {
+        k -= 1;
+        digits[k] = b'0' + (t % 10) as u8;
+        t /= 10;
+    }
+    name[..20].copy_from_slice(&digits);
+    at = 20;
+    name[at] = b'_';
+    at += 1;
+    let mut now = [0i64; 2];
+    syscall4(113, 4 /* MONOTONIC */, now.as_mut_ptr() as usize, 0, 0);
+    ipc_put_dec(&mut name, &mut at, now[0] * 1_000_000_000 + now[1]);
+    name[at] = b'_';
+    at += 1;
+    ipc_put_dec(&mut name, &mut at, syscall4(172, 0, 0, 0, 0) as i64);
+    let fd = syscall4(
+        SYS_OPENAT,
+        dfd as usize,
+        name.as_ptr() as usize,
+        0o1 | 0o100 | 0o200,
+        0o600,
+    ) as CInt;
+    if fd < 0 {
+        rc::close(dfd);
+        return ret_or_errno(fd as Ssize);
+    }
+    let body = msgp + 8;
+    let mut left = msgsz;
+    let mut q = body;
+    while left > 0 {
+        let w = syscall4(SYS_WRITE, fd as usize, q, left, 0) as isize;
+        if w <= 0 {
+            syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+            rc::close(dfd);
+            return set_errno(5);
+        }
+        left -= w as usize;
+        q += w as usize;
+    }
+    syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+    rc::close(dfd);
+    m[6] = m[6].max(0); // stime touched below by the caller-visible STAT
+    let mut now2 = [0i64; 2];
+    syscall4(113, 0, now2.as_mut_ptr() as usize, 0, 0);
+    m[6] = now2[0];
+    m[4] = syscall4(172, 0, 0, 0, 0) as i64;
+    msg_write_meta(msqid, &m);
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn msgrcv(
+    msqid: CInt,
+    msgp: usize,
+    msgsz: usize,
+    msgtyp: i64,
+    msgflg: CInt,
+) -> isize {
+    let mut m = [0i64; 9];
+    if !msg_read_meta(msqid, &mut m) {
+        return set_errno(22) as isize;
+    }
+    if msgp == 0 {
+        return set_errno(14) as isize;
+    }
+    let nowait = msgflg & IPC_NOWAIT != 0;
+    let except = msgflg & MSG_EXCEPT != 0 && msgtyp > 0;
+    loop {
+        let mut name = [0u8; 64];
+        let mut nl = 0usize;
+        if msg_pick(msqid, msgtyp, except, &mut name, &mut nl) {
+            let mut p = [0u8; 96];
+            let n = msg_dir_path(msqid, &mut p);
+            let fd = openat(AT_FDCWD, p.as_ptr() as *const CChar, O_DIRECTORY, 0);
+            if fd < 0 {
+                return -1;
+            }
+            let ffd = syscall4(SYS_OPENAT, fd as usize, name.as_ptr() as usize, 0, 0) as CInt;
+            rc::close(fd);
+            if ffd < 0 {
+                continue;
+            }
+            // The type comes back from the name, the text from the file. The
+            // real length is asked of the file, not of the read: a message
+            // longer than the caller's buffer must fail with E2BIG *and stay
+            // on the queue*, which is what the kernel does.
+            let mut t = 0i64;
+            for k in 0..20 {
+                t = t * 10 + (name[k] - b'0') as i64;
+            }
+            let size = syscall4(SYS_LSEEK, ffd as usize, 0, 2, 0) as isize;
+            if size > 0 && size as usize > msgsz && msgflg & MSG_NOERROR == 0 {
+                syscall4(SYS_CLOSE, ffd as usize, 0, 0, 0);
+                return set_errno(7) as isize; // E2BIG
+            }
+            let want = if size < 0 { 0 } else { (size as usize).min(msgsz) };
+            let mut total = 0usize;
+            syscall4(SYS_LSEEK, ffd as usize, 0, 0, 0);
+            while total < want {
+                let r = syscall4(SYS_READ, ffd as usize, msgp + 8 + total, want - total, 0) as isize;
+                if r <= 0 {
+                    break;
+                }
+                total += r as usize;
+            }
+            syscall4(SYS_CLOSE, ffd as usize, 0, 0, 0);
+            let mut pp = [0u8; 96];
+            let pn = msg_dir_path(msqid, &mut pp);
+            let _ = pn;
+            let dfd = openat(AT_FDCWD, pp.as_ptr() as *const CChar, O_DIRECTORY, 0);
+            if dfd >= 0 {
+                unlinkat(dfd, name.as_ptr() as *const CChar, 0);
+                rc::close(dfd);
+            }
+            core::ptr::write_unaligned(msgp as *mut i64, t);
+            let mut now2 = [0i64; 2];
+            syscall4(113, 0, now2.as_mut_ptr() as usize, 0, 0);
+            m[7] = now2[0];
+            m[5] = syscall4(172, 0, 0, 0, 0) as i64;
+            msg_write_meta(msqid, &m);
+            return total as isize;
+        }
+        if nowait {
+            return set_errno(42) as isize; // ENOMSG
+        }
+        let ts = [0i64, 2_000_000];
+        syscall4(115, ts.as_ptr() as usize, 0, 0, 0);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn msgctl(msqid: CInt, cmd: CInt, buf: usize) -> CInt {
+    let lf = ipc_lockf();
+    if lf < 0 {
+        return -1;
+    }
+    let r = msgctl_locked(msqid, cmd, buf);
+    ipc_unlockf(lf);
+    r
+}
+
+unsafe fn msgctl_locked(msqid: CInt, cmd: CInt, buf: usize) -> CInt {
+    let mut m = [0i64; 9];
+    if !msg_read_meta(msqid, &mut m) {
+        return set_errno(22);
+    }
+    match cmd {
+        IPC_RMID => {
+            keys_remove_id(msqid);
+            let mut p = [0u8; 96];
+            let n = msg_dir_path(msqid, &mut p);
+            let dfd = openat(AT_FDCWD, p.as_ptr() as *const CChar, O_DIRECTORY, 0);
+            if dfd >= 0 {
+                let mut b = [0u8; 1024];
+                loop {
+                    let r = syscall4(61, dfd as usize, b.as_mut_ptr() as usize, b.len(), 0) as isize;
+                    if r <= 0 {
+                        break;
+                    }
+                    let mut off = 0usize;
+                    while off < r as usize {
+                        let reclen = u16::from_le_bytes([b[off + 16], b[off + 17]]) as usize;
+                        if reclen == 0 {
+                            break;
+                        }
+                        let nm = &b[off + 19..off + reclen];
+                        let len = nm.iter().position(|c| *c == 0).unwrap_or(nm.len());
+                        let nm = &nm[..len];
+                        if nm != b"." && nm != b".." {
+                            unlinkat(dfd, nm.as_ptr() as *const CChar, 0);
+                        }
+                        off += reclen;
+                    }
+                }
+                rc::close(dfd);
+            }
+            unlinkat(AT_FDCWD, p.as_ptr() as *const CChar, 0x200);
+            let n = msg_meta_path(msqid, &mut p);
+            unlinkat(AT_FDCWD, p.as_ptr() as *const CChar, 0);
+            0
+        }
+        IPC_STAT => {
+            if buf == 0 {
+                return set_errno(14);
+            }
+            let qnum = msg_count(msqid);
+            let b = buf as *mut u8;
+            core::ptr::write_bytes(b, 0, 120);
+            core::ptr::write_unaligned(b as *mut i32, m[0] as i32);
+            core::ptr::write_unaligned((b.add(20)) as *mut u32, m[1] as u32);
+            core::ptr::write_unaligned((b.add(48)) as *mut i64, m[6]);
+            core::ptr::write_unaligned((b.add(56)) as *mut i64, m[7]);
+            core::ptr::write_unaligned((b.add(64)) as *mut i64, m[8]);
+            core::ptr::write_unaligned((b.add(72)) as *mut u64, m[2] as u64);
+            core::ptr::write_unaligned((b.add(80)) as *mut u64, qnum as u64);
+            core::ptr::write_unaligned((b.add(88)) as *mut u64, m[2] as u64);
+            core::ptr::write_unaligned((b.add(96)) as *mut i32, m[4] as i32);
+            core::ptr::write_unaligned((b.add(100)) as *mut i32, m[5] as i32);
+            0
+        }
+        IPC_SET => {
+            if buf == 0 {
+                return set_errno(14);
+            }
+            let b = buf as *const u8;
+            m[1] = core::ptr::read_unaligned((b.add(20)) as *const u32) as i64;
+            m[2] = core::ptr::read_unaligned((b.add(88)) as *const u64) as i64;
+            msg_write_meta(msqid, &m)
+        }
+        _ => set_errno(22),
+    }
+}
+
+unsafe fn msg_count(id: i32) -> usize {
+    let mut p = [0u8; 96];
+    let n = msg_dir_path(id, &mut p);
+    let dfd = openat(AT_FDCWD, p.as_ptr() as *const CChar, O_DIRECTORY, 0);
+    if dfd < 0 {
+        return 0;
+    }
+    let mut b = [0u8; 2048];
+    let mut count = 0usize;
+    loop {
+        let r = syscall4(61, dfd as usize, b.as_mut_ptr() as usize, b.len(), 0) as isize;
+        if r <= 0 {
+            break;
+        }
+        let mut off = 0usize;
+        while off < r as usize {
+            let reclen = u16::from_le_bytes([b[off + 16], b[off + 17]]) as usize;
+            if reclen == 0 {
+                break;
+            }
+            let nm = &b[off + 19..off + reclen];
+            let len = nm.iter().position(|c| *c == 0).unwrap_or(nm.len());
+            let nm = &nm[..len];
+            if nm != b"." && nm != b".." {
+                count += 1;
+            }
+            off += reclen;
+        }
+    }
+    rc::close(dfd);
+    count
+}

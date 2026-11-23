@@ -88,3 +88,15 @@ mq_timedreceive
 mq_getattr
 mq_setattr
 mq_notify
+shmget
+shmat
+shmdt
+shmctl
+semget
+semctl
+semop
+semtimedop
+msgget
+msgsnd
+msgrcv
+msgctl

@@ -78,7 +78,63 @@ stub 页后，19 位分支（±1 MiB）够不着。修法是让重定位器把�
 - `mq_maxmsg` 未限：靠目录增长，磁盘满时才失败。
 - 跨进程共享同一条队列是设计内的（同一 rootfs 私有目录），跨 guest 实例不支持。
 
-## 5. 下一步
+# SysV IPC
 
-SysV IPC（`shmget/shmat/shmdt/shmctl`、`semget/semop/semctl`、`msgget/msgsnd/msgrcv`），语义按
-cortex `sysv_shm.c` 的三层命名（`id-N` / `seg-N` / `key-K`）与 `SHM_RMID_GRACE` 宽限期实现，纯 Rust。
+## 5. 环境事实
+
+`shmget`/`semget`/`msgget` 在这台机器上一律 `ENOSYS`（实测），`/proc/sysvipc` 不存在——
+内核没编 SysV IPC。旧文档把这条写进"不可解除的平台硬边界"，那是错的：这条 ABI 和 mqueue 一样，
+可以在库入口接管。X11 MIT-SHM、PostgreSQL、Qt 共享像素、一堆老守护进程都还在用它。
+
+## 6. 设计：文件 + mmap + flock
+
+```
+/run/husk/ipc/shm/<id>      共享段本体（`shmat` 就是 mmap(MAP_SHARED) 它）
+/run/husk/ipc/shm/<id>.m    key size mode cuid cgid cpid ctime rmid
+/run/husk/ipc/shm/<id>.a    每个挂接进程一行（宿主 pid）
+/run/husk/ipc/sem/<id>      nsems 个 int32 信号量值
+/run/husk/ipc/sem/<id>.m    key nsems mode rmid
+/run/husk/ipc/msg/<id>/     一个队列一个目录，一条消息一个文件
+/run/husk/ipc/msg/<id>.m    key mode qbytes rmid lspid lrpid stime rtime ctime
+/run/husk/ipc/keys          key 与 id 的对应表
+/run/husk/ipc/nextid        id 计数器
+/run/husk/ipc/lock          flock() 目标，所有元数据操作都持有它
+```
+
+| 表面 | 实现要点 |
+|---|---|
+| `shmat` | `mmap(MAP_SHARED)` 段文件：页真的共享，一致性交给内核；我们只管簿记 |
+| `IPC_RMID` | 打 `rmid` 标记，最后一个挂接者 `shmdt` 时才删——就是 cortex `SHM_RMID_GRACE` 的语义 |
+| `semop` | 每次尝试都在**值文件**上 `flock(LOCK_EX)`：读全组 → 判断是否全可前进 → 全应用，保证 all-or-nothing 跨进程成立 |
+| `semtimedop` | 绝对超时，按 `CLOCK_REALTIME` 差值和 2 ms 轮询 |
+| 消息顺序 | 文件名前缀是 20 位零填充的 `mtype`，字典序扫描 == 内核的"按类型、同类型先进先出" |
+| `msgrcv` 的 `msgtyp` | 0 = 最早一条；>0 = 该类型最早一条（`MSG_EXCEPT` 取反）；<0 = 类型 ≤ 绝对值中最小的 |
+| `E2BIG` | 先 `lseek` 问真实长度：超长且没给 `MSG_NOERROR` 时返回 `E2BIG` 且**消息留在队列里** |
+
+### 上机才发现的坑
+
+1. **死段留下的 key 行会把新段挡死**：`IPC_RMID` 删了段文件却没删 `keys` 里的行，下次
+   `shmget(key, O_CREAT)` 找到那个死 id、读不到 meta、直接 `ENOENT`。改法：删段时一并删 key 行，
+   并且读到死 id 时先清行再走创建路径。
+2. **`semid_ds` 的字段位置**：glibc 2.39 arm64 是 `ipc_perm` 0–48、`sem_otime` 48、`sem_ctime` 56、
+   `sem_nsems` **64**（不是教科书里的 88）。必须先上机把结构体 dump 成 u64 数组核对，再写。
+   `IPC_STAT` 只写这已知的 72 字节，绝不越界写——多写 16 字节会把调用方堆写坏，崩在后面的 `free`。
+3. `ctypes` 把 va_list 里的指针按 32 位传会截断（测试脚本的坑，不是 shim 的）。
+
+## 7. 语义验收
+
+| 脚本 | 项数 | 结果 |
+|---|---|---|
+| `tools/device-tests/07-sysv-shm.py` | 13 | PASS（含 fork 出的子进程写、父进程读的真实共享；RMID 宽限期；key 生命周期） |
+| `tools/device-tests/08-sysv-sem-msg.py` | 24 | PASS（P/V、`EAGAIN`、all-or-nothing、跨进程阻塞唤醒、按类型/负类型取消息、`E2BIG`、`MSG_NOERROR`、`IPC_STAT` 计数） |
+
+## 8. 明确不支持
+
+- `SEM_UNDO`：返回 `EOPNOTSUPP`（95），不假装支持——静默忽略会让程序在崩溃路径上留下被占的死锁。
+- 信号量的 `sem_otime`/`sem_ctime`：留 0（没有维护时间戳）。
+- `/proc/sysvipc/*`（`ipcs` 命令读取它）：未合成，`ipcs` 仍是空的。**UNKNOWN/未做**。
+- 队列 `qbytes` 固定 16384，不做阻塞式满队列等待（`msgsnd` 不因满而阻塞）。
+
+## 9. 下一步
+
+`/proc/sysvipc/{shm,sem,msg}` 合成（让 `ipcs` 有输出）；`/dev/full`；网络表面（AF_NETLINK）。
