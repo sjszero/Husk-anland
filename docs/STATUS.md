@@ -3,7 +3,22 @@
 > 本节随进展重写；下面的「附录」是按时间倒序的历史记录，保留不动。
 > 只写**已上机验证**的结论，未验证的明确标注。
 
-## 最新（2026-11-23 15:00）
+## 最新（2026-11-23 15:25）
+
+GStreamer 的 `v4l2src` 在 guest 里能跑了：`v4l2src device=/dev/video0 num-buffers=10 !
+videoconvert ! fakesink` 干净 EOS（evidence 92）。为此加了一层 LD_PRELOAD
+（`v4l2-preload`，解决 dlopen 插件的**带版本符号** `open64@GLIBC_2.17`）。
+
+真正的坑不在符号版本，而在 fd 身份：GStreamer 会 `dup()` 采集 fd，然后在**副本**上
+发 STREAMON。我们的私有 fd 表查不到 → 改成 DroidNative 的做法（`dn_v4l2.c:137`）：
+每次用 `/proc/self/fd/<n>` 问内核，memfd 名字带设备号（`husk-v4l2-<n>`），close 只在
+最后一个引用时收摊。同一修法同时用在 loader shim 和 preload（共用 `v4l2-shim`）。
+
+顺带修掉一个更坏的东西：no_std 的 panic handler 是 `loop {}`，我写 memfd 名字时
+10 字节拷进 12 字节槽 → panic → **进程 100% CPU 空转**，看起来像消费者卡死。两个
+preload 现在都先打标记再 `exit_group`（102/103，与 loader 的 101 同一规则）。
+
+## 上一版（2026-11-23 15:00）
 
 guest 里 `/dev/video0`、`/dev/video1` 已是真 V4L2 采集设备：`stat` 报
 `character special file 51:N`，QUERYCAP/ENUM_FMT/ENUM_FRAMESIZES/G-S_FMT/REQBUFS/
@@ -749,3 +764,20 @@ O S C 现在也认 `ESC \` 结束符（否则会一直吞到下一个 BEL）。
 * 权限：`pm grant` / `cmd appops` 在本 ROM 被拒；`adb install -r -g` 可用（仅开发机循环）。
 * 待办：产品级 `requestPermissions`（native 主线程）、按需求开关麦克风（prior art 的 mic.active 语义）、
   10 分钟长稳、边放边录并发统计、源选择（VOICE_RECOGNITION 等）。
+
+## 2026-11-23 15:25 GStreamer v4l2src 打通（evidence 92）
+
+* 先读后写：`dn_v4l2.c:137 device_of_fd` 用 `/proc/<pid>/fd/<n>` + `st_dev/st_ino`
+  现场解析，**不留 fd 表**。我们的第一版就是表，于是死在第一个真实消费者上。
+* FACT：GStreamer `dup()` 采集 fd，STREAMON/STREAMOFF 发在副本上（`fd=11 known=0`）。
+  修法：memfd 名带设备号 `husk-v4l2-<n>` + `/proc/self/fd` 反查 + close 只在最后一个
+  引用时收摊；无设备打开时完全跳过（对无关进程零开销）。
+* FACT：dlopen 的 `libgstvideo4linux2.so` 用 `open64@GLIBC_2.17` 等带版本符号，
+  必须 version script（`exports.map`）才绑得上；且导出符号互调走 PLT 会解析回 libc
+  （实测 open64 进来了、内部 openat 没进来 → 全变 EACCES），所以全改私有 `do_*`。
+* FACT：no_std `panic_handler { loop {} }` 把一次 `copy_from_slice` 长度不匹配变成
+  进程 100% CPU 空转（state R、无输出），看起来像消费者卡死。两个 preload 改成打标记
+  + `exit_group`（102/103），与 loader 的 101 同一规则。
+* 结果：`v4l2src ! videoconvert ! fakesink` 前后摄都干净 EOS（~10 fps）；
+  `v4l2-test`（loader shim 侧）回归通过。
+* 未做：JPEG 拍照、30 秒录像、权限拒绝降级。

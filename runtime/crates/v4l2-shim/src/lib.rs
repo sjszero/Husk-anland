@@ -28,6 +28,7 @@ const SYS_MMAP: usize = 222;
 const SYS_SOCKET: usize = 198;
 const SYS_CONNECT: usize = 203;
 const SYS_MEMFD_CREATE: usize = 279;
+const SYS_READLINKAT: usize = 78;
 const AT_FDCWD: isize = -100;
 
 // ---- ioctls (verified on the guest header, aarch64) ----
@@ -81,6 +82,16 @@ const EIO: i64 = 5;
 const BUFFER_OFFSET_SHIFT: u32 = 24;
 const SCRATCH_BYTES: usize = 1920 * 1080 * 3 / 2 + 4096;
 
+/// Every guest-facing fd is a memfd whose name carries the device index, so an
+/// fd can be identified from the kernel alone, whoever opened it.
+const MEMFD_PREFIX: &[u8] = b"/memfd:husk-v4l2-";
+
+/// Failure tracing: the preload/shim run before any logging facility exists, so
+/// failures go to fd 2 as fixed strings. Cheap and only on error paths.
+unsafe fn note(msg: &[u8]) {
+    syscall3(SYS_WRITE, 2, msg.as_ptr() as usize, msg.len());
+}
+
 #[inline]
 unsafe fn syscall6(n: usize, a: usize, b: usize, c: usize, d: usize, e: usize, f: usize) -> isize {
     let ret: isize;
@@ -115,6 +126,69 @@ unsafe fn st_bytes(dst: *mut u8, off: usize, src: &[u8]) {
 }
 unsafe fn zero(dst: *mut u8, n: usize) {
     core::ptr::write_bytes(dst, 0, n);
+}
+
+/// Which device does `fd` refer to? Asked of the kernel, never of a private
+/// table: an fd reaches us by dup, by fd passing or through the other
+/// interposition layer, and a table keyed by number cannot see any of those.
+/// Prior art: DroidNative's `dn_v4l2.c:device_of_fd` does exactly this with
+/// /proc/<pid>/fd/<n> + st_dev/st_ino on every ioctl.
+unsafe fn fd_dev_of_kernel(fd: i32) -> Option<usize> {
+    if fd < 0 {
+        return None;
+    }
+    let mut path = [0u8; 32];
+    let pre = b"/proc/self/fd/";
+    path[..pre.len()].copy_from_slice(pre);
+    let mut x = fd as u64;
+    let mut tmp = [0u8; 12];
+    let mut n = 0;
+    if x == 0 {
+        tmp[0] = b'0';
+        n = 1;
+    }
+    while x > 0 {
+        tmp[n] = b'0' + (x % 10) as u8;
+        x /= 10;
+        n += 1;
+    }
+    let mut i = pre.len();
+    while n > 0 {
+        n -= 1;
+        path[i] = tmp[n];
+        i += 1;
+    }
+    path[i] = 0;
+
+    let mut buf = [0u8; 96];
+    // aarch64 has no plain readlink(): 78 is readlinkat(dirfd, path, buf, len).
+    let r = syscall6(
+        SYS_READLINKAT,
+        AT_FDCWD as usize,
+        path.as_ptr() as usize,
+        buf.as_mut_ptr() as usize,
+        buf.len(),
+        0,
+        0,
+    );
+    if r <= 0 {
+        return None;
+    }
+    let t = &buf[..r as usize];
+    if !t.starts_with(MEMFD_PREFIX) {
+        return None;
+    }
+    let mut k = MEMFD_PREFIX.len();
+    let mut idx = 0usize;
+    let start = k;
+    while k < t.len() && t[k].is_ascii_digit() {
+        idx = idx * 10 + (t[k] - b'0') as usize;
+        k += 1;
+    }
+    if k == start || idx >= MAX_DEVS {
+        return None;
+    }
+    Some(idx)
 }
 
 #[derive(Clone, Copy)]
@@ -238,14 +312,34 @@ impl Ctx {
     }
 
     fn dev_of_fd(&mut self, fd: i32) -> Option<usize> {
+        if fd < 0 {
+            return None;
+        }
+        // Fast path: the fd our own open() returned.
         let mut i = 0;
+        let mut any = false;
         while i < MAX_DEVS {
-            if self.devs[i].opened && self.devs[i].fd == fd {
-                return Some(i);
+            if self.devs[i].opened {
+                any = true;
+                if self.devs[i].fd == fd {
+                    return Some(i);
+                }
             }
             i += 1;
         }
-        None
+        // Nothing open: no readlinkat at all for processes that never touch a
+        // camera, so the hooks stay free.
+        if !any {
+            return None;
+        }
+        // Slow path: a dup, or an fd opened by the other layer.
+        let idx = unsafe { fd_dev_of_kernel(fd) }?;
+        if self.devs[idx].opened {
+            Some(idx)
+        } else {
+            unsafe { note(b"[husk v4l2] fd belongs to the other interposition layer\n") };
+            None
+        }
     }
 
     fn dev_of_path(n: u32) -> Option<usize> {
@@ -383,9 +477,11 @@ impl Ctx {
 
     unsafe fn query_info(&mut self, i: usize) -> bool {
         if !self.connect(i) {
+            note(b"[husk v4l2] camera.sock connect failed\n");
             return false;
         }
         if !self.send(i, b"INFO\n") {
+            note(b"[husk v4l2] camera.sock write failed\n");
             return false;
         }
         let mut line = [0u8; 512];
@@ -470,12 +566,22 @@ impl Ctx {
         d.nbuffers = 0;
         d.streaming = false;
         d.bufs = [Buf::new(); MAX_BUFFERS];
-        let fd = syscall3(
-            SYS_MEMFD_CREATE,
-            b"husk-v4l2\0".as_ptr() as usize,
-            0,
-            0,
-        );
+        // Name carries the index: `husk-v4l2-<n>`.
+        let mut name = [0u8; 24];
+        const NAME_PREFIX: &[u8] = b"husk-v4l2-";
+        name[..NAME_PREFIX.len()].copy_from_slice(NAME_PREFIX);
+        let mut w = NAME_PREFIX.len();
+        if n >= 100 {
+            name[w] = b'0' + (n / 100) as u8;
+            w += 1;
+        }
+        if n >= 10 {
+            name[w] = b'0' + ((n / 10) % 10) as u8;
+            w += 1;
+        }
+        name[w] = b'0' + (n % 10) as u8;
+        w += 1;
+        let fd = syscall3(SYS_MEMFD_CREATE, name.as_ptr() as usize, 0, 0);
         if fd < 0 {
             self.drop_sock(i);
             return err(ENODEV);
@@ -485,15 +591,38 @@ impl Ctx {
         fd as i32
     }
 
-    pub unsafe fn close(&mut self, fd: i32) {
-        if let Some(i) = self.dev_of_fd(fd) {
-            if self.devs[i].streaming {
-                self.send(i, b"STOP\n");
+    /// Fds in this process that still refer to device `i`. A dup shares the
+    /// file description, so the device lives until the last one is closed.
+    unsafe fn refs(&self, i: usize) -> u32 {
+        let mut n = 0;
+        let mut fd = 0;
+        while fd < 1024 {
+            if fd_dev_of_kernel(fd) == Some(i) {
+                n += 1;
             }
-            self.drop_sock(i);
-            self.devs[i].opened = false;
-            self.devs[i].fd = -1;
+            fd += 1;
         }
+        n
+    }
+
+    pub unsafe fn close(&mut self, fd: i32) {
+        let i = match self.dev_of_fd(fd) {
+            Some(i) => i,
+            None => return,
+        };
+        // The fd being closed is still open here, so 1 means "last one".
+        if self.refs(i) > 1 {
+            if self.devs[i].fd == fd {
+                self.devs[i].fd = -1;
+            }
+            return;
+        }
+        if self.devs[i].streaming {
+            self.send(i, b"STOP\n");
+        }
+        self.drop_sock(i);
+        self.devs[i].opened = false;
+        self.devs[i].fd = -1;
     }
 
     // ---- ioctl ----
@@ -827,6 +956,7 @@ impl Ctx {
             return 0;
         }
         if !self.connect(i) {
+            note(b"[v4l2] STREAMON: connect failed\n");
             return -ENODEV;
         }
         let d = &self.devs[i];
@@ -853,15 +983,22 @@ impl Ctx {
         cmd[n] = b'\n';
         n += 1;
         if !self.send(i, &cmd[..n]) {
+            note(b"[v4l2] STREAMON: send OPEN failed\n");
             return -ENODEV;
         }
         let mut line = [0u8; 256];
         let ln = match self.recv_line(i, &mut line) {
             Some(n) => n,
-            None => return -ENODEV,
+            None => {
+                note(b"[v4l2] STREAMON: no reply to OPEN\n");
+                return -ENODEV;
+            }
         };
         let l = &line[..ln];
         if !starts(l, b"OK") {
+            note(b"[v4l2] STREAMON: app said: ");
+            note(l);
+            note(b"\n");
             return -EBUSY;
         }
         if let (Some(w), Some(h)) = (

@@ -44,9 +44,38 @@ static mut READY: bool = false;
 static mut ROOT: [u8; 200] = [0; 200];
 static mut ROOT_LEN: usize = 0;
 
+// Versioned aliases.
+//
+// A version script did not survive rustc's own cdylib export handling here (every
+// symbol ended up in .gnu.version index 1, verified with readelf -V), and an
+// unversioned definition does not satisfy the plugin's `open64@GLIBC_2.17`
+// reference. `.symver` creates a *second*, explicitly versioned, symbol next to
+// the plain one — the classic LD_PRELOAD trick, and lld handles it directly.
+core::arch::global_asm!(
+    ".globl __hv_open64; .set __hv_open64, open64; .symver __hv_open64, open64@GLIBC_2.17",
+    ".globl __hv_ioctl; .set __hv_ioctl, ioctl; .symver __hv_ioctl, ioctl@GLIBC_2.17",
+    ".globl __hv_mmap64; .set __hv_mmap64, mmap64; .symver __hv_mmap64, mmap64@GLIBC_2.17",
+    ".globl __hv_close; .set __hv_close, close; .symver __hv_close, close@GLIBC_2.17",
+    ".globl __hv_stat64; .set __hv_stat64, stat64; .symver __hv_stat64, stat64@GLIBC_2.33",
+    ".globl __hv_open; .set __hv_open, open; .symver __hv_open, open@GLIBC_2.17",
+    ".globl __hv_openat; .set __hv_openat, openat; .symver __hv_openat, openat@GLIBC_2.17",
+    ".globl __hv_mmap; .set __hv_mmap, mmap; .symver __hv_mmap, mmap@GLIBC_2.17",
+);
+
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
-    loop {}
+    // Same rule as the loader shim: a panic must be visible and fatal, never a
+    // silent 100% CPU spin inside a guest thread (that is how a 10-vs-12 byte
+    // slice mismatch in the memfd name looked: the whole process sat in R for
+    // as long as you watched it).
+    unsafe {
+        note(b"[husk v4l2] panic\n");
+        core::arch::asm!("svc 0", in("x8") 94usize, in("x0") 102usize,
+            lateout("x0") _, options(nostack));
+    }
+    loop {
+        core::hint::spin_loop();
+    }
 }
 
 #[no_mangle]
@@ -62,6 +91,120 @@ fn lock() {
 }
 fn unlock() {
     LOCK.store(false, Ordering::Release);
+}
+
+/// Raw `svc` call. libc's `syscall()` returns -1 and sets errno, which is easy to
+/// confuse with "-errno"; everything here uses this instead and keeps the kernel's
+/// negative errno.
+#[inline]
+unsafe fn raw(n: usize, a: usize, b: usize, c: usize, d: usize, e: usize, f: usize) -> i64 {
+    let ret: i64;
+    core::arch::asm!("svc 0", in("x8") n, in("x0") a, in("x1") b, in("x2") c, in("x3") d,
+        in("x4") e, in("x5") f, lateout("x0") ret, options(nostack));
+    ret
+}
+
+unsafe fn note(msg: &[u8]) {
+    let _ = raw(64, 2, msg.as_ptr() as usize, msg.len(), 0, 0, 0);
+}
+
+unsafe fn note_int(prefix: &[u8], v: i64) {
+    let _ = raw(64, 2, prefix.as_ptr() as usize, prefix.len(), 0, 0, 0);
+    let mut buf = [0u8; 24];
+    let neg = v < 0;
+    let mut x = if neg { (-v) as u64 } else { v as u64 };
+    let mut tmp = [0u8; 20];
+    let mut n = 0;
+    if x == 0 {
+        tmp[0] = b'0';
+        n = 1;
+    }
+    while x > 0 {
+        tmp[n] = b'0' + (x % 10) as u8;
+        x /= 10;
+        n += 1;
+    }
+    let mut i = 0;
+    if neg {
+        buf[0] = b'-';
+        i = 1;
+    }
+    let mut k = n;
+    while k > 0 {
+        k -= 1;
+        buf[i] = tmp[k];
+        i += 1;
+    }
+    buf[i] = b'\n';
+    let _ = raw(64, 2, buf.as_ptr() as usize, i + 1, 0, 0, 0);
+}
+
+unsafe fn note_hex(prefix: &[u8], v: u64) {
+    let _ = raw(64, 2, prefix.as_ptr() as usize, prefix.len(), 0, 0, 0);
+    let mut buf = [0u8; 19];
+    buf[0] = b'0';
+    buf[1] = b'x';
+    let digits = b"0123456789abcdef";
+    let mut i = 2;
+    let mut shift = 60;
+    let mut started = false;
+    while shift >= 0 {
+        let d = ((v >> shift) & 0xf) as usize;
+        if d != 0 {
+            started = true;
+        }
+        if started || shift == 0 {
+            buf[i] = digits[d];
+            i += 1;
+        }
+        if shift == 0 {
+            break;
+        }
+        shift -= 4;
+    }
+    buf[i] = b'\n';
+    let _ = raw(64, 2, buf.as_ptr() as usize, i + 1, 0, 0, 0);
+}
+
+unsafe fn note2(msg: &[u8], tail: &[u8]) {
+    let _ = raw(64, 2, msg.as_ptr() as usize, msg.len(), 0, 0, 0);
+    let _ = raw(64, 2, tail.as_ptr() as usize, tail.len(), 0, 0, 0);
+    let _ = raw(64, 2, b"\n".as_ptr() as usize, 1, 0, 0, 0);
+}
+
+/// Diagnostic: what does this fd really point at? The kernel is the ground
+/// truth; a private fd table is not (an fd can arrive by dup, by fd passing or
+/// through the other interposition layer).
+unsafe fn note_link(fd: i32) {
+    let mut path = [0u8; 32];
+    let pre = b"/proc/self/fd/";
+    path[..pre.len()].copy_from_slice(pre);
+    let mut x = fd as u64;
+    let mut tmp = [0u8; 12];
+    let mut n = 0;
+    if x == 0 {
+        tmp[0] = b'0';
+        n = 1;
+    }
+    while x > 0 {
+        tmp[n] = b'0' + (x % 10) as u8;
+        x /= 10;
+        n += 1;
+    }
+    let mut i = pre.len();
+    while n > 0 {
+        n -= 1;
+        path[i] = tmp[n];
+        i += 1;
+    }
+    path[i] = 0;
+    let mut buf = [0u8; 160];
+    // aarch64 has no plain readlink(); 78 is readlinkat(dirfd, path, buf, len).
+    let r = raw(78, (-100i64) as usize, path.as_ptr() as usize, buf.as_mut_ptr() as usize, buf.len(), 0, 0);
+    if r > 0 {
+        let _ = raw(64, 2, buf.as_ptr() as usize, r as usize, 0, 0, 0);
+        let _ = raw(64, 2, b"\n".as_ptr() as usize, 1, 0, 0, 0);
+    }
 }
 
 unsafe fn set_errno(e: i32) -> i32 {
@@ -171,6 +314,7 @@ unsafe fn open_video(n: u32) -> Option<i32> {
     }
     let fd = CTX.open(n);
     if fd < 0 {
+        note_int(b"[husk v4l2] open failed for dev=", n as i64);
         None
     } else {
         Some(fd)
@@ -211,16 +355,20 @@ unsafe fn path_bytes(p: *const i8) -> Option<&'static [u8]> {
 
 #[no_mangle]
 pub unsafe extern "C" fn open(path: *const i8, flags: i32, mode: i32) -> i32 {
-    openat(AT_FDCWD, path, flags, mode)
+    do_openat(AT_FDCWD, path, flags, mode)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn open64(path: *const i8, flags: i32, mode: i32) -> i32 {
-    openat(AT_FDCWD, path, flags, mode)
+    do_openat(AT_FDCWD, path, flags, mode)
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn openat(dirfd: i32, path: *const i8, flags: i32, mode: i32) -> i32 {
+/// The implementation. Exported wrappers call this directly: a call from one
+/// exported symbol to another goes through the PLT and was resolving to libc's
+/// openat (measured: open64("/dev/video1") reached us, the openat inside it did
+/// not), which silently turned every device open into EACCES.
+#[inline(always)]
+unsafe fn do_openat(dirfd: i32, path: *const i8, flags: i32, mode: i32) -> i32 {
     if let Some(p) = path_bytes(path) {
         let mut buf = [0u8; 256];
         if let Some(n) = sys_host(p, &mut buf) {
@@ -230,12 +378,14 @@ pub unsafe extern "C" fn openat(dirfd: i32, path: *const i8, flags: i32, mode: i
         if let Some(vn) = video_index(p) {
 
             if let Some(fd) = open_video(vn) {
+                note_int(b"[preload OPEN video fd=", fd as i64);
+                note_int(b"   dev=", vn as i64);
                 return fd;
             }
 
         }
     }
-    let r = syscall(SYS_OPENAT, dirfd as i64, path as i64, flags as i64, mode as i64);
+    let r = raw(SYS_OPENAT as usize, dirfd as usize, path as usize, flags as usize, mode as usize, 0, 0);
     if r < 0 {
         return set_errno(errno_of(r));
     }
@@ -243,8 +393,13 @@ pub unsafe extern "C" fn openat(dirfd: i32, path: *const i8, flags: i32, mode: i
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn openat(dirfd: i32, path: *const i8, flags: i32, mode: i32) -> i32 {
+    do_openat(dirfd, path, flags, mode)
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn openat64(dirfd: i32, path: *const i8, flags: i32, mode: i32) -> i32 {
-    openat(dirfd, path, flags, mode)
+    do_openat(dirfd, path, flags, mode)
 }
 
 // Fortified builds (Ubuntu's GStreamer) never call `open` directly: with
@@ -253,32 +408,46 @@ pub unsafe extern "C" fn openat64(dirfd: i32, path: *const i8, flags: i32, mode:
 // direct symbol, so without these four aliases the plugin bypasses us.
 #[no_mangle]
 pub unsafe extern "C" fn __open_2(path: *const i8, flags: i32) -> i32 {
-    openat(AT_FDCWD, path, flags, 0)
+    do_openat(AT_FDCWD, path, flags, 0)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn __open64_2(path: *const i8, flags: i32) -> i32 {
-    openat(AT_FDCWD, path, flags, 0)
+    do_openat(AT_FDCWD, path, flags, 0)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn __openat_2(dirfd: i32, path: *const i8, flags: i32) -> i32 {
-    openat(dirfd, path, flags, 0)
+    do_openat(dirfd, path, flags, 0)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn __openat64_2(dirfd: i32, path: *const i8, flags: i32) -> i32 {
-    openat(dirfd, path, flags, 0)
+    do_openat(dirfd, path, flags, 0)
 }
 
 #[no_mangle]
+#[no_mangle]
 pub unsafe extern "C" fn ioctl(fd: i32, request: u64, arg: *mut u8) -> i32 {
+    do_ioctl(fd, request, arg)
+}
+
+#[inline(always)]
+unsafe fn do_ioctl(fd: i32, request: u64, arg: *mut u8) -> i32 {
+    // A V4L2 request on an fd we cannot account for is a bug, not noise: say
+    // which fd it was and what the kernel says it points at.
+    if ((request >> 8) & 0xff) == 0x56 && !CTX.is_video_fd(fd) {
+        note_hex(b"[husk v4l2] unknown fd for ioctl=", request);
+        note_int(b"   fd=", fd as i64);
+        note(b"   target=");
+        note_link(fd);
+    }
     if CTX.is_video_fd(fd) {
 
         let r = CTX.ioctl(fd, request, arg);
         return if r < 0 { set_errno(errno_of(r)) } else { 0 };
     }
-    let r = syscall(SYS_IOCTL, fd as i64, request as i64, arg as i64);
+    let r = raw(SYS_IOCTL as usize, fd as usize, request as usize, arg as usize, 0, 0, 0);
     if r < 0 {
         return set_errno(errno_of(r));
     }
@@ -294,20 +463,32 @@ pub unsafe extern "C" fn mmap(
     fd: i32,
     off: i64,
 ) -> *mut u8 {
+    do_mmap(addr, len, prot, flags, fd, off)
+}
+
+#[inline(always)]
+unsafe fn do_mmap(
+    addr: *mut u8,
+    len: usize,
+    prot: i32,
+    flags: i32,
+    fd: i32,
+    off: i64,
+) -> *mut u8 {
     if CTX.is_video_fd(fd) {
         return match CTX.mmap(fd, len, off) {
             Some(p) => p,
             None => set_errno(22) as *mut u8,
         };
     }
-    let r = syscall(
-        SYS_MMAP,
-        addr as i64,
-        len as i64,
-        prot as i64,
-        flags as i64,
-        fd as i64,
-        off,
+    let r = raw(
+        SYS_MMAP as usize,
+        addr as usize,
+        len,
+        prot as usize,
+        flags as usize,
+        fd as usize,
+        off as usize,
     );
     if r < 0 && r > -4096 {
         return set_errno(errno_of(r)) as *mut u8;
@@ -324,15 +505,20 @@ pub unsafe extern "C" fn mmap64(
     fd: i32,
     off: i64,
 ) -> *mut u8 {
-    mmap(addr, len, prot, flags, fd, off)
+    do_mmap(addr, len, prot, flags, fd, off)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn close(fd: i32) -> i32 {
+    do_close(fd)
+}
+
+#[inline(always)]
+unsafe fn do_close(fd: i32) -> i32 {
     if CTX.is_video_fd(fd) {
         CTX.close(fd);
     }
-    let r = syscall(SYS_CLOSE, fd as i64);
+    let r = raw(SYS_CLOSE as usize, fd as usize, 0, 0, 0, 0, 0);
     if r < 0 {
         return set_errno(errno_of(r));
     }
@@ -341,7 +527,7 @@ pub unsafe extern "C" fn close(fd: i32) -> i32 {
 
 #[no_mangle]
 pub unsafe extern "C" fn fcntl(fd: i32, cmd: i32, arg: usize) -> i32 {
-    let r = syscall(SYS_FCNTL, fd as i64, cmd as i64, arg as i64);
+    let r = raw(SYS_FCNTL as usize, fd as usize, cmd as usize, arg, 0, 0, 0);
     if r >= 0 && CTX.is_video_fd(fd) {
         if cmd == 4 {
             CTX.update_nonblock(fd, (arg & 0o4000) != 0);
@@ -357,25 +543,44 @@ pub unsafe extern "C" fn fcntl(fd: i32, cmd: i32, arg: usize) -> i32 {
 
 #[no_mangle]
 pub unsafe extern "C" fn stat(path: *const i8, st: *mut u8) -> i32 {
-    fstatat(AT_FDCWD, path, st, 0)
+    do_fstatat(AT_FDCWD, path, st, 0)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn lstat(path: *const i8, st: *mut u8) -> i32 {
-    fstatat(AT_FDCWD, path, st, 0x100)
+    do_fstatat(AT_FDCWD, path, st, 0x100)
+}
+
+// The GStreamer plugin references stat64@GLIBC_2.33; on aarch64 it is the same
+// struct as stat.
+#[no_mangle]
+pub unsafe extern "C" fn stat64(path: *const i8, st: *mut u8) -> i32 {
+    do_fstatat(AT_FDCWD, path, st, 0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn lstat64(path: *const i8, st: *mut u8) -> i32 {
+    do_fstatat(AT_FDCWD, path, st, 0x100)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn fstatat(dirfd: i32, path: *const i8, st: *mut u8, flags: i32) -> i32 {
+    do_fstatat(dirfd, path, st, flags)
+}
+
+#[inline(always)]
+unsafe fn do_fstatat(dirfd: i32, path: *const i8, st: *mut u8, flags: i32) -> i32 {
     if let Some(p) = path_bytes(path) {
         let mut buf = [0u8; 256];
         if let Some(n) = sys_host(p, &mut buf) {
-            let r = syscall(
-                SYS_NEWFSTATAT,
-                AT_FDCWD as i64,
-                buf.as_ptr() as i64,
-                st as i64,
-                flags as i64,
+            let r = raw(
+                SYS_NEWFSTATAT as usize,
+                AT_FDCWD as usize,
+                buf.as_ptr() as usize,
+                st as usize,
+                flags as usize,
+                0,
+                0,
             );
             if r < 0 {
                 return set_errno(errno_of(r));
@@ -386,12 +591,14 @@ pub unsafe extern "C" fn fstatat(dirfd: i32, path: *const i8, st: *mut u8, flags
             return synth_stat(vn, st);
         }
     }
-    let r = syscall(
-        SYS_NEWFSTATAT,
-        dirfd as i64,
-        path as i64,
-        st as i64,
-        flags as i64,
+    let r = raw(
+        SYS_NEWFSTATAT as usize,
+        dirfd as usize,
+        path as usize,
+        st as usize,
+        flags as usize,
+        0,
+        0,
     );
     if r < 0 {
         return set_errno(errno_of(r));
@@ -410,13 +617,14 @@ pub unsafe extern "C" fn statx(
     if let Some(p) = path_bytes(path) {
         let mut sb = [0u8; 256];
         if let Some(n) = sys_host(p, &mut sb) {
-            let r = syscall(
-                SYS_STATX,
-                AT_FDCWD as i64,
-                sb.as_ptr() as i64,
-                flags as i64,
-                mask as i64,
-                buf as i64,
+            let r = raw(
+                SYS_STATX as usize,
+                AT_FDCWD as usize,
+                sb.as_ptr() as usize,
+                flags as usize,
+                mask as usize,
+                buf as usize,
+                0,
             );
             if r < 0 {
                 return set_errno(errno_of(r));
@@ -427,13 +635,14 @@ pub unsafe extern "C" fn statx(
             return synth_statx(vn, buf);
         }
     }
-    let r = syscall(
-        SYS_STATX,
-        dirfd as i64,
-        path as i64,
-        flags as i64,
-        mask as i64,
-        buf as i64,
+    let r = raw(
+        SYS_STATX as usize,
+        dirfd as usize,
+        path as usize,
+        flags as usize,
+        mask as usize,
+        buf as usize,
+        0,
     );
     if r < 0 {
         return set_errno(errno_of(r));
@@ -448,7 +657,7 @@ pub unsafe extern "C" fn access(path: *const i8, mode: i32) -> i32 {
             return 0;
         }
     }
-    let r = syscall(SYS_FACCESSAT, AT_FDCWD as i64, path as i64, mode as i64, 0i64);
+    let r = raw(SYS_FACCESSAT as usize, AT_FDCWD as usize, path as usize, mode as usize, 0, 0, 0);
     if r < 0 {
         return set_errno(errno_of(r));
     }
@@ -469,7 +678,11 @@ pub unsafe extern "C" fn access(path: *const i8, mode: i32) -> i32 {
 
 #[no_mangle]
 pub unsafe extern "C" fn v4l2_open(path: *const i8, flags: i32) -> i32 {
-    open(path, flags, 0)
+    let fd = do_openat(AT_FDCWD, path, flags, 0);
+    if fd >= 0 && CTX.is_video_fd(fd) {
+        CTX.update_nonblock(fd, (flags & 0o4000) != 0);
+    }
+    fd
 }
 
 #[no_mangle]
@@ -479,12 +692,12 @@ pub unsafe extern "C" fn v4l2_fd_open(fd: i32, _flags: i32) -> i32 {
 
 #[no_mangle]
 pub unsafe extern "C" fn v4l2_ioctl(fd: i32, request: u64, arg: *mut u8) -> i32 {
-    ioctl(fd, request, arg)
+    do_ioctl(fd, request, arg)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn v4l2_read(fd: i32, buf: *mut u8, n: usize) -> isize {
-    syscall(63, fd as i64, buf as i64, n as i64) as isize
+    raw(63, fd as usize, buf as usize, n, 0, 0, 0) as isize
 }
 
 #[no_mangle]
@@ -496,22 +709,22 @@ pub unsafe extern "C" fn v4l2_mmap(
     fd: i32,
     off: i64,
 ) -> *mut u8 {
-    mmap(start, length, prot, flags, fd, off)
+    do_mmap(start, length, prot, flags, fd, off)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn v4l2_munmap(start: *mut u8, length: usize) -> i32 {
-    syscall(215, start as i64, length as i64) as i32
+    raw(215, start as usize, length, 0, 0, 0, 0) as i32
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn v4l2_close(fd: i32) -> i32 {
-    close(fd)
+    do_close(fd)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn v4l2_dup(fd: i32) -> i32 {
-    syscall(23, fd as i64) as i32
+    raw(23, fd as usize, 0, 0, 0, 0, 0) as i32
 }
 
 // ---- ABI for the loader shim -------------------------------------------

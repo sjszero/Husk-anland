@@ -1,0 +1,20 @@
+/* The GStreamer plugin references its libc symbols *with versions*
+ * (open64@GLIBC_2.17, ioctl@GLIBC_2.17, mmap64@GLIBC_2.17, reset by
+ * stat64@GLIBC_2.33). An unversioned LD_PRELOAD definition does not bind to
+ * those, which is why the preload was invisible. Give every symbol the version
+ * the guest actually asks for; docs/design/evidence/91 records the measurement. */
+GLIBC_2.17 {
+  global:
+    open; open64; openat; openat64;
+    __open_2; __open64_2; __openat_2; __openat64_2;
+    ioctl; mmap; mmap64; close; fcntl; access;
+    stat; lstat; fstatat;
+    v4l2_open; v4l2_fd_open; v4l2_ioctl; v4l2_read; v4l2_mmap; v4l2_munmap;
+    v4l2_close; v4l2_dup;
+    husk_v4l2_open; husk_v4l2_ioctl; husk_v4l2_mmap; husk_v4l2_is_fake;
+    husk_v4l2_close; husk_v4l2_nonblock;
+};
+
+GLIBC_2.33 {
+  global: stat64; lstat64; statx;
+} GLIBC_2.17;

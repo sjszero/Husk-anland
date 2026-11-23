@@ -162,8 +162,35 @@ Changes (our runtime has no ptrace and no bind mounts):
 - `poll` always-readable means a broken stream shows up as `DQBUF` returning `EAGAIN`
   after the 1 s app timeout, not as a hung `poll`. Tools that trust `poll` will spin;
   `v4l2-ctl` and GStreamer both tolerate it, but it must be written down.
-- **dlopen'd consumers are a separate problem.** `libgstvideo4linux2.so` imports
-  `open64@GLIBC_2.17`; the loader shim cannot patch it and an unversioned preload
-  definition does not bind to the versioned reference (measured, evidence 91). The
-  WIP `runtime/crates/v4l2-preload` documents the two fixes (version script or
-  dlopen-time GOT patching).
+- ~~dlopen'd consumers are a separate problem~~ — **solved**, see §8.
+- The fd→device lookup must never be a private table. See §8.
+
+## 8. What the prior art actually bought us: fd identity comes from the kernel
+
+`dn_v4l2.c:137` does not keep an fd table. On every ioctl it resolves the fd through
+`/proc/<pid>/fd/<n>` + `st_dev/st_ino` and matches it against the scanned device nodes.
+The reason is structural, not stylistic: an fd can arrive by `dup`, by fd passing, or
+through a *different interposition layer*, and a table keyed by fd number sees none of
+those.
+
+Our first implementation used a table and failed on the first real consumer:
+GStreamer `dup()`s the capture fd and calls `STREAMON` on the duplicate (`fd=11`,
+`known=0`, evidence 92). Everything before it had worked, which is what makes this
+class of bug expensive: it is invisible until someone dup's.
+
+Rule adopted for both layers (and for any future device shim):
+
+1. the guest-visible object is a memfd **whose name carries the device index**
+   (`husk-v4l2-<n>`), so the kernel's `readlink` answer is self-describing;
+2. `dev_of_fd` = fast path (the fd our own `open` returned) → kernel fallback
+   (`readlinkat /proc/self/fd/<n>` + parse the name), with the fallback skipped when
+   nothing is open so unrelated processes pay nothing;
+3. `close` ends the session only on the **last** reference to that memfd (`dup` shares
+   the file description);
+4. an fd that resolves to our memfd while this layer holds no state belongs to the
+   other layer — say so on stderr, never swallow it.
+
+Versioned imports of dlopen'd objects are handled by the LD_PRELOAD layer
+(`runtime/crates/v4l2-preload/exports.map`: `GLIBC_2.17` / `GLIBC_2.33`), and the
+private `do_*` pattern inside it, because a call between exported symbols goes through
+the PLT and rebinds to libc.

@@ -34,7 +34,13 @@ static mut FAKE: [i32; 8] = [-1; 8];
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
-    loop {}
+    unsafe {
+        core::arch::asm!("svc 0", in("x8") 94usize, in("x0") 103usize,
+            lateout("x0") _, options(nostack));
+    }
+    loop {
+        core::hint::spin_loop();
+    }
 }
 
 /// panic=abort 下仍然会被链接器要这个符号（依赖里带展开信息时）
