@@ -1,0 +1,3 @@
+frame-03.nv12 front camera 1280x720 NV12
+Y mean=15.60 stddev=22.89 min=0 max=188
+bytes=1382400
