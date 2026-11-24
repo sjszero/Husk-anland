@@ -30,6 +30,10 @@ use std::io::{self, Read, Write};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 
+extern "C" {
+    fn lchown(path: *const std::os::raw::c_char, uid: u32, gid: u32) -> i32;
+}
+
 const PASSWD: &str = "/etc/passwd";
 const SHADOW: &str = "/etc/shadow";
 const GROUP: &str = "/etc/group";
@@ -706,7 +710,30 @@ fn copy_dir(src: &Path, dst: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn create_home(home: &str, skel: &str, mode: u32) -> R<()> {
+/// `chown -R` as the reference `useradd` does it: everything under the new home
+/// belongs to the new account. Guest chown(2) is answered by the runtime's
+/// ownership table (it cannot really change a file's owner here), but the answer
+/// is what every later process reads back - without this, the first `sudo` or
+/// `ssh` run as the user refuses its own home as "owned by uid 0".
+fn chown_tree(p: &Path, uid: u32, gid: u32) {
+    let c = match CString::new(p.as_os_str().to_string_lossy().as_bytes()) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    unsafe {
+        lchown(c.as_ptr(), uid, gid);
+    }
+    if let Ok(rd) = fs::read_dir(p) {
+        for ent in rd.flatten() {
+            let t = ent.path();
+            if !ent.file_type().map(|t| t.is_symlink()).unwrap_or(false) {
+                chown_tree(&t, uid, gid);
+            }
+        }
+    }
+}
+
+fn create_home(home: &str, skel: &str, mode: u32, uid: u32, gid: u32) -> R<()> {
     let p = Path::new(home);
     if p.exists() {
         return Ok(());
@@ -723,6 +750,7 @@ fn create_home(home: &str, skel: &str, mode: u32) -> R<()> {
     if sk.is_dir() {
         copy_dir(sk, p).map_err(|e| format!("warning: cannot copy {skel}: {e}"))?;
     }
+    chown_tree(p, uid, gid);
     Ok(())
 }
 
@@ -961,7 +989,13 @@ fn cmd_useradd(args: &[String]) -> i32 {
     if create_home_wanted && home != "/nonexistent" {
         if Path::new(&home).exists() {
             eprintln!("useradd: warning: the home directory {home} already exists.");
-        } else if let Err(e) = create_home(&home, &o.vals.get("k").cloned().unwrap_or_else(|| SKEL.into()), home_mode) {
+        } else if let Err(e) = create_home(
+            &home,
+            &o.vals.get("k").cloned().unwrap_or_else(|| SKEL.into()),
+            home_mode,
+            uid,
+            gid,
+        ) {
             eprintln!("useradd: {e}");
             return 12;
         }
