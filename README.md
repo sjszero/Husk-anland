@@ -1,18 +1,19 @@
-<div align="center">
+<!-- 三段分开的居中块：GitHub 只在空行处结束 HTML 块，合进一个 div 会让标题退回左对齐 -->
+<p align="center">
+  <img src="docs/assets/brand/husk-mark-hexagon-h-512.png" width="132" alt="Husk">
+</p>
 
-<img src="docs/assets/brand/husk-mark-hexagon-h-512.png" width="140" alt="Husk">
+<h1 align="center">Husk</h1>
 
-# Husk（壳）
+<p align="center">让完整的 Linux 发行版以普通应用进程的身份，直接被 Android 内核执行。</p>
 
-**让完整的 Linux 发行版以普通应用进程的身份，直接被 Android 内核执行。**
-
-![License](https://img.shields.io/badge/license-Apache--2.0-blue)
-![Platform](https://img.shields.io/badge/platform-Android%20arm64-3DDC84)
-![Rust](https://img.shields.io/badge/rust-2021%20edition-DEA584)
-![Syscall interception](https://img.shields.io/badge/syscall%20interception-none-brightgreen)
-![PRs](https://img.shields.io/badge/PRs-welcome-brightgreen)
-
-</div>
+<p align="center">
+  <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Android%20arm64-3DDC84">
+  <img alt="Rust" src="https://img.shields.io/badge/rust-2021%20edition-DEA584">
+  <img alt="Syscall interception" src="https://img.shields.io/badge/syscall%20interception-none-brightgreen">
+  <img alt="PRs" src="https://img.shields.io/badge/PRs-welcome-brightgreen">
+</p>
 
 **Husk 是一个 Android 运行时：让完整的 Linux 发行版（glibc 用户态）以普通应用进程的身份，
 直接被 Android 内核执行——不需要 root、不需要解 Bootloader、不需要硬件虚拟化、不做 ptrace。**
