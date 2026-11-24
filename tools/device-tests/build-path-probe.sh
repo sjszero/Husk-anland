@@ -3,7 +3,21 @@
 # The probe must be run under the embedded loader, not executed on the host.
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
-NDK=${NDK:-/Users/l/Library/Android/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64}
+# Where the NDK lives is not a property of the repository: resolve it from the
+# environment (ANDROID_NDK_HOME, then ANDROID_HOME/ANDROID_SDK_ROOT) and only
+# then guess the default SDK location for this host. A hard-coded home directory
+# here used to leak one developer's layout into the tree.
+if [ -z "${NDK:-}" ]; then
+    if [ -n "${ANDROID_NDK_HOME:-}" ]; then
+        NDK=$ANDROID_NDK_HOME
+    else
+        case "$(uname -s)" in
+            Darwin) ndk_host=darwin-x86_64 ;;
+            *)      ndk_host=linux-x86_64 ;;
+        esac
+        NDK=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}/ndk/29.0.14206865/toolchains/llvm/prebuilt/$ndk_host
+    fi
+fi
 CLANG=$NDK/bin/clang
 LLD=$NDK/bin/ld.lld
 SYSROOT=${GLIBC_SYSROOT:-/tmp/nr-toolchain/root}

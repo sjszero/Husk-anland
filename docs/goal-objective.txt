@@ -1,5 +1,5 @@
 
-总目标：Husk（纯 Rust 原生 Linux 运行时，仓库 /Users/l/Documents/Codex/2026-08-10/husk）在 RMX3357（MT6893 / Dimensity 1200 / Mali-G77，Android 13 / kernel 4.19.191 / 4 KiB 页 / arm64）上端到端跑通，做到能替代 LinuxHub 2.0 的产品化程度；原生直连 SoC 的四件事——GPU / 显示 / 视频 / 音频——与运行时核心同级，必须做完，缺一条不算完成。
+总目标：Husk（纯 Rust 原生 Linux 运行时，仓库根目录）在 RMX3357（MT6893 / Dimensity 1200 / Mali-G77，Android 13 / kernel 4.19.191 / 4 KiB 页 / arm64）上端到端跑通，做到能替代 LinuxHub 2.0 的产品化程度；原生直连 SoC 的四件事——GPU / 显示 / 视频 / 音频——与运行时核心同级，必须做完，缺一条不算完成。
 
 硬约束：不 root、不解 BL、不开虚拟化；运行时零 syscall 拦截（shim 只在必要处 interpose，不再扩大拦截面）；能 Rust 就 Rust（零 Java、零 Python、零 C，只有内核 ABI 强制的裸汇编 stub 例外）；绝不读写 com.linuxhub.myth 的任何数据，只用自己私有目录里的副本；单台旧设备的问题不外推到所有设备；结论只按实测下，推断必须标注。每次正式改动都提交本地并推 GitHub。
 

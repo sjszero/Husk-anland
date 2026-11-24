@@ -172,16 +172,26 @@ fork/exec 不经翻译层；I/O 直落内核）、**代价**（生态成熟度�
 
 ## 4 · 发布门禁（缺一不发）
 
-- [ ] 门禁 A 36 项全绿 + 桌面 30 分钟长稳
-- [ ] A1–A6 闭环且有实测记录
-- [ ] `tools/bench/run-all.sh` 三运行器跑完，八维度无空缺
-- [ ] `docs/BENCHMARKS.md` 有总表 / 机制 / 代价三段，数字可复现
-- [ ] `docs/RUNNING.md` 在干净环境（不装 APK）走通
-- [ ] C1 文件清单齐全；C2 README 十七节齐全；C3 徽章全部为真徽章
-- [ ] LICENSE 已换成 OSI 认可许可证，`NOTICE` 就位
-- [ ] CI 在 GitHub 上真实跑绿一次（fmt / clippy / build / test / docs 链接）
-- [ ] 仓库无第三方代码、无密钥、无真实用户数据、无内部路径与私有仓库名
-- [ ] 每条结论可指回 `docs/design/evidence/`
+- [x] 门禁 A 36 项全绿 + 桌面 30 分钟长稳 —— 主树 36/36（23:16），从发布包新装的树
+      34/34（少 2 项是包内无 apt 缓存、重装检查被跳过，不是失败）；长稳见 evidence 169
+- [x] A1–A6 闭环且有实测记录 —— evidence 151/152
+- [ ] `tools/bench/run-all.sh` 三运行器跑完，八维度无空缺 —— 八字维度是**分轮单独测**的
+      （1/2/3/4/5/6/8 走 `bench`，7 走 soak，见 `docs/BENCHMARKS.md`）；一条命令跑完仍未做，
+      表里「不可比/未测」的格子已在文档里逐格写明原因
+- [x] `docs/BENCHMARKS.md` 有总表 / 机制 / 代价三段，数字可复现 —— evidence 168/169
+- [x] `docs/RUNNING.md` 在干净环境（不装 APK）走通 —— evidence 130，产物重验 172
+- [ ] C1 文件清单齐全；C2 README 十七节齐全；C3 徽章全部为真徽章 —— C3 还差 CI 徽章
+      （它依赖下面那条 CI）
+- [x] LICENSE 已换成 OSI 认可许可证，`NOTICE` 就位
+- [ ] CI 在 GitHub 上真实跑绿一次（fmt / clippy / build / test / docs 链接）——
+      **卡在 token 权限**：推送 `.github/workflows/ci.yml` 被拒
+      （`without 'workflow' scope`）。六个作业的命令本机逐条跑过、全绿；解开只需
+      `gh auth refresh -h github.com -s workflow` 后再推一次
+- [x] 仓库无第三方代码、无密钥、无真实用户数据、无内部路径与私有仓库名 ——
+      2026-11-24 扫过：无 `gh[po]_`/私钥、无 `/Users/...`（4 个构建脚本里写死的 NDK 路径已改成
+      从 `ANDROID_NDK_HOME`/`ANDROID_HOME` 解析）、无 vendored 第三方源、只出现本项目自己的
+      包名 `com.linuxhub.myth.husk`
+- [x] 每条结论可指回 `docs/design/evidence/` —— 193 个 markdown 链接 0 断
 
 ## 5 · 不做（Non-goals）
 
