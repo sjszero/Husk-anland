@@ -26,6 +26,7 @@ members = [
     "crates/husk-tools",
     "crates/husk-window-wait",
     "crates/gl-probe",
+    "crates/ipc-probe",
     "crates/husk-symlinks",
     "crates/video-protocol",
     "crates/video-bridge",

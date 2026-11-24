@@ -64,7 +64,7 @@ stub 页后，19 位分支（±1 MiB）够不着。修法是让重定位器把�
 "反条件跳过 + 全宽 `b`（±128 MiB）"两条指令，stub 页改成变长紧凑排布。这一改把整张表从 74/87 提到
 82/87，`__open_2` / `__openat_2` / `__openat64_2` / `renameat2` / `mkstemps` 也一并补上了。
 
-## 3. 语义验收（`tools/device-tests/06-posix-mqueue.py`，12 项）
+## 3. 语义验收（`ipc-probe mq`，12 项）
 
 见 `docs/design/evidence/114-posix-mqueue-20261123.md`：建队列、发 3 条（优先级 3/7/1）、
 按优先级 7→3→1 取出、空队列 `EAGAIN`、`curmsgs` 计数、`close`、`unlink` 删掉仍有消息的队列、
@@ -125,8 +125,8 @@ stub 页后，19 位分支（±1 MiB）够不着。修法是让重定位器把�
 
 | 脚本 | 项数 | 结果 |
 |---|---|---|
-| `tools/device-tests/07-sysv-shm.py` | 13 | PASS（含 fork 出的子进程写、父进程读的真实共享；RMID 宽限期；key 生命周期） |
-| `tools/device-tests/08-sysv-sem-msg.py` | 24 | PASS（P/V、`EAGAIN`、all-or-nothing、跨进程阻塞唤醒、按类型/负类型取消息、`E2BIG`、`MSG_NOERROR`、`IPC_STAT` 计数） |
+| `ipc-probe shm` | 13 | PASS（含 fork 出的子进程写、父进程读的真实共享；RMID 宽限期；key 生命周期） |
+| `ipc-probe sem-msg` | 24 | PASS（P/V、`EAGAIN`、all-or-nothing、跨进程阻塞唤醒、按类型/负类型取消息、`E2BIG`、`MSG_NOERROR`、`IPC_STAT` 计数） |
 
 ## 8. 明确不支持
 

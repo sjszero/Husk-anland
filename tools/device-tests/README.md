@@ -40,7 +40,7 @@ files/nrfull/root/            # real rootfs: glibc 2.39, bash, coreutils, grep, 
 | `es3-workload.sh` + `gl-probe` | real ES3 workload (instancing/UBO/texture/MRT), pixel-checked in the guest | push `gl-probe`, then `sh /tmp/es3-workload.sh` |
 | `accept-gcc-make.sh` | gcc -> cc1 -> as -> collect2 -> ld.bfd, then `make -j4` / no-op / clean | `WAIT=60 ./run-guest.sh accept-gcc-make.sh` |
 | `05-mount-audit.sh` | mount/tmpfs/read-only audit: 8 findings from an external review, 11 checks | `sh gexec.sh rootfs-full usr/bin/bash tmp/05-mount-audit.sh` |
-| `06-posix-mqueue.py` `07-sysv-shm.py` `08-sysv-sem-msg.py` | POSIX mqueue, SysV shm, SysV sem/msg | `sh gexec.sh rootfs-full usr/bin/python3 tmp/0N-*.py` |
+| `ipc-probe` | POSIX mqueue, SysV shm, SysV sem/msg (12 / 13 / 24 项) | `sh gexec.sh rootfs-full usr/bin/env /tmp/ipc-probe {mq,shm,sem-msg}` |
 | `09-network-surface.sh` | netlink surface: `ip`/`hostname -I`/`/proc/net/*`/`getent` answer, writes are refused with EPERM/EOPNOTSUPP | `sh gexec.sh rootfs-full usr/bin/bash tmp/09.sh` |
 | `10-device-nodes.sh` | device node surface by name, plus the three platform walls (`/dev` listing, `/dev/full`, `/dev/tty`) asserted as known limits | `sh gexec.sh rootfs-full usr/bin/bash tmp/10.sh` |
 | `11-process-view.sh` | guest processes carry their real names (`ps`/`top`/`pgrep`), and another app's `/proc/<pid>` stays unreadable | `sh gexec.sh rootfs-full usr/bin/bash tmp/11.sh` |

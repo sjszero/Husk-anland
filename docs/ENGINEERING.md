@@ -15,16 +15,17 @@
 
 ## 2. 语言构成
 
-产品代码只有 Rust，加 271 行汇编。没有 Java，没有 Python，没有 C。仓库工具（链接门禁、
-基准表格）也是 Rust crate `husk-tools`，与原 Python 脚本逐字节同输出。
+产品代码只有 Rust，加 318 行汇编。仓库工具与探针也全部是 Rust crate：`husk-tools`（链接门禁、
+基准表格）、`husk-window-wait`（首个可见窗口计时）、`gl-probe`（ES3 真 workload / 窗口化 EGL）、
+`ipc-probe`（POSIX mqueue、SysV shm/sem/msg）。
 
 | 语言 | 规模 | 负责什么 | 为什么不是别的语言 |
 |---|---|---|---|
-| Rust | 5,681 行 / 12 个文件 | 运行时本体、全部构建工具、壳应用（PTY、GL 渲染、字体、输入、生命周期） | 单一实现，`no_std` 路径层零依赖，无 GC |
-| 汇编 | 271 行 / 2 个文件 | loader 入口桩与 `_dl_init` 钩子 | 这段代码必须在任何 Rust 运行时存在之前执行；稳定版 Rust 无法定义 naked function |
-| Shell | 474 行 / 13 个脚本 | 设备测试 | 被测对象本身就是 shell 与 coreutils，换掉等于换掉被测对象 |
-| C | 103 行 / 1 个文件 | 客舱基准的参考实现 | 只在没有推预编译 Rust 基准时兜底；Rust 版在 `runtime/crates/guest-bench` |
-| Gradle kts | 46 行 / 6 个文件 | APK 打包 | Android 官方打包工具，不承载产品逻辑 |
+| Rust | 67,572 行 / 72 个文件 | 运行时本体、全部构建与仓库工具、客舱探针、壳应用（PTY、GL 渲染、字体、输入、生命周期） | 单一实现，`no_std` 路径层零依赖，无 GC |
+| 汇编 | 318 行 / 2 个文件 | loader 入口桩与 `_dl_init` 钩子 | 这段代码必须在任何 Rust 运行时存在之前执行；稳定版 Rust 无法定义 naked function |
+| Shell | 2,871 行 / 54 个脚本 | 安装、会话启动、设备测试编排 | 被测对象本身就是 shell 与 coreutils，换掉等于换掉被测对象 |
+| Java | 96 行 / 1 个文件 | `tools/probe-app` 的验证 Activity（开发期跑探针用，不面向用户） | 仓库里唯一一门非 Rust 语言；它只是把一个可执行文件拉起来再收输出 |
+| Gradle kts | 53 行 / 6 个文件 | APK 打包 | Android 官方打包工具，不承载产品逻辑 |
 
 壳应用没有 Activity 的 Java 类：APK 里声明的就是 `android.app.NativeActivity`，
 平台直接调用我们 `.so` 里的 `ANativeActivity_onCreate`，从这里往下全是 Rust。

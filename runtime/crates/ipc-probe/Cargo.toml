@@ -1,0 +1,12 @@
+[package]
+name = "ipc-probe"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Guest-side POSIX mqueue and SysV IPC semantic probes"
+
+[[bin]]
+name = "ipc-probe"
+path = "src/main.rs"
+
+[dependencies]
