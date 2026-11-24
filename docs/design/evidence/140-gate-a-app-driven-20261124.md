@@ -86,3 +86,16 @@ App 的安装循环后面的轮次把它装上了 —— 这是**顺序问题不
   （`etc/husk/services.conf` 里的 GNOME 会话服务）不在本轮范围。
 - 139 §3.1/§3.2 的两个口径缺口（guest `DT_RUNPATH`、跨进程虚构所有权）。
 - 桌面帧出屏（G 段）按目标延后；dconf 的 `SCM_CREDENTIALS` 属于它。
+
+## 5 · 收尾时量到的一条泄漏（FACT，待设计）
+
+清理设备时发现 **孤儿 `dbus-daemon`**：`ps` 里有 5 个 PPID=1 的
+`--argv0 dbus-daemon … --nofork --print-address 4 --session`，全部指向这棵树的
+`usr/bin/dbus-daemon`。来源是 `dbus-run-session`：它启动的会话总线父进程退出后不回收到
+init，于是每跑一次留一个。App 每轮初始化至少调用两次（`ensureGnomeSessionAssets` 的
+legacy-tray 与 `apply-ubuntu-defaults`），`startDesktop()` 每次启动还会再跑一遍 ——
+也就是说**这是一个会累积的泄漏**，不是本轮的一次性现象。
+
+本轮把它们 `kill` 掉了（我们自己的 5 个；`com.linuxhub.husk` 那条旧会话进程不属于本包，
+没动）。修法需要设计：要么启动时按 `XDG_RUNTIME_DIR` 里的 pid 文件收割旧总线，要么让
+`husk-su` 结束前把自己的进程组收干净。未做，记在这里。
