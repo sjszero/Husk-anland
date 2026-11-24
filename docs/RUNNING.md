@@ -133,6 +133,15 @@ python3 -c "import numpy; print(numpy.arange(200000).sum())"
 getent passwd | head -3
 ```
 
+独立安装（不装 APK）的验收多两条，实测见 `docs/design/evidence/157-standalone-install-c4.md`：
+
+```sh
+./husk --version                                  # husk 0.01
+./husk run ubuntu -c 'apt-get update'             # 需要 resolv.conf，见 §7
+./husk run ubuntu -c 'eglinfo -B | grep -i renderer'
+# 期望：zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))，不是 llvmpipe
+```
+
 期望：命令全部返回 0 且输出来自**rootfs 自己**（不是 Android 的 `/etc`）。任何一条报
 `Bad system call`、`ENOENT`、`Can't stat /lib`，对照 §3 的表定位是哪一步没做。
 
@@ -147,3 +156,6 @@ getent passwd | head -3
 | `su: System error` | §4.6 `husk-su` 没装上 |
 | `no writable TMPDIR` | §4.7 |
 | `make` 的输出消失 | 取样问题，不是运行时问题：`adb shell` 给 guest 的 stdout 是 socket |
+| `apt-get update` 报 `Temporary failure resolving` | 没有 `etc/resolv.conf`：release 包按设计不含它，独立安装由 `install-husk.sh` 写（先取 `net.dns1/2`，再兜底 1.1.1.1 / 8.8.8.8） |
+| `E: Directory '/var/log/apt/' missing` | release 包不含 `var/log`；安装器会建 `var/log/apt` 与 `var/log/dpkg.log` |
+| `./husk run ubuntu -c '…'` 报 `usr/bin/env: '/-c'` | 旧启动器把 `-c` 当程序名；现在的启动器首参以 `-` 开头会前置 `usr/bin/bash` |

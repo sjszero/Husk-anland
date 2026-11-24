@@ -145,6 +145,10 @@ case "$magic" in
         rc=$? ;;
     fd377a585a00*)  dec="xz -dc" ;;
     28b52ffd*)      dec="zstd -dc" ;;
+    *)
+        # Plain tar (and anything else tar can sniff on its own).
+        tar xf "$ROOTFS_TAR" -C "$DEST" > "$OUT/.husk-pass1.log" 2>&1
+        rc=$? ;;
 esac
 if [ -n "$dec" ]; then
     command -v "${dec%% *}" >/dev/null 2>&1 || { echo "install-husk: $ROOTFS_TAR is compressed but ${dec%% *} is not available" >&2; exit 67; }
@@ -189,6 +193,29 @@ LIBS="$DEST/lib/aarch64-linux-gnu:$DEST/usr/lib/aarch64-linux-gnu"
 #     here, so an install never inherits sockets or a stale /root.
 mkdir -p "$DEST/dev" "$DEST/dev/shm" "$DEST/proc" "$DEST/sys" "$DEST/run" "$DEST/root" "$DEST/tmp"
 chmod 1777 "$DEST/tmp"
+
+# 2b-2. resolv.conf. A release tarball leaves it out (it is device identity), and
+#       without it `apt-get update` dies on "Temporary failure resolving" while
+#       the loader itself looks perfectly healthy. The app path gets this file
+#       from the app; a standalone install has to write one.
+if [ ! -s "$DEST/etc/resolv.conf" ]; then
+    mkdir -p "$DEST/etc"
+    {
+        for ns in $(getprop net.dns1 2>/dev/null) $(getprop net.dns2 2>/dev/null); do
+            case "$ns" in *[0-9]*) echo "nameserver $ns" ;; esac
+        done
+        echo "nameserver 1.1.1.1"
+        echo "nameserver 8.8.8.8"
+    } > "$DEST/etc/resolv.conf"
+    echo "   wrote etc/resolv.conf ($(grep -c nameserver "$DEST/etc/resolv.conf") nameservers)"
+fi
+
+# 2b-3. log directories apt and dpkg expect. The release tarball drops var/log
+#       (session logs of the verifying device); without these, every install
+#       prints `E: Directory '/var/log/apt/' missing` and apt still exits with an
+#       error code even though the package went in.
+mkdir -p "$DEST/var/log/apt" "$DEST/var/log/apt/periodic"
+: > "$DEST/var/log/dpkg.log"
 
 # 2c. absolute symlinks. The guest loader is a host process, so the kernel
 #     resolves a link target against the *host* root: /etc/alternatives/...
@@ -269,6 +296,9 @@ case "\${1:-}" in
     run) shift; [ \$# -gt 0 ] && shift ;;   # drop "run" and the distro name
 esac
 [ \$# -gt 0 ] || set -- usr/bin/bash -l
+# "-c 'cmd'" (and any other leading option) is meant for the shell, not for
+# husk-session.sh: that would try to exec a program called "-c".
+case "\${1:-}" in -*) set -- usr/bin/bash "\$@" ;; esac
 # husk-session.sh finds the loader through NR_LD; the rootfs is passed explicitly.
 NR_LD="$LOADER" exec "$OUT/husk-session.sh" "$DEST" --user $USER_NAME -- "\$@"
 LAUNCHER
