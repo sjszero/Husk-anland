@@ -25,6 +25,16 @@
 - **关屏 150 秒再唤醒，会话没死**：同一 pid、线程 33 不变、fd 41→40、内存 +4 kB，唤醒后
   X 根窗口仍 100% 非黑（evidence 173）。注意：全程 USB 供电 + adb 在线，**不是**深睡/Doze。
 
+### 测过（追加）
+
+- **真实 GTK4 客户端跑通**：GTK 4.14 的 `gnome-text-editor`（`GSK_RENDERER=ngl`）在 zink/PanVK 的
+  X11 上开窗并画出完整界面，X 根窗口 2400×1080 抓图 28 565 种颜色、非黑；同时记录
+  `KBASE_IOCTL_MEM_EXEC_INIT` 被拒（EPERM）但渲染正常，原因未查清（evidence 176）。
+- **5 个打不上的 libc hook 核清四条、留一条 UNKNOWN**：反汇编证明 `__readlink_chk` /
+  `__readlinkat_chk` / `__realpath_chk` / `__mq_open_2` 的"跳进窗口"是它们自己跳自己，
+  真正的活是尾调用已接管的入口；`__openat64_nocancel` 这版没导出符号，标 UNKNOWN
+  （evidence 175，`LIMITATIONS` 新增第 9 节）。
+
 ### 改进
 
 - `gl-probe` 的 `window` 子命令接受 `WxH` 和帧数（原来是写死的 640×480 / 60），并新增
