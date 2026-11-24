@@ -1,5 +1,22 @@
 # 变更记录
 
+## 2026-11-24 — 虚构所有权跨进程：`st_uid` 终于不是"本进程的谎"
+
+- **evidence 142**：rootfs 里的文件一直如实报出真实 app uid（`u0_a265`），所以 `sudo` 说
+  `/etc/sudo.conf is owned by uid 10265, should be 0` 并拒绝启动——我们对 guest 自己 chown 过的
+  路径只有进程内的别名表，跨进程就没了。现在落成 `/var/lib/husk/owners`：一行一条
+  `dev ino uid gid`，**不登记就是 0:0**（root 占绝大多数），键是 inode 而不是路径，
+  于是 `rename`/硬链接不需要任何记账。`chown`/`lchown`/`fchownat` 与
+  `O_CREAT`/`mkdir`/`mknod`/`symlink` 写入，`stat`/`lstat`/`fstatat`/`statx`/`fstat`
+  读出，`unlink` 在 `st_nlink == 1` 时清除（inode 复用不继承旧 owner）。只对 rootfs 的
+  `st_dev` 生效，passthrough 的 `/dev`、`/proc` 保持真实值；`NR_OWNERS=0` 可单独关掉做对照。
+  `sudo` 因此越过 owner 检查，卡到下一条：PAM 的 `ENOTSOCK` 与 audit netlink（服务/桌面表面，
+  不在门禁 A 判据里）。代价：76,331 个文件全量 stat，开/关两张表都落在 523–654 ms 的噪声里。
+- **顺带**：`husk-usermgr` 建 home 之后从没 chown 过它，`/home/<user>` 报 0:0；现在
+  `create_home()` 收尾做一次递归 `lchown`，`sudo`/`ssh`/`git` 不会再把自己的家目录当别人的。
+- 回归：`14-gate-a-acceptance.sh` 34 PASS / 0 FAIL，`12-supervisor.sh` 8 PASS / 0 FAIL。
+- 指纹：loader `d210644d…`（shim `293a95bc…`），`husk-usermgr` `801b276b…`，libc 不变。
+
 ## 2026-11-24 — 走 App 的 UI 流程：从「第一条 guest 命令就死」到 INITIALIZATION COMPLETE
 
 - **evidence 137**：UI 流程暴露两个根因。① `/usr/sbin/ldconfig` 是包装脚本，真正的

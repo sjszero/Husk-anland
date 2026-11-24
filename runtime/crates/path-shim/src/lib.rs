@@ -3741,6 +3741,7 @@ unsafe fn widen_owner_write(dirfd: CInt, path: *const CChar) -> bool {
 
 #[no_mangle]
 pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt) -> CInt {
+    let fresh = own_create_check(dirfd, path, flags);
     let mut r = openat_inner(dirfd, path, flags, mode);
     if r < 0
         && !path.is_null()
@@ -3752,6 +3753,13 @@ pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mo
             dbg_file(&[b"openat widened owner write ", bytes(path), b"\n"]);
         }
         r = openat_inner(dirfd, path, flags, mode);
+    }
+    if r >= 0 && fresh {
+        own_note_fd(r);
+    }
+    if r >= 0 && flags & 0o20000000 != 0 {
+        // O_TMPFILE: an unnamed inode, created by definition.
+        own_note_fd(r);
     }
     // EINVAL out of an open is always a real defect: either the guest asked for
     // a flag combination this kernel cannot honour, or our own translation
@@ -3819,7 +3827,10 @@ unsafe fn stat_like(path: *const CChar, st: *mut u8, flags: CInt) -> CInt {
             ));
         }
         return match rc::resolve_fstat(rfd, &gp[..n], st, flags) {
-            Ok(()) => 0,
+            Ok(()) => {
+                own_patch_stat(st);
+                0
+            }
             Err(e) => set_errno(e),
         };
     }
@@ -3884,7 +3895,10 @@ pub unsafe extern "C" fn fstatat(
         match resolve_dirfd_rel(dirfd, bytes(path), &mut gp) {
             Ok(Some(n)) => {
                 return match rc::resolve_fstat(rfd, &gp[..n], st, flags) {
-                    Ok(()) => 0,
+                    Ok(()) => {
+                        own_patch_stat(st);
+                        0
+                    }
                     Err(e) => set_errno(e),
                 }
             }
@@ -4292,8 +4306,10 @@ unsafe fn chown_target(
     // Under the fake-root convention the guest cannot change ownership (no
     // CAP_CHOWN), and every package manager calls it on every file. Reporting
     // success is what a user namespace would do; the real owner on disk stays
-    // u0_a302. See the fake-root note above getuid().
+    // u0_a302. See the fake-root note above getuid() - and the table below,
+    // without which the *next* process would read u0_a302 back.
     if fake_root_on() {
+        own_record_chown(dirfd, path, uid, gid, follow, raw_flags);
         return 0;
     }
     if *path == 0 && raw_flags & AT_EMPTY_PATH != 0 {
@@ -4533,9 +4549,13 @@ where
 
 #[no_mangle]
 pub unsafe extern "C" fn mkdir(path: *const CChar, mode: CInt) -> CInt {
-    pathop(AT_FDCWD, path, false, |fd, p| {
+    let r = pathop(AT_FDCWD, path, false, |fd, p| {
         syscall4(SYS_MKDIRAT, fd as usize, p as usize, mode as usize, 0)
-    })
+    });
+    if r == 0 {
+        own_note_path(AT_FDCWD, path);
+    }
+    r
 }
 
 #[no_mangle]
@@ -4545,30 +4565,46 @@ pub unsafe extern "C" fn mkdirat(dirfd: CInt, path: *const CChar, mode: CInt) ->
         dbgn(&[], dirfd as i64);
         dbg(&[b"  path=", bytes(path), b"\n"]);
     }
-    pathop(dirfd, path, false, |fd, p| {
+    let r = pathop(dirfd, path, false, |fd, p| {
         syscall4(SYS_MKDIRAT, fd as usize, p as usize, mode as usize, 0)
-    })
+    });
+    if r == 0 {
+        own_note_path(dirfd, path);
+    }
+    r
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rmdir(path: *const CChar) -> CInt {
-    pathop(AT_FDCWD, path, false, |fd, p| {
+    let r = pathop(AT_FDCWD, path, false, |fd, p| {
         syscall4(SYS_UNLINKAT, fd as usize, p as usize, 0x200, 0)
-    })
+    });
+    if r == 0 {
+        own_clear_path(AT_FDCWD, path);
+    }
+    r
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn unlink(path: *const CChar) -> CInt {
-    pathop(AT_FDCWD, path, false, |fd, p| {
+    let r = pathop(AT_FDCWD, path, false, |fd, p| {
         syscall4(SYS_UNLINKAT, fd as usize, p as usize, 0, 0)
-    })
+    });
+    if r == 0 {
+        own_clear_path(AT_FDCWD, path);
+    }
+    r
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn unlinkat(dirfd: CInt, path: *const CChar, flags: CInt) -> CInt {
-    pathop(dirfd, path, false, |fd, p| {
+    let r = pathop(dirfd, path, false, |fd, p| {
         syscall4(SYS_UNLINKAT, fd as usize, p as usize, flags as usize, 0)
-    })
+    });
+    if r == 0 {
+        own_clear_path(dirfd, path);
+    }
+    r
 }
 
 // ---------------------------------------------------------------- fake root
@@ -4696,6 +4732,649 @@ pub unsafe extern "C" fn getgroups(size: CInt, list: *mut u32) -> CInt {
     1
 }
 
+// ------------------------------------------------ fictional ownership, on disk
+//
+// `chown_target()` below answers one process, and that was enough for files
+// dpkg unpacks itself - but the rootfs is really owned by the app uid
+// (u0_a265), and a program that looks at a path some *other* process created
+// reads that number back. sudo refused to start with "/etc/sudo.conf is owned
+// by uid 10265, should be 0" (evidence 139 §3.2). A container's answer is the
+// same in every process, so the answer has to outlive one.
+//
+// What a container's userspace observes is: root owns everything it did not
+// create, and a path belongs to whoever created or chowned it. So this is an
+// *exception* list - nothing is stored for 0:0, which is the default - and it is
+// keyed by inode rather than path, which is what makes rename() and hard links
+// need no bookkeeping ("x.dpkg-new" renamed into place keeps its owner).
+//
+//   /var/lib/husk/owners     one record per line: "dev ino uid gid"
+//
+// Writers append a line with O_APPEND and a single write() - no
+// read-modify-write, so two processes touching different files cannot lose each
+// other's records - and rewrite the whole file once the appended tail passes
+// OWN_LOG_LIMIT. Readers load it once, on first use, and keep an in-memory hash;
+// it has to stay small, because every guest process loads it.
+const OWN_FILE: &[u8] = b"/var/lib/husk/owners\0";
+const OWN_DIR: &[u8] = b"/var/lib/husk\0";
+const OWN_INIT_CAP: usize = 256;
+const OWN_LOG_LIMIT: usize = 1 << 20;
+const O_APPEND_W: CInt = 0o2000;
+
+#[derive(Clone, Copy)]
+struct OwnSlot {
+    dev: u64,
+    ino: u64,
+    uid: u32,
+    gid: u32,
+    state: u8, // 0 empty, 1 used, 2 tombstone
+}
+
+static mut OWN_TAB: *mut OwnSlot = core::ptr::null_mut();
+static mut OWN_CAP: usize = 0; // power of two; 0 = nothing allocated yet
+static mut OWN_FILL: usize = 0; // used + tombstone slots
+static mut OWN_APPEND_FD: CInt = -1;
+static mut OWN_APPENDED: usize = 0;
+static OWN_STATE: AtomicU8 = AtomicU8::new(0); // 0 not loaded, 1 loading, 2 ready
+static OWN_OWNER: AtomicI32 = AtomicI32::new(0);
+static OWN_LOCK: AtomicBool = AtomicBool::new(false);
+
+/// The fiction is part of the fake root, and can be switched off on its own
+/// (NR_OWNERS=0) so a regression can be attributed to it and not to a rebuild.
+unsafe fn owners_on() -> bool {
+    if !fake_root_on() {
+        return false;
+    }
+    !matches!(env_lookup(b"NR_OWNERS"), Some(v) if v == b"0" || v == b"off")
+}
+
+unsafe fn own_lock() {
+    while OWN_LOCK
+        .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        while OWN_LOCK.load(Ordering::Relaxed) {
+            core::hint::spin_loop();
+        }
+    }
+}
+
+unsafe fn own_unlock() {
+    OWN_LOCK.store(false, Ordering::Release);
+}
+
+#[inline]
+fn own_hash(dev: u64, ino: u64) -> usize {
+    let mut h = ino.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ dev.wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
+    h ^= h >> 29;
+    h = h.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    (h >> 17) as usize
+}
+
+/// (slot, is it this key?) - `slot` is None only when every slot is spoken for,
+/// which the grow-on-load policy makes impossible in practice.
+unsafe fn own_slot(dev: u64, ino: u64) -> (Option<usize>, bool) {
+    if OWN_CAP == 0 {
+        return (None, false);
+    }
+    let mask = OWN_CAP - 1;
+    let mut i = own_hash(dev, ino) & mask;
+    let mut free = None;
+    let mut n = 0usize;
+    while n < OWN_CAP {
+        let s = &*OWN_TAB.add(i);
+        if s.state == 0 {
+            return (Some(match free {
+                Some(f) => f,
+                None => i,
+            }), false);
+        }
+        if s.state == 1 {
+            if s.dev == dev && s.ino == ino {
+                return (Some(i), true);
+            }
+        } else if free.is_none() {
+            free = Some(i);
+        }
+        i = (i + 1) & mask;
+        n += 1;
+    }
+    (free, false)
+}
+
+unsafe fn own_insert_raw(dev: u64, ino: u64, uid: u32, gid: u32) {
+    let (slot, found) = own_slot(dev, ino);
+    if let Some(i) = slot {
+        let s = &mut *OWN_TAB.add(i);
+        if !found && s.state != 1 {
+            OWN_FILL += 1;
+        }
+        s.dev = dev;
+        s.ino = ino;
+        s.uid = uid;
+        s.gid = gid;
+        s.state = 1;
+    }
+}
+
+/// Allocate (or double) the table. Callers hold OWN_LOCK.
+unsafe fn own_grow() -> bool {
+    let new_cap = if OWN_CAP == 0 {
+        OWN_INIT_CAP
+    } else {
+        OWN_CAP * 2
+    };
+    let bytes = new_cap * core::mem::size_of::<OwnSlot>();
+    let p = malloc(bytes) as *mut OwnSlot;
+    if p.is_null() {
+        return false;
+    }
+    core::ptr::write_bytes(p as *mut u8, 0, bytes);
+    let old_tab = OWN_TAB;
+    let old_cap = OWN_CAP;
+    OWN_TAB = p;
+    OWN_CAP = new_cap;
+    OWN_FILL = 0;
+    let mut i = 0usize;
+    while i < old_cap {
+        let s = *old_tab.add(i);
+        if s.state == 1 {
+            own_insert_raw(s.dev, s.ino, s.uid, s.gid);
+        }
+        i += 1;
+    }
+    if !old_tab.is_null() {
+        free(old_tab as *mut u8);
+    }
+    true
+}
+
+/// Record (or, for 0:0, clear) the owner of one inode. Callers hold OWN_LOCK.
+/// Returns whether anything changed, which is what decides if a record is worth
+/// appending: root creating a file is the common case (every file dpkg unpacks)
+/// and its answer *is* the default, so logging it would only bloat the file.
+unsafe fn own_set_locked(dev: u64, ino: u64, uid: u32, gid: u32) -> bool {
+    if ino == 0 {
+        return false;
+    }
+    if OWN_CAP == 0 && !own_grow() {
+        return false;
+    }
+    // Keep the load factor under 3/4, or every later lookup walks a long chain.
+    if (OWN_FILL + 1) * 4 >= OWN_CAP * 3 && !own_grow() {
+        return false;
+    }
+    let (slot, found) = own_slot(dev, ino);
+    let i = match slot {
+        Some(i) => i,
+        None => return false,
+    };
+    if uid == 0 && gid == 0 {
+        if found {
+            (*OWN_TAB.add(i)).state = 2;
+            return true;
+        }
+        return false;
+    }
+    let s = &mut *OWN_TAB.add(i);
+    if found && s.uid == uid && s.gid == gid {
+        return false;
+    }
+    if !found && s.state != 1 {
+        OWN_FILL += 1;
+    }
+    s.dev = dev;
+    s.ino = ino;
+    s.uid = uid;
+    s.gid = gid;
+    s.state = 1;
+    true
+}
+
+unsafe fn own_apply_line(line: &[u8]) {
+    let mut f = [0u64; 4];
+    let mut nf = 0usize;
+    let mut i = 0usize;
+    while i < line.len() && nf < 4 {
+        while i < line.len() && (line[i] == b' ' || line[i] == b'\t' || line[i] == b'\r') {
+            i += 1;
+        }
+        let mut v = 0u64;
+        let mut any = false;
+        while i < line.len() && line[i] != b' ' && line[i] != b'\t' && line[i] != b'\r' {
+            let c = line[i];
+            if !(b'0'..=b'9').contains(&c) {
+                return;
+            }
+            if v > (u64::MAX - 9) / 10 {
+                return;
+            }
+            v = v * 10 + (c - b'0') as u64;
+            any = true;
+            i += 1;
+        }
+        if !any {
+            return;
+        }
+        f[nf] = v;
+        nf += 1;
+    }
+    if nf == 4 {
+        own_set_locked(f[0], f[1], f[2] as u32, f[3] as u32);
+    }
+}
+
+unsafe fn own_mkdir_dir() {
+    let mut gp = [0u8; PATH_MAX];
+    let n = match abs_guest_raw(OWN_DIR.as_ptr() as *const CChar, &mut gp) {
+        Some(n) => n,
+        None => return,
+    };
+    let rfd = rootfd();
+    if rfd < 0 {
+        return;
+    }
+    let mut name = [0u8; 256];
+    let parent = match rc::resolve_parent_follow(rfd, &gp[..n], &mut name) {
+        Ok(fd) => fd,
+        Err(_) => return,
+    };
+    let nl = name.iter().position(|c| *c == 0).unwrap_or(0);
+    syscall4(SYS_MKDIRAT, parent as usize, name.as_ptr() as usize, 0o755, 0);
+    rc::close(parent);
+}
+
+/// Guest path of the table -> real host path, with raw calls only (no table
+/// lookups), so it is safe to call with OWN_LOCK held and inside own_ensure().
+unsafe fn own_open_file(flags: CInt, mode: CInt) -> CInt {
+    let mut gp = [0u8; PATH_MAX];
+    let n = match abs_guest_raw(OWN_FILE.as_ptr() as *const CChar, &mut gp) {
+        Some(n) => n,
+        None => return -1,
+    };
+    let mut real = [0u8; PATH_MAX];
+    let rn = match mnt_real_path(&gp[..n], &mut real) {
+        Some(rn) => rn,
+        None => return -1,
+    };
+    real[rn] = 0;
+    ret_or_errno(syscall4(
+        SYS_OPENAT,
+        AT_FDCWD as usize,
+        real.as_ptr() as usize,
+        flags as usize,
+        mode as usize,
+    ))
+}
+
+unsafe fn own_read_file() {
+    static mut BUF: [u8; 4096] = [0; 4096];
+    static mut LINE: [u8; 128] = [0; 128];
+    let fd = own_open_file(0, 0);
+    if fd < 0 {
+        return;
+    }
+    let mut ll = 0usize;
+    own_lock();
+    loop {
+        let n = syscall4(
+            SYS_READ,
+            fd as usize,
+            core::ptr::addr_of_mut!(BUF) as usize,
+            BUF.len(),
+            0,
+        );
+        if n <= 0 {
+            break;
+        }
+        let mut i = 0usize;
+        while i < n as usize {
+            let c = BUF[i];
+            i += 1;
+            if c == b'\n' {
+                if ll > 0 {
+                    let line =
+                        core::slice::from_raw_parts(core::ptr::addr_of!(LINE) as *const u8, ll);
+                    own_apply_line(line);
+                }
+                ll = 0;
+            } else if ll < 128 {
+                LINE[ll] = c;
+                ll += 1;
+            } else {
+                ll = 0; // overlong line: drop it rather than parse half a record
+            }
+        }
+    }
+    own_unlock();
+    syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+}
+
+unsafe fn own_ensure() {
+    loop {
+        match OWN_STATE.load(Ordering::Acquire) {
+            2 => return,
+            0 => {
+                if OWN_STATE
+                    .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+                {
+                    let tid = syscall4(SYS_GETTID, 0, 0, 0, 0) as i32;
+                    OWN_OWNER.store(tid, Ordering::Release);
+                    own_read_file();
+                    OWN_OWNER.store(0, Ordering::Release);
+                    OWN_STATE.store(2, Ordering::Release);
+                    return;
+                }
+            }
+            _ => {
+                if OWN_OWNER.load(Ordering::Acquire) == syscall4(SYS_GETTID, 0, 0, 0, 0) as i32 {
+                    return;
+                }
+                core::hint::spin_loop();
+            }
+        }
+    }
+}
+
+/// Rewrite the table file from scratch: what a log past OWN_LOG_LIMIT is
+/// compacted into. Callers hold OWN_LOCK.
+unsafe fn own_rewrite() {
+    if OWN_APPEND_FD >= 0 {
+        syscall4(SYS_CLOSE, OWN_APPEND_FD as usize, 0, 0, 0);
+        OWN_APPEND_FD = -1;
+    }
+    let bytes = 32 + OWN_FILL * 48;
+    let out = malloc(bytes);
+    if out.is_null() {
+        return;
+    }
+    let mut at = 0usize;
+    let mut i = 0usize;
+    while i < OWN_CAP {
+        let s = *OWN_TAB.add(i);
+        i += 1;
+        if s.state != 1 {
+            continue;
+        }
+        let (d, k) = dec_buf(s.dev as i64);
+        let (q, j) = dec_buf(s.ino as i64);
+        let (u, a) = dec_buf(s.uid as i64);
+        let (g, b) = dec_buf(s.gid as i64);
+        for part in [&d[k..], b" ", &q[j..], b" ", &u[a..], b" ", &g[b..], b"\n"] {
+            core::ptr::copy_nonoverlapping(part.as_ptr(), out.add(at), part.len());
+            at += part.len();
+        }
+    }
+    own_mkdir_dir();
+    let fd = own_open_file(0o1 | 0o1000 | 0o100 | 0o2000000, 0o644);
+    if fd >= 0 {
+        syscall4(SYS_WRITE, fd as usize, out as usize, at, 0);
+        syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+    }
+    free(out);
+    OWN_APPENDED = 0;
+}
+
+/// Append one record. Callers hold OWN_LOCK.
+unsafe fn own_append(dev: u64, ino: u64, uid: u32, gid: u32) {
+    if dev > i64::MAX as u64 || ino > i64::MAX as u64 {
+        return;
+    }
+    if OWN_APPENDED > OWN_LOG_LIMIT {
+        own_rewrite();
+    }
+    if OWN_APPEND_FD < 0 {
+        own_mkdir_dir();
+        OWN_APPEND_FD = own_open_file(0o1 | O_APPEND_W | 0o100 | 0o2000000, 0o644);
+        if OWN_APPEND_FD < 0 {
+            return;
+        }
+    }
+    let (d, k) = dec_buf(dev as i64);
+    let (q, j) = dec_buf(ino as i64);
+    let (u, a) = dec_buf(uid as i64);
+    let (g, b) = dec_buf(gid as i64);
+    let mut out = [0u8; 96];
+    let mut at = 0usize;
+    for part in [&d[k..], b" ", &q[j..], b" ", &u[a..], b" ", &g[b..], b"\n"] {
+        if at + part.len() > out.len() {
+            return;
+        }
+        out[at..at + part.len()].copy_from_slice(part);
+        at += part.len();
+    }
+    let w = syscall4(SYS_WRITE, OWN_APPEND_FD as usize, out.as_ptr() as usize, at, 0);
+    if w != at as isize {
+        syscall4(SYS_CLOSE, OWN_APPEND_FD as usize, 0, 0, 0);
+        OWN_APPEND_FD = -1;
+        return;
+    }
+    OWN_APPENDED += at;
+}
+
+/// Who does this inode belong to, inside? Defaults to 0:0 - the whole point is
+/// that root owns what nobody bothered to claim.
+unsafe fn own_lookup(dev: u64, ino: u64) -> (u32, u32) {
+    if ino == 0 {
+        return (0, 0);
+    }
+    if OWN_STATE.load(Ordering::Acquire) != 2 {
+        own_ensure();
+    }
+    own_lock();
+    let r = match own_slot(dev, ino) {
+        (Some(i), true) => {
+            let s = &*OWN_TAB.add(i);
+            (s.uid, s.gid)
+        }
+        _ => (0, 0),
+    };
+    own_unlock();
+    r
+}
+
+/// Record an owner. Not a no-op even for 0:0: an inode can be reused after its
+/// file is deleted, and the old record would then claim the new file.
+unsafe fn own_set(dev: u64, ino: u64, uid: u32, gid: u32) {
+    if !owners_on() || ino == 0 || ino > i64::MAX as u64 {
+        return;
+    }
+    if ROOT_DEV != 0 && dev != ROOT_DEV {
+        return;
+    }
+    if OWN_STATE.load(Ordering::Acquire) != 2 {
+        own_ensure();
+    }
+    own_lock();
+    if own_set_locked(dev, ino, uid, gid) {
+        own_append(dev, ino, uid, gid);
+    }
+    own_unlock();
+}
+
+/// Only the rootfs carries a fiction. Anything else the guest can stat (the
+/// passthrough /proc, /dev, the vendor nodes) keeps its real numbers.
+#[inline]
+unsafe fn own_fictional(dev: u64) -> bool {
+    ROOT_DEV != 0 && dev == ROOT_DEV
+}
+
+unsafe fn own_patch_stat(st: *mut u8) {
+    if !owners_on() {
+        return;
+    }
+    let dev = rd8u(st);
+    if !own_fictional(dev) {
+        return;
+    }
+    let (uid, gid) = own_lookup(dev, rd8u(st.add(8)));
+    wr4(st.add(24), uid);
+    wr4(st.add(28), gid);
+}
+
+unsafe fn own_patch_statx(buf: *mut u8) {
+    if !owners_on() {
+        return;
+    }
+    let dev = own_dev_pack(rd4u(buf.add(136)), rd4u(buf.add(140)));
+    if !own_fictional(dev) {
+        return;
+    }
+    let (uid, gid) = own_lookup(dev, rd8u(buf.add(32)));
+    wr4(buf.add(20), uid);
+    wr4(buf.add(24), gid);
+}
+
+/// glibc's own device packing (gnu_dev_makedev), so a record written from
+/// `struct stat` matches one looked up from `struct statx`.
+fn own_dev_pack(major: u32, minor: u32) -> u64 {
+    let ma = major as u64;
+    let mi = minor as u64;
+    (mi & 0xff) | ((ma & 0xfff) << 8) | ((mi & !0xffu64) << 12) | ((ma & !0xfffu64) << 32)
+}
+
+/// Note the owner of a file this process just created. Files go to root unless
+/// the code that created them is running as somebody else - `apt` downloading
+/// as `_apt`, a user's shell writing into its home - and those are the ones a
+/// later root process would be told it cannot trust.
+unsafe fn own_note_fd(fd: CInt) {
+    if !owners_on() {
+        return;
+    }
+    let mut st = [0u8; 128];
+    if syscall4(SYS_FSTAT, fd as usize, st.as_mut_ptr() as usize, 0, 0) != 0 {
+        return;
+    }
+    let dev = rd8u(st.as_ptr());
+    if !own_fictional(dev) {
+        return;
+    }
+    let (uid, gid) = fake_id();
+    own_set(dev, rd8u(st.as_ptr().add(8)), uid, gid);
+}
+
+unsafe fn own_note_path(dirfd: CInt, path: *const CChar) {
+    if !owners_on() || path.is_null() {
+        return;
+    }
+    let (uid, gid) = fake_id();
+    let mut st = [0u8; 128];
+    if fstatat(dirfd, path, st.as_mut_ptr(), AT_SYMLINK_NOFOLLOW) != 0 {
+        return;
+    }
+    let dev = rd8u(st.as_ptr());
+    if !own_fictional(dev) {
+        return;
+    }
+    own_set(dev, rd8u(st.as_ptr().add(8)), uid, gid);
+}
+
+/// chown() under the fake root: the kernel would say EPERM, and a container
+/// says "done". Record it instead of dropping it, which is what makes the *next*
+/// process see the same answer.
+unsafe fn own_record_chown(
+    dirfd: CInt,
+    path: *const CChar,
+    uid: u32,
+    gid: u32,
+    follow: bool,
+    raw_flags: CInt,
+) {
+    if !owners_on() {
+        return;
+    }
+    let mut st = [0u8; 128];
+    let empty = path.is_null() || *path == 0;
+    let r = if empty && raw_flags & AT_EMPTY_PATH != 0 {
+        syscall4(SYS_FSTAT, dirfd as usize, st.as_mut_ptr() as usize, 0, 0)
+    } else if empty {
+        return;
+    } else {
+        fstatat(
+            dirfd,
+            path,
+            st.as_mut_ptr(),
+            if follow { 0 } else { AT_SYMLINK_NOFOLLOW },
+        ) as Ssize
+    };
+    if r != 0 {
+        return;
+    }
+    let dev = rd8u(st.as_ptr());
+    if !own_fictional(dev) {
+        return;
+    }
+    let ino = rd8u(st.as_ptr().add(8));
+    // -1 means "leave this half alone", exactly as fchownat() defines it.
+    let (mut nu, mut ng) = own_lookup(dev, ino);
+    if uid != u32::MAX {
+        nu = uid;
+    }
+    if gid != u32::MAX {
+        ng = gid;
+    }
+    own_set(dev, ino, nu, ng);
+}
+
+/// Is there a record for this inode? Used to avoid a write when there is
+/// nothing to clear.
+unsafe fn own_has(dev: u64, ino: u64) -> bool {
+    if OWN_STATE.load(Ordering::Acquire) != 2 || OWN_FILL == 0 {
+        return false;
+    }
+    own_lock();
+    let r = matches!(own_slot(dev, ino), (Some(_), true));
+    own_unlock();
+    r
+}
+
+/// A deleted inode can be handed out again; clear its record when the last name
+/// goes away, or the next file to land there would answer with the old owner.
+unsafe fn own_clear_path(dirfd: CInt, path: *const CChar) {
+    if !owners_on() || path.is_null() || OWN_STATE.load(Ordering::Acquire) != 2 || OWN_FILL == 0 {
+        return;
+    }
+    let mut st = [0u8; 128];
+    if fstatat(dirfd, path, st.as_mut_ptr(), AT_SYMLINK_NOFOLLOW) != 0 {
+        return;
+    }
+    let dev = rd8u(st.as_ptr());
+    if !own_fictional(dev) {
+        return;
+    }
+    // A hard link that keeps the inode alive keeps the owner with it.
+    if rd4u(st.as_ptr().add(20)) != 1 {
+        return;
+    }
+    let ino = rd8u(st.as_ptr().add(8));
+    if own_has(dev, ino) {
+        own_set(dev, ino, 0, 0);
+    }
+}
+
+/// O_CREAT on a path that already exists is an open, not a create, and must not
+/// re-own the file. Root needs no record at all (0:0 is the default), so the
+/// extra stat is paid only when a *user* session is the one writing.
+unsafe fn own_create_check(dirfd: CInt, path: *const CChar, flags: CInt) -> bool {
+    if !owners_on() || path.is_null() || flags & 0o100 == 0 {
+        return false;
+    }
+    let (uid, gid) = fake_id();
+    if uid == 0 && gid == 0 {
+        return false;
+    }
+    let mut st = [0u8; 128];
+    fstatat(dirfd, path, st.as_mut_ptr(), AT_SYMLINK_NOFOLLOW) != 0
+}
+
+#[inline]
+unsafe fn wr4(p: *mut u8, v: u32) {
+    let mut i = 0;
+    while i < 4 {
+        core::ptr::write_volatile(p.add(i), (v >> (8 * i)) as u8);
+        i += 1;
+    }
+}
 // The other half of the same fiction: apt drops to `_apt` for downloads and back
 // to root for the install. Neither call can succeed for us (the process is
 // u0_a302 and stays u0_a302), so under NR_FAKE_ROOT they are accepted and
@@ -4869,7 +5548,7 @@ pub unsafe extern "C" fn setresgid(_r: u32, _e: u32, _s: u32) -> CInt {
 // creatable without CAP_MKNOD, which is a separate wall.
 #[no_mangle]
 pub unsafe extern "C" fn mknodat(dirfd: CInt, path: *const CChar, mode: CInt, dev: u64) -> CInt {
-    pathop(dirfd, path, false, |fd, p| {
+    let r = pathop(dirfd, path, false, |fd, p| {
         syscall5(
             SYS_MKNODAT,
             fd as usize,
@@ -4878,7 +5557,11 @@ pub unsafe extern "C" fn mknodat(dirfd: CInt, path: *const CChar, mode: CInt, de
             dev as usize,
             0,
         )
-    })
+    });
+    if r == 0 {
+        own_note_path(dirfd, path);
+    }
+    r
 }
 
 #[no_mangle]
@@ -4975,9 +5658,13 @@ pub unsafe extern "C" fn renameat2(
 pub unsafe extern "C" fn symlink(target: *const CChar, linkpath: *const CChar) -> CInt {
     // The *target* is stored verbatim (guest-relative link contents); only the
     // link location is resolved.
-    pathop(AT_FDCWD, linkpath, false, |fd, p| {
+    let r = pathop(AT_FDCWD, linkpath, false, |fd, p| {
         syscall4(SYS_SYMLINKAT, target as usize, fd as usize, p as usize, 0)
-    })
+    });
+    if r == 0 {
+        own_note_path(AT_FDCWD, linkpath);
+    }
+    r
 }
 
 #[no_mangle]
@@ -4986,9 +5673,13 @@ pub unsafe extern "C" fn symlinkat(
     dirfd: CInt,
     linkpath: *const CChar,
 ) -> CInt {
-    pathop(dirfd, linkpath, false, |fd, p| {
+    let r = pathop(dirfd, linkpath, false, |fd, p| {
         syscall4(SYS_SYMLINKAT, target as usize, fd as usize, p as usize, 0)
-    })
+    });
+    if r == 0 {
+        own_note_path(dirfd, linkpath);
+    }
+    r
 }
 
 #[no_mangle]
@@ -5551,6 +6242,9 @@ pub unsafe extern "C" fn statx(
         buf as usize,
     );
     rc::close(fd);
+    if r == 0 {
+        own_patch_statx(buf);
+    }
     ret_or_errno(r)
 }
 
@@ -7840,7 +8534,18 @@ pub unsafe extern "C" fn fstatat64(
 
 #[no_mangle]
 pub unsafe extern "C" fn fstat64(fd: CInt, st: *mut u8) -> CInt {
-    ret_or_errno(syscall4(SYS_FSTAT, fd as usize, st as usize, 0, 0))
+    let r = ret_or_errno(syscall4(SYS_FSTAT, fd as usize, st as usize, 0, 0));
+    if r == 0 {
+        own_patch_stat(st);
+    }
+    r
+}
+
+// fstat() is its own exported symbol on glibc, and the keeper of a descriptor
+// is exactly who asks "whose is this?" before it trusts the fd.
+#[no_mangle]
+pub unsafe extern "C" fn fstat(fd: CInt, st: *mut u8) -> CInt {
+    fstat64(fd, st)
 }
 
 #[no_mangle]

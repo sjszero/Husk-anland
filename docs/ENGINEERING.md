@@ -33,11 +33,12 @@
 
 | 改动 | 工具 | 结果 |
 |---|---|---|
-| 追加一个可读可执行的 `PT_LOAD`，容纳 shim | `nr-tools embed` | 203,968 B → 290,816 B（+86,848） |
+| 追加一个可读可执行的 `PT_LOAD`，容纳 shim | `nr-tools embed` | 203,968 B → 673,280 B（+469,312） |
 | `_dl_init` 挂接钩子（176 B，无重定位） | `init-hook.S` + `nr-tools embed` | 位于同一 `PT_LOAD` |
 | 两处 `svc` → `nop` | `nr-tools scan-syscalls patch` | 字节级替换，无位移 |
 
-嵌入段布局：文件偏移 `0x32000`、虚拟地址 `0x42000`；钩子地址 348,160；服务表地址 352,256。
+嵌入段布局（2026-11-24 实测的 `embed` 输出）：文件偏移 `0x40000`、虚拟地址 `0x90000`；
+shim 跨度 `0x60000`；钩子地址 983,040；服务表地址 987,136；介入符号 167，外部符号 50。
 
 `scan-syscalls` 不携带偏移表：它读取镜像的 `.gnu.version_d` 校验 C 运行库版本，
 按指令模式定位调用点，并断言后继指令只写返回值寄存器、不读取它。
@@ -45,7 +46,7 @@
 
 ## 4. 符号介入的范围
 
-共介入 76 个符号。其中约 45 个是 POSIX 入口；其余来自以下三类：
+`nr-tools embed` 报告的介入符号数是 167（`interposed`），其中约 45 个是 POSIX 入口；其余来自以下三类：
 
 - C 运行库的内部别名（`__open64_nocancel`、`__gen_tempname` 内部调用等），不经过程序链接表；
 - 标准 I/O 入口（`fopen`、`creat`）与路径规范化（`realpath`、`canonicalize_file_name`）；
@@ -71,10 +72,10 @@
 
 | 文件 | sha256 |
 |---|---|
-| `ld-embedded.so`（成品动态链接器） | `33dcd6814a42cf718aaabbc2c7f9aba4940f7c8481ee654fb056098969624f78` |
+| `ld-embedded.so`（成品动态链接器） | `d210644d3c99782a61c3d88d60d0697182167a1b969629596eff12c66411fe7c` |
 | `ld-linux-aarch64.so.1.orig`（原始） | `bd29514c1b45cc29b152011dd7c504e00dce240c19e4dd120196053873af9180` |
 | `libc-nop.so.6`（guest 使用，含 HUSK-SLOT-1 槽位页 + clone3→ENOSYS） | `32d4d3f9501a2c717cf2246a2df1a898f1361b49e0576614461d70fc94774b56` |
-| `libpath_shim.so`（嵌入前） | `06abee35bcfd8122a6a263130bbaee786ddf8247e62e3b105aae92dc13b2a8c1` |
+| `libpath_shim.so`（嵌入前） | `293a95bc3bd21d91d4eb715ab283a6aaa6f6c8adadac1bed675a1932747fbfbe` |
 
 在本仓库执行 `tools/loader/build-embedded-loader.sh`，产出应与第一行一致。
 
