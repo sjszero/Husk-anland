@@ -72,6 +72,10 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
    ——所以不是 path-shim 造成的，根因 UNKNOWN（evidence 178）。WebKit/Electron 类**未测**。
    键盘输入**已测**：XTEST 敲进 `gnome-text-editor`，标题与正文都跟着更新、折行正常
    （evidence 180）；**没量延迟**，也没测 IME/组合键，指针注入另见 evidence 148。
+   另外每一轮 PanVK 起上下文都会打 `kbase: KBASE_IOCTL_MEM_EXEC_INIT failed: EPERM`
+   （FACT，evidence 176）。**INFERENCE**：它挡的是「CPU 可执行映射」那条路，GPU 侧着色器执行
+   不受影响——同一棵树里 compute 与离屏图形回读的值都是对的（evidence 156、161）。
+   内核为什么拒这一条（`untrusted_app` 策略、还是 kbase 的 flag 组合）：**UNKNOWN**。
    另外这棵树的整块 `glReadPixels` 是坏的：目的行距恒为 **16 字节**（与宽度无关），
    每行只有前 4 个像素落在该去的地方，写入量 = `H×16 + (W×4 − 16)` 字节
    （evidence 179 把地址学量出来了，evidence 162 是最初的现象）。截图类工具会拿到错位画面
