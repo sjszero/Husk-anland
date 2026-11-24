@@ -46,7 +46,7 @@ guest 里 `/proc/self/fd/1` 是 socket。`make` 往它写完（309 字节就够�
 
 ## 7 · GPU：能算、GL 也能落到 GPU，但桌面还吃不到
 
-**已经是 FACT（evidence 156，2026-11-24，0.01 的树）**：guest 进程直开 `/dev/mali0`；
+**已经是 FACT（evidence 156，2026-11-24，当前版本的树）**：guest 进程直开 `/dev/mali0`；
 kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，compute 与离屏 graphics
 都能跑并回读 GPU 写入的值；开 Zink 后 EGL/GL 的 renderer 是
 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`，不开就是 `llvmpipe`。

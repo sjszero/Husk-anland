@@ -32,7 +32,7 @@
 
 ## GPU
 
-| 项 | Husk（0.01 的树） | 证据 |
+| 项 | Husk（当前版本的树） | 证据 |
 |---|---|---|
 | `/dev/mali0` 直开 | 可用 | evidence 156 |
 | PanVK（kbase 后端）枚举 + compute + 离屏 graphics | 可用，`Mali-G77 MC9` | evidence 156 |
