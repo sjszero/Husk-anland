@@ -71,8 +71,12 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
    一样，**同一份 rootfs 换 proot 起也照样空白**，同一会话里最小 `GtkColumnView` 程序却正常
    ——所以不是 path-shim 造成的，根因 UNKNOWN（evidence 178）。WebKit/Electron 类**未测**，
    输入交互**未测**。
-   另外这棵树的整块 `glReadPixels` 只写第一行+第一列（evidence 162），
-   截图类工具会拿到全零而不报错——那是读回缺陷，别当成渲染失败。
+   另外这棵树的整块 `glReadPixels` 是坏的：目的行距恒为 **16 字节**（与宽度无关），
+   每行只有前 4 个像素落在该去的地方，写入量 = `H×16 + (W×4 − 16)` 字节
+   （evidence 179 把地址学量出来了，evidence 162 是最初的现象）。截图类工具会拿到错位画面
+   而 `glGetError()` 仍是 0。**逐行读（`W×1` 调 H 次）与逐像素读实测 100% 正确**，
+   单列读（`1×H`）同样坏、proot 下还会写到缓冲区外。llvmpipe、zink、proot 三处完全一致，
+   所以不在 path-shim、也不在 Mali/PanVK 后端，落在这版 Mesa 的公共读回层（具体文件 UNKNOWN）。
 2. **窗口呈现能跑，但不是零拷贝**（evidence 165/167）：X11 窗口化 EGL 已经通了
    （重编 PanVK 打开 `-Dplatforms=x11` 后 `VK_KHR_xcb_surface` 才进表），`gl-probe window`
    `stage 7→10`、60 次 swap 全过。但客户端的帧是**经 SHM 拷贝**进 X server 的：
@@ -104,6 +108,7 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
 | GPU：Vulkan compute / 离屏 graphics | 可用 | evidence 156 |
 | GPU：GL/EGL 经 Zink 落到 GPU（默认上限 GLES 3.2，靠 override；真实应用未验） | 可用 | evidence 156、161、167 |
 | GPU：X11 窗口呈现（EGL window surface + swap） | 可用，呈现走回读+拷贝（DRI3 未通，代价 24.8 ms/MP） | evidence 165、174 |
+| GL 整块读回（`glReadPixels` W×H） | **坏**：目的行距恒 16 字节；逐行/逐像素读正确 | evidence 179 |
 | GPU：桌面合成器（gnome-shell 46 on zink/PanVK） | 可用，出帧；轻负载 fps 不如 llvmpipe | evidence 165、168 |
 | 硬件视频解码（平台 MediaCodec，应用侧） | 有实测链路，未产品化 | evidence 80 |
 | guest 内 VA-API 全链（播放器直接用） | 部分 | evidence 81–87 |

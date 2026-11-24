@@ -107,6 +107,7 @@ const GL_TEXTURE0: c_uint = 0x84C0;
 const GL_DEPTH_TEST: c_uint = 0x0B71;
 const GL_UNPACK_ALIGNMENT: c_uint = 0x0CF5;
 const GL_PACK_ALIGNMENT: c_uint = 0x0D02;
+const GL_PACK_ROW_LENGTH: c_uint = 0x0D05;
 const GL_RENDERER: c_uint = 0x1F01;
 const GL_VERSION: c_uint = 0x1F02;
 const GL_SHADING_LANGUAGE_VERSION: c_uint = 0x8B8C;
@@ -1183,6 +1184,333 @@ fn run_pbuf(width: u32, height: u32, frames: u32) -> i32 {
     0
 }
 
+/// `glReadPixels` 的地址学。evidence 162 记录了「整块读只写第一行 + 第一列」，
+/// 但没定原因。这里把一张**每像素颜色都不同**的 RGBA8 纹理挂到 FBO 上，整块读回进
+/// 预填 `0xAA` 的缓冲区，然后逐个线性偏移报「谁被写了、写的值是哪一格的」，用值本身
+/// 判定是行距算错、x/y 写反、还是每行只拷了 1 像素。
+///
+/// 输出四段：A 整块、B 逐行（Wx1 × H 次）、C 逐列（1xH × W 次）、D 单点采样。
+/// A 段是现象，B/C 段是**能不能绕过去**的答案。
+fn run_readback(width: u32, height: u32) -> i32 {
+    let Some(egl) = Egl::load() else {
+        say!("FAIL dlopen EGL");
+        return 1;
+    };
+    unsafe {
+        let display = (egl.get_platform_display)(
+            EGL_PLATFORM_SURFACELESS_MESA,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        );
+        if display.is_null() {
+            say!("FAIL eglGetPlatformDisplay(surfaceless)");
+            return 1;
+        }
+        let (mut major, mut minor) = (0, 0);
+        if (egl.initialize)(display, &mut major, &mut minor) == 0 {
+            say!("FAIL eglInitialize");
+            return 1;
+        }
+        (egl.bind_api)(EGL_OPENGL_ES_API);
+        let config_attrs = [
+            EGL_RENDERABLE_TYPE,
+            EGL_OPENGL_ES2_BIT,
+            EGL_RED_SIZE,
+            8,
+            EGL_GREEN_SIZE,
+            8,
+            EGL_BLUE_SIZE,
+            8,
+            EGL_ALPHA_SIZE,
+            8,
+            EGL_SURFACE_TYPE,
+            EGL_PBUFFER_BIT,
+            EGL_NONE,
+        ];
+        let mut config: Config = std::ptr::null_mut();
+        let mut count = 0;
+        if (egl.choose_config)(display, config_attrs.as_ptr(), &mut config, 1, &mut count) == 0
+            || count < 1
+        {
+            say!("FAIL eglChooseConfig n={count}");
+            return 1;
+        }
+        // 1x1 pbuffer 只是为了让上下文 current；读回走 FBO，不受它大小影响。
+        let surface_attrs = [EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE];
+        let surface = (egl.create_pbuffer_surface)(display, config, surface_attrs.as_ptr());
+        if surface.is_null() {
+            say!("FAIL eglCreatePbufferSurface err={:#x}", (egl.get_error)());
+            return 1;
+        }
+        let ctx_attrs = [EGL_CONTEXT_MAJOR_VERSION, 2, EGL_NONE];
+        let context =
+            (egl.create_context)(display, config, std::ptr::null_mut(), ctx_attrs.as_ptr());
+        if context.is_null() {
+            say!("FAIL eglCreateContext err={:#x}", (egl.get_error)());
+            return 1;
+        }
+        if (egl.make_current)(display, surface, surface, context) == 0 {
+            say!("FAIL eglMakeCurrent err={:#x}", (egl.get_error)());
+            return 1;
+        }
+        let Some(gl) = Gl::load() else {
+            say!("FAIL dlopen GLESv2");
+            return 1;
+        };
+        say!("renderer={}", gl.string(GL_RENDERER));
+
+        let (w, h) = (width as usize, height as usize);
+        let npix = w * h;
+        // 每像素唯一：R 只跟 x 有关，G 只跟 y 有关，B 两者混合，A 固定 255。
+        let expect = |x: usize, y: usize| -> [u8; 4] {
+            [
+                (x * 7 + 3) as u8,
+                (y * 11 + 5) as u8,
+                ((x * 13 + y * 17) % 251) as u8,
+                255,
+            ]
+        };
+        let mut src = vec![0u8; npix * 4];
+        for y in 0..h {
+            for x in 0..w {
+                let e = expect(x, y);
+                let o = (y * w + x) * 4;
+                src[o..o + 4].copy_from_slice(&e);
+            }
+        }
+        let mut tex = 0u32;
+        (gl.gen_textures)(1, &mut tex);
+        (gl.bind_texture)(GL_TEXTURE_2D, tex);
+        (gl.tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        (gl.tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        (gl.tex_image_2d)(
+            GL_TEXTURE_2D,
+            0,
+            GL_RGBA8,
+            w as c_int,
+            h as c_int,
+            0,
+            GL_RGBA,
+            GL_UNSIGNED_BYTE,
+            src.as_ptr() as *const c_void,
+        );
+        let mut fbo = 0u32;
+        (gl.gen_framebuffers)(1, &mut fbo);
+        (gl.bind_framebuffer)(GL_FRAMEBUFFER, fbo);
+        (gl.framebuffer_texture_2d)(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
+        let st = (gl.check_framebuffer_status)(GL_FRAMEBUFFER);
+        say!("stage 3: FBO status={st:#x}（0x8cd5 为完整）");
+        if st != GL_FRAMEBUFFER_COMPLETE {
+            say!("FAIL FBO incomplete");
+            return 1;
+        }
+        (gl.read_buffer)(GL_COLOR_ATTACHMENT0);
+        (gl.pixel_storei)(GL_PACK_ALIGNMENT, 4);
+
+        // ---- A：整块一次读
+        let mut buf = vec![0xAAu8; npix * 4];
+        (gl.read_pixels)(
+            0,
+            0,
+            w as c_int,
+            h as c_int,
+            GL_RGBA,
+            GL_UNSIGNED_BYTE,
+            buf.as_mut_ptr() as *mut c_void,
+        );
+        let mut written = 0usize;
+        let mut hit = 0usize;
+        let mut detail = Vec::new();
+        for i in 0..npix {
+            let px = &buf[i * 4..i * 4 + 4];
+            if px.iter().all(|b| *b == 0xAA) {
+                continue;
+            }
+            written += 1;
+            let (x, y) = (i % w, i / w);
+            if px == &expect(x, y)[..] {
+                hit += 1;
+            } else if detail.len() < 200 {
+                // want_yx：若 x/y 被写反，这个偏移上应该出现对角的那个值
+                let yx = expect(y % w, x % h);
+                // 从值本身反解「这块数据原本是哪一格」：R=x*7+3、G=y*11+5 在宽度 <37 时唯一
+                let sx = (px[0].wrapping_sub(3) as usize).checked_div(7);
+                let sy = (px[1].wrapping_sub(5) as usize).checked_div(11);
+                let sane = px[0].wrapping_sub(3) % 7 == 0 && px[1].wrapping_sub(5) % 11 == 0;
+                detail.push(if sane {
+                    format!(
+                        "  w idx={i} (x={x},y={y}) src=({},{}) want(x,y)={:02x?}",
+                        sx.unwrap_or(0),
+                        sy.unwrap_or(0),
+                        expect(x, y)
+                    )
+                } else {
+                    format!(
+                        "  w idx={i} (x={x},y={y}) got={px:02x?} want(x,y)={:02x?} want(y,x)={yx:02x?}",
+                        expect(x, y)
+                    )
+                });
+            }
+        }
+        say!("=== A 整块 {w}x{h}（{npix} 像素，预填 0xAA）");
+        say!("  被写 {written}/{npix}（期望 {npix}），值正确 {hit}/{npix}");
+        for d in &detail {
+            say!("{d}");
+        }
+
+        // ---- A2/A3：换个 pack 参数再整块读，看是不是参数没喂对
+        for (label, rowlen, align) in [
+            ("PACK_ROW_LENGTH=W", w as c_int, 4),
+            ("PACK_ALIGNMENT=1", 0, 1),
+        ] {
+            (gl.pixel_storei)(GL_PACK_ROW_LENGTH, rowlen);
+            (gl.pixel_storei)(GL_PACK_ALIGNMENT, align);
+            let mut b2 = vec![0xAAu8; npix * 4];
+            (gl.read_pixels)(
+                0,
+                0,
+                w as c_int,
+                h as c_int,
+                GL_RGBA,
+                GL_UNSIGNED_BYTE,
+                b2.as_mut_ptr() as *mut c_void,
+            );
+            let mut w2 = 0usize;
+            let mut h2 = 0usize;
+            for i in 0..npix {
+                let px = &b2[i * 4..i * 4 + 4];
+                if px.iter().all(|b| *b == 0xAA) {
+                    continue;
+                }
+                w2 += 1;
+                let (x, y) = (i % w, i / w);
+                if px == &expect(x, y)[..] {
+                    h2 += 1;
+                }
+            }
+            say!("=== {label}：被写 {w2}/{npix}，值正确 {h2}/{npix}");
+        }
+        (gl.pixel_storei)(GL_PACK_ROW_LENGTH, 0);
+        (gl.pixel_storei)(GL_PACK_ALIGNMENT, 4);
+
+        // ---- B：逐行读（Wx1 × H 次）
+        let mut row = vec![0xAAu8; w * 4];
+        let (mut rw, mut rh) = (0usize, 0usize);
+        for y in 0..h {
+            for b in row.iter_mut() {
+                *b = 0xAA;
+            }
+            (gl.read_pixels)(
+                0,
+                y as c_int,
+                w as c_int,
+                1,
+                GL_RGBA,
+                GL_UNSIGNED_BYTE,
+                row.as_mut_ptr() as *mut c_void,
+            );
+            for x in 0..w {
+                let px = &row[x * 4..x * 4 + 4];
+                if px.iter().all(|b| *b == 0xAA) {
+                    continue;
+                }
+                rw += 1;
+                if px == &expect(x, y)[..] {
+                    rh += 1;
+                }
+            }
+        }
+        say!("=== B 逐行读（{w}x1 × {h} 次）：被写 {rw}/{npix}，值正确 {rh}/{npix}");
+
+        // ---- C：逐列读（1xH × W 次）。缓冲区按整块大小给，读回越界时不会踩坏堆，
+        // 越界本身也单独计数（这一项正是 A 段那个行距错位在窄图上的后果）。
+        let mut col = vec![0xAAu8; npix * 4];
+        let (mut cw, mut ch_) = (0usize, 0usize);
+        let mut cover = 0usize;
+        let mut reach = 0usize;
+        for x in 0..w {
+            for b in col.iter_mut() {
+                *b = 0xAA;
+            }
+            (gl.read_pixels)(
+                x as c_int,
+                0,
+                1,
+                h as c_int,
+                GL_RGBA,
+                GL_UNSIGNED_BYTE,
+                col.as_mut_ptr() as *mut c_void,
+            );
+            for y in 0..h {
+                let px = &col[y * 4..y * 4 + 4];
+                if px.iter().all(|b| *b == 0xAA) {
+                    continue;
+                }
+                cw += 1;
+                if px == &expect(x, y)[..] {
+                    ch_ += 1;
+                }
+            }
+            if let Some(last) = col.iter().rposition(|b| *b != 0xAA) {
+                reach = reach.max(last + 1);
+            }
+            if col[h * 4..].iter().any(|b| *b != 0xAA) {
+                cover += 1;
+                for b in col.iter_mut() {
+                    *b = 0xAA;
+                }
+            }
+        }
+        say!(
+            "=== C 逐列读（1x{h} × {w} 次）：被写 {cw}/{npix}，值正确 {ch_}/{npix}，越界写到缓冲后段 {cover}/{w} 次（最远触及 {reach} 字节，一次 1x{h} 读本该只写 {h4} 字节）",
+            h4 = h * 4
+        );
+
+        // ---- D：单点采样
+        let pts = [
+            (0usize, 0usize),
+            (w - 1, 0),
+            (0, h - 1),
+            (w - 1, h - 1),
+            (w / 2, h / 2),
+        ];
+        let mut dhit = 0usize;
+        for (x, y) in pts {
+            let mut one = [0xAAu8; 4];
+            (gl.read_pixels)(
+                x as c_int,
+                y as c_int,
+                1,
+                1,
+                GL_RGBA,
+                GL_UNSIGNED_BYTE,
+                one.as_mut_ptr() as *mut c_void,
+            );
+            let ok = one == expect(x, y);
+            if ok {
+                dhit += 1;
+            }
+            say!(
+                "  (x={x},y={y}) got={one:02x?} want={:02x?} {}",
+                expect(x, y),
+                if ok { "ok" } else { "MISMATCH" }
+            );
+        }
+        say!("=== D 单点 1x1 采样：{dhit}/{} 正确", pts.len());
+
+        (egl.make_current)(
+            display,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        );
+        (egl.destroy_context)(display, context);
+        (egl.destroy_surface)(display, surface);
+        (egl.terminate)(display);
+    }
+    0
+}
+
 /// Windowed EGL: real X11 window at `width`x`height`, `frames` clear+swap
 /// frames, then a 1x1 readback. Defaults (640x480, 60) are the numbers the
 /// evidence files were taken with; other sizes are how the presentation cost
@@ -1586,9 +1914,19 @@ fn main() {
                 }
             }
         }
+        Some("readback") => {
+            let size = args.get(1).map(String::as_str).unwrap_or("16x16");
+            match parse_size(size) {
+                Some((w, h)) => run_readback(w, h),
+                None => {
+                    eprintln!("gl-probe readback: bad size {size:?} (want WxH, e.g. 16x16)");
+                    2
+                }
+            }
+        }
         Some("root") => run_root(),
         _ => {
-            eprintln!("usage: gl-probe <es3 | window [WxH [frames]] | pbuf [WxH [frames]] | xput [WxH [frames]] | fill [WxH [passes [frames]]] | root [out.ppm]>");
+            eprintln!("usage: gl-probe <es3 | window [WxH [frames]] | pbuf [WxH [frames]] | xput [WxH [frames]] | fill [WxH [passes [frames]]] | readback [WxH] | root [out.ppm]>");
             2
         }
     };

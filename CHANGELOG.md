@@ -39,9 +39,17 @@
   `__readlinkat_chk` / `__realpath_chk` / `__mq_open_2` 的"跳进窗口"是它们自己跳自己，
   真正的活是尾调用已接管的入口；`__openat64_nocancel` 这版没导出符号，标 UNKNOWN
   （evidence 175，`LIMITATIONS` 新增第 9 节）。
+- **`glReadPixels` 的机制量出来了**：目的行距恒为 16 字节（与宽度无关），每行只有前 4 个像素
+  落地，写入量 = `H×16 + (W×4 − 16)`；换 `PACK_ROW_LENGTH` 无效、`PACK_ALIGNMENT=1` 更糟。
+  **逐行读与逐像素读 100% 正确**，1×H 单列读同样坏。llvmpipe / zink / proot 三处完全一致
+  → 不在 path-shim、不在 GPU 后端，落在这版 Mesa 的公共读回层（具体文件 UNKNOWN）
+  （evidence 179）。
 
 ### 改进
 
+- `gl-probe` 新增 `readback [WxH]`：把每像素唯一色的纹理挂到 FBO 上整块读回，用值本身反解
+  「这块数据原本是哪一格」，并把「整块 / 逐行 / 逐列 / 单点」四种读法一次报全。这是查
+  `glReadPixels` 缺陷的探针，也是 evidence 179 的取证工具。
 - `gl-probe` 的 `window` 子命令接受 `WxH` 和帧数（原来是写死的 640×480 / 60），并新增
   `pbuf WxH N` 离屏基线：同一套 EGL/GL、同样 clear+swap，但每帧 `glFinish`，用来把 GPU 渲染
   和呈现分开量。不带 `glFinish` 的离屏版本会量到 0.1 ms/60 帧的假数字。
