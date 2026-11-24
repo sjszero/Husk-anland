@@ -149,9 +149,9 @@ Nautilus / gvfs / tracker。整条链路四个独立故障与修法见 evidence 
    系统总线 `EXTERNAL` 认证（改 `ANONYMOUS`）；外加 2.0 侧 X socket 路径错位。
    僵尸也一并修了（kernel 4.19 没有 `waitid(P_PIDFD)`，GLib 的 child watch 于是不回收——
    shim 里按 `/proc/self/fdinfo` 把 pidfd 翻成 pid，100 s 后 0 僵尸，见 147 §7.1）。
+   `polkitd` 也通了（`initgroups` 仿真，现在常驻并持有 `org.freedesktop.PolicyKit1`）。
    剩下的都是"桌面能不能用"的问题，不是"能不能上屏"：**桌面收不到输入**（`X11Runtime`
-   根本没有注入指针/键盘的入口，147 §8）、`polkitd` 退出 1、gvfs 点对点总线、at-spi、
-   xrandr scaling。
+   根本没有注入指针/键盘的入口，147 §8）、gvfs 点对点总线、at-spi、xrandr scaling。
 
 ## 已知环境细节（踩过的坑，别再踩）
 
