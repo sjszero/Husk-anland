@@ -22,8 +22,9 @@ shell、服务）作为普通 `untrusted_app` 进程直接跑在 Android 内核�
 （改写每个对象的 GOT），之后程序自己的 `svc` 指令原样进内核——所以每条 syscall 的成本和原生
 应用一样，而沙箱允许的设备**可以直接开到硬件**。
 
-运行时不绑定发行版：装载器按 glibc 版本断言补丁点，当前完整验证过的是 Ubuntu 24.04
-（glibc 2.39）+ arm64，其余发行版未验证。
+运行时不绑定某一个发行版或某一台设备：装载器按 glibc 版本断言补丁点。我们完整验证时用的
+**参考发行版**是 Ubuntu 24.04（glibc 2.39），**参考设备**是一台 arm64 Android 手机
+（型号与内核写在 `docs/STATUS.md`，那只是实测条件，不是要求）。
 
 ## 目录
 
@@ -96,24 +97,40 @@ shell、服务）作为普通 `untrusted_app` 进程直接跑在 Android 内核�
 
 ## 快速开始
 
-需要：arm64 Android 设备（Android 8+）、`adb`、目标目录约 2.5 GB 空闲、一个 rootfs 压缩包。
+交付形态和 proot 方案一样：**把运行时作为 assets 打进 APP**，首次使用时解压到应用私有目录。
+
+```text
+APK assets/husk/arm64-v8a/
+  libld.so          loader（内嵌 path-shim）
+  libc.so.6         打过两处补丁的 glibc
+  husk-ldconfig     写 ld.so.cache 与 ld.so.husk-path
+  husk-usermgr      useradd / groupadd / passwd 一族替身
+  husk-su           提权替身
+```
+
+首次启动自动完成：解压 loader → 放三个工具进 `usr/sbin` → 按 sha256 替换 libc（只认已知
+基线，不覆盖未知发行版）→ `ldconfig` 指向 `husk-ldconfig` → shadow 工具指向 `husk-usermgr`
+→ 建 `run` / `tmp` / `dev/shm` → 写版本标记 `files/linux/husk/assets.version`。
+
+会话启动契约（缺一个就看起来像 shim 坏了）：
 
 ```sh
-# 1. 装启动器并展开 rootfs（不需要 APK，不需要 root）
+NR_ROOTFS=<rootfs> NR_LD=<loader> NR_LIBRARY_PATH=<lib/aarch64-linux-gnu:usr/lib/...> \
+  <loader> --library-path "$NR_LIBRARY_PATH" usr/bin/env -i PATH=... HOME=/root /bin/sh
+```
+
+装上发行版之后**必须改的 7 件事**（每一项为什么改、不改会怎样、由谁改）：见
+[`docs/RUNNING.md`](docs/RUNNING.md)。
+
+开发机上不装 APP 也能跑（`/data/local/tmp` 之类可执行的目录），这是调试路径，不是交付形态：
+
+```sh
 adb push husk-arm64.tar.gz /data/local/tmp/husk/
 adb shell
 cd /data/local/tmp/husk && tar xzf husk-arm64.tar.gz
 sh install-husk.sh --rootfs linux-rootfs.tar --dest ./root --loader ./libld.so
-
-# 2. 进 shell
 ./husk run linux
-
-# 3. 在 guest 里用包管理器
-apt-get update && apt-get install -y vim
 ```
-
-stock rootfs 的三步准备（libc 补丁、绝对符号链接改相对、`husk-ldconfig`）见
-[`docs/RUNNING.md`](docs/RUNNING.md)。
 
 ## 工作原理
 
@@ -136,14 +153,15 @@ loader 自己解析（含 `PT_INTERP` 与 shebang），嵌套 exec 会重新回�
 
 ## 兼容性
 
-已在 arm64 上验证：`bash`、coreutils、`git`、`python3`（+`numpy`）、`gcc`、`make`、
-`vim`、`nano`、`node`、`apt`、`dpkg`、dbus、polkit、at-spi、gvfs。发行版层面只验证过
-Ubuntu 24.04 / glibc 2.39；逐项矩阵见 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)。
+参考环境下验证过的：`bash`、coreutils、`git`、`python3`（+`numpy`）、`gcc`、`make`、
+`vim`、`nano`、`node`、`apt`、`dpkg`、dbus、polkit、at-spi、gvfs。发行版层面完整验证过的是
+参考发行版 Ubuntu 24.04 / glibc 2.39；逐项矩阵见
+[`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)。
 
 ## 限制
 
-- ⚠️ 一个 ABI、一个设备族；loader 的补丁带 glibc 版本断言，换发行版会直接报错，
-  不会半好不坏地跑起来。
+- ⚠️ 一个 ABI（arm64）；loader 的补丁带 glibc 版本断言，换发行版会直接报错，不会半好不坏
+  地跑起来。
 - ⚠️ stock rootfs 需要准备：libc 打补丁、绝对符号链接改相对、用 `husk-ldconfig`
   替换静态 `ldconfig`。
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码均未实现。Termux 不是支持的环境。
@@ -201,8 +219,8 @@ docs/design/evidence/  文档里每个数字背后的设备原始输出
 **为什么 `apt-get update` 只快 1.1×？** 因为它受镜像和 dpkg 自身的工作限制，不取决于路径
 查找。基准照实写，不粉饰。
 
-**能跑 Debian / Fedora / Alpine 吗？** 只完整验证过 glibc 的 Ubuntu 24.04。Alpine 是 musl，
-是另一个问题；其余没跑过。装载器的补丁是版本断言的，换树需要重新验证再写进来。
+**能跑 Debian / Fedora / Alpine 吗？** 只完整验证过参考发行版（glibc 的 Ubuntu 24.04）。
+Alpine 是 musl，是另一个问题；其余没跑过。装载器的补丁是版本断言的，换树需要重新验证。
 
 **为什么 rootfs 要打补丁？** 两个 Android 特有的缺口：libc 内部调用需要 slot 项；rootfs 里的
 绝对符号链接会按 Android 根解析。步骤在 `docs/RUNNING.md`，工具在 `tools/guest-config/`。
@@ -210,8 +228,9 @@ docs/design/evidence/  文档里每个数字背后的设备原始输出
 **能在 Termux 里跑吗？** 不能，也不支持。用户态需要的二进制与库 Termux 的 `$PREFIX`
 不提供。
 
-**验证过哪些 Android 与内核？** Android 13、kernel 4.19.191、4 KiB 页、arm64，一台设备
-（RMX3357 / MT6893）。16 KiB 与 64 KiB 页只在 QEMU 上跑过。
+**验证过哪些 Android 与内核？** 参考环境是 Android 13、kernel 4.19.191、4 KiB 页、arm64
+（具体型号见 `docs/STATUS.md`）。16 KiB 与 64 KiB 页只在 QEMU 上跑过。这不是要求，是实测
+条件。
 
 ## 参与贡献
 

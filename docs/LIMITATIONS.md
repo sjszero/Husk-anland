@@ -3,12 +3,12 @@
 这份文件写的是 Husk 做不到、或者还没做到的事。每条都来自目标机上的实测，或者明确标成
 未验证。**没写在这里不等于能用**——那只是还没研究。
 
-目标机：RMX3357（MT6893 / Mali-G77 / Android 13 / kernel 4.19.191 / 4 KiB 页 / arm64），
-以 `untrusted_app` 运行，无 root。
+参考环境（实测条件）：arm64 Android 13、kernel 4.19.191、4 KiB 页，以 `untrusted_app`
+运行，无 root。机型与 SoC 只是那一次实测的现场，不是运行时的要求。
 
 ## 1 · 一个 ABI、一个设备族（FACT）
 
-只跑过 arm64 Android、4 KiB 页、glibc 2.39。loader 的补丁是版本断言的
+只跑过 arm64 Android、4 KiB 页、glibc 2.39 的发行版。loader 的补丁是版本断言的
 （`nr-tools scan-syscalls` 校验 glibc 版本与 `set_robust_list` / `rseq` / `clone3` 的
 site 数量），所以换发行版或换 glibc 构建会**直接报错**，而不是半好不坏地跑起来。
 16 KiB / 64 KiB 页只在 QEMU 上验证过（evidence 125），没在手机上验证。

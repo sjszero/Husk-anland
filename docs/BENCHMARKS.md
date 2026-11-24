@@ -7,9 +7,9 @@
 
 | 项 | 值 |
 |---|---|
-| 设备 | RMX3357，MT6893（天玑 1200），Mali-G77，Android 13（SDK 33），kernel 4.19.191，4 KiB 页，arm64 |
+| 设备（参考） | 一台 arm64 手机：Android 13（SDK 33）、kernel 4.19.191、4 KiB 页；型号与 SoC 见 `docs/STATUS.md` |
 | 沙箱 | `untrusted_app`，无 root、无 Shizuku、未解 Bootloader、无虚拟化 |
-| 用户态 | Ubuntu 24.04，glibc 2.39，882 个 dpkg 包，一个 rootfs 目录 |
+| 用户态（参考发行版） | Ubuntu 24.04，glibc 2.39，882 个 dpkg 包，一个 rootfs 目录 |
 | Husk | loader `rev 23`，sha256 `d5dd7e63…`，path-shim 内嵌，零 ptrace |
 | proot | LinuxHub 2.0 原样发货的 `proot` 二进制与参数（`-0 -r --link2symlink -b /dev -b /proc -b /sys`） |
 | proot-distro | 同一个二进制，换成 proot-distro 的调用方式 |

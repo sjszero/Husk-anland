@@ -3,8 +3,8 @@
 同一份 rootfs 上，什么能用、什么不能用。「可用」指在目标机上真的执行过并得到预期结果，
 不是「包已经装了」。
 
-目标机：RMX3357（MT6893 / Mali-G77 / Android 13 / kernel 4.19.191 / 4 KiB / arm64），
-`untrusted_app`，无 root。
+参考环境（实测条件，不是要求）：arm64 Android 13、kernel 4.19.191、4 KiB 页，以
+`untrusted_app` 运行，无 root。具体机型与 SoC 见 `docs/STATUS.md`。
 
 ## shell、工具链、语言运行时
 

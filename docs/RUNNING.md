@@ -1,112 +1,126 @@
-# Running Husk
+# 运行与交付
 
-Two ways to run a guest. Both need the same three things: our loader, a prepared
-rootfs, and a directory the kernel lets us execute from.
+这份文档回答三件事：**资产怎么装进去**、**环境有什么要求**、**装上发行版之后必须改哪些东西
+才能完整跑起来**。
 
-| Flavour | What you get | Where the rootfs lives |
-|---|---|---|
-| **App integration** (LinuxHub 2.0) | shell, desktop (GNOME Shell 46 X11), touch input, audio, video | the app's private dir, reached through `run-as` |
-| **Standalone** (`install-husk.sh`) | shell, `apt`, full toolchain | any directory you can execute from |
+版本 **0.01**。
 
-The standalone flavour does not use an APK, a JVM, Python or Termux. The app
-integration is what adds a display server, so the graphical session is app-only;
-see [Desktop](#desktop).
+## 1 · 交付形态：打进 APP
 
-## Requirements
+Husk 的资产是「我们自己的 loader + 一棵被改过的 Linux 用户态」。它们不能脱离应用沙箱直接
+在别的终端环境里用——别的环境没有这套依赖，也没有应用私有目录那种「可写 + 可执行 + 沙箱
+允许」的组合。所以交付形态和 proot 方案一样：**作为 assets 打进 APK，首次使用时解压到应用
+私有目录**。
 
-- arm64 Android, API 26+ (verified on Android 13).
-- ~2.5 GB free where the rootfs goes; ~1.5 GB for an Ubuntu 24.04 tree.
-- `adb` for the standalone flavour on a phone; a plain shell is enough on an
-  Android terminal.
-- An Ubuntu 24.04 rootfs tarball (or the `ubuntu-24.04-husk.tar` from the release
-  assets, which is already prepared).
+APK 内 `assets/husk/arm64-v8a/`：
 
-## Standalone
-
-```sh
-adb push husk-arm64.tar.gz /data/local/tmp/husk/
-adb shell
-cd /data/local/tmp/husk && tar xzf husk-arm64.tar.gz
-sh install-husk.sh --rootfs ubuntu-24.04-husk.tar --dest ./root --loader ./libld.so
-./husk
-```
-
-`install-husk.sh` extracts the tarball twice on purpose: Android refuses `link(2)`
-inside app data, so the first pass leaves the hard links out and the second pass
-goes through the shim, whose `link()` falls back to a copy. It then writes a
-`husk` launcher next to the rootfs and verifies that the guest answers from its
-own tree (`/etc/os-release`, `perl5.38.2` and `uncompress` are real files).
-
-What `./husk` runs, under the hood:
-
-```
-NR_ROOTFS=<rootfs>  NR_LD=<loader>  NR_LIBRARY_PATH=<rootfs>/lib/aarch64-linux-gnu:...
-  <loader> --library-path "$NR_LIBRARY_PATH" usr/bin/bash -l
-```
-
-Both environment variables are required. With `NR_ROOTFS` missing the shim has no
-root to translate into and every path resolves against Android; with `NR_LD`
-missing a nested exec cannot re-enter the loader.
-
-## Preparing a stock rootfs
-
-Three steps, in this order, on the extracted tree. A release asset is already
-prepared; a stock Ubuntu tarball is not.
-
-```sh
-# 1. libc: slot entries for the calls libc makes internally, and clone3 -> ENOSYS
-#    (Android's seccomp kills the process before glibc can take its fallback).
-sh tools/guest-config/install-libc-patch.sh <rootfs> <pristine-libc-or-deb>
-
-# 2. absolute symlinks inside the rootfs resolve against the Android root; rewrite
-#    them relative. 552 of them exist in Ubuntu 24.04.
-python3 tools/guest-config/relative-symlinks.py --apply <rootfs>
-
-# 3. Ubuntu's /sbin/ldconfig.real is static, so the shim cannot translate it;
-#    install husk-ldconfig instead.
-sh tools/guest-config/install-ldconfig.sh <rootfs>
-```
-
-Skipping step 1 gives `Bad system call` at the first `pthread` use; skipping step
-2 gives `ENOENT` on libraries that are obviously present; skipping step 3 gives
-`Can't stat /lib` from `dpkg --configure`.
-
-`apt upgrade` on `libc6` undoes step 1 — re-run it afterwards
-(`docs/LIMITATIONS.md` §5).
-
-## Desktop
-
-The graphical session needs a display server. In this release the only one
-wired up is the app's: the Android integration starts its own X server and then
-GNOME Shell 46 inside the guest, with touch input reaching mutter through XI2.
-
-```sh
-# desktop, through the app integration
-adb shell am start -n <app-id>/<activity>
-# then the display button in the app; first frame in ~60–75 s on the target device
-```
-
-There is no standalone desktop: the rootfs ships no X server (`xvfb` is not in
-the offline package index) and the app's X server is not reachable from an
-unrelated process. `docs/LIMITATIONS.md` §1 also covers why the desktop is
-software-rendered.
-
-## Verifying a machine
-
-```sh
-./husk -c 'cat /etc/os-release | head -2; uname -m; nproc'
-./husk -c 'dpkg -l | wc -l'                 # ~882 packages on the benchmark tree
-./husk -c 'gcc --version | head -1'         # present on the benchmark tree only
-./husk -c 'python3 -c "import numpy; print(numpy.arange(200000).sum())"'   # 499500
-```
-
-## Troubleshooting
-
-| Symptom | Cause |
+| 资产 | 作用 |
 |---|---|
-| `cannot execute the loader from here` | the directory is mounted `noexec`; use a dir where exec is allowed |
-| `no writable TMPDIR` | nothing in `/tmp` or `/data/local` is writable for this uid; point `TMPDIR` at the rootfs |
-| `Bad system call` | libc was not patched (step 1) |
-| `ENOENT` on a library that exists | absolute symlinks in the rootfs (step 2) |
-| `Can't stat /lib` from `dpkg` | static `ldconfig` (step 3) |
-| output of `make` disappears over `adb shell` | `adb` gives the guest a socket as stdout; it is not a shim behaviour (`docs/LIMITATIONS.md` §7) |
+| `libld.so` | loader，内嵌 path-shim。可执行文件的入口 |
+| `libc.so.6` | 打过两处补丁的 glibc（见 §3.1） |
+| `husk-ldconfig` | 写 `ld.so.cache` 与 `ld.so.husk-path` 的 Rust 程序，替换发行版的静态 `ldconfig` |
+| `husk-usermgr` | `useradd` / `groupadd` / `passwd` 一族的替身（发行版的 shadow 工具在这个 SELinux 域里跑不起来） |
+| `husk-su` | 提权替身（`su` 的 PAM 路径在这里不通） |
+
+首次使用（应用启动、开会话前）按顺序做这些事，全部自动，不需要用户操作：
+
+1. 解压 `libld.so` 到 `files/linux/husk/libld.so` 并置可执行位；
+2. 把 `husk-usermgr`、`husk-su`、`husk-ldconfig` 放进发行版的 `usr/sbin/`；
+3. 按 sha256 判断是否替换发行版的 `libc.so.6`——**只替换已知的基线与我们自己发过的补丁版，
+   未知发行版一律不覆盖**；
+4. 把发行版里所有 `ldconfig` 入口指向 `husk-ldconfig`（原文件留作 `ldconfig.ubuntu`，
+   永不执行）；
+5. 把 `useradd` / `groupadd` / `usermod` / `userdel` / `groupdel` / `chpasswd` / `passwd` /
+   `chfn` / `chsh` 指向 `husk-usermgr`；
+6. 建 guest 需要的目录：`run`、`run/doro-audio`、`run/doro-desktop`、`tmp`、
+   `tmp/.X11-unix`、`dev/shm`；
+7. 写版本标记 `files/linux/husk/assets.version`；标记与 APK 内的
+   `ASSET_REVISION` 不一致时重做 1–6 步。
+
+## 2 · 环境
+
+通用要求（这是我们验证过的形态，不是唯一可能）：
+
+| 项 | 要求 | 参考环境（我们实测的那台） |
+|---|---|---|
+| 架构 | arm64 | arm64 |
+| 系统 | Android 8+ | Android 13（SDK 33） |
+| 页大小 | 4 KiB | 4 KiB（16/64 KiB 只在 QEMU 上验证过） |
+| 内核 | 能跑 `untrusted_app` 的 SELinux 策略 | 4.19.191 |
+| 权限 | 普通应用即可，无 root、无 Shizuku、未解 Bootloader | 同左 |
+| 目录 | 能执行、可写：应用私有目录（`run-as … files/…`） | `files/linux/…` |
+| 空间 | 发行版树 ×2（解包 + 缓存） | ~2.5 GB |
+| 构建 | NDK（构建 loader）、cargo、python3 | NDK 29、stable |
+
+设备型号、SoC、内核版本这些只作为**参考**写在这里和 `docs/STATUS.md` 里；运行时不绑定某个
+设备族——loader 的补丁点按 glibc 版本断言，设备信息只影响实测数字，不影响契约。
+
+## 3 · 装上发行版后必须改的 7 件事
+
+| # | 改什么 | 为什么 | 不改会怎样 | 谁来做 |
+|---|---|---|---|---|
+| 1 | `libc.so.6` 打两处补丁 | libc 内部调用（`nss_files` 的 `fopen`、`opendir`、`realpath`）没有 GOT 可改，需要 slot 页；`clone3` 被 Android seccomp 杀，要改成返回 `ENOSYS` 让 glibc 走旧路径 | 第一条 `pthread` / `getent` 就 `Bad system call` | APK 首次使用自动 |
+| 2 | 绝对符号链接改相对 | 内核按 `/` 解析链接目标，rootfs 里的绝对链接会逃到 Android 根 | 明明存在的库 `ENOENT`（如 `libblas.so.3`） | 打包时由 `tools/guest-config/relative-symlinks.py --apply` |
+| 3 | `ldconfig` 换成 `husk-ldconfig` | 发行版的 `ldconfig.real` 是静态二进制，shim 够不到，它去写 Android 的 `/etc` | `dpkg --configure` 失败、`apt` 拒绝继续 | APK 首次使用自动 |
+| 4 | 建 `dev/shm` | POSIX 共享内存目录，Android 侧没有；proot 以前靠 bind 提供，现在没有 bind | 每个 `shm_open()` 都是 `ENOENT` | APK 首次使用自动 |
+| 5 | 生成 `/etc/ld.so.husk-path` | 嵌套 exec 的库目录：glibc 在 loader 内部解析 `DT_RUNPATH`，没有 GOT 可改，只能把发行版声明的目录接到 `--library-path` | `sudo` 找不到 `libsudo_util.so.0`、`gsettings` 报 `libpxbackend-1.0.so` | `husk-ldconfig --library-path-file`（初始化、装包后、启动、开会话四个时机） |
+| 6 | 提权与账户工具换成 `husk-su` / `husk-usermgr` | 发行版 `su` 的 PAM 栈在这里答 `System error`；shadow 工具的 `lckpwdf()` 需要 `link(2)`，被 SELinux 拒绝 | `su - user -c …` 失败，装包时建不用户 | APK 首次使用自动 |
+| 7 | `tmp` 可写 + `TMPDIR` 指向它 | `run-as` 下 `/tmp` 不可写，`$(...)` 与 here-doc 要写临时文件 | 安装脚本半途失败 | 安装器 / APK 自动 |
+
+两点补充：
+
+- **虚拟所有权**：rootfs 里的文件一律报 `0:0`，guest 自己 `chown`/创建的文件记在
+  `/var/lib/husk/owners` 这张 inode 例外表里。表是按设备文件系统的 inode 号记的，**换设备必须
+  丢掉这张表**（打包 release 时已排除）。
+- **`apt upgrade` 会撤销第 1 条**：升级 `libc6` 会把补丁版换回 stock，之后 `getent shadow`
+  返回空、提权失败、会话起不来（报错是误导性的 `/bin/sh: 1: Cannot fork`）。重跑
+  `tools/guest-config/install-libc-patch.sh` 或换一个 `ASSET_REVISION` 让 APK 重刷。
+
+## 4 · 启动契约
+
+两个环境变量必须同时给，缺一个就「看起来像 shim 坏了」：
+
+```
+NR_ROOTFS=<rootfs 绝对路径>  NR_LD=<loader 绝对路径>  NR_LIBRARY_PATH=<发行版库目录>
+  <loader> --library-path "$NR_LIBRARY_PATH" usr/bin/env -i PATH=... /bin/sh -c '...'
+```
+
+- 程序路径必须是**相对**路径，进程的工作目录必须是 rootfs 根；
+- `--library-path` 是**替换**而不是追加：`lib/aarch64-linux-gnu` 与
+  `usr/lib/aarch64-linux-gnu` 必须显式列出；
+- `NR_LD` 是嵌套 exec 回灌 loader 用的，缺了它嵌套 exec 会掉回宿主。
+
+## 5 · 验证清单
+
+```sh
+# 用户态是自己的
+cat /etc/os-release | head -2
+uname -m
+
+# 包管理器
+dpkg -l | wc -l
+apt-get update && apt-get install -y vim
+
+# 工具链
+gcc --version | head -1
+make -j4                     # 200 目标工程
+
+# 共享内存与账户
+python3 -c "import numpy; print(numpy.arange(200000).sum())"
+getent passwd | head -3
+```
+
+期望：命令全部返回 0 且输出来自**rootfs 自己**（不是 Android 的 `/etc`）。任何一条报
+`Bad system call`、`ENOENT`、`Can't stat /lib`，对照 §3 的表定位是哪一步没做。
+
+## 6 · 排错
+
+| 现象 | 原因 |
+|---|---|
+| `Bad system call` | §3.1 libc 补丁没打 |
+| 库明明存在却 `ENOENT` | §3.2 绝对符号链接没改 |
+| `dpkg` 报 `Can't stat /lib` | §3.3 静态 `ldconfig` 没换 |
+| `sudo` 缺 `libsudo_util.so.0` | §3.5 `ld.so.husk-path` 没生成 |
+| `su: System error` | §3.6 `husk-su` 没装上 |
+| `no writable TMPDIR` | §3.7 |
+| `make` 的输出消失 | 取样问题，不是运行时问题：`adb shell` 给 guest 的 stdout 是 socket |

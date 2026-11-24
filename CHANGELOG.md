@@ -10,10 +10,11 @@ is kept in `docs/design/DEVLOG.md`.
 
 ## [Unreleased]
 
-## [1.0.0] - 2026-11-24
+## [0.01] - 2026-11-24
 
-First release. One target device (RMX3357 / MT6893 / Mali-G77 / Android 13 /
-kernel 4.19.191 / 4 KiB pages / arm64), running as `untrusted_app`, no root.
+First release. Reference environment: arm64 Android 13, kernel 4.19.191, 4 KiB pages,
+running as `untrusted_app`, no root (the exact device is in `docs/STATUS.md`; it is a
+measurement condition, not a requirement).
 
 ### Added
 
@@ -69,5 +70,5 @@ kernel 4.19.191 / 4 KiB pages / arm64), running as `untrusted_app`, no root.
 - No browser in the shipped rootfs (the offline package index does not contain
   one). Termux is not a supported environment.
 
-[Unreleased]: https://github.com/xishanp/Husk/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/xishanp/Husk/releases/tag/v1.0.0
+[Unreleased]: https://github.com/xishanp/Husk/compare/v0.01...HEAD
+[0.01]: https://github.com/xishanp/Husk/releases/tag/v0.01
