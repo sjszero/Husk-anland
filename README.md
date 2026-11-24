@@ -1,19 +1,27 @@
-<!-- 标题在上、图标在其下一格：GitHub 只在空行处结束 HTML 块，合成一个 div 会让标题退回左对齐 -->
+<!-- 首屏四段：标题 → 图标（下一格）→ 一句话 → 徽章。
+     GitHub 只在空行处结束 HTML 块，标题与图标必须是两个独立块，否则标题会退回左对齐。 -->
 <h1 align="center">Husk</h1>
 
 <p align="center">
-  <img src="docs/assets/brand/husk-mark-hexagon-h-512.png" width="132" alt="Husk">
+  <img src="docs/assets/brand/husk-mark-hexagon-h-512.png" width="128" alt="Husk">
 </p>
 
 <p align="center">让完整的 Linux 发行版以普通应用进程的身份，直接被 Android 内核执行。</p>
 
+<!-- 徽章只放可核对的项目自身事实：代码构成 → 平台 → 运行方式（每条都对应实测证据） -->
 <p align="center">
-  <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
-  <img alt="Rust" src="https://img.shields.io/badge/rust-96%25%20of%20code-DEA584?logo=rust&logoColor=white">
-  <img alt="Platform" src="https://img.shields.io/badge/platform-Android%20arm64-3DDC84">
-  <img alt="ptrace" src="https://img.shields.io/badge/ptrace-none-brightgreen">
-  <img alt="root" src="https://img.shields.io/badge/root-not%20required-brightgreen">
-  <img alt="Virtualization" src="https://img.shields.io/badge/virtualization-none-brightgreen">
+  <img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue">
+  <img alt="Rust: 96% of code" src="https://img.shields.io/badge/Rust-96%25%20of%2064.6k%20lines-DEA584?logo=rust&logoColor=white">
+  <img alt="Platform: Android 13, arm64" src="https://img.shields.io/badge/platform-Android%2013%20%C2%B7%20arm64-3DDC84?logo=android&logoColor=white">
+  <img alt="Distribution: Ubuntu 24.04 glibc" src="https://img.shields.io/badge/distro-Ubuntu%2024.04%20glibc-E95420?logo=ubuntu&logoColor=white">
+</p>
+
+<p align="center">
+  <img alt="root: not required" src="https://img.shields.io/badge/root-not%20required-brightgreen">
+  <img alt="ptrace: not used" src="https://img.shields.io/badge/ptrace-0%20calls-brightgreen">
+  <img alt="Virtualization: none" src="https://img.shields.io/badge/hardware%20virtualization-none-brightgreen">
+  <img alt="Syscalls: native" src="https://img.shields.io/badge/syscalls-native%2C%20unintercepted-brightgreen">
+  <img alt="Namespaces: not required" src="https://img.shields.io/badge/namespaces-not%20required-brightgreen">
 </p>
 
 **Husk 是一个 Android 运行时：让完整的 Linux 发行版（glibc 用户态）以普通应用进程的身份，
