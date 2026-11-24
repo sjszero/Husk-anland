@@ -85,8 +85,8 @@ fork/exec 不经翻译层；I/O 直落内核）、**代价**（生态成熟度�
 
 | 文件 | 要求 |
 |---|---|
-| `README.md` | 英文为主（国际惯例），结构见 C2；首屏 30 秒可读 |
-| `README.zh-CN.md` | 中文镜像，结构与数字与英文版一致；两版顶部互相链接 |
+| `README.md` | **中文为主**（产品主文档），结构见 C2；首屏 30 秒可读 |
+| `README_EN.md` | 英文镜像，结构与数字与中文版一致；两版顶部互相链接 |
 | `LICENSE` | Apache-2.0（已落地，2026-11-24）。`binaries/` 下的 glibc 构件按 LGPL-2.1+ 单独声明于 `NOTICE`，发布前改为构建时按校验和获取，从仓库移出 |
 | `NOTICE` | 第三方组件、商标、字体与图标来源声明 |
 | `CHANGELOG.md` | Keep a Changelog 1.1 格式 + SemVer 2.0；每个 release 一节 |

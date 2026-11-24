@@ -1,13 +1,12 @@
-<!-- The header block: title on one line, the logo on the next. GitHub only ends
-     an HTML block at a blank line, so these must stay two separate blocks or the
-     title falls back to left-aligned. -->
+<!-- 首屏：标题一行，图标下一格。GitHub 只在空行处结束 HTML 块，两段必须分开，
+     否则标题会退回左对齐。 -->
 <h1 align="center">Husk</h1>
 
 <p align="center">
   <img src="docs/assets/brand/husk-mark-hexagon-h-512.png" width="128" alt="Husk">
 </p>
 
-<p align="center">Run a full Linux distribution as an ordinary Android app process, on the Android kernel.</p>
+<p align="center">让完整的 Linux 发行版以普通应用进程的身份，直接跑在 Android 内核上。</p>
 
 <p align="center">
   <a href="https://github.com/xishanp/Husk/releases"><img alt="Release" src="https://img.shields.io/github/v/release/xishanp/Husk?style=flat-square&color=EA580C"></a>
@@ -18,220 +17,199 @@
 </p>
 
 <p align="center">
-  <b>English</b> · <a href="README.zh-CN.md">简体中文</a> ·
-  <a href="docs/ARCHITECTURE.md">Architecture</a> ·
-  <a href="docs/BENCHMARKS.md">Benchmarks</a> ·
-  <a href="CHANGELOG.md">Changelog</a> ·
-  <a href="CONTRIBUTING.md">Contributing</a>
+  <a href="README_EN.md">English</a> · <b>简体中文</b> ·
+  <a href="docs/ARCHITECTURE.md">架构</a> ·
+  <a href="docs/BENCHMARKS.md">基准</a> ·
+  <a href="CHANGELOG.md">更新记录</a> ·
+  <a href="CONTRIBUTING.md">参与贡献</a>
 </p>
 
-Husk is a runtime for Android that executes an unmodified glibc userland —
-Ubuntu 24.04 with `apt`, `gcc`, GNOME Shell — inside an ordinary `untrusted_app`
-process. No root, no unlocked bootloader, no hardware virtualization, and no
-`ptrace`: path virtualisation is done once, by rewriting the GOT of each object
-at load time, so the program's own `svc` instruction reaches the Android kernel
-unmodified.
+Husk 是一个 Android 运行时：让未经改动的 glibc 用户态——带 `apt`、`gcc`、GNOME
+Shell 的 Ubuntu 24.04——在普通的 `untrusted_app` 进程里跑起来。不需要 root、不需要
+解 Bootloader、不需要硬件虚拟化，也不做 `ptrace`：路径虚拟化在装载时做一次（改写每个
+对象的 GOT），之后程序自己的 `svc` 指令原样进 Android 内核。
 
-## Table of contents
+## 目录
 
-- [Why Husk](#why-husk) · [Features](#features) · [Quick start](#quick-start)
-- [How it works](#how-it-works) · [Performance](#performance) · [Compatibility](#compatibility)
-- [Limitations](#limitations) · [Build from source](#build-from-source)
-- [Repository layout](#repository-layout) · [Documentation](#documentation)
-- [FAQ](#faq) · [Contributing](#contributing) · [License](#license)
+- [为什么是 Husk](#为什么是-husk) · [特性](#特性) · [快速开始](#快速开始)
+- [工作原理](#工作原理) · [性能](#性能) · [兼容性](#兼容性)
+- [限制](#限制) · [从源码构建](#从源码构建)
+- [仓库结构](#仓库结构) · [文档](#文档)
+- [常见问题](#常见问题) · [参与贡献](#参与贡献) · [许可](#许可)
 
-## Why Husk
+## 为什么是 Husk
 
-Same phone, same rootfs, same shell, three runners — only the runner changes.
-Medians of 5 rounds, measured 2026-11-24 (`docs/BENCHMARKS.md`):
+同一台手机、同一份 rootfs、同一个 shell，只换运行器。5 轮中位数，2026-11-24 实测
+（[`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)）：
 
-| work | Husk | proot | ratio |
+| 工作量 | Husk | proot | 倍率 |
 |---|---:|---:|---:|
 | `open` + `close` × 20 000 | 1 252 ms | 8 481 ms | **6.8×** |
-| `make -j4`, 200-object link | 5 194 ms | 24 182 ms | **4.7×** |
-| sequential write, 256 MB | 1 294 ms | 1 321 ms | 1.0× |
+| `make -j4`，200 目标链接 | 5 194 ms | 24 182 ms | **4.7×** |
+| 顺序写 256 MB | 1 294 ms | 1 321 ms | 1.0× |
 
-The first two rows are path- and syscall-heavy, so they pay proot's per-syscall
-`ptrace` round trip. The third is a bulk write that never touches a translated
-path, so it ties — and the table says so rather than hiding it.
+前两行是路径与 syscall 密集的活，要付 proot 每条 syscall 的 `ptrace` 往返；第三行是
+大块写，不经过被翻译的路径，所以打平——表里照写，不藏。
 
-## Features
+## 特性
 
-- **Zero `ptrace`, zero syscall interception.** The kernel sees the guest's own
-  syscalls (evidence 130–146).
-- **Unmodified glibc userland.** Ubuntu 24.04, glibc 2.39, no patched binaries in
-  the guest tree apart from `libc` slot entries for calls it makes internally.
-- **A package manager that works.** `apt-get install` grew the rootfs from 815 to
-  882 packages in 27 s, including `build-essential`, `nodejs` and `python3-numpy`
-  (evidence 154).
-- **A real toolchain.** `gcc`, `make -j4` on a 200-object project, `git clone`,
-  `python3` + `numpy` (evidence 155).
-- **A desktop.** GNOME Shell 46 in an X11 session, with top bar, dock, wallpaper
-  and notifications on screen (evidence 147), and touch input reaching mutter
-  through XI2 (evidence 148).
-- **Session services.** polkit authorization, the at-spi accessibility bus, gvfs,
-  and RandR 1.2 with no scaling warning (evidence 151, 152).
-- **Nothing privileged.** Runs in the ordinary app sandbox on a stock phone.
-- **A comparison you can rerun.** `tools/bench/` runs the same rootfs under Husk,
-  proot and proot-distro with one command; the raw logs are in the repository.
+- **零 `ptrace`、零 syscall 拦截。** 内核看到的是 guest 自己的 syscall（evidence 130–146）。
+- **未改动的 glibc 用户态。** Ubuntu 24.04 / glibc 2.39；guest 树里除了 libc 内部
+  调用用的 slot 项，没有为 Husk 改过的二进制。
+- **能用的包管理器。** `apt-get install` 27 秒把 rootfs 从 815 包装到 882 包，含
+  `build-essential`、`nodejs`、`python3-numpy`（evidence 154）。
+- **完整工具链。** `gcc`、200 目标工程的 `make -j4`、`git clone`、`python3` + `numpy`
+  （evidence 155）。
+- **桌面。** GNOME Shell 46 的 X11 会话，顶栏 / dock / 壁纸 / 通知都在屏
+  （evidence 147），触摸经 XI2 进 mutter（evidence 148）。
+- **会话服务。** polkit 授权、at-spi 无障碍总线、gvfs、RandR 1.2 且无缩放告警
+  （evidence 151、152）。
+- **不需要任何特权。** 跑在普通应用沙箱里，机器可以是原厂状态。
+- **对比可以自己重跑。** `tools/bench/` 一条命令把同一份 rootfs 分别交给 Husk、
+  proot、proot-distro，原始日志在仓库里。
 
-## Quick start
+## 快速开始
 
-Requirements: an arm64 Android device (Android 8+), `adb`, ~2.5 GB free space in
-the target directory, and a rootfs tarball.
+需要：arm64 Android 设备（Android 8+）、`adb`、目标目录约 2.5 GB 空闲、一个 rootfs
+压缩包。
 
 ```sh
-# 1. install the launcher and unpack the rootfs (no APK, no root)
+# 1. 装启动器并展开 rootfs（不需要 APK，不需要 root）
 adb push husk-arm64.tar.gz /data/local/tmp/husk/
 adb shell
 cd /data/local/tmp/husk && tar xzf husk-arm64.tar.gz
 sh install-husk.sh --rootfs ubuntu-24.04-husk.tar --dest ./root --loader ./libld.so
 
-# 2. a shell
+# 2. 进 shell
 ./husk
 
-# 3. the package manager, from inside the guest
+# 3. 在 guest 里用包管理器
 apt-get update && apt-get install -y vim
 ```
 
-The graphical session is started by the Android app integration (LinuxHub 2.0):
-see [`docs/RUNNING.md`](docs/RUNNING.md) for the desktop step and for the three
-rootfs preparation steps a stock Ubuntu tree needs.
+图形会话由 Android 应用集成（LinuxHub 2.0）启动：桌面步骤与"stock rootfs 的三步
+准备"见 [`docs/RUNNING.md`](docs/RUNNING.md)。
 
-## How it works
+## 工作原理
 
 <p align="center">
-  <img src="docs/assets/architecture.svg" alt="Husk architecture" width="760">
+  <img src="docs/assets/architecture.svg" alt="Husk 架构" width="760">
 </p>
 
-A statically linked loader with an embedded path shim is the only thing Android
-executes. When it maps a guest object it rewrites that object's GOT entries so
-every libc path call lands in the shim, which prefixes the guest root once and
-then calls the real syscall. `exec` is resolved by the loader itself, including
-`PT_INTERP` and shebangs, so a nested exec re-enters the same loader instead of
-falling back to the host. Because nothing stops the process afterwards, the
-program's syscalls are native from the first instruction it runs.
+Android 唯一执行的是一个静态 loader，path-shim 内嵌在里面。它映射 guest 对象时改写该
+对象的 GOT，让每个 libc 路径调用落到 shim；shim 加一次 guest 根前缀，然后发真正的
+syscall。`exec` 由 loader 自己解析（含 `PT_INTERP` 与 shebang），嵌套 exec 会重新回到
+同一个 loader，而不是掉回宿主。因为此后没有任何东西挡住进程，程序从第一条指令起，
+syscall 就是原生的。
 
-Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+细节见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
 
-## Performance
+## 性能
 
-Eight dimensions, three runners, one device — the summary table lives in
-[`docs/BENCHMARKS.md`](docs/BENCHMARKS.md), together with the mechanics behind
-each number and what the approach costs. Headline: the win scales with syscall
-and path density (1.5× on process work, 3–7× on path-heavy work) and disappears
-on bulk I/O.
+八个维度、三个运行器、一台设备——汇总表在 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)，
+同页给出每个数字背后的机制和这套做法的代价。要点：优势随 syscall 与路径密度放大
+（进程类 1.5×，路径类 3–7×），在大块 I/O 上消失。
 
-## Compatibility
+## 兼容性
 
-Verified on Ubuntu 24.04 / glibc 2.39 / arm64: `bash`, coreutils, `git`,
-`python3` (+`numpy`), `gcc`, `make`, `vim`, `nano`, `node`, `apt`, `dpkg`,
-GNOME Shell 46, `nautilus`, `gnome-terminal`, `gnome-control-center`, dbus,
-polkit, at-spi, gvfs. No browser is part of the shipped rootfs. The full matrix,
-including what each runner cannot do, is in
-[`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
+已在 Ubuntu 24.04 / glibc 2.39 / arm64 验证：`bash`、coreutils、`git`、`python3`
+（+`numpy`）、`gcc`、`make`、`vim`、`nano`、`node`、`apt`、`dpkg`、GNOME Shell 46、
+`nautilus`、`gnome-terminal`、`gnome-control-center`、dbus、polkit、at-spi、gvfs。
+随附 rootfs 里没有浏览器。逐项矩阵（含每个运行器做不到什么）见
+[`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)。
 
-## Limitations
+## 限制
 
-- ⚠️ The desktop is **software-rendered** (`swrast` / `llvmpipe`). The guest GPU
-  path exists and is not yet wired to GNOME.
-- ⚠️ One distribution, one ABI, one device family; the loader's patching is
-  version-asserted, so other glibc builds fail loudly instead of half-working.
-- ⚠️ A stock rootfs needs preparation: libc patching, absolute symlinks rewritten
-  to relative, and `husk-ldconfig` in place of the static `ldconfig`.
-- Sensors, GPS, USB, Bluetooth, NFC, fingerprint, hardware video decode and WSI
-  are not implemented. Termux is not a supported environment.
+- ⚠️ 桌面是**软件渲染**（`swrast` / `llvmpipe`）。guest 的 GPU 通路存在，但还没接到 GNOME。
+- ⚠️ 一个发行版、一个 ABI、一个设备族；loader 的补丁带版本断言，换 glibc 会直接报错，
+  不会半好不坏地跑起来。
+- ⚠️ stock rootfs 需要准备：libc 打补丁、绝对符号链接改相对、用 `husk-ldconfig`
+  替换静态 `ldconfig`。
+- 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI 均未实现。Termux 不是支持的环境。
 
-Full list, with the evidence for each: [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md).
+完整清单与每条的证据：[`docs/LIMITATIONS.md`](docs/LIMITATIONS.md)。
 
-## Build from source
+## 从源码构建
 
 ```sh
-# the loader (needs the NDK; asserts the glibc version it patches)
+# loader（需要 NDK；会断言它补丁的 glibc 版本）
 NDK=$ANDROID_HOME/ndk/<ver>/toolchains/llvm/prebuilt/<host>/bin \
   sh tools/loader/build-embedded-loader.sh
 
-# the Rust crates (no_std shim + host tools)
+# Rust crates（no_std shim + 宿主工具）
 cargo build --release --manifest-path runtime/Cargo.toml
 
-# checks that run in CI
-make check   # fmt + cargo check for aarch64 + clippy + shell syntax + docs links
+# CI 里跑的检查
+make check   # fmt + aarch64 cargo check + clippy + shell 语法 + 文档链接
 ```
 
-## Repository layout
+## 仓库结构
 
 ```
-runtime/crates/    loader-side path shim, exec, PTY, signals (Rust, no_std)
-runtime/crates/nr-tools/     ELF surgery: scan, patch, embed, libc interpose
-tools/loader/      entry + hook assembly, the build that produces the loader
-tools/bench/       the three-runner harness used for docs/BENCHMARKS.md
-tools/guest/       rootfs installer and session script (no APK needed)
-tools/guest-config/  libc patch, ldconfig, symlink rewrite
-tools/device-tests/  device acceptance suites, including gate A
-app-rs/, app/      the Android shell (Rust Core + Kotlin integration)
-docs/design/evidence/  raw device output behind every number in the docs
+runtime/crates/    loader 侧的 path-shim、exec、PTY、信号（Rust，no_std）
+runtime/crates/nr-tools/     ELF 手术：scan、patch、embed、libc interpose
+tools/loader/      入口与 hook 汇编，产出 loader 的构建
+tools/bench/       产出 docs/BENCHMARKS.md 的三运行器夹具
+tools/guest/       rootfs 安装器与会话脚本（不需要 APK）
+tools/guest-config/  libc 补丁、ldconfig、符号链接改写
+tools/device-tests/  设备验收套件，含门禁 A
+app-rs/, app/      Android 外壳（Rust Core + Kotlin 集成）
+docs/design/evidence/  文档里每个数字背后的设备原始输出
 ```
 
-## Documentation
+## 文档
 
-| Document | What it answers |
+| 文档 | 回答什么 |
 |---|---|
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | how the loader, shim and exec graph fit together |
-| [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) | the comparison, the mechanism, the cost |
-| [`docs/RUNNING.md`](docs/RUNNING.md) | installing and running, with the rootfs preparation steps |
-| [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) | what runs, per runner |
-| [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) | what does not work, and why |
-| [`docs/STATUS.md`](docs/STATUS.md) | current state on the target device |
-| [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md) | the pre-1.0 engineering diary |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | how to build, test, and the glossary |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | loader、shim、exec 图怎么拼起来 |
+| [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) | 对比、机制、代价 |
+| [`docs/RUNNING.md`](docs/RUNNING.md) | 怎么装怎么跑，含 rootfs 准备三步 |
+| [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) | 每个运行器能跑什么 |
+| [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) | 什么不工作，为什么 |
+| [`docs/STATUS.md`](docs/STATUS.md) | 目标机上的当前状态 |
+| [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md) | 1.0 之前的工程日记 |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | 怎么构建、怎么测、术语表 |
 
-## FAQ
+## 常见问题
 
-**Does it need root or an unlocked bootloader?** No. It runs as `untrusted_app`
-on a stock device; everything it can reach is what the app sandbox allows.
+**需要 root 或解 Bootloader 吗？** 不需要。跑在 `untrusted_app` 里，能碰到的东西就是
+应用沙箱允许的那些。
 
-**Is this a container or a VM?** Neither. Same kernel, no namespaces, no
-cgroups, no instructions emulated. The guest is a normal process tree.
+**这是容器还是虚拟机？** 都不是。同一个内核，没有 namespace、没有 cgroup、不模拟任何
+指令。guest 就是一棵普通进程树。
 
-**Why is `apt-get update` only 1.1× faster?** It is bound by the mirror and by
-dpkg's own work, not by path lookups. The benchmark reports that instead of
-hiding it.
+**为什么 `apt-get update` 只快 1.1×？** 因为它受镜像和 dpkg 自身的工作限制，不取决于
+路径查找。基准照实写，不粉饰。
 
-**Can I run Debian, Fedora, Alpine?** Only glibc-based Ubuntu 24.04 has been
-verified. Alpine is musl and a different problem entirely; nothing else was run.
+**能跑 Debian / Fedora / Alpine 吗？** 只验证过 glibc 的 Ubuntu 24.04。Alpine 是 musl，
+是另一个问题；其余没跑过。
 
-**Why is the desktop software-rendered?** Because the GPU path is not wired to
-GNOME yet — see `docs/LIMITATIONS.md` §1. It is not a side effect of the runtime.
+**桌面为什么是软件渲染？** 因为 GPU 通路还没接到 GNOME，见 `docs/LIMITATIONS.md` §1。
+这与运行时的做法无关。
 
-**Why does my rootfs need patching?** Two Android-specific holes: `libc` needs
-slot entries for the calls it makes internally, and absolute symlinks inside the
-rootfs would resolve against the Android root. `docs/RUNNING.md` has the steps,
-and `tools/guest-config/` has the tools.
+**为什么 rootfs 要打补丁？** 两个 Android 特有的缺口：libc 内部调用需要 slot 项；
+rootfs 里的绝对符号链接会按 Android 根解析。步骤在 `docs/RUNNING.md`，工具在
+`tools/guest-config/`。
 
-**Does it run in Termux?** No, and it is not supported. The guest tree expects
-binaries and libraries a Termux `$PREFIX` does not provide.
+**能在 Termux 里跑吗？** 不能，也不支持。guest 树需要的二进制与库 Termux 的 `$PREFIX`
+不提供。
 
-**Which Android and kernel were verified?** Android 13, kernel 4.19.191, 4 KiB
-pages, arm64, on one device (RMX3357 / MT6893). 16 KiB and 64 KiB kernels were
-exercised on QEMU only.
+**验证过哪些 Android 与内核？** Android 13、kernel 4.19.191、4 KiB 页、arm64，一台设备
+（RMX3357 / MT6893）。16 KiB 与 64 KiB 页只在 QEMU 上跑过。
 
-## Contributing
+## 参与贡献
 
-Issues and pull requests are welcome; read [`CONTRIBUTING.md`](CONTRIBUTING.md)
-first, and note that every performance claim needs an evidence file under
-`docs/design/evidence/`. This project follows the
-[Contributor Covenant 2.1](CODE_OF_CONDUCT.md). Security reports: see
-[`SECURITY.md`](SECURITY.md).
+欢迎 issue 与 pull request；先读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。注意：每个性能
+结论都要有一个 `docs/design/evidence/` 下的证据文件。本项目遵循
+[Contributor Covenant 2.1](CODE_OF_CONDUCT.md)。安全问题见 [`SECURITY.md`](SECURITY.md)。
 
-## License
+## 许可
 
-Apache License 2.0 — see [LICENSE](LICENSE). Third-party components, glibc
-artefacts and trademark notes are in [NOTICE](NOTICE).
+Apache License 2.0，见 [LICENSE](LICENSE)。第三方组件、glibc 构件与商标声明见
+[NOTICE](NOTICE)。
 
-## Acknowledgements
+## 致谢
 
-The comparison in `docs/BENCHMARKS.md` was produced by running
-[proot](https://proot-me.github.io/) and proot-distro on the same rootfs; both
-were the previous runtime of LinuxHub 2.0, and the numbers exist because they
-work. The Ubuntu 24.04 tree started from the LinuxHub 2.0 offline assets, and the
-loader patches target glibc as shipped by Ubuntu.
+`docs/BENCHMARKS.md` 里的对比是靠运行 [proot](https://proot-me.github.io/) 与
+proot-distro 得到的——它们曾是 LinuxHub 2.0 的运行时，这些数字存在是因为它们能用。
+Ubuntu 24.04 树起始于 LinuxHub 2.0 的离线资产，loader 补丁针对的是 Ubuntu 发布的 glibc。
