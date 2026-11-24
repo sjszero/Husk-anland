@@ -1,5 +1,21 @@
 # 变更记录
 
+## 2026-11-24 — 删 proot 后的 B/D/E 全量回归：抓到两个真问题并修掉
+
+- **evidence 146**：把 `01/03/04/05/09/10/11` 套件搬到 2.0 的生产树上跑，红了两处：
+  - `/dev/shm is a directory` FAIL —— 这个目录以前由 proot 的 `-b <app>/tmp/shm` 提供，
+    删 bind 之后没人建，guest 里所有 `shm_open()` 都是 ENOENT。修：`HuskRuntime.guestDirs`
+    加 `dev/shm`。
+  - `comm` 三条 FAIL —— 嵌套 exec 的进程名一直是 `libld.so`。两个原因：`name_once()` 只在
+    第一次走 guest 路径时才调用（只碰透传路径的 `cat`/`ps`/`sleep` 永远不触发），以及它用
+    2 KiB 栈缓冲读 cmdline，而嵌套 exec 的 `--library-path` 一个参数就几 KB。修：挪到
+    `nr_boot` 每个进程跑一次，缓冲换成 64 KiB 静态缓冲（loader 673,280 → 738,816 B）。
+  - 顺带修掉 `11-process-view.sh` 里硬编码 `libld39.so` 的空转检查。
+- 修完全绿：01 31/0、03 escapes=0、05 18/0、09 11/0、10 9/0、11 8/0；空 checkpoint 重跑
+  814 包、`dpkg -C` 空、0 `Bad system call`、552.6 s、门禁 A 34/34、supervisor 8/8。
+- `13-egress` 的两条 curl 检查在 2.0 树里是"没有 curl"（`wget` rc=0 代替），不是运行时问题。
+- 指纹：loader `e6e9ac65…`（shim `46f2c340…`），设备 `assets.version = husk-runtime-spawn-link-13`。
+
 ## 2026-11-24 — 共享存储：删了 `-b /sdcard` 之后把它补回来
 
 - **evidence 145**：删 proot 时把 `-b /storage/emulated/0:/sdcard` 一起删了，guest 里

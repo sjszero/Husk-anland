@@ -13,7 +13,7 @@ ps -e >/dev/null 2>&1 && ok "ps -e runs" || bad "ps -e runs"
 
 # the process running this script must be visible under its own name
 ps -eo comm 2>/dev/null | grep -qx bash && ok "ps lists this shell as bash" || bad "ps lists this shell as bash"
-ps -eo comm 2>/dev/null | grep -qx libld39.so && bad "ps still shows the loader name" || ok "ps never shows the loader name"
+ps -eo comm 2>/dev/null | grep -q "^\(libld\|libld39\)\.so$" && bad "ps still shows the loader name" || ok "ps never shows the loader name"
 
 pgrep -x bash >/dev/null 2>&1 && ok "pgrep -x bash matches" || bad "pgrep -x bash matches"
 

@@ -926,6 +926,13 @@ pub unsafe extern "C" fn nr_boot(
     //    picked (see set_guest_cwd).
     crate::set_guest_cwd();
 
+    // 5. name the process after the program, here and not on the first *guest*
+    //    path: a program that only touches passthrough paths (`cat
+    //    /proc/self/comm`, `ps`, `sleep`) never asks for the root fd, so it kept
+    //    the name the kernel gave the loader and `ps`/`top`/`pgrep` saw
+    //    "libld.so" for every child (evidence 146).
+    crate::name_once();
+
     if debug_on() {
         say(&[b"nr-boot: imports="]);
         say_hex(n);

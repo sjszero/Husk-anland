@@ -936,12 +936,16 @@ unsafe fn move_root_high(fd: CInt) -> CInt {
 
 static NAME_STATE: AtomicU8 = AtomicU8::new(0);
 
+/// `/proc/self/cmdline` for [name_once]. One process parses it once, before any
+/// other thread exists, so a single static buffer is enough.
+static mut CMDLINE_BUF: [u8; 65536] = [0; 65536];
+
 /// `comm` is inherited from the file the kernel executed, and for a guest
 /// process that file is always the loader - so every process in the container
 /// used to show up as "libld39.so" in `ps`/`top`/`htop`, and `pgrep -x bash`
 /// never matched. The real program is the first argument that is not one of the
 /// loader's own options, so take that basename and rename the process once.
-unsafe fn name_once() {
+pub(crate) unsafe fn name_once() {
     if NAME_STATE.load(Ordering::Relaxed) != 0 {
         return;
     }
@@ -951,7 +955,12 @@ unsafe fn name_once() {
     const SYS_CLOSE: usize = 57;
     const SYS_PRCTL: usize = 167;
     const PR_SET_NAME: usize = 15;
-    let mut buf = [0u8; 2048];
+    // The cmdline is not two short lines: a nested exec re-runs the loader with
+    // `--library-path <every guest directory>` and that one argument is several
+    // kilobytes, so a 2 KiB stack buffer cut the program token off entirely and
+    // the process kept the loader's name (evidence 146 §2). A static buffer
+    // keeps the parse identical and costs 64 KiB of .bss.
+    let buf = &mut *core::ptr::addr_of_mut!(CMDLINE_BUF);
     let fd = syscall4(
         SYS_OPENAT,
         AT_FDCWD as usize,
