@@ -78,6 +78,29 @@ sh husk-session.sh files/linux/distributions/<发行版>/rootfs -- /usr/bin/true
 > proot 侧没有可比的桌面，凡是「不可比」的格子是真的没有对象，不是我们没测。
 > 完整条件、样本数与代价见 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)。
 
+### GPU 原生的实际加速
+
+同一台机、同一份二进制（`gl-probe`），2400×1080 是本机日常分辨率：
+
+| 负载 | GPU（zink → PanVK → Mali-G77） | 软件（llvmpipe） | 倍率 |
+|---|---:|---:|---:|
+| 着色器型：每像素 48 次 `sin`，2 遍，2400×1080 | 23.8 ms/帧（41.9 fps） | 266.7 ms/帧（3.7 fps） | **GPU 快 11.2×** |
+| 同上，1280×720 | 14.9 ms/帧（67.1 fps） | 101.9 ms/帧（9.8 fps） | **GPU 快 6.8×** |
+| 清屏 + 窗口呈现，2400×1080 | 50.2 ms/帧（19.9 fps） | 20.1 ms/帧（49.7 fps） | 软件快 2.5×，照写 |
+
+第三行的原因是可拆的（2400×1080，ms/帧）：
+
+| | GPU 渲染 | X 传输（`XPutImage`） | GPU→CPU 回读 | 实测合计 |
+|---|---:|---:|---:|---:|
+| zink | 2.25 | 17.66 | 30.27 | 50.18 |
+| llvmpipe | 2.01 | 18.12 | 0（像素本来就在内存里） | 20.12 |
+
+**算得动的活 GPU 快一个数量级；搬像素的活现在比软件慢**——每帧都要把 GPU 表面回读成线性
+像素再交给 X server。要消掉这一段只能走 dma-buf 直传（DRI3），而本机的 X server 跑在应用
+自己的进程里（bionic Xorg），`untrusted_app` 拿不到 `/dev/dri`、也没有 `/dev/dma_heap`，
+DRI3 只能停在 `Could not get DRI3 device`。逐条数字与做法见
+[evidence 174](docs/design/evidence/174-present-cost-split-20261125.md)。
+
 ## 和容器、虚拟机的区别
 
 | | 传统容器 | 虚拟机 | PRoot 一类 | **Husk** |

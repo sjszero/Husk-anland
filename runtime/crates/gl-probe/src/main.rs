@@ -211,6 +211,7 @@ struct Gl {
     clear_color: unsafe extern "C" fn(f32, f32, f32, f32),
     clear: unsafe extern "C" fn(c_uint),
     disable: unsafe extern "C" fn(c_uint),
+    draw_arrays: unsafe extern "C" fn(c_uint, c_int, c_int),
     draw_arrays_instanced: unsafe extern "C" fn(c_uint, c_int, c_int, c_int),
     bind_buffer_base: unsafe extern "C" fn(c_uint, c_uint, c_uint),
     finish: unsafe extern "C" fn(),
@@ -219,6 +220,7 @@ struct Gl {
     pixel_storei: unsafe extern "C" fn(c_uint, c_int),
     get_string: unsafe extern "C" fn(c_uint) -> *const c_char,
     get_uniform_location: unsafe extern "C" fn(c_uint, *const c_char) -> c_int,
+    get_attrib_location: unsafe extern "C" fn(c_uint, *const c_char) -> c_int,
     uniform1i: unsafe extern "C" fn(c_int, c_int),
 }
 
@@ -265,6 +267,7 @@ impl Gl {
                 clear_color: cast(p("glClearColor")),
                 clear: cast(p("glClear")),
                 disable: cast(p("glDisable")),
+                draw_arrays: cast(p("glDrawArrays")),
                 draw_arrays_instanced: cast(p("glDrawArraysInstanced")),
                 bind_buffer_base: cast(p("glBindBufferBase")),
                 finish: cast(p("glFinish")),
@@ -273,6 +276,7 @@ impl Gl {
                 pixel_storei: cast(p("glPixelStorei")),
                 get_string: cast(p("glGetString")),
                 get_uniform_location: cast(p("glGetUniformLocation")),
+                get_attrib_location: cast(p("glGetAttribLocation")),
                 uniform1i: cast(p("glUniform1i")),
             }
         })
@@ -755,6 +759,328 @@ fn run_es3() -> i32 {
     }
 }
 
+/// Pure X pixel transport, no GL at all: a client 32-bit buffer of `width`x
+/// `height` goes to a window of the same size with `XPutImage` + `XSync`,
+/// `frames` times. This is the copy half of the presentation cost on its own;
+/// `window - pbuf - xput` is what the GPU readback adds on top.
+fn run_xput(width: u32, height: u32, frames: u32) -> i32 {
+    let x11 = match Lib::open("libX11.so.6") {
+        Some(l) => l,
+        None => {
+            say!("FAIL dlopen X11");
+            return 1;
+        }
+    };
+    unsafe {
+        let open: unsafe extern "C" fn(*const c_char) -> *mut c_void =
+            cast(x11.sym("XOpenDisplay"));
+        let root_of: unsafe extern "C" fn(*mut c_void) -> Window =
+            cast(x11.sym("XDefaultRootWindow"));
+        let def_screen: unsafe extern "C" fn(*mut c_void) -> c_int =
+            cast(x11.sym("XDefaultScreen"));
+        let def_depth: unsafe extern "C" fn(*mut c_void, c_int) -> c_int =
+            cast(x11.sym("XDefaultDepth"));
+        let def_visual: unsafe extern "C" fn(*mut c_void, c_int) -> *mut c_void =
+            cast(x11.sym("XDefaultVisual"));
+        let create_image: unsafe extern "C" fn(
+            *mut c_void,
+            *mut c_void,
+            c_uint,
+            c_int,
+            c_int,
+            *mut c_char,
+            c_uint,
+            c_uint,
+            c_int,
+            c_int,
+        ) -> *mut c_void = cast(x11.sym("XCreateImage"));
+        let create_gc: unsafe extern "C" fn(
+            *mut c_void,
+            Window,
+            c_ulong,
+            *mut c_void,
+        ) -> *mut c_void = cast(x11.sym("XCreateGC"));
+        let put_image: unsafe extern "C" fn(
+            *mut c_void,
+            Window,
+            *mut c_void,
+            *mut c_void,
+            c_int,
+            c_int,
+            c_int,
+            c_int,
+            c_uint,
+            c_uint,
+        ) = cast(x11.sym("XPutImage"));
+        let create: unsafe extern "C" fn(
+            *mut c_void,
+            Window,
+            c_int,
+            c_int,
+            c_uint,
+            c_uint,
+            c_uint,
+            c_ulong,
+            c_ulong,
+            c_int,
+            c_uint,
+            *mut c_void,
+        ) -> Window = cast(x11.sym("XCreateSimpleWindow"));
+        let map: unsafe extern "C" fn(*mut c_void, Window) -> c_int = cast(x11.sym("XMapWindow"));
+        let sync: unsafe extern "C" fn(*mut c_void, c_int) -> c_int = cast(x11.sym("XSync"));
+
+        let display = open(std::ptr::null());
+        if display.is_null() {
+            say!("FAIL XOpenDisplay");
+            return 1;
+        }
+        let root = root_of(display);
+        let screen = def_screen(display);
+        let depth = def_depth(display, screen);
+        let visual = def_visual(display, screen);
+        let window = create(
+            display,
+            root,
+            0,
+            0,
+            width,
+            height,
+            0,
+            0,
+            0,
+            0,
+            0,
+            std::ptr::null_mut(),
+        );
+        map(display, window);
+        sync(display, 0);
+        say!("stage 2: window mapped id={window}");
+
+        // XCreateImage with a caller buffer: no allocation, no copy on our side.
+        let stride = (width as usize) * 4;
+        let mut pixels = vec![0u8; stride * height as usize];
+        for (i, b) in pixels.iter_mut().enumerate() {
+            *b = (i % 251) as u8;
+        }
+        let image = create_image(
+            display,
+            visual,
+            depth as c_uint,
+            2, // ZPixmap
+            0,
+            pixels.as_mut_ptr() as *mut c_char,
+            width,
+            height,
+            32,
+            stride as c_int,
+        );
+        if image.is_null() {
+            say!("FAIL XCreateImage");
+            return 1;
+        }
+        let gc = create_gc(display, window, 0, std::ptr::null_mut());
+        if gc.is_null() {
+            say!("FAIL XCreateGC");
+            return 1;
+        }
+        for _ in 0..3 {
+            put_image(display, window, gc, image, 0, 0, 0, 0, width, height);
+            sync(display, 0);
+        }
+        let t0 = std::time::Instant::now();
+        for _ in 0..frames {
+            put_image(display, window, gc, image, 0, 0, 0, 0, width, height);
+            sync(display, 0);
+        }
+        let dt = t0.elapsed().as_secs_f64();
+        say!(
+            "stage 10: {frames} XPutImage OK ({:.1} ms, {:.1} fps) {}x{} depth{depth}",
+            dt * 1000.0,
+            frames as f64 / dt,
+            width,
+            height
+        );
+    }
+    0
+}
+
+/// GPU-bound benchmark: a full-screen triangle strip whose fragment shader runs
+/// 48 dependent `sin()` per pixel, drawn `passes` times per frame into a pbuffer,
+/// with `glFinish` per frame. A clear (what `pbuf` measures) is the worst case for
+/// a GPU - the work is trivial and the per-command overhead dominates. This is the
+/// shape where hardware acceleration is supposed to show, so this is what the
+/// README quotes.
+fn run_fill(width: u32, height: u32, passes: u32, frames: u32) -> i32 {
+    let Some(egl) = Egl::load() else {
+        say!("FAIL dlopen EGL");
+        return 1;
+    };
+    unsafe {
+        let display = (egl.get_platform_display)(
+            EGL_PLATFORM_SURFACELESS_MESA,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        );
+        if display.is_null() {
+            say!("FAIL eglGetPlatformDisplay(surfaceless)");
+            return 1;
+        }
+        let mut major = 0;
+        let mut minor = 0;
+        if (egl.initialize)(display, &mut major, &mut minor) == 0 {
+            say!("FAIL eglInitialize");
+            return 1;
+        }
+        (egl.bind_api)(EGL_OPENGL_ES_API);
+        let config_attrs = [
+            EGL_RENDERABLE_TYPE,
+            EGL_OPENGL_ES2_BIT,
+            EGL_RED_SIZE,
+            8,
+            EGL_GREEN_SIZE,
+            8,
+            EGL_BLUE_SIZE,
+            8,
+            EGL_ALPHA_SIZE,
+            8,
+            EGL_SURFACE_TYPE,
+            EGL_PBUFFER_BIT,
+            EGL_NONE,
+        ];
+        let mut config: Config = std::ptr::null_mut();
+        let mut count = 0;
+        if (egl.choose_config)(display, config_attrs.as_ptr(), &mut config, 1, &mut count) == 0
+            || count < 1
+        {
+            say!("FAIL eglChooseConfig n={count}");
+            return 1;
+        }
+        let surface_attrs = [EGL_WIDTH, width as i32, EGL_HEIGHT, height as i32, EGL_NONE];
+        let surface = (egl.create_pbuffer_surface)(display, config, surface_attrs.as_ptr());
+        if surface.is_null() {
+            say!("FAIL eglCreatePbufferSurface err={:#x}", (egl.get_error)());
+            return 1;
+        }
+        let ctx_attrs = [EGL_CONTEXT_MAJOR_VERSION, 2, EGL_NONE];
+        let context =
+            (egl.create_context)(display, config, std::ptr::null_mut(), ctx_attrs.as_ptr());
+        if context.is_null() {
+            say!("FAIL eglCreateContext err={:#x}", (egl.get_error)());
+            return 1;
+        }
+        if (egl.make_current)(display, surface, surface, context) == 0 {
+            say!("FAIL eglMakeCurrent err={:#x}", (egl.get_error)());
+            return 1;
+        }
+        let Some(gl) = Gl::load() else {
+            say!("FAIL dlopen GLESv2");
+            return 1;
+        };
+        say!("renderer={}", gl.string(GL_RENDERER));
+
+        let vs = b"attribute vec2 p; varying vec2 uv;\nvoid main(){ uv = p*0.5+0.5; gl_Position = vec4(p,0.0,1.0); }\n";
+        let fs = b"precision highp float; varying vec2 uv;\nvoid main(){ vec3 c = vec3(uv,0.5);\n for (int i=0;i<48;i++){ c = sin(c*3.14159 + vec3(1e-3,-9e-4,7e-4)); }\n gl_FragColor = vec4(c,1.0); }\n";
+        let mut ok = true;
+        let mut program = 0u32;
+        for (kind, src) in [(0x8B31u32, &vs[..]), (0x8B30u32, &fs[..])] {
+            let sh = (gl.create_shader)(kind);
+            let ptr = src.as_ptr() as *const c_char;
+            let len = src.len() as c_int;
+            (gl.shader_source)(sh, 1, &ptr, &len);
+            (gl.compile_shader)(sh);
+            let mut st = 0;
+            (gl.get_shader_iv)(sh, 0x8B81, &mut st);
+            if st == 0 {
+                let mut buf = [0u8; 512];
+                (gl.get_shader_info_log)(
+                    sh,
+                    512,
+                    std::ptr::null_mut(),
+                    buf.as_mut_ptr() as *mut c_char,
+                );
+                let msg = std::ffi::CStr::from_ptr(buf.as_ptr() as *const c_char)
+                    .to_string_lossy()
+                    .to_string();
+                say!("FAIL shader compile: {msg}");
+                ok = false;
+            }
+            if program == 0 {
+                program = (gl.create_program)();
+            }
+            (gl.attach_shader)(program, sh);
+        }
+        if !ok {
+            return 1;
+        }
+        (gl.link_program)(program);
+        let mut link = 0;
+        (gl.get_program_iv)(program, 0x8B82, &mut link);
+        if link == 0 {
+            say!("FAIL link");
+            return 1;
+        }
+        (gl.use_program)(program);
+        let verts: [f32; 8] = [-1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0];
+        let mut vb = 0u32;
+        (gl.gen_buffers)(1, &mut vb);
+        (gl.bind_buffer)(0x8892, vb);
+        (gl.buffer_data)(
+            0x8892,
+            (verts.len() * 4) as isize,
+            verts.as_ptr() as *const c_void,
+            0x88E4,
+        );
+        // `p` is an attribute, not a uniform: glGetUniformLocation returns -1 for
+        // it, and with no attrib bound the strip collapses and the fragment
+        // shader never runs (measured: 0.23 ms/frame on llvmpipe, i.e. nothing).
+        let loc = (gl.get_attrib_location)(program, c"p".as_ptr());
+        if loc < 0 {
+            say!("FAIL glGetAttribLocation(p) = {loc}");
+            return 1;
+        }
+        (gl.enable_vertex_attrib_array)(loc as u32);
+        (gl.vertex_attrib_pointer)(loc as u32, 2, 0x1406, 0, 0, std::ptr::null());
+        (gl.viewport)(0, 0, width as c_int, height as c_int);
+        // one warm-up frame
+        for _ in 0..passes {
+            (gl.draw_arrays)(5, 0, 4); // GL_TRIANGLE_STRIP
+        }
+        (gl.finish)();
+        // One pixel back, so a collapsed draw cannot pass as a fast one.
+        (gl.pixel_storei)(0x0D05 /*GL_PACK_ALIGNMENT*/, 4);
+        let mut px = [0u8; 4];
+        (gl.read_pixels)(
+            0,
+            0,
+            1,
+            1,
+            0x1908,
+            0x1401,
+            px.as_mut_ptr() as *const c_void as *mut c_void,
+        );
+        say!("pixel(0,0)={},{},{},{}", px[0], px[1], px[2], px[3]);
+        if px[0] == 0 && px[1] == 0 && px[2] == 0 {
+            say!("WARN 读回 (0,0) 是全黑，draw 可能没落地");
+        }
+        let t0 = std::time::Instant::now();
+        for _ in 0..frames {
+            for _ in 0..passes {
+                (gl.draw_arrays)(5, 0, 4); // GL_TRIANGLE_STRIP
+            }
+            (gl.finish)();
+        }
+        let dt = t0.elapsed().as_secs_f64();
+        say!(
+            "stage 10: {frames} frames x {passes} passes OK ({:.1} ms, {:.1} fps) {}x{} fill",
+            dt * 1000.0,
+            frames as f64 / dt,
+            width,
+            height
+        );
+    }
+    0
+}
+
 /// Offscreen EGL: a pbuffer of `width`x`height`, the same clear+swap loop as
 /// `window`, no X server in the path. Subtracting this from `window` at the same
 /// size is the presentation cost alone (the SHM handoff to the X server), which
@@ -1225,9 +1551,44 @@ fn main() {
                 }
             }
         }
+        Some("xput") => {
+            let size = args.get(1).map(String::as_str).unwrap_or("640x480");
+            let frames = args
+                .get(2)
+                .and_then(|a| a.parse::<u32>().ok())
+                .filter(|n| (1..=100_000).contains(n))
+                .unwrap_or(60);
+            match parse_size(size) {
+                Some((w, h)) => run_xput(w, h, frames),
+                None => {
+                    eprintln!("gl-probe xput: bad size {size:?} (want WxH, e.g. 640x480)");
+                    2
+                }
+            }
+        }
+        Some("fill") => {
+            let size = args.get(1).map(String::as_str).unwrap_or("640x480");
+            let passes = args
+                .get(2)
+                .and_then(|a| a.parse::<u32>().ok())
+                .filter(|n| (1..=4096).contains(n))
+                .unwrap_or(4);
+            let frames = args
+                .get(3)
+                .and_then(|a| a.parse::<u32>().ok())
+                .filter(|n| (1..=100_000).contains(n))
+                .unwrap_or(60);
+            match parse_size(size) {
+                Some((w, h)) => run_fill(w, h, passes, frames),
+                None => {
+                    eprintln!("gl-probe fill: bad size {size:?} (want WxH, e.g. 640x480)");
+                    2
+                }
+            }
+        }
         Some("root") => run_root(),
         _ => {
-            eprintln!("usage: gl-probe <es3 | window [WxH [frames]] | pbuf [WxH [frames]] | root [out.ppm]>");
+            eprintln!("usage: gl-probe <es3 | window [WxH [frames]] | pbuf [WxH [frames]] | xput [WxH [frames]] | fill [WxH [passes [frames]]] | root [out.ppm]>");
             2
         }
     };
