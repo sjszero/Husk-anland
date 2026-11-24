@@ -5562,6 +5562,23 @@ pub unsafe extern "C" fn setgroups(_n: usize, _list: *const u32) -> CInt {
     if fake_root_on() { 0 } else { ret_or_errno(syscall4(SYS_SETGROUPS, _n, _list as usize, 0, 0)) }
 }
 
+/// glibc's `initgroups()` issues `setgroups` *inside* libc, so the GOT slot we
+/// rewrite never sees it: that is why `su` and `polkitd` both died with
+/// "Error initializing groups: Operation not permitted" (evidence 139 and 147).
+/// Under the fake identity the group list is the fiction anyway, so answer the
+/// way `setgroups()` already does. With a real identity nothing changes: the
+/// caller gets the EPERM the kernel would have given it, because an app has no
+/// CAP_SETGID.
+#[no_mangle]
+pub unsafe extern "C" fn initgroups(_user: *const CChar, group: u32) -> CInt {
+    log_id(b"initgroups", group as i64);
+    if fake_root_on() {
+        0
+    } else {
+        set_errno(1) // EPERM
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn setresuid(_r: u32, _e: u32, _s: u32) -> CInt {
     log_id(b"setresuid", _r as i64);
