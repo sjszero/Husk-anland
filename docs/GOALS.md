@@ -1,121 +1,113 @@
-# Husk 目标（v52，2026-11-23）
+# Husk 发布目标（v53 · 2026-11-24）
 
-## 总目标
+> 本文件是仓库的唯一目标口径。上一版（v52，全硬件后端清单）已完成的部分保留在
+> `docs/RESULTS.md` 与 `docs/design/evidence/`，本阶段不再以「硬件清单」为主线，
+> 而以**可发布**为主线：把已知问题修净、把仓库写成一份正式介绍、让第三方不装 App 也能跑。
 
-Husk（纯 Rust 原生 Linux 运行时）在 **RMX3357**（MT6893 / Dimensity 1200 / Mali-G77，
-Android 13 / kernel 4.19.191 / 4 KiB 页 / arm64）上端到端跑通，做到能替代 LinuxHub 2.0 的
-产品化程度。
+## 0 · 一句话
 
-「全硬件」= 该机**普通应用（`untrusted_app`，无 root）能合法访问的每一类硬件**：
-GPU、显示、视频解码、视频编码、音频输出、音频输入、相机、输入、传感器，
-以及平台允许的 USB / 蓝牙 / GPS / NFC / 指纹。
+让 Husk 成为一台普通 Android 手机上**可以直接用的 Linux 运行环境**，并用同一台机器、
+同一份 rootfs 上的**可复现实测**说明它与 proot 类容器差在哪里——然后按公开发布的标准
+整理仓库。
 
-能直接打开节点的（`/dev/mali0`）走 guest 直连；被沙箱拒绝的（`/dev/snd`、`/dev/video*`、`/dev/dri`）
-必须走 app 内平台 API / HAL + AHardwareBuffer / dma-buf / socket 桥，**但仍必须是硬件路径**，
-禁止用软解、软件渲染、假设备或静态单帧冒充完成。缺任何一类不算完成。
-跨机型适配不属于本阶段目标；单台设备失败不外推成平台结论。
+## 1 · 不变量（任何阶段都成立）
 
-## 硬约束
+- 不 root、不解 Bootloader、不开硬件虚拟化、零 ptrace；shim 只 interpose libc 符号，
+  不扩大系统调用拦截面。
+- 能 Rust 就 Rust；第三方代码不入库；绝不读写 `com.linuxhub.myth` 的任何数据。
+- 结论只认实测：FACT / INFERENCE / UNKNOWN 分开标注，未测不写 PASS。
+- 每次正式改动提交并推送 GitHub。
+- 唯一目标机：RMX3357（MT6893 / Mali-G77 / Android 13 / kernel 4.19.191 / 4 KiB / arm64），
+  运行域 `untrusted_app`。单机失败不外推成平台结论。
 
-- 不 root、不解 BL、不开虚拟化。
-- 运行时零 syscall 拦截（shim 只在必要处 interpose，不扩大拦截面）。
-- 能 Rust 就 Rust（零 Java、零 Python、零 C；只有内核 ABI 强制的裸汇编 stub 例外）。
-- 绝不读写 `com.linuxhub.myth` 的任何数据，只用自己私有目录里的副本。
-- 动手前先确认有没有现成实现（笔记留在仓库外）；**仓库只放我们自己的东西**。
-- 结论只按实测下，FACT / INFERENCE / UNKNOWN 分开标注。
-- 每次正式改动提交本地并推 GitHub。
+## 2 · 本阶段交付三件事
 
-## 已完成（回归门禁，改动后必须重跑）
+### A · 收尾：把所有已知基础问题修净（发布阻塞项）
 
-| 项 | 证据 |
-|---|---|
-| 运行时核心：loader + path-shim + exec / PTY / 信号 / 生命周期 | 27 / 28 / 32 / 34 / 72 |
-| SIGSYS 拦截收敛：10 分钟长稳、零僵尸、无重启风暴 | 32 |
-| 页大小：`nr-tools check-elf` 支持 4K/16K/64K 静态体检（16K/64K 实机 UNKNOWN） | 30 |
-| GPU 计算与离屏：PanVK logical device、compute、离屏 graphics、Zink surfaceless | 46 / 47 |
-| 显示零拷贝主路径：AHB → dma-buf → SurfaceControl，3-buffer ring、真实 SYNC_FD、release fence 背压、10,000 帧 / 665 秒、fd/RSS 无增长 | 53–59 / 73 |
-| 视频 H.264：`c2.mtk.avc.decoder` + MediaCodec + AHB，1080p30 连续 600 秒、dropped=0 | 74–80 |
-| 音频输出最小闭环：枚举、音量、PCM 经独立通道到 AAudio，610 秒 | 60 / 62 / 63 |
-| 音频输入：声学回环 440 Hz | 88 |
-| 相机：guest `/dev/videoN` V4L2，取流 / 拍照 / 录像 | 91 / 92 / 93 |
-| 输入：触摸 / 键盘 / 鼠标经 mutter `RemoteDesktop` 注入 | 95 / 98 |
-| 桌面：2.0 rootfs 起 GNOME Shell 46（Wayland 显示服务器） | 101 |
+| # | 项 | 完成判据 |
+|---|---|---|
+| A1 | polkit「调用者可信」层 | `pkcheck --action-id org.freedesktop.login1.power-off --process <uid 1000 进程>` 通过；桌面「电源」菜单可弹授权框 |
+| A2 | at-spi 无障碍总线 | GTK 客户端能连 a11y 总线，`AT_SPI_BUS_ADDRESS` 可用 |
+| A3 | gvfs 点对点总线回退 | 不再回退，日志无该告警 |
+| A4 | xrandr scaling | `Impossible to set scaling` 消失，显示器缩放可设 |
+| A5 | 触控默认模式 | 默认模式在真机上「点哪落哪」，2/3 两种模式给出实测结论 |
+| A6 | `nr-sigsys.log` 噪声 | 一次会话不再产生 MB 级重复行 |
 
-## A. 统一硬件后端层
+统一判据：`tools/device-tests/14-gate-a-acceptance.sh`（36 项）全绿；桌面连续 30 分钟
+零僵尸、零崩溃、屏幕常亮可控，收尾后设备回到睡眠态。
 
-1）Rust 侧定义统一硬件后端接口与能力表，按**设备类**而不是按机型组织：
-GPU、display、video-decode、video-encode、audio-out、audio-in、camera、input、sensors、
-platform-peripherals。每个后端必须有：能力探测、打开/关闭、错误码、降级路径、日志、fd 生命周期。
-探测失败必须写明原因，任何一条不能崩。
-验收：guest 与 app 两侧打印同一份能力矩阵；不支持项显示 UNKNOWN 或 DEGRADED。
+### B · 仓库是一份正式介绍，不是开发日记
 
-## B. GPU 与显示
+- `README.md`：它是什么、能做什么、比容器快多少、怎么用、边界在哪。首屏 30 秒可读。
+- `docs/BENCHMARKS.md`：新增，见 §3 的对比口径与结果。
+- `docs/RUNNING.md`：新增，见 §2C，不装 App 的使用方式。
+- `docs/COMPATIBILITY.md`：能跑什么（glibc 版本、桌面栈、常见工具），不能跑什么。
+- `docs/LIMITATIONS.md`：软渲染、GPU、输入语义等已知边界，按实情写，不美化。
+- 语气与用词规范：产品说明口吻，不写「我 / 我们 / 昨天 / 足迹 / 里程碑日记」；
+  只描述已实测事实与可复现步骤；不对未来做承诺。
+- 每张结果表都必须带：被测对象、命令、次数、统计量、证据文件链接。
 
-2）GPU：保持 guest 直开 `/dev/mali0` + PanVK，补齐 WSI / swapchain；需要时由 guest 合成器
-直接使用 dma-buf / AHB，不经中转服务、不留独立 GPU 进程。
-验收：eglinfo / glxinfo 报 Mali-G77；窗口连续渲染 10 分钟；硬件 vs llvmpipe 帧率对比表；
-失败可降级且日志说明原因。
+### C · 不打包 App 也能用（第三方可用性）
 
-3）显示：SurfaceControl 零拷贝继续作为 Android 窗口出口；补齐多窗口、DPI、旋转后代际替换、
-SurfaceView / Surface 生命周期、SurfaceFlinger 内部等待 trace。
-验收：拖动不掉帧、旋转正确、多窗口可用、连续 10 分钟无泄漏。
+交付 `husk` 独立分发形态，让任何 arm64 Android 设备的使用者不安装 LinuxHub APK 也能得到
+同一套 Linux 环境：
 
-## C. 视频
+- `husk` 启动器（arm64，无 JVM、无 Python、无 Termux 依赖）+ rootfs 包 + 校验和清单。
+- 一条命令起步：`./husk run ubuntu`（首次运行解包、校验、落盘，二次运行直接进）。
+- 验收：在测试机上**卸载/不安装 APK**，仅用 `adb shell` 或普通终端完成：起 `bash`、
+  跑 `apt`、起图形桌面（或明确记录图形部分的阻塞原因）。
 
-4）解码：在 H.264 基础上补齐 HEVC / VP9 / AV1；完成 VA-API 系统层（`vaEndPicture` 不再
-UNIMPLEMENTED）、MediaCodec AHB 回传、decoder → guest GPU 零拷贝或明确记录 CPU 拷贝开销。
-验收：每种编码 1080p30 连续 10 分钟、dropped < 0.5%、日志有实际 decoder 名、
-硬解 vs 软解 CPU 对比表、AV 同步 < 40ms。
+## 3 · 对比口径：Husk vs 两个容器
 
-5）编码：MediaCodec 硬件编码路径，guest 能采集并编码。
-验收：guest 内录 1080p30 H.264，文件可播放，编码器名与帧率有日志，CPU 占用有数字。
+被测对象（同机、同 rootfs、同内核、只换运行器）：
 
-6）播放器：Chromium `<video>`、GStreamer、GNOME 播放器走同一 Rust 后端；
-不支持的编码退化软解并写日志，不许崩。
+1. **Husk**（本仓库 loader）；
+2. **LinuxHub 2.0 proot 容器**（proot 运行时）；
+3. **proot-distro 式 proot**（Termux 生态常见形态）。
 
-## D. 音频
+指标与命令（每项 ≥5 次，取中位数，冷/热分列，记录方差）：
 
-7）输出：在 610 秒基础上做到低延迟 20–50 ms；记录 xrun。
-验收：延迟测量方法、avg/max 数字、10 分钟 xrun 计数。
+| 指标 | 命令/方法 | 单位 |
+|---|---|---|
+| 冷启动到 shell 提示符 | `time <runner> /bin/sh -c exit` | s |
+| 打开「设置」到首帧 | 桌面场景，录屏逐帧对齐 | s |
+| fork+exec 吞吐 | 1000 次 `execve` 循环 | s / 次均 |
+| 目录遍历 | `find /usr -xdev \| wc -l` | s |
+| 归档解包 | `tar -xf linux.tar -C /tmp` | s |
+| 包管理 | `dpkg -l` | s |
+| 纯 CPU 基线 | 定长整数循环（与 syscall 密度无关） | s |
+| 常驻内存 / 线程数 | `smem` / `/proc/<pid>/status` | MiB / 个 |
+| 交互延迟 | 触摸到界面响应（录屏对齐） | ms |
 
-8）输入：app 侧 AAudio 输入流 → 独立通道 → guest 录音应用。
-验收：guest 能枚举麦克风、录音文件可播放、延迟有数字。
+产出：`docs/BENCHMARKS.md` 三列表格 + `tools/bench/` 可复现脚本 + 证据文件。
+结论表述只允许「在 RMX3357 上，以中位数计，Husk 相对 proot 的倍率为 X」。
 
-9）AV 同步：音视频同时跑 10 分钟，偏差 < 40ms，测量方法写清。
+## 4 · 品牌
 
-## E. 相机、输入、传感器
+- 图标：**`husk-mark-hexagon-h`**（橙→红渐变的开口六边形碗 + 中央 H）。
+  文件命名 `husk-mark-hexagon-h{,-512,-1024}.{jpg,png}`，存放 `docs/assets/brand/`。
+- 使用：README 首屏用 512 px；文档内不放大图；不使用 emoji 装饰。
+- 配色：只允许渐变橙红（#F26522 → #E01F26 区间）与中性灰黑，不引入第三色。
 
-10）相机：app 进程用 Camera2 / Camera HAL 打开真实相机，输出 AHardwareBuffer / dma-buf，
-经零拷贝路径交给 guest。禁止假摄像头、静态图、软件模拟。
-验收：guest 预览有画面、拍照文件有效、录像 30 秒可播放、前后摄像头切换正确、权限拒绝有明确降级。
+## 5 · 发布门禁（缺一不发）
 
-11）输入：触摸、软键盘、物理键盘、鼠标事件从 app InputQueue 转到 guest 合成器。
-验收：guest 桌面可点击、可输入、可拖动窗口。
+- [ ] 门禁 A 36 项全绿 + 桌面 30 分钟长稳
+- [ ] A1–A6 全部闭环并有实测记录
+- [ ] `docs/BENCHMARKS.md` 三运行器数字齐全且可复现
+- [ ] `docs/RUNNING.md` 在干净环境（不装 APK）按文档走通
+- [ ] `README / ARCHITECTURE / COMPATIBILITY / LIMITATIONS / SECURITY / CONTRIBUTING / CHANGELOG / LICENSE` 就位
+- [ ] 仓库无第三方代码、无密钥、无真实用户数据、无内部主机路径与私有仓库名
+- [ ] 每条结论可指回 `docs/design/evidence/`
 
-12）传感器：app 侧读加速度、陀螺仪、光线、距离等，经独立通道送 guest。
-验收：guest 内能读到真实变化，无传感器时明确报 UNKNOWN。
+## 6 · 不做（Non-goals）
 
-## F. 平台外设
+- 跨机型适配；root / 解 BL / 虚拟化方案。
+- Termux 作为交付形态；传感器 / NFC / USB 设备向 guest 的二次暴露（机主自身可穿透）。
+- 用软件渲染、软解、假设备或静态单帧冒充硬件路径。
+- 以开发日记、求助记录、内部试验流水账充作文档。
 
-13）USB / 蓝牙 / GPS / NFC / 指纹按普通应用可用 API 逐项探测；能接的做 Rust 桥，
-不能接的写成平台限制和原因，禁止绕过沙箱。每类都要有 guest 可见接口或明确不可用结论。
+## 7 · 完成判定
 
-## G. 2.0 集成与补丁清除
-
-14）上述硬件类验收通过后，替换 LinuxHub 2.0 的 proot 运行时，UI / 会话 / 桌面资产不动。
-基线包只读保留：`artifacts/rollback/LinuxHub-Myth-Prometheus.apk`，
-sha256 `c4951876599b5a8a388170952039a724959f5c48004aec8f92e1de7379adc2b7`。
-
-15）逐项删除 proot 专用补丁：`-0`、`--link2symlink`、`-b`、`PROOT_LOADER`、`PROOT_TMP_DIR`、
-`libtalloc`、`libandroid-shmem`、`getifaddrs` bridge、伪 `/proc`、`doro-gpu-run.sh`、
-virgl / virpipe、`/run/doro-audio`、强制软解环境变量。每删一项都要有替代能力已验收的证据。
-验收：`ps` 中 proot=0、无 virgl server、无独立解码进程；guest 内 `PROOT` 变量为空、
-`LD_PRELOAD` 为空；2.0 的 GNOME、浏览器、文件管理器、终端、相机、音频、视频全部可用。
-
-## H. 工程纪律
-
-16）每步留可复现命令与证据（`docs/design/evidence/`、`docs/STATUS.md`、
-`docs/RESULTS.md`）；先上机验证再写完成；未验证写 UNKNOWN。
-判定「内核/驱动不支持某能力」前，必须先从真实客户端（厂商 `.so`、sysfs、`/vendor/etc`）
-取到命令字或参数，再用最小合法参数打一次，禁止用猜的组合下结论。
-设备操作不用 `rm -f`；收尾息屏、精确清理，不误杀 guest 会话。
+门禁全绿后打 tag `v1.0.0`。判定标准只有一条：一个没听过这个项目的工程师，
+在 README 首屏 + `docs/BENCHMARKS.md` 之后，能准确说出「Husk 是什么、它比 proot 快多少、
+在我这台设备上怎么用」。
