@@ -17,7 +17,7 @@ APK 内 `assets/husk/arm64-v8a/`：
 | 资产 | 作用 |
 |---|---|
 | `libld.so` | loader，内嵌 path-shim。可执行文件的入口 |
-| `libc.so.6` | 打过两处补丁的 glibc（见 §3.1） |
+| `libc.so.6` | 打过两处补丁的 glibc（见 §4.1） |
 | `husk-ldconfig` | 写 `ld.so.cache` 与 `ld.so.husk-path` 的 Rust 程序，替换发行版的静态 `ldconfig` |
 | `husk-usermgr` | `useradd` / `groupadd` / `passwd` 一族的替身（发行版的 shadow 工具在这个 SELinux 域里跑不起来） |
 | `husk-su` | 提权替身（`su` 的 PAM 路径在这里不通） |
@@ -37,7 +37,21 @@ APK 内 `assets/husk/arm64-v8a/`：
 7. 写版本标记 `files/linux/husk/assets.version`；标记与 APK 内的
    `ASSET_REVISION` 不一致时重做 1–6 步。
 
-## 2 · 环境
+## 2 · 跑得动的三条硬前提
+
+不是所有设备都能跑，也不需要所有设备都能跑。下面三条缺一条就跑不起来，其它条件只影响
+「跑得多完整」。
+
+| # | 硬前提 | 为什么是硬的 | 不满足时的样子 | 怎么确认 |
+|---|---|---|---|---|
+| 1 | **arm64（aarch64）** | 用户态是 aarch64 ELF，loader 的 GOT 改写与 syscall 直通只对这一个 ABI 成立 | 直接 `Exec format error` | `uname -m` → `aarch64` |
+| 2 | **一个能执行、可写、沙箱允许的目录** | loader 自己要被 `exec`，用户态二进制也要；Android 上满足这三个条件的只有应用私有目录（开发机可用 `/data/local/tmp`），`noexec` 挂载直接失败 | 看起来像 loader 坏了：`cannot execute the loader from here` | 直接跑 `<loader>`，它应回 `missing program name`（说明 exec 成功） |
+| 3 | **系统对 `untrusted_app` 的 seccomp / SELinux 没有额外收紧** | 用户态要 `execve` / `clone` / `open*` 直通内核。AOSP 默认策略会拒 `clone3`（我们的 libc 补丁把它改成 `ENOSYS` 让 glibc 回落），但厂商若另外封了 `execve` 一类，就没有可绕的余地 | `Bad system call`，进程当场被杀 | 跑 `tools/device-tests/01-functional-matrix.sh`，或先跑 `bin/true` |
+
+还有一个我们踩过、但不算硬前提的坑：**页大小**。loader 与 guest 工具都按 64 KiB 对齐，4 / 16 /
+64 KiB 内核都合法；如果自己重新编译，`-z max-page-size` 必须跟目标设备匹配。
+
+## 3 · 环境
 
 通用要求（这是我们验证过的形态，不是唯一可能）：
 
@@ -55,7 +69,7 @@ APK 内 `assets/husk/arm64-v8a/`：
 设备型号、SoC、内核版本这些只作为**参考**写在这里和 `docs/STATUS.md` 里；运行时不绑定某个
 设备族——loader 的补丁点按 glibc 版本断言，设备信息只影响实测数字，不影响契约。
 
-## 3 · 装上发行版后必须改的 7 件事
+## 4 · 装上发行版后必须改的 7 件事
 
 | # | 改什么 | 为什么 | 不改会怎样 | 谁来做 |
 |---|---|---|---|---|
@@ -76,7 +90,7 @@ APK 内 `assets/husk/arm64-v8a/`：
   返回空、提权失败、会话起不来（报错是误导性的 `/bin/sh: 1: Cannot fork`）。重跑
   `tools/guest-config/install-libc-patch.sh` 或换一个 `ASSET_REVISION` 让 APK 重刷。
 
-## 4 · 启动契约
+## 5 · 启动契约
 
 两个环境变量必须同时给，缺一个就「看起来像 shim 坏了」：
 
@@ -90,7 +104,7 @@ NR_ROOTFS=<rootfs 绝对路径>  NR_LD=<loader 绝对路径>  NR_LIBRARY_PATH=<�
   `usr/lib/aarch64-linux-gnu` 必须显式列出；
 - `NR_LD` 是嵌套 exec 回灌 loader 用的，缺了它嵌套 exec 会掉回宿主。
 
-## 5 · 验证清单
+## 6 · 验证清单
 
 ```sh
 # 用户态是自己的
@@ -113,14 +127,14 @@ getent passwd | head -3
 期望：命令全部返回 0 且输出来自**rootfs 自己**（不是 Android 的 `/etc`）。任何一条报
 `Bad system call`、`ENOENT`、`Can't stat /lib`，对照 §3 的表定位是哪一步没做。
 
-## 6 · 排错
+## 7 · 排错
 
 | 现象 | 原因 |
 |---|---|
 | `Bad system call` | §3.1 libc 补丁没打 |
-| 库明明存在却 `ENOENT` | §3.2 绝对符号链接没改 |
+| 库明明存在却 `ENOENT` | §4.2 绝对符号链接没改 |
 | `dpkg` 报 `Can't stat /lib` | §3.3 静态 `ldconfig` 没换 |
-| `sudo` 缺 `libsudo_util.so.0` | §3.5 `ld.so.husk-path` 没生成 |
-| `su: System error` | §3.6 `husk-su` 没装上 |
-| `no writable TMPDIR` | §3.7 |
+| `sudo` 缺 `libsudo_util.so.0` | §4.5 `ld.so.husk-path` 没生成 |
+| `su: System error` | §4.6 `husk-su` 没装上 |
+| `no writable TMPDIR` | §4.7 |
 | `make` 的输出消失 | 取样问题，不是运行时问题：`adb shell` 给 guest 的 stdout 是 socket |

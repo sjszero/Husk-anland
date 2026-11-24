@@ -14,7 +14,14 @@ INT=${INT:-60}
 B=/data/user/0/com.linuxhub.myth.husk/files/linux
 ME=$$
 
-sh "$B/bench/$RUNNER-run.sh" 'sleep 3000' &
+# Runner names are not file names: proot-distro's script is prootdistro-run.sh.
+case "$RUNNER" in
+    proot-distro) RS=prootdistro-run.sh ;;
+    *.sh)         RS=$RUNNER ;;                 # a full script name is allowed
+    *)            RS=$RUNNER-run.sh ;;
+esac
+[ -f "$B/bench/$RS" ] || { echo "soak: no runner script $B/bench/$RS" >&2; exit 66; }
+sh "$B/bench/$RS" 'sleep 3000' &
 child=$!
 
 echo "# soak runner=$RUNNER pid=$child secs=$SECS interval=$INT"
