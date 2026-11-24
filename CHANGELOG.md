@@ -39,6 +39,12 @@
 - **假 DRM fd 只进不出**：`close()` 从不注销 DRM 假 fd，8 个槽位用满之后新开的节点不再被接管；
   `close()`/`close_range()` 现在会注销，槽位真的用完时会打一条日志（evidence 166）。
 
+### 测过
+
+- **桌面 30 分钟空载长稳**：PSS 137.3 → 139.9 MB（前 60 秒启动分配，之后 29 分钟 +11 KB），
+  线程 33 / fd 41 恒定、僵尸 0、同一 pid；结束后 X 根窗口 2400×1080 仍 100% 非黑
+  （evidence 169）。八维第 7 维补上 GPU 桌面这一行；睡眠/唤醒与负载型 soak 仍未测。
+
 ### 工具
 
 - **libc 补丁链 Rust 化**：`nr-tools libc-patch`（`make libc-patch` / `make libc-verify`）

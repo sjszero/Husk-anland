@@ -41,6 +41,19 @@ etc/resolv.conf
 etc/machine-id
 LIST
 
+# A host path created *inside* the guest (a `mkdir -p` with the app dir spelled
+# out, which the shim translates back under the rootfs) leaves a mirror of this
+# app in the tree and then ships to users. None of these are Ubuntu paths, and
+# gate A fails on `/data/user`, so refuse here instead of handing it out.
+for junk in data storage sdcard; do
+    if [ -e "$SRC/$junk" ]; then
+        echo "make-release: $SRC/$junk exists - a host path was created inside the guest" >&2
+        echo "              (measured 2026-11-24: a /data/user/0/<pkg>/... mirror)." >&2
+        echo "              remove it and re-run; it must not ship." >&2
+        exit 67
+    fi
+done
+
 echo "== release tarball =="
 echo "   from : $SRC"
 echo "   to   : $OUT"

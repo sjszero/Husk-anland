@@ -91,7 +91,8 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
 | guest 内 VA-API 全链（播放器直接用） | 部分 | evidence 81–87 |
 | 相机（V4L2 前端 + 平台编码） | 有实测链路 | evidence 91–93 |
 | 音频（PulseAudio → AAudio） | 可用，10 秒级，非长稳 | evidence 62 |
-| 传感器、GPS、USB、蓝牙、NFC、指纹 | 未开始 | — |
+| 传感器、GPS、USB、蓝牙、NFC、指纹 | 未开始（按定位不做：这类节点由机主自己穿透） | — |
+| 输入注入（触摸/键盘） | 能到应用（evidence 148）；指针默认是 trackpad 语义，2.0 侧的 `touchMode` 默认值未在本仓库改 | evidence 148 |
 | 浏览器 | 随附 rootfs 无浏览器包，未跑过 | — |
 
 「有实测链路」不等于「产品可用」：这四类都还是「跑通过一次」的程度，稳定性与错误路径没做完。

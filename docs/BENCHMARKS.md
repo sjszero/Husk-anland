@@ -116,9 +116,12 @@ tools/bench/compare.py docs/design/evidence/bench-*-il.log
 | Husk | PSS 232 661 → 232 138 KiB，线程 47，fd 118，guest 僵尸 0（evidence 153） | 通过 |
 | proot | RSS 恒定 3 480 KiB，线程 1，fd 3，僵尸 0（`soak-proot-20261124.log`） | 通过 |
 | proot-distro | 采样到第 420 秒后 RSS / 线程 / fd 全部是 `NA`，会话已经不在了（`soak-proot-distro-20261124.log`） | **没跑完**：它的 `--kill-on-exit` 与持久的 `sleep` 冲突，会把会话拆掉 |
+| Husk（GPU 桌面会话，另一个对象：`gnome-shell` on zink/PanVK） | PSS 137 349 → 139 930 KiB（前 60 秒 +2.5 MB 启动分配，之后 29 分钟 **+11 KB**），线程 33 恒定，fd 41 恒定，僵尸 0，全程同一 pid；结束后 X 根窗口仍 100% 非黑（evidence 169） | 通过 |
 
 proot-distro 这一格我们**没有数据**，不拿别的数字顶替。电池放电曲线也没测：adb 需要 USB，
-全程在充电。
+全程在充电。两行 Husk 是**不同对象**：一行是命令行树里的被测进程（evidence 153），
+一行是 GPU 桌面会话（evidence 169），不要把两行的 PSS 相减。桌面这一行只覆盖空闲，
+睡眠/唤醒与负载型 soak **未测**。
 
 ## 为什么
 
@@ -147,4 +150,6 @@ proot-distro 这一格我们**没有数据**，不拿别的数字顶替。电池
 - **rootfs 准备。** stock 的树要三步才能跑：libc 打补丁、绝对符号链接改相对、
   `husk-ldconfig` 替换静态 `ldconfig`（`docs/RUNNING.md`）。proot 一步都不要。
 - **设备访问。** 两个运行器都没有传感器、GPS、USB、蓝牙、NFC、指纹。
-- **图形。** 本版不提供。见本节开头：没有可比对象，也不写数字。
+- **图形。** 桌面能出帧、默认走 GPU（第 5 维），但**呈现仍是一次 SHM 拷贝**（DRI3 未通），
+所以 640×480 的轻负载只有 131 fps，反而输给 CPU 的 300 fps；重负载对比**未测**。
+proot 侧没有可比对象，那几格是「不可比」，不是「更快」。

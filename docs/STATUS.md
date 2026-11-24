@@ -60,7 +60,10 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
    proot 5353 ms、xterm 110 vs 153 ms、回车到 guest 进程读到 41 ms；
    640×480 clear+swap 是 **zink 131 fps vs llvmpipe 300 fps**（这个负载 CPU 更快，照写，
    瓶颈是 SHM 拷贝不是 GPU），重负载对比未测。
-   未做：DRI3 零拷贝（`Could not get DRI3 device` 仍在）、30 分钟桌面长稳、
+   **30 分钟空载长稳已跑完**（evidence 169）：PSS 137.3 → 139.9 MB（前 60 秒启动分配，
+   之后 29 分钟只涨 11 KB），线程 33 / fd 41 恒定、僵尸 0、同一 pid，结束后 X 根窗口仍
+   100% 非黑。只覆盖空闲；睡眠/唤醒与负载型 soak **未测**。
+   未做：DRI3 零拷贝（`Could not get DRI3 device` 仍在）、
    2.0 侧 `GpuRuntimeEnvironment.gnomeSessionShell()` 仍硬钉 swrast。
 5. 交付形态：**已落地**（`tools/guest/install-husk.sh`，evidence 130）——本地 tarball 一条命令装完 +
    生成启动器，唯一支持的目标是**本应用的私有目录**（`run-as .../files/...`），端到端实测通过。
@@ -212,6 +215,8 @@ Nautilus / gvfs / tracker。整条链路四个独立故障与修法见 evidence 
    `/proc/<pid>/status` 现在按对端自己的 `NR_FAKE_UID/GID` 回答，转发来的凭据改成丢弃。
    还差最后一层——polkit 仍判调用者不可信（`Only trusted callers`，见 150 §4），
    `tools/guest-config/49-husk.rules` 已写好（root 与 uid 1000 = 管理员）。
+   **这一层后来补上了**（evidence 151，见上面的 A1）：`pkcheck --process <gnome-shell>` rc=0，
+   `GetConnectionCredentials` 报 uid=1000。这里保留的是当时的结论。
 
    SIGSYS 日志去重后，一次完整会话从 832 KB 降到 10 KB（320 行）。
 
