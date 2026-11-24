@@ -91,7 +91,14 @@ fn sym(handle: *mut c_void, name: &str) -> Option<*mut c_void> {
 struct X11 {
     display: *mut Display,
     root: Window,
-    query_tree: unsafe extern "C" fn(*mut Display, Window, *mut Window, *mut Window, *mut *mut Window, *mut c_uint) -> c_int,
+    query_tree: unsafe extern "C" fn(
+        *mut Display,
+        Window,
+        *mut Window,
+        *mut Window,
+        *mut *mut Window,
+        *mut c_uint,
+    ) -> c_int,
     get_attributes: unsafe extern "C" fn(*mut Display, Window, *mut XWindowAttributes) -> c_int,
     free: unsafe extern "C" fn(*mut c_void) -> c_int,
     close_display: unsafe extern "C" fn(*mut Display) -> c_int,
@@ -174,7 +181,9 @@ fn spawn(app: &str) -> Option<Child> {
 }
 
 fn main() {
-    let app = std::env::args().nth(1).unwrap_or_else(|| "gnome-control-center".to_string());
+    let app = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "gnome-control-center".to_string());
     if std::env::var_os("DISPLAY").is_none() {
         println!("window_wait\tskip\tDISPLAY unset");
         return;
@@ -182,7 +191,10 @@ fn main() {
     let x11 = match X11::open() {
         Some(x) => x,
         None => {
-            println!("window_wait\tskip\tcannot open {}", std::env::var("DISPLAY").unwrap_or_default());
+            println!(
+                "window_wait\tskip\tcannot open {}",
+                std::env::var("DISPLAY").unwrap_or_default()
+            );
             return;
         }
     };

@@ -57,7 +57,7 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
    （同一棵树里 `GALLIUM_DRIVER=llvmpipe` 报 ES 3.2 / GL 4.6，evidence 160）。设
    `MESA_GLES_VERSION_OVERRIDE=3.2` 后，一个真 ES3 workload（VAO + 实例化 divisor +
    std140 UBO + 纹理采样 + MRT 两附件）在 zink/PanVK 上**逐像素画对**（evidence 161，
-   `tools/device-tests/es3-workload.{c,sh}` 一条命令重跑）。还没验的是**真实应用**：
+   `gl-probe es3`（`tools/device-tests/es3-workload.sh` 一条命令重跑）。还没验的是**真实应用**：
    GTK4 的 ngl 渲染器、mutter 的合成路径都还没在 ES3 下出过帧，所以 override 仍**不进发布
    配置**、只作实验开关。另外这棵树的整块 `glReadPixels` 只写第一行+第一列（evidence 162），
    截图类工具会拿到全零而不报错——那是读回缺陷，别当成渲染失败。

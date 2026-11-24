@@ -1,0 +1,12 @@
+[package]
+name = "gl-probe"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Guest-side EGL/GLES probes: real ES3 workload and a windowed swapchain test"
+
+[[bin]]
+name = "gl-probe"
+path = "src/main.rs"
+
+[dependencies]

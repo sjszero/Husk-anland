@@ -62,6 +62,10 @@ name = "drm-shim"
 version = "0.1.0"
 
 [[package]]
+name = "gl-probe"
+version = "0.1.0"
+
+[[package]]
 name = "gpu-probe"
 version = "0.1.0"
 

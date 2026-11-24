@@ -25,6 +25,7 @@ members = [
     "crates/vulkan-probe",
     "crates/husk-tools",
     "crates/husk-window-wait",
+    "crates/gl-probe",
     "crates/husk-symlinks",
     "crates/video-protocol",
     "crates/video-bridge",
