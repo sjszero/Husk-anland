@@ -112,7 +112,13 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 | POSIX 消息队列 | guest 内 `mq_open/mq_send/mq_receive/mq_getattr/mq_unlink` 全通（优先级顺序、`EAGAIN`、`curmsgs` 计数），12/12 PASS；根因是 arm64 glibc 的 `mq_*` 走未实现的 legacy syscall，必须函数级 interpose | 114 |
 | SysV IPC | `shmget/shmat/shmdt/shmctl`、`semget/semop/semctl`、`msgget/msgsnd/msgrcv/msgctl` 全部在 shim 里实现（文件 + mmap + flock）：跨进程共享内存、P/V 阻塞唤醒、按类型取消息、`IPC_RMID` 宽限期；13 + 24 项全通过。`SEM_UNDO` = `EOPNOTSUPP`；`/proc/sysvipc/{shm,sem,msg}` 已合成，`ipcs` 出正确表头 | 115 / 116 |
 
-## 正在进行：桌面帧出屏
+## 桌面帧出屏（2026-11-24：首帧已出屏）
+
+FACT：11:14 的截屏上就是 GNOME 46 桌面（顶栏 / Ubuntu 壁纸 / DING 桌面图标 / 左侧 dock /
+通知气泡），会话进程树是 `com.linuxhub.myth.husk` → `libld.so` → `gnome-shell` + DING /
+Nautilus / gvfs / tracker。整条链路四个独立故障与修法见 evidence 147；这里保留的是当年
+为"不靠 X"而做的协议层调研结论。
+
 
 - mutter 46 自带 `org.gnome.Mutter.ScreenCast`；已实测能建 session / stream，`state=running`（99 / 102）。
 - 已排除：厂商 GPU 用户态库直接进 guest（25 个 bionic `DT_NEEDED`）；
@@ -136,8 +142,14 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
    按 `docs/design/device-adapters.md` 的表结构补适配器，没设备的一律 UNKNOWN。
 3. **2.0 集成：运行时替换已完成**（evidence 140–145；proot 及其补丁已全部删除，
    `/sdcard` 共享存储已补回并在 App 域实测——B 段的已知缺口只剩"`/storage` 只暴露自卷"）。
-4. **G（延后）**：GNOME 帧出屏。前置未解：会话进程须 `NR_FAKE_ROOT=0`、GDBus 的
-   `SCM_CREDENTIALS` 在 fake root 下 EPERM、gnome-shell 46 会 `free(): invalid pointer` 崩。
+4. **G：首帧已出屏**（evidence 147）——GNOME 46 的完整桌面在 2.0 的树上跑起来了
+   （顶栏 / 壁纸 / DING 图标 / dock / 通知，会话全程 `untrusted_app`）。卡了很久的四个
+   独立故障都修在 shim 里：`RLIMIT_NOFILE` 天花板（`setrlimit` 钳位）、容器不能给自己人
+   发信号（kill 家族透传）、GDBus 的 `SCM_CREDENTIALS`（`sendmsg` 改写 `ucred`）、
+   系统总线 `EXTERNAL` 认证（改 `ANONYMOUS`）；外加 2.0 侧 X socket 路径错位。
+   剩下的都是"桌面能不能用"的问题，不是"能不能上屏"：僵尸（kernel 4.19 没有
+   `P_PIDFD`，GLib 的 `waitid` 报 EINVAL，见 147 §7）、`polkitd` 退出 1、gvfs 点对点
+   总线、at-spi、xrandr scaling。
 
 ## 已知环境细节（踩过的坑，别再踩）
 
@@ -147,8 +159,14 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
   子进程回落到 rootfs 里的原厂 glibc loader，shim 不在里面（症状：父进程路径对、子进程读宿主路径）。
   排查"shim 好像没生效"先看这两个变量，别先怀疑内核或页大小（2026-11-23 踩过）。
 - `run-as` 下不能写 `/tmp`，临时文件放 `$R/tmp/`。
-- 不要用 `dbus-daemon --fork`：同一 address 会出现多个 daemon，之后所有客户端收不到回应。
-  用 `--nofork` 自己后台化，`XDG_RUNTIME_DIR` 必须 `chmod 700`。
+- `dbus-daemon` 在 Android 上要先解决两件事（2026-11-24 查清，见 evidence 147）：
+  1. 它每次建连接都会 `setrlimit(RLIMIT_NOFILE, 65536)`，而硬上限是 32768、无 CAP_SYS_RESOURCE，
+     失败即把所有客户端判成 AccessDenied（症状：socket 在、daemon 在 epoll_wait、客户端 11 ms
+     就 "Did not receive a reply"）。shim 已钳位。
+  2. 私有系统总线必须用 `<auth>ANONYMOUS</auth>`：假身份下 `EXTERNAL` 永远对不上
+     （假 root：uid 0 vs SO_PEERCRED 10265；真身份：没有 passwd 条目）。
+  `--fork --nopidfile --print-pid=1` 是可用的；早先"`--fork` 会堆出多个 daemon"是误判，
+  真正原因是当时容器杀不掉进程（kill interpose 已修）。
 - `--library-path` 是替换不是追加，必须显式带 `$R/lib/aarch64-linux-gnu` 与 `.../gvfs`。
 - rootfs 缺包会导致与运行时无关的怪故障，清单见 `docs/design/rootfs-packages.md`
   （gdk-pixbuf 的「所有图片格式都不认识」就是缺 `shared-mime-info`）。
