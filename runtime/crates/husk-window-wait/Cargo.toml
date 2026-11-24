@@ -1,0 +1,12 @@
+[package]
+name = "husk-window-wait"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Time from spawning a GTK app to its first viewable top-level window (guest side)"
+
+[[bin]]
+name = "husk-window-wait"
+path = "src/main.rs"
+
+[dependencies]
