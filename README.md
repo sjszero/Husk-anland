@@ -1,113 +1,237 @@
-<!-- 首屏四段：标题 → 图标（下一格）→ 一句话 → 徽章。
-     GitHub 只在空行处结束 HTML 块，标题与图标必须是两个独立块，否则标题会退回左对齐。 -->
+<!-- The header block: title on one line, the logo on the next. GitHub only ends
+     an HTML block at a blank line, so these must stay two separate blocks or the
+     title falls back to left-aligned. -->
 <h1 align="center">Husk</h1>
 
 <p align="center">
   <img src="docs/assets/brand/husk-mark-hexagon-h-512.png" width="128" alt="Husk">
 </p>
 
-<p align="center">让完整的 Linux 发行版以普通应用进程的身份，直接被 Android 内核执行。</p>
+<p align="center">Run a full Linux distribution as an ordinary Android app process, on the Android kernel.</p>
 
-<!-- 徽章沿用 LinuxHub 仓库的 house style（flat-square），只写项目自身、可核对的事实：
-     平台与架构、代码构成、依赖的 guest 树、运行方式。设备型号与系统版本只出现在下方
-     「当前状态」表里——那是验收机的信息，不是项目属性。 -->
 <p align="center">
-  <img alt="License: Apache-2.0" src="https://img.shields.io/badge/License-Apache--2.0-2563EB?style=flat-square">
-  <img alt="Rust: 96% of code" src="https://img.shields.io/badge/Rust-96%25%20of%2064.6k%20lines-DEA584?style=flat-square&logo=rust&logoColor=white">
+  <a href="https://github.com/xishanp/Husk/releases"><img alt="Release" src="https://img.shields.io/github/v/release/xishanp/Husk?style=flat-square&color=EA580C"></a>
+  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/github/license/xishanp/Husk?style=flat-square&color=2563EB"></a>
   <img alt="Platform: Android arm64" src="https://img.shields.io/badge/Platform-Android%20arm64-3DDC84?style=flat-square&logo=android&logoColor=white">
-  <img alt="Guest: Ubuntu 24.04 glibc" src="https://img.shields.io/badge/Guest-Ubuntu%2024.04%20glibc-E95420?style=flat-square&logo=ubuntu&logoColor=white">
+  <img alt="Rust 1.75+" src="https://img.shields.io/badge/Rust-1.75%2B-DEA584?style=flat-square&logo=rust&logoColor=white">
+  <a href="CONTRIBUTING.md"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-0F766E?style=flat-square"></a>
 </p>
 
 <p align="center">
-  <img alt="Runtime: in-process, no ptrace" src="https://img.shields.io/badge/Runtime-in--process%2C%200%20ptrace-0F766E?style=flat-square">
-  <img alt="Root: not required" src="https://img.shields.io/badge/Root-not%20required-0F766E?style=flat-square">
-  <img alt="Virtualization: none" src="https://img.shields.io/badge/Virtualization-none-0F766E?style=flat-square">
-  <img alt="Syscalls: native" src="https://img.shields.io/badge/Syscalls-native%2C%20unintercepted-0F766E?style=flat-square">
+  <b>English</b> · <a href="README.zh-CN.md">简体中文</a> ·
+  <a href="docs/ARCHITECTURE.md">Architecture</a> ·
+  <a href="docs/BENCHMARKS.md">Benchmarks</a> ·
+  <a href="CHANGELOG.md">Changelog</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
-**Husk 是一个 Android 运行时：让完整的 Linux 发行版（glibc 用户态）以普通应用进程的身份，
-直接被 Android 内核执行——不需要 root、不需要解 Bootloader、不需要硬件虚拟化、不做 ptrace。**
+Husk is a runtime for Android that executes an unmodified glibc userland —
+Ubuntu 24.04 with `apt`, `gcc`, GNOME Shell — inside an ordinary `untrusted_app`
+process. No root, no unlocked bootloader, no hardware virtualization, and no
+`ptrace`: path virtualisation is done once, by rewriting the GOT of each object
+at load time, so the program's own `svc` instruction reaches the Android kernel
+unmodified.
 
-它不拦截系统调用。路径虚拟化在 loader 里一次完成（改写 GOT），之后程序自己的 `svc` 直接进内核，
-因此性能与原生 Android 应用同量级。
+## Table of contents
 
----
+- [Why Husk](#why-husk) · [Features](#features) · [Quick start](#quick-start)
+- [How it works](#how-it-works) · [Performance](#performance) · [Compatibility](#compatibility)
+- [Limitations](#limitations) · [Build from source](#build-from-source)
+- [Repository layout](#repository-layout) · [Documentation](#documentation)
+- [FAQ](#faq) · [Contributing](#contributing) · [License](#license)
 
-## 当前状态（唯一目标机：RMX3357 / Android 13）
+## Why Husk
 
-| 项 | 事实 |
-|---|---|
-| 设备 | RMX3357，MT6893（天玑 1200），Mali-G77，Android 13（SDK 33），kernel 4.19.191，4 KiB 页，arm64 |
-| 运行域 | `untrusted_app`，无 root、无 Shizuku |
-| 运行时 | loader 内嵌 path-shim（零 ptrace）；exec / PTY / 信号 / 生命周期已闭环 |
-| 桌面（2.0 应用内，X11） | LinuxHub 2.0 的 Ubuntu 24.04 rootfs 起 GNOME Shell 46，**X11 会话**（mutter 46 X11 后端）；顶栏、壁纸、dock、通知全部在屏（evidence 147） |
-| 桌面（Husk 原生壳，Wayland） | mutter 46 在 guest 内跑成 Wayland 合成器，GPU 走 PanVK；`ScreenCast` / `RemoteDesktop` 接口都在（evidence 96–99） |
-| GPU（guest 直开） | guest 进程直开 `/dev/mali0`，PanVK（Mali-G77）logical device / compute / 离屏 graphics / Zink surfaceless 全通（evidence 97） |
-| GPU（2.0 桌面） | **仍是软件渲染**：`MESA_LOADER_DRIVER_OVERRIDE=swrast`/`llvmpipe` 还钉着，`DRI3` 未通（`docs/STATUS.md` 第 4 条） |
-| 显示（2.0 应用内） | 应用内 X server（Lorie）把桌面渲染上屏 |
-| 显示（原生直通） | `AHardwareBuffer` → dma-buf → `SurfaceControl` 零拷贝上屏；3-buffer ring + 真实 `SYNC_FD`；10,000 帧 / 665 秒长稳，fd/RSS 无增长 |
-| 视频 | H.264 1080p30 经 `c2.mtk.avc.decoder` + AHB，连续 600 秒，dropped=0 |
-| 音频 | guest 枚举输出设备、控音量，PCM 经独立通道进 app AAudio；610 秒连续会话 |
-| 相机 | guest 内 `/dev/videoN` V4L2，GStreamer 可取流、可拍照、可录像 |
-| 输入（2.0 应用内） | 触摸 → `TouchInputHandler` → JNI → 同一个进程里的 X server → XI2 → mutter（evidence 148） |
-| 输入（原生直通） | 经 mutter `RemoteDesktop` 注入到 guest 合成器（evidence 98） |
+Same phone, same rootfs, same shell, three runners — only the runner changes.
+Medians of 5 rounds, measured 2026-11-24 (`docs/BENCHMARKS.md`):
 
-**进行中**：把 GNOME 的帧接到零拷贝直通路径（ScreenCast → PipeWire → AHB → SurfaceControl）。
-2.0 里的桌面现在走应用内 X server，还没有并到这条链上。
+| work | Husk | proot | ratio |
+|---|---:|---:|---:|
+| `open` + `close` × 20 000 | 1 252 ms | 8 481 ms | **6.8×** |
+| `make -j4`, 200-object link | 5 194 ms | 24 182 ms | **4.7×** |
+| sequential write, 256 MB | 1 294 ms | 1 321 ms | 1.0× |
 
-**未开始**：WSI / swapchain、HEVC / VP9 / AV1 解码、硬件编码、相机零拷贝、传感器、GPS、
-USB / 蓝牙 / NFC / 指纹，以及把 LinuxHub 2.0 的 proot 运行时整体替换成 Husk。
+The first two rows are path- and syscall-heavy, so they pay proot's per-syscall
+`ptrace` round trip. The third is a bulk write that never touches a translated
+path, so it ties — and the table says so rather than hiding it.
 
-> 只写实测过的结论；未上机的一律标 UNKNOWN，不写 PASS。逐项证据在
-> [`docs/design/evidence/`](docs/design/evidence/)，当前进度在 [`docs/STATUS.md`](docs/STATUS.md)。
+## Features
 
----
+- **Zero `ptrace`, zero syscall interception.** The kernel sees the guest's own
+  syscalls (evidence 130–146).
+- **Unmodified glibc userland.** Ubuntu 24.04, glibc 2.39, no patched binaries in
+  the guest tree apart from `libc` slot entries for calls it makes internally.
+- **A package manager that works.** `apt-get install` grew the rootfs from 815 to
+  882 packages in 27 s, including `build-essential`, `nodejs` and `python3-numpy`
+  (evidence 154).
+- **A real toolchain.** `gcc`, `make -j4` on a 200-object project, `git clone`,
+  `python3` + `numpy` (evidence 155).
+- **A desktop.** GNOME Shell 46 in an X11 session, with top bar, dock, wallpaper
+  and notifications on screen (evidence 147), and touch input reaching mutter
+  through XI2 (evidence 148).
+- **Session services.** polkit authorization, the at-spi accessibility bus, gvfs,
+  and RandR 1.2 with no scaling warning (evidence 151, 152).
+- **Nothing privileged.** Runs in the ordinary app sandbox on a stock phone.
+- **A comparison you can rerun.** `tools/bench/` runs the same rootfs under Husk,
+  proot and proot-distro with one command; the raw logs are in the repository.
 
-## 它和容器 / 虚拟机 / PRoot 的区别
+## Quick start
 
-| | 传统容器 | 虚拟机 | PRoot 一类 | **Husk** |
-|---|---|---|---|---|
-| 内核 | 宿主内核（要 namespace/cgroup） | 自带内核 | 宿主内核 + ptrace | **宿主内核，零拦截** |
-| 权限 | root / user namespace | 虚拟化 | 普通应用 + ptrace | **普通应用** |
-| 每个 syscall 成本 | 原生 | 陷入虚拟机 | 一次 ptrace 往返 | **原生（0 额外）** |
-| 路径隔离 | mount namespace | 完整隔离 | ptrace 逐条改写 | **loader 首次解析后改 GOT，一次到位** |
+Requirements: an arm64 Android device (Android 8+), `adb`, ~2.5 GB free space in
+the target directory, and a rootfs tarball.
 
----
+```sh
+# 1. install the launcher and unpack the rootfs (no APK, no root)
+adb push husk-arm64.tar.gz /data/local/tmp/husk/
+adb shell
+cd /data/local/tmp/husk && tar xzf husk-arm64.tar.gz
+sh install-husk.sh --rootfs ubuntu-24.04-husk.tar --dest ./root --loader ./libld.so
 
-## 架构
+# 2. a shell
+./husk
+
+# 3. the package manager, from inside the guest
+apt-get update && apt-get install -y vim
+```
+
+The graphical session is started by the Android app integration (LinuxHub 2.0):
+see [`docs/RUNNING.md`](docs/RUNNING.md) for the desktop step and for the three
+rootfs preparation steps a stock Ubuntu tree needs.
+
+## How it works
+
+<p align="center">
+  <img src="docs/assets/architecture.svg" alt="Husk architecture" width="760">
+</p>
+
+A statically linked loader with an embedded path shim is the only thing Android
+executes. When it maps a guest object it rewrites that object's GOT entries so
+every libc path call lands in the shim, which prefixes the guest root once and
+then calls the real syscall. `exec` is resolved by the loader itself, including
+`PT_INTERP` and shebangs, so a nested exec re-enters the same loader instead of
+falling back to the host. Because nothing stops the process afterwards, the
+program's syscalls are native from the first instruction it runs.
+
+Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+## Performance
+
+Eight dimensions, three runners, one device — the summary table lives in
+[`docs/BENCHMARKS.md`](docs/BENCHMARKS.md), together with the mechanics behind
+each number and what the approach costs. Headline: the win scales with syscall
+and path density (1.5× on process work, 3–7× on path-heavy work) and disappears
+on bulk I/O.
+
+## Compatibility
+
+Verified on Ubuntu 24.04 / glibc 2.39 / arm64: `bash`, coreutils, `git`,
+`python3` (+`numpy`), `gcc`, `make`, `vim`, `nano`, `node`, `apt`, `dpkg`,
+GNOME Shell 46, `nautilus`, `gnome-terminal`, `gnome-control-center`, dbus,
+polkit, at-spi, gvfs. No browser is part of the shipped rootfs. The full matrix,
+including what each runner cannot do, is in
+[`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
+
+## Limitations
+
+- ⚠️ The desktop is **software-rendered** (`swrast` / `llvmpipe`). The guest GPU
+  path exists and is not yet wired to GNOME.
+- ⚠️ One distribution, one ABI, one device family; the loader's patching is
+  version-asserted, so other glibc builds fail loudly instead of half-working.
+- ⚠️ A stock rootfs needs preparation: libc patching, absolute symlinks rewritten
+  to relative, and `husk-ldconfig` in place of the static `ldconfig`.
+- Sensors, GPS, USB, Bluetooth, NFC, fingerprint, hardware video decode and WSI
+  are not implemented. Termux is not a supported environment.
+
+Full list, with the evidence for each: [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md).
+
+## Build from source
+
+```sh
+# the loader (needs the NDK; asserts the glibc version it patches)
+NDK=$ANDROID_HOME/ndk/<ver>/toolchains/llvm/prebuilt/<host>/bin \
+  sh tools/loader/build-embedded-loader.sh
+
+# the Rust crates (no_std shim + host tools)
+cargo build --release --manifest-path runtime/Cargo.toml
+
+# checks that run in CI
+make check   # fmt + cargo check for aarch64 + clippy + shell syntax + docs links
+```
+
+## Repository layout
 
 ```
- Android app 进程 (untrusted_app)
- ├─ 壳：NativeActivity（Rust）——窗口 / Surface / 生命周期
- ├─ 硬件后端（Rust）——GPU、显示、视频、音频、相机、输入、传感器……
- │    └─ 平台 API / HAL（NDK、AHardwareBuffer、AAudio、MediaCodec、Camera2）
- └─ guest：自研 loader（内嵌 path-shim）+ Ubuntu 24.04 用户态
-      ├─ 路径虚拟化：装载时重写 GOT，运行期零拦截
-      ├─ exec：自己解析 PT_INTERP 与 shebang，递归回到 guest 根
-      └─ 设备：能直开的节点（/dev/mali0）直开；被沙箱拒绝的走 app 内硬件后端
+runtime/crates/    loader-side path shim, exec, PTY, signals (Rust, no_std)
+runtime/crates/nr-tools/     ELF surgery: scan, patch, embed, libc interpose
+tools/loader/      entry + hook assembly, the build that produces the loader
+tools/bench/       the three-runner harness used for docs/BENCHMARKS.md
+tools/guest/       rootfs installer and session script (no APK needed)
+tools/guest-config/  libc patch, ldconfig, symlink rewrite
+tools/device-tests/  device acceptance suites, including gate A
+app-rs/, app/      the Android shell (Rust Core + Kotlin integration)
+docs/design/evidence/  raw device output behind every number in the docs
 ```
 
-- 设计取舍与接口形态：[`docs/design/device-interface-choices.md`](docs/design/device-interface-choices.md)
-- 运行时分层与预算：[`docs/design/runtime.md`](docs/design/runtime.md)
-- 硬件后端接口边界：[`docs/design/husk-backend-interface.md`](docs/design/husk-backend-interface.md)
+## Documentation
 
----
-
-## 仓库结构
-
-| 路径 | 内容 |
+| Document | What it answers |
 |---|---|
-| `runtime/` | 纯 Rust 运行时：loader 侧 shim、exec、PTY、信号、路径解析 |
-| `app-rs/` | 纯 Rust 壳应用（NativeActivity），窗口 / Surface / 输入 |
-| `tools/` | 构建工具（`nr-tools`）、设备测试脚本 |
-| `docs/` | 设计、证据、验收记录 |
-| `docs/design/evidence/` | 每一步的设备原始输出，结论都能指回这里 |
-| [`QUICKSTART.md`](QUICKSTART.md) | 从零跑起来 |
-| [`CHANGELOG.md`](CHANGELOG.md) | 版本与改动记录 |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | how the loader, shim and exec graph fit together |
+| [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) | the comparison, the mechanism, the cost |
+| [`docs/RUNNING.md`](docs/RUNNING.md) | installing and running, with the rootfs preparation steps |
+| [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) | what runs, per runner |
+| [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) | what does not work, and why |
+| [`docs/STATUS.md`](docs/STATUS.md) | current state on the target device |
+| [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md) | the pre-1.0 engineering diary |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | how to build, test, and the glossary |
 
----
+## FAQ
 
-## 许可
+**Does it need root or an unlocked bootloader?** No. It runs as `untrusted_app`
+on a stock device; everything it can reach is what the app sandbox allows.
 
-Apache License 2.0，见 [LICENSE](LICENSE)；第三方组件、glibc 构件与商标声明见
-[NOTICE](NOTICE)。
+**Is this a container or a VM?** Neither. Same kernel, no namespaces, no
+cgroups, no instructions emulated. The guest is a normal process tree.
+
+**Why is `apt-get update` only 1.1× faster?** It is bound by the mirror and by
+dpkg's own work, not by path lookups. The benchmark reports that instead of
+hiding it.
+
+**Can I run Debian, Fedora, Alpine?** Only glibc-based Ubuntu 24.04 has been
+verified. Alpine is musl and a different problem entirely; nothing else was run.
+
+**Why is the desktop software-rendered?** Because the GPU path is not wired to
+GNOME yet — see `docs/LIMITATIONS.md` §1. It is not a side effect of the runtime.
+
+**Why does my rootfs need patching?** Two Android-specific holes: `libc` needs
+slot entries for the calls it makes internally, and absolute symlinks inside the
+rootfs would resolve against the Android root. `docs/RUNNING.md` has the steps,
+and `tools/guest-config/` has the tools.
+
+**Does it run in Termux?** No, and it is not supported. The guest tree expects
+binaries and libraries a Termux `$PREFIX` does not provide.
+
+**Which Android and kernel were verified?** Android 13, kernel 4.19.191, 4 KiB
+pages, arm64, on one device (RMX3357 / MT6893). 16 KiB and 64 KiB kernels were
+exercised on QEMU only.
+
+## Contributing
+
+Issues and pull requests are welcome; read [`CONTRIBUTING.md`](CONTRIBUTING.md)
+first, and note that every performance claim needs an evidence file under
+`docs/design/evidence/`. This project follows the
+[Contributor Covenant 2.1](CODE_OF_CONDUCT.md). Security reports: see
+[`SECURITY.md`](SECURITY.md).
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE). Third-party components, glibc
+artefacts and trademark notes are in [NOTICE](NOTICE).
+
+## Acknowledgements
+
+The comparison in `docs/BENCHMARKS.md` was produced by running
+[proot](https://proot-me.github.io/) and proot-distro on the same rootfs; both
+were the previous runtime of LinuxHub 2.0, and the numbers exist because they
+work. The Ubuntu 24.04 tree started from the LinuxHub 2.0 offline assets, and the
+loader patches target glibc as shipped by Ubuntu.
