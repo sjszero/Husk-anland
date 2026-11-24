@@ -17,6 +17,16 @@
 # 已经自己 export 过同名变量的，这里一律不覆盖。
 
 if [ "${HUSK_GPU:-zink}" = llvmpipe ] || [ -n "${NR_GPU_DEFAULT_OFF:-}" ]; then
+    # 只"不设置"是回不到软件的：我们的 ICD 就在 /usr/share/vulkan/icd.d 里，
+    # Vulkan loader 自己也会找到它（实测：只 export HUSK_GPU=llvmpipe，renderer 仍是
+    # zink Vulkan 1.3(Mali-G77 MC9)）。要真的走软件，必须把 GL 和 Vulkan 都钉死。
+    export LIBGL_ALWAYS_SOFTWARE=1
+    export GALLIUM_DRIVER=llvmpipe
+    export MESA_LOADER_DRIVER_OVERRIDE=swrast
+    if [ -r /usr/share/vulkan/icd.d/lvp_icd.json ]; then
+        export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
+        export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json
+    fi
     return 0 2>/dev/null || true
 fi
 

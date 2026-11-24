@@ -892,6 +892,7 @@ fn run_window() -> i32 {
         };
         say!("renderer={}", gl.string(GL_RENDERER));
         (gl.viewport)(0, 0, 640, 480);
+        let swap_t0 = std::time::Instant::now();
         for i in 0..60 {
             let color = ((i % 2) as f32, ((i / 2) % 2) as f32, ((i / 4) % 2) as f32);
             (gl.clear_color)(color.0, color.1, color.2, 1.0);
@@ -910,7 +911,12 @@ fn run_window() -> i32 {
                 say!("stage 9: first swap OK");
             }
         }
-        say!("stage 10: 60 swaps OK");
+        let swap_dt = swap_t0.elapsed().as_secs_f64();
+        say!(
+            "stage 10: 60 swaps OK ({:.1} ms, {:.1} fps)",
+            swap_dt * 1000.0,
+            60.0 / swap_dt
+        );
         (gl.clear_color)(0.0, 1.0, 0.0, 1.0);
         (gl.clear)(GL_COLOR_BUFFER_BIT);
         (egl.swap_buffers)(egl_display, surface);
