@@ -45,15 +45,23 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
       `rust/getifaddrs-bridge` 也已出库；登录、会话、`executeContainerCommand`、桌面启动只走
       `HuskRuntime.command`。判据是同 rootfs 回归：空 checkpoint 从 UI 跑完 814 包、`dpkg -C` 空、
       0 `Bad system call`、门禁 A 34/34、supervisor 8/8、542.8 s（删 proot 前 533/541 s）；
-4. **GPU：桌面已经在 Mali 上由 GPU 出帧，但呈现仍是拷贝路径**（evidence 165）：
+4. **GPU：桌面已经在 Mali 上由 GPU 出帧，默认生效，但呈现仍是拷贝路径**（evidence 165/167/168）：
    重编 PanVK 打开 x11 平台（`-Dplatforms=x11`）后 `VK_KHR_xcb_surface` 进表，
    `gl-probe window` 的 `stage 7/8/9/10` 全过、60 次 swap，
    `renderer=zink Vulkan 1.3 (Mali-G77 MC9 (MESA_PANVK))`；gnome-shell 46 在 zink 上起来并
    出帧（X 根窗口 `2400x1080`、非黑像素 100%）。mutter 启动时的 MIT-SHM `BadAccess` 已定位
    并绕开：guest 没有 SysV IPC，X server 在 guest 外，`ShmAttach` 必然失败，所以 guest 侧
    如实报告"不支持 MIT-SHM"。
-   未做：DRI3 零拷贝（`Could not get DRI3 device` 仍在，呈现走 SHM 拷贝）、帧率数字、
-   30 分钟长稳；2.0 侧 `GpuRuntimeEnvironment.gnomeSessionShell()` 仍硬钉 swrast。
+   **默认值不再依赖会话脚本**：`/etc/profile.d/husk-gpu.sh`（安装器写入，evidence 167），
+   进 guest 再开程序也吃得到 GPU，`HUSK_GPU=llvmpipe` 一键退回软件。
+   假 DRM 节点的 `dup`/`dup2`/`dup3`/`fcntl(F_DUPFD)`/`fcntl64` 记账与 `close` 注销也已修
+   （evidence 166：旧 loader 下 dup 出来是 memfd `rdev=0:0`，新 loader 是 `10:33`）。
+   八维里第 1/5/6 维已有数字（evidence 168）：会话冷启动 8/8/9 s、设置首帧 4462 ms vs
+   proot 5353 ms、xterm 110 vs 153 ms、回车到 guest 进程读到 41 ms；
+   640×480 clear+swap 是 **zink 131 fps vs llvmpipe 300 fps**（这个负载 CPU 更快，照写，
+   瓶颈是 SHM 拷贝不是 GPU），重负载对比未测。
+   未做：DRI3 零拷贝（`Could not get DRI3 device` 仍在）、30 分钟桌面长稳、
+   2.0 侧 `GpuRuntimeEnvironment.gnomeSessionShell()` 仍硬钉 swrast。
 5. 交付形态：**已落地**（`tools/guest/install-husk.sh`，evidence 130）——本地 tarball 一条命令装完 +
    生成启动器，唯一支持的目标是**本应用的私有目录**（`run-as .../files/...`），端到端实测通过。
    **Termux 不是交付形态，也不承诺可用**：guest 树需要的二进制与库 Termux 的 `$PREFIX` 不提供，

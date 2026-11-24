@@ -9,6 +9,9 @@
 
 ## [未发布]
 
+> 下一版是 **0.0.3**：主题是「图形通路落到 GPU，并且默认就生效」。发版时本节改名为
+> `## [0.0.3] - 日期`，`VERSION`、tag、Release、本文件四处同时对齐。
+
 ### 修复
 
 - **桌面在 X11 上由 GPU 出帧**：重编 PanVK 打开 x11 平台后 `VK_KHR_xcb_surface` 才会暴露
@@ -34,6 +37,15 @@
 
 - `gl-probe root [out.ppm]`：用 `XGetImage` 读 X 根窗口并写 PPM，再打印非黑像素与直方图。
   手机 `screencap` 抓的是 App 自己的 UI，不能当 guest 出帧的证据。
+- `gl-probe window` 现在打印 swap 循环的耗时与 fps（`stage 10: 60 swaps OK (506.8 ms, 118.4 fps)`），
+  可用于 GPU / CPU 两条路径的 A/B。
+
+### 文档
+
+- `docs/BENCHMARKS.md` 补上第 5 维（桌面与图形）与第 6 维（交互延迟）的数字，并把
+  「图形不进表」那段替换成这些数字能说明什么、不能说明什么（evidence 168）。
+- `docs/LIMITATIONS.md` §7 更新：WSI 已经通了但呈现是 SHM 拷贝；桌面由 GPU 出帧，
+  但轻负载 fps 不如 llvmpipe（照写）。
 
 ## [0.0.2] - 2026-11-24
 

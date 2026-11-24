@@ -47,6 +47,8 @@ tools/bench/compare.py docs/design/evidence/bench-*-il.log
 | 冷启动到 `/bin/true`（含 adb） | 155 ms | 151 ms | 162 ms | 1.0× |
 | `apt-get update` 冷（删索引） | 7,337 ms | 7,901 ms | 7,906 ms | 1.1× |
 | `apt-get update` 热 | 7,347 ms | 7,874 ms | 7,941 ms | 1.1× |
+| 桌面会话冷启动到可用 | 8 / 8 / 9 s | 不可比 | 不可比 | — |
+| 桌面首帧（X 根窗口非黑像素） | 100.0%（2400×1080） | 不可比 | 不可比 | — |
 | **2 · 进程与 syscall 密度** | | | | |
 | fork+exec × 100 | 363 ms | 550 ms | 564 ms | 1.5× |
 | `/bin/true` × 50 | 207 ms | 309 ms | 315 ms | 1.5× |
@@ -69,6 +71,15 @@ tools/bench/compare.py docs/design/evidence/bench-*-il.log
 | `gcc` 编译 hello | 165 ms | 358 ms | 385 ms | 2.2× |
 | `python3` import json | 88 ms | 169 ms | 156 ms | 1.9× |
 | `python3` import numpy | 410 ms | 726 ms | 722 ms | 1.8× |
+| **5 · 桌面与图形** | | | | |
+| 打开「设置」到首个大窗口 | 4,462 ms | 5,353 ms | 未测 | 1.2× |
+| 打开终端（xterm）到窗口 | 110 ms | 153 ms | 未测 | 1.4× |
+| 帧率 640×480 clear+swap（GPU） | 131 fps | — | — | — |
+| 帧率 640×480 clear+swap（CPU/llvmpipe） | 300 fps | — | — | — |
+| 文件管理器（Nautilus）首帧 | 未测 | 未测 | 未测 | — |
+| **6 · 交互延迟** | | | | |
+| 回车 → guest 进程读到 | 41 ms（扣工具开销约 22 ms） | 未测 | 未测 | — |
+| 按键 → 屏幕像素 | 未测 | 未测 | 未测 | — |
 | **8 · 兼容性** | | | | |
 | `bash` | 可用 | 可用 | 可用 | — |
 | `gcc` | 可用 | 可用 | 可用 | — |
@@ -85,9 +96,18 @@ tools/bench/compare.py docs/design/evidence/bench-*-il.log
 差异来自那次没做 60 秒冷却、也没有与另外两个运行器轮转；**表里的数字只在本表条件下可比**，
 不要把不同批次的数拿来互相换算。
 
-这张表只覆盖能在纯命令行里测的维度。**图形相关（图形栈启动、窗口、帧率）这一维不进表**：
-本版不把桌面列为交付能力，rootfs 里也没有独立的 X server（`xvfb` 不在离线包索引里），
-所以没有任何可比的图形数字——不是没测出来，是没有两个可比的被测对象。
+第 5、6 维现在有数字了（evidence 168），但要看清它们**能**说明什么：
+
+- **能有数字，是因为运行器外面有了一个 X server**：Husk 这边的 X server 是 App 进程里的
+  Lorie（`:0`），proot 侧没有对应的桌面，所以 proot 列里凡是"不可比/未测"的格子，
+  是真的没有对象，不是没去测。
+- **帧率那一行对 Husk 不利，照写**：640×480 只有 `glClear` + swap，瓶颈是呈现路径上的
+  SHM 拷贝（DRI3 未通），zink 还多一层 Vulkan 翻译，所以 CPU（llvmpipe）反而更快。
+  这一行说明的是呈现链路的天花板，**不能**拿来说"GPU 没有用"；重负载（着色器/纹理密集）
+  的 GPU vs CPU 对比**未测**。
+- "设置"的 proot 中位数只来自 2 个有效样本：另 2 次 90 秒超时（单实例应用在 D-Bus 上被
+  激活而不是新开进程，残留实例就测不出首帧），超时的不计入中位数但记在 evidence 168 里。
+- Nautilus 拒绝以 root 运行，本会话的 guest 身份是 root，所以那一格是**未测**，不是慢。
 
 第 7 维（空载 30 分钟的 RSS / 线程 / fd 增长与僵尸数）单独跑 soak，不放进计时的轮次里：
 

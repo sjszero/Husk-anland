@@ -57,15 +57,24 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
    （同一棵树里 `GALLIUM_DRIVER=llvmpipe` 报 ES 3.2 / GL 4.6，evidence 160）。设
    `MESA_GLES_VERSION_OVERRIDE=3.2` 后，一个真 ES3 workload（VAO + 实例化 divisor +
    std140 UBO + 纹理采样 + MRT 两附件）在 zink/PanVK 上**逐像素画对**（evidence 161，
-   `gl-probe es3`（`tools/device-tests/es3-workload.sh` 一条命令重跑）。还没验的是**真实应用**：
-   GTK4 的 ngl 渲染器、mutter 的合成路径都还没在 ES3 下出过帧，所以 override 仍**不进发布
-   配置**、只作实验开关。另外这棵树的整块 `glReadPixels` 只写第一行+第一列（evidence 162），
+   `gl-probe es3`（`tools/device-tests/es3-workload.sh` 一条命令重跑）。
+   `MESA_GLES_VERSION_OVERRIDE=3.2` 现在由安装器写进 `/etc/profile.d/husk-gpu.sh`（evidence 167），
+   **进发布配置**，桌面合成路径（mutter/cogl，`cogl=gles2 override=3.2`）已经在 3.2 下出帧
+   （evidence 165/168）。还没验的是**普通应用**：GTK4 的 ngl 渲染器这类真实客户端没跑过，
+   遇到花屏/黑窗口先怀疑这里，回退开关是 `HUSK_GPU=llvmpipe`。
+   另外这棵树的整块 `glReadPixels` 只写第一行+第一列（evidence 162），
    截图类工具会拿到全零而不报错——那是读回缺陷，别当成渲染失败。
-2. **WSI / swapchain 没做**：把窗口表面交给 GPU 直接呈现这条链还没接。呈现仍走
-   `AHardwareBuffer` → dma-buf → `SurfaceControl`（evidence 59），GPU 直接把画面交给
-   SurfaceFlinger 的那一步不存在。
-3. **桌面合成器仍以软件渲染验收**：`docs/BENCHMARKS.md` 里图形那一维因此不进表——不是没测，
-   是没有两个可比对象。
+2. **窗口呈现能跑，但不是零拷贝**（evidence 165/167）：X11 窗口化 EGL 已经通了
+   （重编 PanVK 打开 `-Dplatforms=x11` 后 `VK_KHR_xcb_surface` 才进表），`gl-probe window`
+   `stage 7→10`、60 次 swap 全过。但客户端的帧是**经 SHM 拷贝**进 X server 的：
+   `DRI3 error: Could not get DRI3 device` 仍在，dmabuf 直传没接上。
+   再往后 X server 的合成结果仍走 `AHardwareBuffer` → dma-buf → `SurfaceControl`
+   （evidence 59，那条是真零拷贝）。所以整条链是
+   **GPU 渲染 → SHM 拷贝 → X 合成 → AHB 零拷贝 → 屏幕**，中间那一次拷贝没有消掉。
+3. **桌面合成器已经由 GPU 出帧（FACT），但 fps 在轻负载上不占优**：gnome-shell 46 跑在
+   zink → PanVK 上，X 根窗口抓到完整桌面、非黑像素 100%（evidence 165/168）。而 640×480
+   clear+swap 的帧率是 zink 131 fps vs llvmpipe 300 fps —— 这个负载的瓶颈就是上面那次
+   SHM 拷贝，不是 GPU 算力（evidence 168）。重负载的 GPU/CPU 对比**未测**。
 
 ## 8 · 分区很细：这一版不是「什么都跑得起来」
 
@@ -74,8 +83,9 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
 | 命令行用户态（bash、coreutils、apt、dpkg、gcc、make、python3+numpy、git） | 可用 | evidence 154、155 |
 | 会话服务（polkit、at-spi、gvfs、RandR） | 可用 | evidence 151、152 |
 | GPU：Vulkan compute / 离屏 graphics | 可用 | evidence 156 |
-| GPU：GL/EGL 经 Zink 落到 GPU（GLES 2.0 上限） | 可用 | evidence 156 |
-| GPU：窗口呈现（WSI）、桌面硬件加速 | 未做 | 本节 §7 |
+| GPU：GL/EGL 经 Zink 落到 GPU（默认上限 GLES 3.2，靠 override；真实应用未验） | 可用 | evidence 156、161、167 |
+| GPU：X11 窗口呈现（EGL window surface + swap） | 可用，呈现走 SHM 拷贝（DRI3 未通） | evidence 165 |
+| GPU：桌面合成器（gnome-shell 46 on zink/PanVK） | 可用，出帧；轻负载 fps 不如 llvmpipe | evidence 165、168 |
 | 硬件视频解码（平台 MediaCodec，应用侧） | 有实测链路，未产品化 | evidence 80 |
 | guest 内 VA-API 全链（播放器直接用） | 部分 | evidence 81–87 |
 | 相机（V4L2 前端 + 平台编码） | 有实测链路 | evidence 91–93 |
