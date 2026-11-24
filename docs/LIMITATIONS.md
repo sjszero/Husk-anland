@@ -53,8 +53,11 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
 
 **还差的三件事**：
 
-1. **API 上限只有 GLES 2.0 / GL 2.1**。GNOME 46 的 Clutter/Cogl 要 GLES 3.0+ 或 GL 3.3+，
-   所以整条桌面还走不到 GPU。原因是 Zink 在这个配置下判定出来的能力集，**不是**设备不支持。
+1. **API 上限默认只有 GLES 2.0 / GL 2.1**。GNOME 46 的 Clutter/Cogl 要 GLES 3.0+ 或 GL 3.3+，
+   所以整条桌面还走不到 GPU。这是 Mesa 的 zink 报出来的上限，**不是**设备能力：设
+   `MESA_GLES_VERSION_OVERRIDE=3.2` 能建出 ES3.2 上下文，`MESA_GL_VERSION_OVERRIDE=4.6`
+   能建出 GL 4.6 core，两者清屏 + 回读像素都正确（evidence 158）。但复杂特性是否真的正确
+   还没验证，所以这个 override **不进发布配置**，只作实验开关。
 2. **WSI / swapchain 没做**：把窗口表面交给 GPU 直接呈现这条链还没接。呈现仍走
    `AHardwareBuffer` → dma-buf → `SurfaceControl`（evidence 59），GPU 直接把画面交给
    SurfaceFlinger 的那一步不存在。

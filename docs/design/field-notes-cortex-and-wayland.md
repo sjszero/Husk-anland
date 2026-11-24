@@ -36,33 +36,55 @@ INFERENCE（基于以上，未做同机基准）：
 **不学的两条**：它的 root mode（和我们的不变量冲突）；它的 X11 + CPU 桌面（我们这边
 GPU 已经能算能画，回头做软件桌面是退步）。
 
-## 二、「支持 Wayland 实现性能飞升」
+## 二、「支持 Wayland 实现性能飞升」——**不换，继续 X11**
 
-**判断：对 syscall / 编译 / 包管理这些数字没有影响；对图形呈现链有真实收益，但不是"飞升"。**
+**结论（决定）：不换合成器/协议，继续用 X11。** 理由是算出来的，不是口味问题。
 
-- FACT（我们的基准）：`stat ×20k`、`open+close ×20k`、`make -j4` 这些差距来自 proot 的
-  `ptrace` 往返，和 X11/Wayland 无关。
-- FACT（evidence 97）：mutter 已经能以 Wayland 合成器身份在我们 guest 里跑起来
-  （surfaceless + zink），ScreenCast / RemoteDesktop 接口都在。
-- FACT（evidence 59）：`AHardwareBuffer` → dma-buf → `SurfaceControl` 的零拷贝呈现链已经
-  10 000 帧长稳过。
-- INFERENCE：X11 那条路每帧要多一次 SHM 拷贝和 X server 往返；换 Wayland 后客户端可以把
-  dma-buf 直接交给合成器，合成器再把同一块 buffer 交给 `SurfaceControl`，拷贝次数下降。
-  收益在**帧延迟与大分辨率下的 CPU 占用**，不在「程序跑得更快」。
-- **真正的卡点不是 X11 vs Wayland，而是 GL 等级**：现在 zink 只给到 GLES 2.0 / GL 2.1
-  （evidence 156），GNOME 46 的 Clutter/Cogl 要 GLES 3.0+ 或 GL 3.3+。这一级不解决，
-  换成 Wayland 之后合成器照样是软件画。
+先量一帧拷贝的代价（FACT，2026-11-24，目标机 guest 内，单线程 memcpy，1080p RGBA）：
 
-所以顺序是：**先把 GL 等级抬上去 → 再换成 Wayland 合成器 + dma-buf 呈现 → 最后才谈数字**。
-反过来做，只能得到「架构更干净，帧率没变」。
+```
+1080p RGBA copy: 8.3 MB per copy, 1.26 ms per copy, 6.60 GB/s
+```
 
-## 三、据此调整的下一步
+再数一下两条链各自要拷几次（INFERENCE，基于我们自己的实现）：
 
-1. 查 zink 为什么在 PanVK 上只报 GLES 2.0（缺哪个 VK feature / EGL 平台选择），能做就抬到 3.x。
+| 链路 | 每帧 CPU 拷贝 | 1080p 代价 |
+|---|---|---|
+| X11（现状）：客户端 → X server（MIT-SHM 共享段，X server 是我们自己的进程内实现）→ 合成 → 桥接进 AHB → SurfaceControl | 2 次（合成 1 次 + 桥接 1 次） | ≈ 2.5 ms |
+| Wayland：客户端直接画进 dma-buf → 合成器当纹理采样（GPU）→ 输出到 AHB | 0～1 次（GPU blit） | ≈ 0～1.3 ms |
+
+**所以 Wayland 的上限收益是每帧 1～2.5 ms，即 60 Hz 预算（16.7 ms）的 6%～15%。**
+这是「省下两次全屏拷贝 + 少一次 X 协议往返」，不是「性能飞升」。而且：
+
+- 换 Wayland 之后要跑 X11 应用就得再加 **Xwayland**，等于把刚拆掉的 X server 又装回来，只多不少。
+- 真正的瓶颈不在这里：默认 GL 只有 ES2（见下一节），渲染本身落在 llvmpipe 上，一项就比拷贝贵一个量级。
+- X11 这条链已经是**我们自己进程内的 X server**（evidence 148），没有额外进程、没有网络端口，本来就不是典型 X11 的重方案。
+
+什么情况下值得回头再看 Wayland：**当帧变成瓶颈、且剖析显示拷贝占比最大时**。要触发这个条件，先把 GL 等级和渲染路径解决，再看 `top` 里到底是拷贝还是渲染。
+
+## 三、GL 等级的实测（决定桌面能不能吃到 GPU 的关键）
+
+FACT（2026-11-24，目标机，`/data/local/tmp` 的独立安装里）：
+
+1. 默认（`MESA_LOADER_DRIVER_OVERRIDE=zink`）：renderer 是
+   `zink Vulkan 1.3(Mali-G77 MC9)`，但只给 **GL 2.1 / GLES 2.0**；请求 ES3.0 上下文直接失败
+   （`eglCreateContext` → `EGL_BAD_CONFIG 0x3005`）。
+2. `MESA_GLES_VERSION_OVERRIDE=3.2`：ES3.2 上下文建得起来，64×64 FBO 清屏 + 回读像素正确
+   （`pixel=3399e6ff`，`PASS`）。
+3. `MESA_GL_VERSION_OVERRIDE=4.6`：拿到 GL 4.6 core 上下文，同样画得出、读得回
+   （`pixel=3399e6ff`，`PASS`）。
+
+也就是说：**GPU 有这个能力，是 Mesa 在默认状态下只报 ES2。** 但 override 是「声明」而不是
+「修复」——真正要用，必须证明 ES3 特性在 PanVK 上真的实现正确，否则就是把「跑不起来」
+换成「跑起来但画错」。
+
+**下一步顺序**：先查默认为什么只报 ES2（Mesa 侧判定依据），能用真 workload（GLES3 应用）
+验证后再决定是否默认开启；在此之前，`MESA_GLES_VERSION_OVERRIDE` 只作为实验开关，不进发布配置。
+
+## 四、据此调整的下一步
+
+1. 查 zink 在 PanVK 上默认只报 ES2 的判定依据（不是设备能力问题，能力已证）。
 2. 静态二进制补丁（学 Cortex 第 1 条），先做「打掉被 seccomp 拒绝的调用点」这一半。
 3. `SIGSYS` 兜底处理器（学第 2 条）。
-4. Wayland 合成器接 dma-buf 呈现（复用 evidence 59 的环 + evidence 97 的 mutter）。
+4. 桌面继续 X11；只有实测证明「帧受限且拷贝占比最大」时才回头评估 Wayland。
 5. CI 接上后加夜间包矩阵（学第 3 条）。
-
-前两条和图形无关，能直接减少「装得上但跑不起来」的情况；第 3、4 条属于桌面那条线，
-要等 GL 等级解决之后才有意义。
