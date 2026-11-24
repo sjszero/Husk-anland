@@ -107,3 +107,7 @@ libc-nop.so.6      32d4d3f9501a2c717cf2246a2df1a898f1361b49e0576614461d70fc94774
 - 表格键是 `(dev, ino)`，只对 rootfs 的 `st_dev` 生效；跨文件系统的 bind 目标
   （如果将来真做 bind 到别的 dev）会保持真实 owner，未设计。
 - 16K/64K 真机仍 UNKNOWN（本机只有 4 KiB）。
+- **App 侧遗留一个僵尸**：初始化结束时 `ps -A` 里有 `8449 <app-pid> Z [virgl_test_serv]`，
+  父进程就是 App 自己，20 s 后仍在。这不是本轮的改动引起的（virgl 探针一直在跑），
+  而是 `VirglServerController` 背后那个 `libdoro_virgl_process.so` 没有 wait 自己的子进程；
+  该 .so 在本仓库没有源码，所以只记录、不猜着改。收尾用 `am force-stop` 让 App 退出即消失。
