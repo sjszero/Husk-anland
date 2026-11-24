@@ -1,0 +1,12 @@
+[package]
+name = "husk-tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Host-side repository tooling: markdown link gate and benchmark tables"
+
+[[bin]]
+name = "husk-tools"
+path = "src/main.rs"
+
+[dependencies]

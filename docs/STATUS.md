@@ -76,7 +76,7 @@ sudo/PAM 一条按"不需要"结案：`husk-su` 已覆盖提权路径，PAM 的 
 | 项 | 结论 |
 |---|---|
 | `make -j4`（200 目标） | **可用**：`MAKE_RC=0`，3 509 ms。原来 shim 的 `execve` 用栈上 64 槽数组拼 argv，collect2 的第 64 个以后被静默丢掉，`ld` 报 `hidden symbol '__TMC_END__' isn't defined` —— 改成 `argv_len`/`argv_alloc` 堆分配（loader rev 23） |
-| rootfs 绝对符号链接 | 552 个，宿主机加载器按 **host 根** 解析链接目标 → 逃出 guest。`tools/guest-config/relative-symlinks.py --apply` 改写 551 条为相对路径后，`numpy 1.26.4`、`libblas.so.3`、`liblapack.so.3` 按 soname 全部可用 |
+| rootfs 绝对符号链接 | 552 个，宿主机加载器按 **host 根** 解析链接目标 → 逃出 guest。`husk-symlinks --root <rootfs> --apply` 改写 551 条为相对路径后，`numpy 1.26.4`、`libblas.so.3`、`liblapack.so.3` 按 soname 全部可用 |
 | ⚠️ `adb shell` 的 guest stdout | 是 socket。`make` 往它写完，同一会话后续写入全部 `EACCES`；**proot 下完全一样**，不是 shim 行为。基准因此统一 `make -s -j4 >/dev/null 2>&1` |
 
 ## apt / libc：装包可用，但 libc6 升级会拆掉运行时（2026-11-24，evidence 154）

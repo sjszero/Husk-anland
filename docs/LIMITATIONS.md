@@ -35,7 +35,7 @@ Husk 跑在普通应用沙箱里。沙箱碰不到的东西就碰不到：内核
 
 内核按 `/` 解析符号链接目标，所以 rootfs 里的绝对链接会逃到 Android 文件系统。Ubuntu
 24.04 的树里有 552 个，`libblas.so.3` 之类经 `alternatives` 的链接全部受影响。
-`tools/guest-config/relative-symlinks.py --apply` 改写成相对路径；这是 rootfs 准备步骤，
+`husk-symlinks --root <rootfs> --apply` 改写成相对路径；这是 rootfs 准备步骤，
 不是一次性修补（`docs/RUNNING.md`）。
 
 ## 6 · 取样走 `adb shell`，它的 stdout 是 socket（FACT）

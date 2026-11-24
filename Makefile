@@ -13,8 +13,9 @@ SHELL       := /bin/sh
 TARGET      := aarch64-unknown-linux-gnu
 MANIFEST    := runtime/Cargo.toml
 PROFILE_DIR := runtime/target/$(TARGET)/release
+HUSK_TOOLS  := runtime/target/debug/husk-tools
 
-.PHONY: all check lint test loader bench gate-a docs dist clean version-check
+.PHONY: all check lint test tools loader bench gate-a docs dist clean version-check
 
 all: lint check version-check
 
@@ -32,11 +33,17 @@ check:
 	cargo clippy --manifest-path $(MANIFEST) --target $(TARGET) \
 		-p runtime-core -p nr-tools -p ldconfig -p path-shim
 	sh tools/ci/check-shell.sh
-	python3 tools/ci/check-links.py
+	@$(MAKE) --no-print-directory tools
+	$(HUSK_TOOLS) check-links
 	@$(MAKE) --no-print-directory version-check
 
 lint:
 	cargo fmt --all --check --manifest-path $(MANIFEST)
+
+# Repository tooling is Rust too (it used to be three Python scripts): build it
+# for the host and call it. Never built for $(TARGET) -- it runs on the dev box.
+tools:
+	cargo build --manifest-path $(MANIFEST) -p husk-tools
 
 test:
 	cargo test --manifest-path $(MANIFEST) --target $(TARGET) \
@@ -49,7 +56,8 @@ loader:
 bench:
 	sh tools/bench/install.sh
 	sh tools/bench/run-interleaved.sh $${REPS:-5}
-	python3 tools/bench/compare.py docs/design/evidence/bench-*-il.log
+	@$(MAKE) --no-print-directory tools
+	$(HUSK_TOOLS) bench-compare docs/design/evidence/bench-*-il.log
 
 gate-a:
 	DEV=$${DEV:?} PKG=$${PKG:-com.linuxhub.myth.husk} \
@@ -57,8 +65,8 @@ gate-a:
 		LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/14-gate-a-acceptance.sh
 
-docs:
-	python3 tools/ci/check-links.py
+docs: tools
+	$(HUSK_TOOLS) check-links
 
 # One version string, three places: VERSION (what `./husk --version` prints),
 # the newest CHANGELOG heading, and the release-tag link that heading points at.

@@ -1,8 +1,8 @@
 #!/bin/bash
 # Micro-benchmarks of the path layer. Driven by run-guest.sh.
-# The measurement itself is a guest binary (runtime/crates/guest-bench, Rust);
-# bench.c is the reference used when no prebuilt binary is pushed.  The shell is
-# never in the timed path.
+# The measurement itself is a guest binary (runtime/crates/guest-bench, Rust),
+# built by tools/guest-config/build-guest-tools.sh. The shell is never in the
+# timed path, and there is no C fallback: the guest has no usable libc headers.
 #
 # Reading the numbers:
 #   stat-real / open-real   passthrough: our interception, but no resolution.
@@ -13,15 +13,13 @@
 #   ptrace, and the kernel sees exactly the calls a native process makes.
 set -e
 cd /tmp
-# Preferred: a guest binary built from runtime/crates/guest-bench and pushed with
-# EXTRA=bench (Rust).  Fallback: compile the C reference in the guest, which only
-# works because the guest carries gcc.
-if [ -x /bench ]; then
-  cp /bench ./bench
-else
-  cp /bench.c .
-  gcc -O2 -o bench bench.c
+# The Rust guest binary is pushed as EXTRA=bench; build it with
+#   sh tools/guest-config/build-guest-tools.sh
+if [ ! -x /bench ]; then
+  echo "missing /bench: push runtime/crates/guest-bench (EXTRA=bench)" >&2
+  exit 1
 fi
+cp /bench ./bench
 for m in syscall stat-real stat-guest stat-deep open-real open-guest exec; do ./bench "$m"; done
 echo "== correctness smoke"
 head -1 /etc/os-release

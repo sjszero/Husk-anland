@@ -97,6 +97,10 @@ name = "husk-symlinks"
 version = "0.1.0"
 
 [[package]]
+name = "husk-tools"
+version = "0.1.0"
+
+[[package]]
 name = "husk-va-driver"
 version = "0.1.0"
 dependencies = [

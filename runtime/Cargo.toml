@@ -23,6 +23,7 @@ members = [
     "crates/su",
     "crates/runtime-core",
     "crates/vulkan-probe",
+    "crates/husk-tools",
     "crates/husk-symlinks",
     "crates/video-protocol",
     "crates/video-bridge",

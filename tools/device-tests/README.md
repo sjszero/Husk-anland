@@ -36,7 +36,7 @@ files/nrfull/root/            # real rootfs: glibc 2.39, bash, coreutils, grep, 
 | `01-functional-matrix.sh` | 31 checks: mkdir -p, mv/cp/rm, chmod, symlinks (relative/absolute/`..`), stat/ls/find, glob, pipes, subshell, `pwd -P`, `..` clamping, `/evil` containment | `./run-guest.sh 01-functional-matrix.sh` |
 | `03-containment.sh` | 11 escape attempts (symlinks out, `..` climbs, `/proc/self/root`), plus the mount points that pass through by design | `./run-guest.sh 03-containment.sh` |
 | `04-path-reliability.sh` | fd stability, overlength paths, final-symlink containment, optional Rust `faccessat` and relative-dirfd probes | run inside the guest with the current embedded loader |
-| `02-bench.sh` + `bench.c` | per-call cost of the path layer, compiled and timed in the guest | `EXTRA=bench.c WAIT=90 ./run-guest.sh 02-bench.sh` |
+| `02-bench.sh` + `guest-bench` | per-call cost of the path layer, timed in the guest | `EXTRA=bench WAIT=90 ./run-guest.sh 02-bench.sh` |
 | `accept-gcc-make.sh` | gcc -> cc1 -> as -> collect2 -> ld.bfd, then `make -j4` / no-op / clean | `WAIT=60 ./run-guest.sh accept-gcc-make.sh` |
 | `05-mount-audit.sh` | mount/tmpfs/read-only audit: 8 findings from an external review, 11 checks | `sh gexec.sh rootfs-full usr/bin/bash tmp/05-mount-audit.sh` |
 | `06-posix-mqueue.py` `07-sysv-shm.py` `08-sysv-sem-msg.py` | POSIX mqueue, SysV shm, SysV sem/msg | `sh gexec.sh rootfs-full usr/bin/python3 tmp/0N-*.py` |

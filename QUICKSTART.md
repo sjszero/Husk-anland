@@ -92,7 +92,7 @@ getent passwd | head -3
 | `cannot execute the loader from here` | 目录不可执行（`noexec`）或沙箱不允许，换到应用私有目录 |
 | `Exec format error` | 设备不是 arm64 |
 | `Bad system call` | libc 补丁没打：重跑 `tools/guest-config/install-libc-patch.sh` |
-| 库存在却 `ENOENT` | rootfs 里的绝对符号链接没改成相对：`tools/guest-config/relative-symlinks.py --apply` |
+| 库存在却 `ENOENT` | rootfs 里的绝对符号链接没改成相对：`husk-symlinks --root <rootfs> --apply` |
 | `dpkg` 报 `Can't stat /lib` | 静态 `ldconfig` 没换成 `husk-ldconfig` |
 | `su: System error` | `husk-su` 没装进 `usr/sbin/` |
 | `make` 的输出消失 | 不是运行时问题：`adb shell` 给 guest 的 stdout 是 socket，重定向到文件再看 |

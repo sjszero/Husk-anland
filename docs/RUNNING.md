@@ -83,7 +83,7 @@ APK 内 `assets/husk/arm64-v8a/`：
 | # | 改什么 | 为什么 | 不改会怎样 | 谁来做 |
 |---|---|---|---|---|
 | 1 | `libc.so.6` 打两处补丁 | libc 内部调用（`nss_files` 的 `fopen`、`opendir`、`realpath`）没有 GOT 可改，需要 slot 页；`clone3` 被 Android seccomp 杀，要改成返回 `ENOSYS` 让 glibc 走旧路径 | 第一条 `pthread` / `getent` 就 `Bad system call` | APK 首次使用自动 |
-| 2 | 绝对符号链接改相对 | 内核按 `/` 解析链接目标，rootfs 里的绝对链接会逃到 Android 根 | 明明存在的库 `ENOENT`（如 `libblas.so.3`） | 打包时由 `tools/guest-config/relative-symlinks.py --apply` |
+| 2 | 绝对符号链接改相对 | 内核按 `/` 解析链接目标，rootfs 里的绝对链接会逃到 Android 根 | 明明存在的库 `ENOENT`（如 `libblas.so.3`） | 打包时由 `husk-symlinks --root <rootfs> --apply` |
 | 3 | `ldconfig` 换成 `husk-ldconfig` | 发行版的 `ldconfig.real` 是静态二进制，shim 够不到，它去写 Android 的 `/etc` | `dpkg --configure` 失败、`apt` 拒绝继续 | APK 首次使用自动 |
 | 4 | 建 `dev/shm` | POSIX 共享内存目录，Android 侧没有；proot 以前靠 bind 提供，现在没有 bind | 每个 `shm_open()` 都是 `ENOENT` | APK 首次使用自动 |
 | 5 | 生成 `/etc/ld.so.husk-path` | 嵌套 exec 的库目录：glibc 在 loader 内部解析 `DT_RUNPATH`，没有 GOT 可改，只能把发行版声明的目录接到 `--library-path` | `sudo` 找不到 `libsudo_util.so.0`、`gsettings` 报 `libpxbackend-1.0.so` | `husk-ldconfig --library-path-file`（初始化、装包后、启动、开会话四个时机） |

@@ -20,7 +20,7 @@ ENVV=${ENV:-}   # e.g. ENV=NR_BOOT_DEBUG2=1 for startup tracing
 #    executable, but it is readable, which is all a script needs)
 adb -s "$DEV" push "$HERE/$SCRIPT" /data/local/tmp/"$SCRIPT" >/dev/null
 adb -s "$DEV" shell "run-as $PKG cp /data/local/tmp/$SCRIPT files/nrfull/root/$SCRIPT"
-# optional support files (e.g. EXTRA=bench.c), pushed next to the script
+# optional support files (e.g. EXTRA=bench), pushed next to the script
 for f in ${EXTRA:-}; do
   adb -s "$DEV" push "$HERE/$f" /data/local/tmp/"$f" >/dev/null
   adb -s "$DEV" shell "run-as $PKG cp /data/local/tmp/$f files/nrfull/root/$f"
