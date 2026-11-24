@@ -366,6 +366,32 @@ unsafe fn sigsys_mode() -> u8 {
     v
 }
 
+/// One record per (nr, mode) per process.
+///
+/// landlock(444) is refused on this ROM for every sandboxed process, and
+/// GLib/gvfs probe it on each start: one desktop session wrote 832 KB of
+/// identical lines. The *first* occurrence is the one worth keeping - it says
+/// who hit what - so the rest are dropped. The syscall is still answered the
+/// same way; only the log line goes away.
+static mut SEEN_NR: [u16; 24] = [0; 24];
+static mut SEEN_COUNT: usize = 0;
+
+unsafe fn first_sighting(nr: u16, mode: u16) -> bool {
+    let key = (nr << 4) | (mode & 0xf);
+    let mut i = 0usize;
+    while i < SEEN_COUNT {
+        if SEEN_NR[i] == key {
+            return false;
+        }
+        i += 1;
+    }
+    if SEEN_COUNT < SEEN_NR.len() {
+        SEEN_NR[SEEN_COUNT] = key;
+        SEEN_COUNT += 1;
+    }
+    true
+}
+
 unsafe fn record(line: &[u8]) {
     // Only spam the terminal when there is no log file to write to: in the
     // product the guest owns fd 2 and a shim record must not land inside the
@@ -554,7 +580,9 @@ extern "C" fn on_sigsys(_sig: CInt, info: *const u8, uc: *mut u8) {
         };
         put(&mut buf, &mut k, name);
         put(&mut buf, &mut k, b"\n");
-        record(&buf[..k]);
+        if first_sighting(nr as u16, mode as u16) {
+            record(&buf[..k]);
+        }
 
         // The kill family is handed to the kernel on purpose, so a trap here
         // means this ROM refuses the call at the seccomp layer. Answer EPERM and
@@ -3051,22 +3079,32 @@ unsafe fn synth_proc_status(p: &[u8], at: &mut usize) -> bool {
     let rest = &p[head.len()..];
     let mut pid: u64 = 0;
     let mut i = 0usize;
-    while i < rest.len() && rest[i].is_ascii_digit() {
-        pid = pid * 10 + (rest[i] - b'0') as u64;
-        i += 1;
-        if pid > i32::MAX as u64 {
+    let mut after = rest;
+    if rest.len() > 5 && &rest[..5] == b"self/" {
+        pid = syscall4(SYS_GETPID, 0, 0, 0, 0) as u64;
+        i = 1;
+        after = &rest[5..];
+    } else {
+        while i < rest.len() && rest[i].is_ascii_digit() {
+            pid = pid * 10 + (rest[i] - b'0') as u64;
+            i += 1;
+            if pid > i32::MAX as u64 {
+                return false;
+            }
+        }
+        if i >= rest.len() || rest[i] != b'/' {
             return false;
         }
+        after = &rest[i + 1..];
     }
-    if i == 0 || &rest[i..] != b"/status" {
+    if i == 0 || after != b"status" {
         return false;
     }
     let pid = pid as CInt;
-    let uid = match env_uint_of_pid(pid, b"NR_FAKE_UID=") {
-        Some(v) => v,
-        None => return false, // not a guest process: tell the truth
+    let (uid, gid) = match peer_identity(pid) {
+        Some(id) => id,
+        None => return false, // not one of ours: tell the truth
     };
-    let gid = env_uint_of_pid(pid, b"NR_FAKE_GID=").unwrap_or(0);
 
     let mut path = [0u8; 40];
     let tail = b"/status";
@@ -12207,12 +12245,138 @@ unsafe fn env_uint_of_pid(pid: CInt, key: &[u8]) -> Option<u32> {
     None
 }
 
-/// What the peer calls itself: getuid()/getgid() as that process sees them.
-unsafe fn peer_identity(pid: CInt) -> (u32, u32) {
-    (
-        env_uint_of_pid(pid, b"NR_FAKE_UID=").unwrap_or(0),
-        env_uint_of_pid(pid, b"NR_FAKE_GID=").unwrap_or(0),
-    )
+
+/// One pass over `/proc/<pid>/environ`: is this one of ours, and what does it
+/// report for uid/gid? (Presence of `NR_ROOTFS` is the only marker every guest
+/// process carries; the fake ids are optional and default to the shim's 0.)
+unsafe fn environ_identity(pid: CInt) -> Option<(bool, Option<u32>, Option<u32>)> {
+    if pid <= 0 {
+        return None;
+    }
+    let mut path = [0u8; 40];
+    let head = b"/proc/";
+    let tail = b"/environ";
+    let mut n = head.len();
+    path[..n].copy_from_slice(head);
+    let mut digits = [0u8; 10];
+    let mut k = 0usize;
+    let mut v = pid as u32;
+    loop {
+        digits[k] = b'0' + (v % 10) as u8;
+        v /= 10;
+        k += 1;
+        if v == 0 || k == digits.len() {
+            break;
+        }
+    }
+    while k > 0 {
+        k -= 1;
+        path[n] = digits[k];
+        n += 1;
+    }
+    if n + tail.len() >= path.len() {
+        return None;
+    }
+    path[n..n + tail.len()].copy_from_slice(tail);
+    n += tail.len();
+    path[n] = 0;
+    let f = syscall4(SYS_OPENAT, AT_FDCWD as usize, path.as_ptr() as usize, 0, 0);
+    if f < 0 {
+        return None;
+    }
+    let mut buf = [0u8; 8192];
+    let mut have = 0usize;
+    while have < buf.len() {
+        let r = syscall4(
+            SYS_PREAD64,
+            f as usize,
+            buf.as_mut_ptr().add(have) as usize,
+            buf.len() - have,
+            have,
+        );
+        if r <= 0 {
+            break;
+        }
+        have += r as usize;
+    }
+    syscall4(SYS_CLOSE, f as usize, 0, 0, 0);
+    if have == 0 {
+        return None;
+    }
+    let text = &buf[..have];
+    let mut guest = false;
+    let mut uid = None;
+    let mut gid = None;
+    let mut i = 0usize;
+    while i < text.len() {
+        let mut end = i;
+        while end < text.len() && text[end] != 0 {
+            end += 1;
+        }
+        let entry = &text[i..end];
+        if entry.len() > 10 && &entry[..10] == b"NR_ROOTFS=" {
+            guest = true;
+        } else if entry.len() > 12 && &entry[..12] == b"NR_FAKE_UID=" {
+            uid = parse_u32_dec(&entry[12..]);
+        } else if entry.len() > 12 && &entry[..12] == b"NR_FAKE_GID=" {
+            gid = parse_u32_dec(&entry[12..]);
+        }
+        i = end + 1;
+    }
+    Some((guest, uid, gid))
+}
+
+fn parse_u32_dec(v: &[u8]) -> Option<u32> {
+    let mut n: u64 = 0;
+    let mut any = false;
+    for &c in v {
+        if !c.is_ascii_digit() {
+            break;
+        }
+        any = true;
+        n = n * 10 + (c - b'0') as u64;
+        if n > u32::MAX as u64 {
+            return None;
+        }
+    }
+    if any {
+        Some(n as u32)
+    } else {
+        None
+    }
+}
+
+/// A guest process is one this runtime started: it carries `NR_ROOTFS`.
+/// `NR_FAKE_UID`/`GID` are only present when the launcher seeded a user, so a
+/// guest without them reports the shim's own default, uid 0 - the same answer
+/// its getuid() gives.
+const PEER_CACHE_SLOTS: usize = 8;
+static mut PEER_CACHE: [(CInt, u32, u32); PEER_CACHE_SLOTS] = [(0, 0, 0); PEER_CACHE_SLOTS];
+static mut PEER_CACHE_NEXT: usize = 0;
+
+/// None = not one of ours (do not touch its answers).
+unsafe fn peer_identity(pid: CInt) -> Option<(u32, u32)> {
+    if pid <= 0 {
+        return None;
+    }
+    let mut i = 0usize;
+    while i < PEER_CACHE_SLOTS {
+        if PEER_CACHE[i].0 == pid {
+            return Some((PEER_CACHE[i].1, PEER_CACHE[i].2));
+        }
+        i += 1;
+    }
+    let (guest, uid, gid) = match environ_identity(pid) {
+        Some(v) => v,
+        None => return None,
+    };
+    if !guest {
+        return None;
+    }
+    let id = (uid.unwrap_or(0), gid.unwrap_or(0));
+    PEER_CACHE[PEER_CACHE_NEXT] = (pid, id.0, id.1);
+    PEER_CACHE_NEXT = (PEER_CACHE_NEXT + 1) % PEER_CACHE_SLOTS;
+    Some(id)
 }
 
 /// The receive-side twin of `sendmsg`'s `rewrite_credentials`.
@@ -12236,9 +12400,10 @@ unsafe fn restore_credentials(msg: *mut u8) {
         let ctype = core::ptr::read_unaligned(p.add(12) as *const i32);
         if level == 1 && ctype == 2 && clen >= 28 {
             let pid = core::ptr::read_unaligned(p.add(16) as *const i32);
-            let (uid, gid) = peer_identity(pid);
-            core::ptr::write_unaligned(p.add(20) as *mut u32, uid);
-            core::ptr::write_unaligned(p.add(24) as *mut u32, gid);
+            if let Some((uid, gid)) = peer_identity(pid) {
+                core::ptr::write_unaligned(p.add(20) as *mut u32, uid);
+                core::ptr::write_unaligned(p.add(24) as *mut u32, gid);
+            }
         }
         off += (clen + 7) & !7usize;
     }
@@ -12266,9 +12431,10 @@ pub unsafe extern "C" fn getsockopt(
     if r == 0 && fake_root_on() && level == 1 && optname == SO_PEERCRED_C && !optval.is_null() {
         // struct ucred { pid_t pid; uid_t uid; gid_t gid; }: 12 bytes.
         let pid = core::ptr::read_unaligned(optval as *const i32);
-        let (uid, gid) = peer_identity(pid);
-        core::ptr::write_unaligned(optval.add(4) as *mut u32, uid);
-        core::ptr::write_unaligned(optval.add(8) as *mut u32, gid);
+        if let Some((uid, gid)) = peer_identity(pid) {
+            core::ptr::write_unaligned(optval.add(4) as *mut u32, uid);
+            core::ptr::write_unaligned(optval.add(8) as *mut u32, gid);
+        }
     }
     r
 }

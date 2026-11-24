@@ -9,7 +9,7 @@
 **设备**：`adb` serial `UKHMMB8PYTGECMNV`（RMX3357）。2.0 集成现场是应用
 `com.linuxhub.myth.husk`（debug 包名后缀），rootfs 在
 `files/linux/distributions/ubuntu-24.04/rootfs`，loader 在 `files/linux/husk/libld.so`，
-资产版本标记 `files/linux/husk/assets.version`（当前 `husk-runtime-spawn-link-11`）。
+资产版本标记 `files/linux/husk/assets.version`（当前 `husk-runtime-spawn-link-19`）。
 旧测试会话的 `com.linuxhub.husk`（`files/rootfs-full`、`files/libld3.so`）不要动。
 
 **启动契约（两个变量必须同时设，缺一个就"看起来像 shim 坏了"）**：
@@ -45,7 +45,13 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
       `rust/getifaddrs-bridge` 也已出库；登录、会话、`executeContainerCommand`、桌面启动只走
       `HuskRuntime.command`。判据是同 rootfs 回归：空 checkpoint 从 UI 跑完 814 包、`dpkg -C` 空、
       0 `Bad system call`、门禁 A 34/34、supervisor 8/8、542.8 s（删 proot 前 533/541 s）；
-4. 交付形态：**已落地**（`tools/guest/install-husk.sh`，evidence 130）——本地 tarball 或 URL 一条命令
+4. **GPU 仍是软件渲染**（FACT，未修）：rootfs 原先只有 Adreno 的 `freedreno_icd`；
+   已装 `mesa-vulkan-drivers 25.2.8`（`panfrost_icd.json` 到位、Vulkan loader 能列举设备），
+   但 PanVK 起不来这颗 MTK 4.19 kbase（`Failed to detect any valid GPUs`），
+   且 guest EGL 报 `DRI3 error: Could not get DRI3 device`（shim 的假 `renderD128` 答不了
+   DRM 版本查询）。2.0 侧 `GpuRuntimeEnvironment.gnomeSessionShell()` 还在硬钉
+   `MESA_LOADER_DRIVER_OVERRIDE=swrast GALLIUM_DRIVER=llvmpipe`。属架构活，不在这版。
+5. 交付形态：**已落地**（`tools/guest/install-husk.sh`，evidence 130）——本地 tarball 或 URL 一条命令
    装完 + 生成启动器，本机 app 私有目录端到端通；**真 Termux 验收 UNKNOWN**（本机没装 Termux，
    adb shell 里也没有 curl/wget，URL 分支只在 macOS 上证过下载段）。
 
@@ -150,8 +156,24 @@ Nautilus / gvfs / tracker。整条链路四个独立故障与修法见 evidence 
    僵尸也一并修了（kernel 4.19 没有 `waitid(P_PIDFD)`，GLib 的 child watch 于是不回收——
    shim 里按 `/proc/self/fdinfo` 把 pidfd 翻成 pid，100 s 后 0 僵尸，见 147 §7.1）。
    `polkitd` 也通了（`initgroups` 仿真，现在常驻并持有 `org.freedesktop.PolicyKit1`）。
-   剩下的都是"桌面能不能用"的问题，不是"能不能上屏"：**桌面收不到输入**（`X11Runtime`
-   根本没有注入指针/键盘的入口，147 §8）、gvfs 点对点总线、at-spi、xrandr scaling。
+   剩下的都是"桌面能不能用"的问题，不是"能不能上屏"。
+
+   **输入是通的**（evidence 148，纠正 147 §8 的错误结论）：注入入口一直在
+   （`LorieView` → `EmbeddedInputController` → `TouchInputHandler` → JNI → lorie X server）。
+   拖动移光标、悬停出 tooltip、点按开应用网格、点图标起终端、键盘出 `uname` 输出都实测通过。
+   真正的坑是 `touchMode` 默认 `"1"`=trackpad（点按落在**光标**处，不落在手指处），
+   而 `"2"` 模拟触摸在这台机子上**点击不落地**（FACT，未修），`"3"` 未测。
+
+   身份链修了两层（evidence 150）：`SO_PEERCRED` / 收到的 `SCM_CREDENTIALS` /
+   `/proc/<pid>/status` 现在按对端自己的 `NR_FAKE_UID/GID` 回答，转发来的凭据改成丢弃。
+   还差最后一层——polkit 仍判调用者不可信（`Only trusted callers`，见 150 §4），
+   `tools/guest-config/49-husk.rules` 已写好（root 与 uid 1000 = 管理员）。
+
+   SIGSYS 日志去重后，一次完整会话从 832 KB 降到 10 KB（320 行）。
+
+   速度有了数（evidence 149）：同一个 App 沙箱、同一个 rootfs，只把被测量进程换成 proot——
+   开设置 1.00 s vs 1.63 s（1.6×），`fork+exec` 1.73×、`find /usr` 1.75×、`tar` 2.06×、
+   `dpkg -l` 1.11×、纯 CPU 1.20×：proot 的税在 syscall 密度上。
 
 ## 已知环境细节（踩过的坑，别再踩）
 
