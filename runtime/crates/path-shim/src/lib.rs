@@ -7547,29 +7547,37 @@ pub unsafe extern "C" fn execve(
                 0,
             ));
         }
-        let mut sargs: [*const CChar; 64] = [core::ptr::null(); 64];
+        let argc = argv_len(argv);
+        let sargs = argv_alloc(argc + 4);
+        if sargs.is_null() {
+            return -1;
+        }
         let mut k = 0usize;
-        sargs[k] = tgt.as_ptr() as *const CChar;
+        *sargs.add(k) = tgt.as_ptr() as *const CChar;
         k += 1;
         if shebang_arg_len > 0 {
-            sargs[k] = shebang_arg.as_ptr() as *const CChar;
+            *sargs.add(k) = shebang_arg.as_ptr() as *const CChar;
             k += 1;
         }
-        sargs[k] = as_given.as_ptr() as *const CChar;
+        *sargs.add(k) = as_given.as_ptr() as *const CChar;
         k += 1;
         let mut i = 1usize;
-        while !argv.is_null() && !(*argv.add(i)).is_null() && k < 63 {
-            sargs[k] = *argv.add(i);
+        while i < argc {
+            *sargs.add(k) = *argv.add(i);
             k += 1;
             i += 1;
         }
-        return ret_or_errno(syscall4(
+        let r = syscall4(
             SYS_EXECVE,
             tgt.as_ptr() as usize,
-            sargs.as_ptr() as usize,
+            sargs as usize,
             envp as usize,
             0,
-        ));
+        );
+        if r < 0 && r > -4096 {
+            free(sargs as *mut u8);
+        }
+        return ret_or_errno(r);
     }
 
     let root = guest_root();
@@ -7612,49 +7620,55 @@ pub unsafe extern "C" fn execve(
         return set_errno(36);
     }
 
-    let mut args: [*const CChar; 64] = [core::ptr::null(); 64];
+    let argc = argv_len(argv);
+    let args = argv_alloc(argc + 8);
+    if args.is_null() {
+        return -1;
+    }
     let mut k = 0usize;
-    args[k] = ld2.as_ptr() as *const CChar;
+    *args.add(k) = ld2.as_ptr() as *const CChar;
     k += 1;
-    args[k] = b"--library-path\0".as_ptr() as *const CChar;
+    *args.add(k) = b"--library-path\0".as_ptr() as *const CChar;
     k += 1;
-    args[k] = lib.as_ptr() as *const CChar;
+    *args.add(k) = lib.as_ptr() as *const CChar;
     k += 1;
     // argv[0] the way the caller wrote it. The program argument below is a
     // *resolved* path, so without this every symlink-dispatched program sees
     // its target's name; that is what turned `addgroup --system X` into an
     // adduser call (evidence 137).
-    if !argv.is_null() && !(*argv).is_null() {
-        args[k] = b"--argv0\0".as_ptr() as *const CChar;
+    if argc > 0 {
+        *args.add(k) = b"--argv0\0".as_ptr() as *const CChar;
         k += 1;
-        args[k] = *argv;
+        *args.add(k) = *argv;
         k += 1;
     }
-    args[k] = tgt.as_ptr() as *const CChar;
+    *args.add(k) = tgt.as_ptr() as *const CChar;
     k += 1;
     if is_script {
-        if shebang_arg_len > 0 && k < 62 {
-            args[k] = shebang_arg.as_ptr() as *const CChar;
+        if shebang_arg_len > 0 {
+            *args.add(k) = shebang_arg.as_ptr() as *const CChar;
             k += 1;
         }
-        if k < 62 {
-            args[k] = as_given.as_ptr() as *const CChar;
-            k += 1;
-        }
+        *args.add(k) = as_given.as_ptr() as *const CChar;
+        k += 1;
     }
     let mut i = 1usize;
-    while !argv.is_null() && !(*argv.add(i)).is_null() && k < 63 {
-        args[k] = *argv.add(i);
+    while i < argc {
+        *args.add(k) = *argv.add(i);
         k += 1;
         i += 1;
     }
-    ret_or_errno(syscall4(
+    let r = syscall4(
         SYS_EXECVE,
         ld2.as_ptr() as usize,
-        args.as_ptr() as usize,
+        args as usize,
         envp as usize,
         0,
-    ))
+    );
+    if r < 0 && r > -4096 {
+        free(args as *mut u8);
+    }
+    ret_or_errno(r)
 }
 
 const DEFAULT_LIBRARY_DIRS: &[&[u8]] = &[
@@ -7665,6 +7679,44 @@ const DEFAULT_LIBRARY_DIRS: &[&[u8]] = &[
     b"usr/lib/gnome-shell",
     b"usr/lib/aarch64-linux-gnu/gvfs",
 ];
+
+/// Number of entries in a NULL-terminated argv.
+unsafe fn argv_len(argv: *const *const CChar) -> usize {
+    if argv.is_null() {
+        return 0;
+    }
+    let mut n = 0usize;
+    while !(*argv.add(n)).is_null() {
+        n += 1;
+    }
+    n
+}
+
+/// Heap-allocate an argv array with room for `n` entries plus the NULL.
+///
+/// The exec paths used a `[*const CChar; 64]` on the stack, which silently
+/// dropped every argument past the 63rd. Measured 2026-11-24: `make -j4` on a
+/// 200-file project died with
+///   `ld: crtstuff.c:(.text+0x38): undefined reference to '__TMC_END__'`
+///   `ld: app: hidden symbol '__TMC_END__' isn't defined`
+///   `ld: final link failed: bad value`
+/// because collect2's >200 arguments were truncated and `-lc` / `crtend.o` fell
+/// off the end. Nothing in that message points at argv, which is what makes it
+/// worth a comment. The caller frees the buffer only when execve fails.
+unsafe fn argv_alloc(n: usize) -> *mut *const CChar {
+    let bytes = (n + 1) * core::mem::size_of::<*const CChar>();
+    let p = malloc(bytes) as *mut *const CChar;
+    if p.is_null() {
+        *__errno_location() = 12; // ENOMEM
+        return core::ptr::null_mut();
+    }
+    let mut i = 0usize;
+    while i <= n {
+        *p.add(i) = core::ptr::null();
+        i += 1;
+    }
+    p
+}
 
 /// Build the loader `--library-path` used by nested execs.
 ///

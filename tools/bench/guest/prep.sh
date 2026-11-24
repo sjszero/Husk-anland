@@ -7,7 +7,12 @@ cd /root || exit 1
 # 200-file C project for `make -j4` (dimension 2/4: build throughput).
 if [ ! -d /root/bench-make ]; then
   mkdir -p /root/bench-make
-  i=0
+  # f0.c carries main(), so the 200-object link is a real link. Without it the
+  # fixture fails on every runner with "undefined reference to `main`", which
+  # would measure a broken Makefile instead of a build.
+  printf '#include <stdio.h>\nint f0(void){return 0;}\nint main(void){return 0;}\n' \
+    > /root/bench-make/f0.c
+  i=1
   while [ $i -lt 200 ]; do
     printf '#include <stdio.h>\nint f%d(void){return %d;}\n' "$i" "$i" > /root/bench-make/f$i.c
     i=$((i+1))
