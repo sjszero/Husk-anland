@@ -105,3 +105,14 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
 | 浏览器 | 随附 rootfs 无浏览器包，未跑过 | — |
 
 「有实测链路」不等于「产品可用」：这四类都还是「跑通过一次」的程度，稳定性与错误路径没做完。
+
+## 9 · 路径改写的已知边界（四条已证、一条未证）
+
+libc 里有 5 个函数打不上入口补丁，钉在 `tools/loader/libc-interpose.expected`：
+`__readlink_chk`、`__readlinkat_chk`、`__realpath_chk`、`__mq_open_2`、`__openat64_nocancel`。
+2026-11-25 用同一份 stock libc 反汇编核过（evidence 175）：前四个是 24 字节的 fortify 包装，
+唯一「跳进补丁窗口」的是它们自己的 `b.hi`/`tbnz` 跳到 +0xc，真正干活是尾调用
+`readlink` / `readlinkat` / `realpath` / `mq_open`——这四个名字都在表里、入口已被接管，
+所以补包装函数没有收益，不构成路径逃逸。第五个在这个 libc 构建里**没有导出符号**，
+slot 页定位不到，影响标 **UNKNOWN**：它的调用者是 libc 内部、外层入口（`open`/`open64`/
+`openat`/`openat64`）都已接管，但这是论证，不是实测。

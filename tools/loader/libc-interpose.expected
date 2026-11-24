@@ -6,8 +6,16 @@
 #   * a listed entry that starts being patched also fails (glibc changed or the
 #     interposer was improved) - review, then drop the line.
 # Do not add a line to silence a failure without knowing the reason.
-__readlink_chk         # something branches into the window
-__readlinkat_chk       # something branches into the window
-__realpath_chk         # something branches into the window
-__mq_open_2            # something branches into the window
+# The first four are 24-byte fortify wrappers: the only branch "into the
+# window" is their own `b.hi`/`tbl` to +0xc, and their real path is a tail
+# branch to readlink / readlinkat / realpath / mq_open - all four are patched
+# entries in the table, so covering the wrapper would add nothing. Verified by
+# disassembly in evidence 175.
+__readlink_chk         # self-branch to +0xc; tail-calls patched readlink
+__readlinkat_chk       # self-branch to +0xc; tail-calls patched readlinkat
+__realpath_chk         # self-branch to +0xc; tail-calls patched realpath
+__mq_open_2            # tbnz to +0x8; tail-calls patched mq_open
+# This one is UNKNOWN, not verified: not exported by this libc build, so the
+# slot page cannot even locate it. Its callers are libc-internal and their outer
+# entries are patched, but that is an argument, not a measurement (evidence 175).
 __openat64_nocancel    # not exported by this libc (stripped .symtab)
