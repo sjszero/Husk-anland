@@ -3029,9 +3029,132 @@ unsafe fn synth_net_route(at: &mut usize) -> bool {
     true
 }
 
+
+/// `/proc/<pid>/status` as a guest sees it.
+///
+/// polkit does not trust the credentials it was handed: `polkit_unix_process`
+/// re-reads the subject's uid from `/proc/<pid>/status` and uses that as the
+/// identity. Serving the kernel's file unchanged therefore handed polkitd the
+/// Android app uid (10265) again and it answered
+///
+///   NotAuthorized: Only trusted callers (e.g. uid 0 or an action owner) can use
+///   CheckAuthorization() for subjects belonging to other identities
+///
+/// even after SO_PEERCRED/SCM_CREDENTIALS were rewritten. Patch the two lines
+/// that carry the identity, for guest pids only (a pid whose environ says it
+/// came from this runtime); everything else falls through to the kernel.
+unsafe fn synth_proc_status(p: &[u8], at: &mut usize) -> bool {
+    let head = b"/proc/";
+    if p.len() < head.len() + 8 || &p[..head.len()] != head {
+        return false;
+    }
+    let rest = &p[head.len()..];
+    let mut pid: u64 = 0;
+    let mut i = 0usize;
+    while i < rest.len() && rest[i].is_ascii_digit() {
+        pid = pid * 10 + (rest[i] - b'0') as u64;
+        i += 1;
+        if pid > i32::MAX as u64 {
+            return false;
+        }
+    }
+    if i == 0 || &rest[i..] != b"/status" {
+        return false;
+    }
+    let pid = pid as CInt;
+    let uid = match env_uint_of_pid(pid, b"NR_FAKE_UID=") {
+        Some(v) => v,
+        None => return false, // not a guest process: tell the truth
+    };
+    let gid = env_uint_of_pid(pid, b"NR_FAKE_GID=").unwrap_or(0);
+
+    let mut path = [0u8; 40];
+    let tail = b"/status";
+    let mut n = head.len();
+    path[..n].copy_from_slice(head);
+    let mut digits = [0u8; 10];
+    let mut k = 0usize;
+    let mut v = pid as u32;
+    loop {
+        digits[k] = b'0' + (v % 10) as u8;
+        v /= 10;
+        k += 1;
+        if v == 0 || k == digits.len() {
+            break;
+        }
+    }
+    while k > 0 {
+        k -= 1;
+        path[n] = digits[k];
+        n += 1;
+    }
+    if n + tail.len() >= path.len() {
+        return false;
+    }
+    path[n..n + tail.len()].copy_from_slice(tail);
+    n += tail.len();
+    path[n] = 0;
+
+    let f = syscall4(SYS_OPENAT, AT_FDCWD as usize, path.as_ptr() as usize, 0, 0);
+    if f < 0 {
+        return false;
+    }
+    let mut buf = [0u8; 4096];
+    let mut have = 0usize;
+    while have < buf.len() {
+        let r = syscall4(
+            SYS_PREAD64,
+            f as usize,
+            buf.as_mut_ptr().add(have) as usize,
+            buf.len() - have,
+            have,
+        );
+        if r <= 0 {
+            break;
+        }
+        have += r as usize;
+    }
+    syscall4(SYS_CLOSE, f as usize, 0, 0, 0);
+    if have == 0 {
+        return false;
+    }
+
+    let mut start = 0usize;
+    let text = &buf[..have];
+    while start < text.len() {
+        let mut end = start;
+        while end < text.len() && text[end] != b'\n' {
+            end += 1;
+        }
+        let line = &text[start..end];
+        if line.len() > 4 && (&line[..4] == b"Uid:" || &line[..4] == b"Gid:") {
+            let val = if &line[..4] == b"Uid:" { uid } else { gid };
+            vt_put(at, &line[..4]);
+            for _ in 0..4 {
+                vt_put(at, b"\t");
+                vt_num(at, val as u64);
+            }
+        } else {
+            vt_put(at, line);
+        }
+        vt_put(at, b"\n");
+        if end >= text.len() {
+            break;
+        }
+        start = end + 1;
+    }
+    true
+}
+
 /// Fill VTEXT for a file this namespace answers itself. None = not ours.
 unsafe fn virt_synth(p: &[u8]) -> Option<usize> {
     let mut at = 0usize;
+    if p.len() > 7 && &p[..6] == b"/proc/" && p.ends_with(b"/status") {
+        if synth_proc_status(p, &mut at) {
+            return Some(at);
+        }
+        at = 0;
+    }
     if p == b"/proc/uptime" {
         let s = sysinfo_read()?;
         vt_num(&mut at, s.uptime);
@@ -11836,17 +11959,21 @@ pub unsafe extern "C" fn send(fd: CInt, buf: usize, len: usize, flags: CInt) -> 
 /// Rewrite the three fields to what the kernel already knows about this process:
 /// the receiver reads the same values from SO_PEERCRED, so nothing is being
 /// claimed that the kernel would not hand over anyway.
-unsafe fn rewrite_credentials(msg: *const u8) {
+unsafe fn rewrite_credentials(msg: *mut u8) {
     if msg.is_null() {
         return;
     }
     // struct msghdr (arm64): name 0, namelen 8, iov 16, iovlen 24,
     // control 32, controllen 40, flags 48.
     let control = core::ptr::read_unaligned(msg.add(32) as *const usize) as *mut u8;
-    let controllen = core::ptr::read_unaligned(msg.add(40) as *const usize);
+    let len_ptr = msg.add(40) as *mut usize;
+    let mut controllen = core::ptr::read_unaligned(len_ptr as *const usize);
     if control.is_null() || controllen < 16 {
         return;
     }
+    let self_pid = syscall4(SYS_GETPID, 0, 0, 0, 0) as i32;
+    let real_uid = syscall4(SYS_GETUID, 0, 0, 0, 0) as u32;
+    let real_gid = syscall4(SYS_GETGID, 0, 0, 0, 0) as u32;
     let mut off = 0usize;
     while off + 16 <= controllen {
         let p = control.add(off);
@@ -11858,25 +11985,40 @@ unsafe fn rewrite_credentials(msg: *const u8) {
         let ctype = core::ptr::read_unaligned(p.add(12) as *const i32);
         // SOL_SOCKET = 1, SCM_CREDENTIALS = 2, sizeof(struct ucred) = 12.
         if level == 1 && ctype == 2 && clen >= 28 {
-            core::ptr::write_unaligned(
-                p.add(16) as *mut i32,
-                syscall4(SYS_GETPID, 0, 0, 0, 0) as i32,
-            );
-            core::ptr::write_unaligned(
-                p.add(20) as *mut u32,
-                syscall4(SYS_GETUID, 0, 0, 0, 0) as u32,
-            );
-            core::ptr::write_unaligned(
-                p.add(24) as *mut u32,
-                syscall4(SYS_GETGID, 0, 0, 0, 0) as u32,
-            );
+            let claimed = core::ptr::read_unaligned(p.add(16) as *const i32);
+            if claimed == self_pid {
+                // The process describing itself (GDBus builds this from
+                // getuid()): the kernel only accepts the real values.
+                core::ptr::write_unaligned(p.add(20) as *mut u32, real_uid);
+                core::ptr::write_unaligned(p.add(24) as *mut u32, real_gid);
+            } else {
+                // A broker forwarding *someone else's* identity - dbus-daemon
+                // does this for every message it relays. The kernel refuses
+                // those (EPERM), and rewriting them to our own real creds is
+                // what made polkitd see every caller as the nameless Android
+                // uid. Drop the control message instead: the receiver then
+                // falls back to the connection's own peer credentials, which
+                // this same shim reports as the peer's fiction.
+                let adv = (clen + 7) & !7usize;
+                let rest = controllen - (off + adv);
+                if rest > 0 {
+                    core::ptr::copy_nonoverlapping(
+                        control.add(off + adv) as *const u8,
+                        control.add(off),
+                        rest,
+                    );
+                }
+                controllen = off + rest;
+                core::ptr::write_unaligned(len_ptr, controllen);
+                continue;
+            }
         }
         off += (clen + 7) & !7usize;
     }
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn sendmsg(fd: CInt, msg: *const u8, flags: CInt) -> Ssize {
+pub unsafe extern "C" fn sendmsg(fd: CInt, msg: *mut u8, flags: CInt) -> Ssize {
     if !msg.is_null() && fake_root_on() {
         rewrite_credentials(msg);
     }
@@ -11970,10 +12112,174 @@ unsafe fn nl_empty_done(fd: CInt, msg: *mut u8) -> Ssize {
     20
 }
 
+
+// --------------------------------------------------------- peer identity ---
+//
+// polkitd names its callers from the kernel, not from us: SO_PEERCRED on the
+// accepted socket, SCM_CREDENTIALS on a datagram. Under the fake identity both
+// answers carry the Android app uid (10265), which has no passwd entry, so
+// polkitd files the session as a nameless stranger and answers
+//
+//   org.freedesktop.PolicyKit1.Error.NotAuthorized: Only trusted callers ...
+//
+// (evidence 147 §8). The *sending* side cannot forge credentials - the kernel
+// only accepts the real values, which is why sendmsg() rewrites them - so the
+// receiving side is where the fiction has to be put back. Every guest process
+// carries its own fiction in NR_FAKE_UID/GID and /proc/<pid>/environ is
+// readable across this sandbox (one real uid), so a receiver can ask the peer
+// what that peer reports through getuid().
+const SO_PEERCRED_C: CInt = 17;
+const SYS_GETSOCKOPT_NR: usize = 209;
+
+/// `KEY=<digits>` out of an arbitrary pid's environ block.
+unsafe fn env_uint_of_pid(pid: CInt, key: &[u8]) -> Option<u32> {
+    if pid <= 0 {
+        return None;
+    }
+    let mut path = [0u8; 40];
+    let head = b"/proc/";
+    let tail = b"/environ";
+    let mut n = head.len();
+    path[..n].copy_from_slice(head);
+    let mut digits = [0u8; 10];
+    let mut k = 0usize;
+    let mut v = pid as u32;
+    loop {
+        digits[k] = b'0' + (v % 10) as u8;
+        v /= 10;
+        k += 1;
+        if v == 0 || k == digits.len() {
+            break;
+        }
+    }
+    while k > 0 {
+        k -= 1;
+        path[n] = digits[k];
+        n += 1;
+    }
+    if n + tail.len() >= path.len() {
+        return None;
+    }
+    path[n..n + tail.len()].copy_from_slice(tail);
+    n += tail.len();
+    path[n] = 0;
+    let f = syscall4(SYS_OPENAT, AT_FDCWD as usize, path.as_ptr() as usize, 0, 0);
+    if f < 0 {
+        return None;
+    }
+    let mut buf = [0u8; 8192];
+    let mut have = 0usize;
+    while have < buf.len() {
+        let r = syscall4(
+            SYS_PREAD64,
+            f as usize,
+            buf.as_mut_ptr().add(have) as usize,
+            buf.len() - have,
+            have,
+        );
+        if r <= 0 {
+            break;
+        }
+        have += r as usize;
+    }
+    syscall4(SYS_CLOSE, f as usize, 0, 0, 0);
+    let text = &buf[..have];
+    let mut i = 0usize;
+    let mut at_entry = true;
+    while i < text.len() {
+        if at_entry && i + key.len() <= text.len() && &text[i..i + key.len()] == key {
+            let mut j = i + key.len();
+            let mut val: u64 = 0;
+            let mut any = false;
+            while j < text.len() && text[j].is_ascii_digit() {
+                val = val * 10 + (text[j] - b'0') as u64;
+                j += 1;
+                any = true;
+                if val > u32::MAX as u64 {
+                    return None;
+                }
+            }
+            return if any { Some(val as u32) } else { None };
+        }
+        at_entry = text[i] == 0;
+        i += 1;
+    }
+    None
+}
+
+/// What the peer calls itself: getuid()/getgid() as that process sees them.
+unsafe fn peer_identity(pid: CInt) -> (u32, u32) {
+    (
+        env_uint_of_pid(pid, b"NR_FAKE_UID=").unwrap_or(0),
+        env_uint_of_pid(pid, b"NR_FAKE_GID=").unwrap_or(0),
+    )
+}
+
+/// The receive-side twin of `sendmsg`'s `rewrite_credentials`.
+unsafe fn restore_credentials(msg: *mut u8) {
+    if msg.is_null() {
+        return;
+    }
+    let control = core::ptr::read_unaligned(msg.add(32) as *const usize) as *mut u8;
+    let controllen = core::ptr::read_unaligned(msg.add(40) as *const usize);
+    if control.is_null() || controllen < 16 {
+        return;
+    }
+    let mut off = 0usize;
+    while off + 16 <= controllen {
+        let p = control.add(off);
+        let clen = core::ptr::read_unaligned(p as *const usize);
+        if clen < 16 || clen > controllen - off {
+            return;
+        }
+        let level = core::ptr::read_unaligned(p.add(8) as *const i32);
+        let ctype = core::ptr::read_unaligned(p.add(12) as *const i32);
+        if level == 1 && ctype == 2 && clen >= 28 {
+            let pid = core::ptr::read_unaligned(p.add(16) as *const i32);
+            let (uid, gid) = peer_identity(pid);
+            core::ptr::write_unaligned(p.add(20) as *mut u32, uid);
+            core::ptr::write_unaligned(p.add(24) as *mut u32, gid);
+        }
+        off += (clen + 7) & !7usize;
+    }
+}
+
+/// `SO_PEERCRED` is how every daemon asks "who is on the other end"; answer
+/// with what that peer would answer about itself.
+#[no_mangle]
+pub unsafe extern "C" fn getsockopt(
+    fd: CInt,
+    level: CInt,
+    optname: CInt,
+    optval: *mut u8,
+    optlen: *mut u32,
+) -> CInt {
+    let r = ret_or_errno(syscall6(
+        SYS_GETSOCKOPT_NR,
+        fd as usize,
+        level as usize,
+        optname as usize,
+        optval as usize,
+        optlen as usize,
+        0,
+    ));
+    if r == 0 && fake_root_on() && level == 1 && optname == SO_PEERCRED_C && !optval.is_null() {
+        // struct ucred { pid_t pid; uid_t uid; gid_t gid; }: 12 bytes.
+        let pid = core::ptr::read_unaligned(optval as *const i32);
+        let (uid, gid) = peer_identity(pid);
+        core::ptr::write_unaligned(optval.add(4) as *mut u32, uid);
+        core::ptr::write_unaligned(optval.add(8) as *mut u32, gid);
+    }
+    r
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn recvmsg(fd: CInt, msg: *mut u8, flags: CInt) -> Ssize {
     let fake = nl_is_fake(fd);
     let mut r = syscall4(SYS_RECVMSG_NR, fd as usize, msg as usize, flags as usize, 0);
+    if r >= 0 && fake_root_on() {
+        restore_credentials(msg);
+    }
     if fake {
         dress_name(msg);
         if r == -11 {
