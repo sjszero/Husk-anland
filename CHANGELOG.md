@@ -1,5 +1,17 @@
 # 变更记录
 
+## 2026-11-24 — 带虚构所有权从头初始化两遍，并补齐嵌套 exec 的库目录
+
+- **evidence 143**：两遍**空 checkpoint** 的 App 界面初始化（loader `d210644d` / `07c890f2`）
+  分别是 533 s / 541 s，814 包、`dpkg -C` 空、`Bad system call` 0 条、1,194 条 trap 全接住、
+  与 evidence 140 同数的 56 条 dpkg 符号链接噪声；门禁 A 34/34、监督器 8/8。
+- 嵌套 exec 的 `--library-path` 原来在没有 `NR_LIBRARY_PATH` 时落到写死的 6 个目录，
+  漏掉 `/usr/libexec/sudo`：同一个 `sudo` 作为会话首个程序能起，在 shell 里敲就
+  `libsudo_util.so.0: cannot open shared object file`。现在兜底读 `/etc/ld.so.husk-path`。
+- 初始化那次声明重建早于 `CONFIGURE_SUDO` 装 sudo，所以刚完成时少一个目录、要重启一次才对；
+  `SAVE_CONFIGURATION` 里再重建一次（4.8 s）。
+- 指纹：loader `07c890f2…`（shim `ee3ac422…`），libc 不变；设备 `assets.version = husk-runtime-spawn-link-11`。
+
 ## 2026-11-24 — 虚构所有权跨进程：`st_uid` 终于不是"本进程的谎"
 
 - **evidence 142**：rootfs 里的文件一直如实报出真实 app uid（`u0_a265`），所以 `sudo` 说

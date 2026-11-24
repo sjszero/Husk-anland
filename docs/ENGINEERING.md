@@ -72,10 +72,10 @@ shim 跨度 `0x60000`；钩子地址 983,040；服务表地址 987,136；介入�
 
 | 文件 | sha256 |
 |---|---|
-| `ld-embedded.so`（成品动态链接器） | `d210644d3c99782a61c3d88d60d0697182167a1b969629596eff12c66411fe7c` |
+| `ld-embedded.so`（成品动态链接器） | `07c890f2758b66e80fd8222028df3255bb9c5466fce8c483c70f5d605f84be32` |
 | `ld-linux-aarch64.so.1.orig`（原始） | `bd29514c1b45cc29b152011dd7c504e00dce240c19e4dd120196053873af9180` |
 | `libc-nop.so.6`（guest 使用，含 HUSK-SLOT-1 槽位页 + clone3→ENOSYS） | `32d4d3f9501a2c717cf2246a2df1a898f1361b49e0576614461d70fc94774b56` |
-| `libpath_shim.so`（嵌入前） | `293a95bc3bd21d91d4eb715ab283a6aaa6f6c8adadac1bed675a1932747fbfbe` |
+| `libpath_shim.so`（嵌入前） | `ee3ac422a4d5a6909a1b265652498d7fcf9e0e1179fb09b092ba4ff6e682bd5d` |
 
 在本仓库执行 `tools/loader/build-embedded-loader.sh`，产出应与第一行一致。
 

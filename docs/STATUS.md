@@ -9,7 +9,7 @@
 **设备**：`adb` serial `UKHMMB8PYTGECMNV`（RMX3357）。2.0 集成现场是应用
 `com.linuxhub.myth.husk`（debug 包名后缀），rootfs 在
 `files/linux/distributions/ubuntu-24.04/rootfs`，loader 在 `files/linux/husk/libld.so`，
-资产版本标记 `files/linux/husk/assets.version`（当前 `husk-runtime-spawn-link-10`）。
+资产版本标记 `files/linux/husk/assets.version`（当前 `husk-runtime-spawn-link-11`）。
 旧测试会话的 `com.linuxhub.husk`（`files/rootfs-full`、`files/libld3.so`）不要动。
 
 **启动契约（两个变量必须同时设，缺一个就"看起来像 shim 坏了"）**：
@@ -36,7 +36,10 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
    ② Kotlin 侧已经接上（运行时替换 + 资产），门禁 A 的干净重跑见 evidence 140；
    ③ guest `DT_RUNPATH` 已由"guest 自己声明库目录"覆盖（evidence 141）；跨进程虚构所有权
       （`st_uid`）已落成 `/var/lib/husk/owners` 这张 inode 例外表（evidence 142）。
-      **sudo 现在卡在 PAM/audit**（`ENOTSOCK`、audit netlink），属服务/桌面表面，不在门禁 A 判据里；
+      **sudo 现在卡在 PAM/audit**（`ENOTSOCK`、audit netlink），属服务/桌面表面，不在门禁 A 判据里。
+      另外把「嵌套 exec 的库目录」从写死的 6 个目录改成读 guest 自己的 `/etc/ld.so.husk-path`
+      兜底，并让初始化在 `SAVE_CONFIGURATION` 再声明一次 —— 否则 App 重启前 `sudo` 找不到
+      `/usr/libexec/sudo/libsudo_util.so.0`（evidence 143）；
 4. 交付形态：**已落地**（`tools/guest/install-husk.sh`，evidence 130）——本地 tarball 或 URL 一条命令
    装完 + 生成启动器，本机 app 私有目录端到端通；**真 Termux 验收 UNKNOWN**（本机没装 Termux，
    adb shell 里也没有 curl/wget，URL 分支只在 macOS 上证过下载段）。
