@@ -95,3 +95,31 @@ OpenGL ES profile renderer: zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))
   更稳的做法是让应用侧把系统的 DNS 写进 `resolv.conf`（APK 路径已经是这么做的）。
 - `tail -f`、`gsettings` 一类依赖会话总线的东西没在这次独立安装里重跑，只在应用路径下验过。
 - 图形会话（真实的 X/Wayland 桌面窗口）没有在这套独立安装里起过；这一项仍未验收。
+
+## 7. 发布前复验（2026-11-24 后续，同一台设备）
+
+把上面的修改打成 0.02 的包后，用新的包重跑了两遍，避免「改了没验」：
+
+| 跑的什么 | 根包 | 结果 |
+|---|---|---|
+| `b02/` | 3.5 GB 的 `.tar` | 安装全绿（符号链接 4 改 1 悬空 0 残留、libc 匹配、硬链接成立、sonames ok） |
+| `c02/` | 1.5 GB 的 `.tar.gz`（**发布里那个产物**） | 同上，全绿 |
+
+两次都验到：
+
+```
+$ ./husk --version
+husk 0.02
+$ ./husk run ubuntu -c 'id; uname -m'
+uid=0(root) gid=0(root) groups=0(root)
+aarch64
+$ head -2 root/etc/resolv.conf
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+$ ./husk run ubuntu -c 'apt-get update'
+Fetched 38.1 MB in 47s (806 kB/s)
+```
+
+结论：**发布里的两个产物（启动器包 + 1.5 GB 的树）都在目标机上装得上、起得来、能装包。**
+这条同时说明前面那次 `.gz` 失败是**我们导出的包被截断**（toybox gzip 的 gzclose 行为），
+不是 toybox tar 不会解 gz。
