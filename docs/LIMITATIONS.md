@@ -63,9 +63,14 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
    **进发布配置**，桌面合成路径（mutter/cogl，`cogl=gles2 override=3.2`）已经在 3.2 下出帧
    （evidence 165/168）。还没验的是**普通应用**：GTK4 的 ngl 渲染器这类真实客户端没跑过，
    遇到花屏/黑窗口先怀疑这里，回退开关是 `HUSK_GPU=llvmpipe`。
-   **2026-11-25 已补一个真实客户端**：GTK 4.14 的 `gnome-text-editor`（`GSK_RENDERER=ngl`）
+   **2026-11-25 已补真实客户端**：GTK 4.14 的 `gnome-text-editor`（`GSK_RENDERER=ngl`）
    在 zink/PanVK 的 X11 上开窗、画出完整界面，X 根窗口抓图 28 565 种颜色、不是黑窗口
-   （evidence 176）。只有这一个客户端；WebKit/Electron 类**未测**，输入交互**未测**。
+   （evidence 176）；`gnome-control-center`（GTK 4 + libadwaita）的侧栏与状态页也完整出画。
+   **反例是文件管理器**：`nautilus` 46 能开窗、能枚举目录（日志逐条打出 `/etc/*`），但内容区
+   整块空白、连列头都不出现；`GSK_RENDERER=cairo` 与 `ngl` 一样、`list-view` 与 `icon-view`
+   一样，**同一份 rootfs 换 proot 起也照样空白**，同一会话里最小 `GtkColumnView` 程序却正常
+   ——所以不是 path-shim 造成的，根因 UNKNOWN（evidence 178）。WebKit/Electron 类**未测**，
+   输入交互**未测**。
    另外这棵树的整块 `glReadPixels` 只写第一行+第一列（evidence 162），
    截图类工具会拿到全零而不报错——那是读回缺陷，别当成渲染失败。
 2. **窗口呈现能跑，但不是零拷贝**（evidence 165/167）：X11 窗口化 EGL 已经通了
@@ -95,6 +100,7 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
 |---|---|---|
 | 命令行用户态（bash、coreutils、apt、dpkg、gcc、make、python3+numpy、git） | 可用 | evidence 154、155 |
 | 会话服务（polkit、at-spi、gvfs、RandR） | 可用 | evidence 151、152 |
+| 文件管理器（Nautilus 46） | 能开窗、能枚举；**内容区空白**（cairo/ngl、list/icon 都一样，proot 同样空白） | evidence 178 |
 | GPU：Vulkan compute / 离屏 graphics | 可用 | evidence 156 |
 | GPU：GL/EGL 经 Zink 落到 GPU（默认上限 GLES 3.2，靠 override；真实应用未验） | 可用 | evidence 156、161、167 |
 | GPU：X11 窗口呈现（EGL window surface + swap） | 可用，呈现走回读+拷贝（DRI3 未通，代价 24.8 ms/MP） | evidence 165、174 |

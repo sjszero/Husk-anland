@@ -30,6 +30,11 @@
 - **真实 GTK4 客户端跑通**：GTK 4.14 的 `gnome-text-editor`（`GSK_RENDERER=ngl`）在 zink/PanVK 的
   X11 上开窗并画出完整界面，X 根窗口 2400×1080 抓图 28 565 种颜色、非黑；同时记录
   `KBASE_IOCTL_MEM_EXEC_INIT` 被拒（EPERM）但渲染正常，原因未查清（evidence 176）。
+- **文件管理器实测是个反例**：`nautilus` 46 能开窗、能枚举（日志逐条打出 `file:///etc/*`），
+  但内容区整块空白、连列头都不出现；`GSK_RENDERER=cairo` 与 `ngl` 一样、`list-view` 与
+  `icon-view` 一样，**同一份 rootfs 换 proot 起也照样空白**，而同一会话里 `gnome-control-center`
+  与自写的最小 `GtkColumnView` 程序都正常——所以不是 path-shim 造成的，根因 UNKNOWN
+  （evidence 178，`LIMITATIONS` §7/§8）。
 - **5 个打不上的 libc hook 核清四条、留一条 UNKNOWN**：反汇编证明 `__readlink_chk` /
   `__readlinkat_chk` / `__realpath_chk` / `__mq_open_2` 的"跳进窗口"是它们自己跳自己，
   真正的活是尾调用已接管的入口；`__openat64_nocancel` 这版没导出符号，标 UNKNOWN
