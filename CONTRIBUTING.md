@@ -1,77 +1,68 @@
-# Contributing
+# 参与贡献
 
-Husk runs a glibc userland inside an ordinary Android app process: no root, no
-bootloader unlock, no hardware virtualization, and no `ptrace`. Every patch has
-to keep that shape, because the reason the project exists is the performance that
-shape buys.
+Husk 把一段 glibc 用户态跑在普通 Android 应用进程里：不 root、不解 Bootloader、不开硬件
+虚拟化、不做 `ptrace`。任何补丁都得保持这个形状——项目存在的理由就是它换来的那点性能。
 
-## Glossary
+## 术语表
 
-These five words are used with a fixed meaning everywhere in the repo; if a
-document disagrees with this list, the document is wrong.
+下面五个词在全仓库里含义固定。如果某份文档和这张表不一致，那是文档错了。
 
-| Term | Meaning |
+| 词 | 含义 |
 |---|---|
-| **loader** | `libld.so` — the guest's glibc `ld.so` with the shim embedded in an extra `PT_LOAD`. It maps the guest program and re-enters itself for every `execve`. |
-| **path shim** | The Rust (`no_std`) module inside the loader that interposes libc symbols which take a path (`open`, `stat`, `execve`, `statvfs`, ...) and resolves them against the guest root. |
-| **guest** | The process tree started by the loader. It sees the rootfs as `/`, uid 0, and no Android paths. |
-| **rootfs** | The distro tree (`files/linux/distributions/ubuntu-24.04/rootfs` on device). Shared by every runner in the benchmarks, so the runner stays the only variable. |
-| **runner** | What starts the guest: `husk` (loader + shim), `proot`, `proot-distro`. `tools/bench/` treats them as interchangeable adapters. |
+| **loader** | `libld.so`——guest 的 glibc `ld.so`，把 shim 嵌在一个额外的 `PT_LOAD` 里。它装载 guest 程序，并在每次 `execve` 时重新进入自己 |
+| **path shim** | loader 里那段 Rust（`no_std`）代码：interpose 带路径的 libc 符号（`open`、`stat`、`execve`、`statvfs` 等），把它们解析到 guest 根下 |
+| **guest** | loader 起来的进程树。它看到 rootfs 就是 `/`，uid 0，看不到 Android 的路径 |
+| **rootfs** | 发行版目录树（设备上是 `files/linux/distributions/<发行版>/rootfs`）。基准里三个运行器共用同一份，运行器才是唯一变量 |
+| **runner** | 启动 guest 的东西：`husk`（loader + shim）、`proot`、`proot-distro`。`tools/bench/` 把它们当成可互换的适配器 |
 
-## Ground rules
+## 硬规则
 
-1. **No third-party code in the tree.** Dependencies are resolved by Cargo at
-   build time; artifacts that must ship (`ld-embedded.so`, `libc-nop.so.6`, the
-   guest helpers) are built from sources in this repo and committed only where
-   `docs/ENGINEERING.md` says so.
-2. **No root, no `ptrace`, no namespaces.** A patch that needs any of them is a
-   different project; open an issue first.
-3. **Claims need a measurement.** A PR that says "faster" needs a line in
-   `docs/design/evidence/` with the command and the output, including the cases
-   where Husk lost.
-4. **Absolute paths in guest code, relative paths on the command line.** The
-   loader is invoked as `libld.so --library-path ... usr/bin/bash` — the program
-   path is relative on purpose (see `docs/STATUS.md`).
-5. **Never read or write `com.linuxhub.myth`** except through the documented
-   adb/`run-as` path for the app under test.
+1. **树里不放第三方代码。** 依赖由 Cargo 在构建时解析；必须随包发布的产物（loader、补丁版
+   libc、guest 工具）都由本仓库的源码构建，只在 `docs/ENGINEERING.md` 写明的地方入库。
+2. **不 root、不 `ptrace`、不用 namespace。** 需要这些的补丁是另一个项目，先开 issue 讨论。
+3. **结论必须有测量。** 说「更快」的 PR 要在 `docs/design/evidence/` 留一条命令与输出，
+   包括 Husk 输了的那几次。
+4. **guest 代码用绝对路径，命令行上给相对路径。** loader 的调用形如
+   `libld.so --library-path ... usr/bin/bash`，程序路径故意是相对的（见 `docs/RUNNING.md` §5）。
+5. **绝不读写 `com.linuxhub.myth`。** 被测应用只走文档里写的 adb / `run-as` 路径。
 
-## Build
+## 构建
 
 ```sh
-# type-check the parts that are pure Rust, for the target they run on
+# 只做类型检查（对它实际运行的目标架构）
 make check
 
-# formatting gate (what CI runs)
+# 格式门禁（CI 跑的那条）
 make lint
 
-# rebuild the loader — needs NDK (clang + llvm-objcopy) on PATH via $NDK
+# 三处版本号一致性
+make version-check
+
+# 重建 loader —— 需要 NDK（clang + llvm-objcopy）通过 $NDK 提供
 make loader
 ```
 
-`cargo test` builds aarch64 inline assembly: it only runs on an arm64 Linux
-host. On macOS or x86_64 the tests fail to compile, which is a platform
-limitation, not a failing patch. Use `make check` there.
+`cargo test` 会编译 aarch64 内联汇编，只能在 arm64 Linux 主机上跑。在 macOS 或 x86_64 上
+编译不过，那是平台限制，不是补丁坏了——那边用 `make check`。
 
-## Style
+## 风格
 
-- Conventional Commits: `feat|fix|docs|perf|refactor|test|build|ci|chore`. The
-  body says what was measured, not how hard it was.
-- Rust: `cargo fmt` and clippy are expected to stay quiet about *errors*;
-  warnings in `path-shim` are old and tracked separately.
-- Shell: POSIX `sh`, `set -eu`, no bashisms in `tools/`. Verify with `sh -n`.
-- Documents: `#`/`##`/`###` only, ≤100 columns, code fences carry a language.
+- Conventional Commits：`feat|fix|docs|perf|refactor|test|build|ci|chore`。正文写测到了什么，
+  不写有多辛苦。
+- Rust：`cargo fmt` 与 clippy 对**错误**必须安静；`path-shim` 里遗留的 warning 单独跟踪。
+- Shell：POSIX `sh`、`set -eu`，`tools/` 里不写 bash 专有语法，用 `sh -n` 验。
+- 文档：标题只用 `#`/`##`/`###`，正文 ≤100 列，代码块带语言标记。
 
-## Tests that matter
+## 哪些测试算数
 
-| Layer | How it is checked |
+| 层 | 怎么查 |
 |---|---|
-| shim / ELF surgery | `cargo test --target aarch64-unknown-linux-gnu -p runtime-core -p nr-tools` on an arm64 Linux host |
-| guest basics | `tools/device-tests/14-gate-a-acceptance.sh` (36 items: bash, locale, user management, dpkg, apt, host-path leaks, seccomp traps) |
-| desktop | start GNOME, then 30 minutes idle: RSS, threads, fds and zombie counts must not grow (`docs/design/evidence/153-*`) |
-| performance | `tools/bench/run-all.sh <runner>` — same rootfs, same shell, one runner changed |
+| shim / ELF 改写 | 在 arm64 Linux 主机上 `cargo test --target aarch64-unknown-linux-gnu -p runtime-core -p nr-tools` |
+| guest 基础 | `tools/device-tests/14-gate-a-acceptance.sh`（36 项：bash、locale、用户管理、dpkg、apt、宿主路径泄漏、seccomp 陷阱） |
+| 稳定性 | 空载 30 分钟：RSS、线程数、fd 数、僵尸数都不涨（`docs/design/evidence/153-*`） |
+| 性能 | `tools/bench/run-all.sh <runner>`——同一份 rootfs、同一个 shell，只换运行器 |
 
-## Reporting a bug
+## 报告 bug
 
-Use the issue template. Include the device properties it asks for, the exact
-command, and the exact output. If the runtime printed a `SIGSYS` trap, say which
-number — `docs/LIMITATIONS.md` explains which ones are expected.
+用 issue 模板。附上它要的设备属性、完整命令、完整输出。如果运行时打了 `SIGSYS`，说清是
+哪个系统调用号——[`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) 写了哪些是预期内的。

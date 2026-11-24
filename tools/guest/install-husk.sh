@@ -61,6 +61,17 @@ esac
 mkdir -p "$DEST"
 DEST=$(cd "$DEST" && pwd)
 OUT=$(dirname "$DEST")
+
+# Version: one source of truth, the VERSION file shipped next to this script
+# (repo root when run from a checkout). `./husk --version` prints exactly this
+# string, and `make version-check` keeps it equal to the newest CHANGELOG entry.
+HUSK_VERSION=${HUSK_VERSION:-}
+if [ -z "$HUSK_VERSION" ]; then
+    for f in "$HERE/VERSION" "$(pwd)/VERSION"; do
+        if [ -f "$f" ]; then HUSK_VERSION=$(cat "$f"); break; fi
+    done
+fi
+: "${HUSK_VERSION:=unknown}"
 [ -x "$LOADER" ] || { echo "install-husk: loader not executable: $LOADER" >&2; exit 69; }
 LOADER=$(cd "$(dirname "$LOADER")" && pwd)/$(basename "$LOADER")
 # a URL is not a path yet; it is turned into one by the download step below
@@ -178,7 +189,10 @@ cat > "$OUT/husk" <<LAUNCHER
 #   ./husk run ubuntu          - the same thing; one rootfs per install, so the
 #                                name is accepted and documented, not looked up
 #   ./husk run ubuntu -c 'id'  - run one command inside the guest
+#   ./husk --version           - print the release this tree came from
+HUSK_VERSION=$HUSK_VERSION
 case "\${1:-}" in
+    -V|--version) echo "husk \$HUSK_VERSION"; exit 0 ;;
     run) shift; [ \$# -gt 0 ] && shift ;;   # drop "run" and the distro name
 esac
 [ \$# -gt 0 ] || set -- usr/bin/bash -l

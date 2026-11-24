@@ -241,10 +241,10 @@ eglinfo 报 Mali-G77；音频出声并有延迟数字；H.264/HEVC 硬解、AV �
 
 ## 8. 网络与代理
 
-- GitHub 直连失败时使用本机代理：`127.0.0.1:7897`（HTTP/SOCKS mixed）。
+- GitHub 直连失败时用本机代理（地址与端口按自己环境填，不写进仓库）。
 - 只在单条命令或当前 shell 临时启用；操作完成立即 `unset`，不要永久写入环境。
 - 示例：
-  `GIT_CONFIG_GLOBAL=/dev/null git -c http.proxy=http://127.0.0.1:7897 clone ...`
+  `GIT_CONFIG_GLOBAL=/dev/null git -c http.proxy=http://<host>:<port> clone ...`
 - 提交推送优先直连；失败再用代理，不把代理当作运行时依赖。
 
 ## 9. 设备与资产

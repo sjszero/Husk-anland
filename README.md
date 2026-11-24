@@ -187,12 +187,20 @@ loader 自己解析（含 `PT_INTERP` 与 shebang），嵌套 exec 会重新回�
 
 ## 兼容性
 
+> [!NOTE]
+> 「可用」指在目标机上真的执行过并得到预期结果，不是「包已经装了」。浏览器不可用：随附的
+> rootfs 来自离线包索引，里面没有浏览器包。
+
 参考环境下验证过的：`bash`、coreutils、`git`、`python3`（+`numpy`）、`gcc`、`make`、
 `vim`、`nano`、`node`、`apt`、`dpkg`、dbus、polkit、at-spi、gvfs。发行版层面完整验证过的是
 参考发行版 Ubuntu 24.04 / glibc 2.39；逐项矩阵见
 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)。
 
 ## 从源码构建
+
+> [!WARNING]
+> `make test` 会编译 aarch64 内联汇编，只有在 arm64 Linux 主机上能跑；在 macOS / x86_64 上
+> 编译不过，那是平台限制，不是补丁坏了——那边用 `make check`。
 
 ```sh
 # loader（需要 NDK；会断言它补丁的 glibc 版本）
@@ -232,6 +240,9 @@ docs/design/evidence/  文档里每个数字背后的设备原始输出
 | [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md) | 1.0 之前的工程日记 |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | 怎么构建、怎么测、术语表 |
 | [`QUICKSTART.md`](QUICKSTART.md) | 从零跑通：生成 rootfs、构建、推到设备 |
+| [`ROADMAP.md`](ROADMAP.md) | 对外承诺：交付了什么、下一步、不做什么 |
+| [`SUPPORT.md`](SUPPORT.md) | 先读哪几份、怎么提问、不在支持范围 |
+| [`SECURITY.md`](SECURITY.md) | 什么算漏洞、怎么私密上报 |
 
 ## 常见问题
 

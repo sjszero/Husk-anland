@@ -1,26 +1,24 @@
-# Support
+# 支持
 
-## Read first
+## 先读这几份
 
-| Question | Document |
+| 问题 | 文档 |
 |---|---|
-| Does my device work? | [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) — one verified device, everything else UNKNOWN |
-| How do I run it? | [`docs/RUNNING.md`](docs/RUNNING.md) |
-| Why is it fast? | [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) |
-| What does it not do? | [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) |
-| How does the loader work? | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
+| 我这台机器能不能跑？ | [`docs/RUNNING.md`](docs/RUNNING.md) §2 的三条硬前提 |
+| 每个运行器能跑什么？ | [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) |
+| 怎么装、怎么起会话？ | [`docs/RUNNING.md`](docs/RUNNING.md) |
+| 为什么快、快多少？ | [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) |
+| 什么做不到？ | [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) |
+| loader 是怎么工作的？ | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 
-## Asking
+## 怎么提问
 
-Open an issue with the bug template. A useful report contains the device
-properties, the exact command, the exact output, and `assets.version`. Reports
-that say only "the desktop is broken" cannot be acted on: the desktop has a dozen
-independent stages and each one has its own log.
+开 issue 用 bug 模板。一个能处理的报告包含：设备属性、完整命令、完整输出、
+`files/linux/husk/assets.version` 的内容。只写「跑不起来」的报告无法复现，也无法处理。
 
-## Not supported
+## 不在支持范围
 
-- Devices other than the one in `docs/COMPATIBILITY.md`: the runtime is not
-  claimed to work there, and a report that it does not is not a bug.
-- `root`, bootloader unlocking, or running without the Android app sandbox.
-- Distributions other than the Ubuntu 24.04 tree the loader was built against
-  (glibc version is checked at build time, `docs/LIMITATIONS.md`).
+- 三条硬前提不满足的设备：那不是 bug，是这台机器跑不了。
+- `root`、解 Bootloader、脱离应用沙箱运行。
+- 参考发行版之外的发行版：loader 的补丁按 glibc 版本断言，换树要重新验证。
+- Termux：缺依赖，不是脚本能补的（[`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) §3）。

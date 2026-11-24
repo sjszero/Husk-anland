@@ -6,7 +6,7 @@
 
 ## 接手须知（冷启动只读这一节 + 本文件的表）
 
-**设备**：`adb` serial `UKHMMB8PYTGECMNV`（RMX3357）。2.0 集成现场是应用
+**设备**：一台 arm64 Android 手机（RMX3357）；序列号不入库，用 `adb devices` 的当前值。2.0 集成现场是应用
 `com.linuxhub.myth.husk`（debug 包名后缀），rootfs 在
 `files/linux/distributions/ubuntu-24.04/rootfs`，loader 在 `files/linux/husk/libld.so`，
 资产版本标记 `files/linux/husk/assets.version`（当前 `husk-runtime-spawn-link-23`）。
@@ -89,7 +89,7 @@ sudo/PAM 一条按"不需要"结案：`husk-su` 已覆盖提权路径，PAM 的 
 | 判据 | `python3 -c 'import os;print(os.statvfs("/").f_blocks)'` = 28 292 600（不是 194 478）；`getent shadow husk` 非空 |
 
 **参考笔记不进仓库**：`$REPO-notes/prior-art/`（必读 `references.md`）。
-**推 GitHub 走代理**：`HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 git -c http.proxy=http://127.0.0.1:7897 push origin main`
+**推 GitHub 走代理**：`HTTPS_PROXY=http://<host>:<port> git -c http.proxy=http://<host>:<port> push origin main`（地址不入库）
 
 ## 一句话
 
