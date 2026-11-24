@@ -8,20 +8,21 @@
 
 <p align="center">让完整的 Linux 发行版以普通应用进程的身份，直接被 Android 内核执行。</p>
 
-<!-- 徽章只放可核对的项目自身事实：代码构成 → 平台 → 运行方式（每条都对应实测证据） -->
+<!-- 徽章沿用 LinuxHub 仓库的 house style（flat-square），只写项目自身、可核对的事实：
+     平台与架构、代码构成、依赖的 guest 树、运行方式。设备型号与系统版本只出现在下方
+     「当前状态」表里——那是验收机的信息，不是项目属性。 -->
 <p align="center">
-  <img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue">
-  <img alt="Rust: 96% of code" src="https://img.shields.io/badge/Rust-96%25%20of%2064.6k%20lines-DEA584?logo=rust&logoColor=white">
-  <img alt="Platform: Android 13, arm64" src="https://img.shields.io/badge/platform-Android%2013%20%C2%B7%20arm64-3DDC84?logo=android&logoColor=white">
-  <img alt="Distribution: Ubuntu 24.04 glibc" src="https://img.shields.io/badge/distro-Ubuntu%2024.04%20glibc-E95420?logo=ubuntu&logoColor=white">
+  <img alt="License: Apache-2.0" src="https://img.shields.io/badge/License-Apache--2.0-2563EB?style=flat-square">
+  <img alt="Rust: 96% of code" src="https://img.shields.io/badge/Rust-96%25%20of%2064.6k%20lines-DEA584?style=flat-square&logo=rust&logoColor=white">
+  <img alt="Platform: Android arm64" src="https://img.shields.io/badge/Platform-Android%20arm64-3DDC84?style=flat-square&logo=android&logoColor=white">
+  <img alt="Guest: Ubuntu 24.04 glibc" src="https://img.shields.io/badge/Guest-Ubuntu%2024.04%20glibc-E95420?style=flat-square&logo=ubuntu&logoColor=white">
 </p>
 
 <p align="center">
-  <img alt="root: not required" src="https://img.shields.io/badge/root-not%20required-brightgreen">
-  <img alt="ptrace: not used" src="https://img.shields.io/badge/ptrace-0%20calls-brightgreen">
-  <img alt="Virtualization: none" src="https://img.shields.io/badge/hardware%20virtualization-none-brightgreen">
-  <img alt="Syscalls: native" src="https://img.shields.io/badge/syscalls-native%2C%20unintercepted-brightgreen">
-  <img alt="Namespaces: not required" src="https://img.shields.io/badge/namespaces-not%20required-brightgreen">
+  <img alt="Runtime: in-process, no ptrace" src="https://img.shields.io/badge/Runtime-in--process%2C%200%20ptrace-0F766E?style=flat-square">
+  <img alt="Root: not required" src="https://img.shields.io/badge/Root-not%20required-0F766E?style=flat-square">
+  <img alt="Virtualization: none" src="https://img.shields.io/badge/Virtualization-none-0F766E?style=flat-square">
+  <img alt="Syscalls: native" src="https://img.shields.io/badge/Syscalls-native%2C%20unintercepted-0F766E?style=flat-square">
 </p>
 
 **Husk 是一个 Android 运行时：让完整的 Linux 发行版（glibc 用户态）以普通应用进程的身份，
@@ -39,15 +40,20 @@
 | 设备 | RMX3357，MT6893（天玑 1200），Mali-G77，Android 13（SDK 33），kernel 4.19.191，4 KiB 页，arm64 |
 | 运行域 | `untrusted_app`，无 root、无 Shizuku |
 | 运行时 | loader 内嵌 path-shim（零 ptrace）；exec / PTY / 信号 / 生命周期已闭环 |
-| 桌面 | LinuxHub 2.0 的 Ubuntu 24.04 rootfs 能起 GNOME Shell 46（Wayland 显示服务器），GTK4 客户端可连 |
-| GPU | guest 进程直开 `/dev/mali0`，PanVK（Mali-G77）logical device / compute / 离屏 graphics / Zink surfaceless 全通 |
-| 显示 | `AHardwareBuffer` → dma-buf → `SurfaceControl` 零拷贝上屏；3-buffer ring + 真实 `SYNC_FD`；10,000 帧 / 665 秒长稳，fd/RSS 无增长 |
+| 桌面（2.0 应用内，X11） | LinuxHub 2.0 的 Ubuntu 24.04 rootfs 起 GNOME Shell 46，**X11 会话**（mutter 46 X11 后端）；顶栏、壁纸、dock、通知全部在屏（evidence 147） |
+| 桌面（Husk 原生壳，Wayland） | mutter 46 在 guest 内跑成 Wayland 合成器，GPU 走 PanVK；`ScreenCast` / `RemoteDesktop` 接口都在（evidence 96–99） |
+| GPU（guest 直开） | guest 进程直开 `/dev/mali0`，PanVK（Mali-G77）logical device / compute / 离屏 graphics / Zink surfaceless 全通（evidence 97） |
+| GPU（2.0 桌面） | **仍是软件渲染**：`MESA_LOADER_DRIVER_OVERRIDE=swrast`/`llvmpipe` 还钉着，`DRI3` 未通（`docs/STATUS.md` 第 4 条） |
+| 显示（2.0 应用内） | 应用内 X server（Lorie）把桌面渲染上屏 |
+| 显示（原生直通） | `AHardwareBuffer` → dma-buf → `SurfaceControl` 零拷贝上屏；3-buffer ring + 真实 `SYNC_FD`；10,000 帧 / 665 秒长稳，fd/RSS 无增长 |
 | 视频 | H.264 1080p30 经 `c2.mtk.avc.decoder` + AHB，连续 600 秒，dropped=0 |
 | 音频 | guest 枚举输出设备、控音量，PCM 经独立通道进 app AAudio；610 秒连续会话 |
 | 相机 | guest 内 `/dev/videoN` V4L2，GStreamer 可取流、可拍照、可录像 |
-| 输入 | 触摸 / 键盘 / 鼠标经 mutter `RemoteDesktop` 注入到 guest 合成器 |
+| 输入（2.0 应用内） | 触摸 → `TouchInputHandler` → JNI → 同一个进程里的 X server → XI2 → mutter（evidence 148） |
+| 输入（原生直通） | 经 mutter `RemoteDesktop` 注入到 guest 合成器（evidence 98） |
 
-**进行中**：GNOME 桌面把帧交给 Android Surface（ScreenCast → PipeWire → AHB → SurfaceControl）。
+**进行中**：把 GNOME 的帧接到零拷贝直通路径（ScreenCast → PipeWire → AHB → SurfaceControl）。
+2.0 里的桌面现在走应用内 X server，还没有并到这条链上。
 
 **未开始**：WSI / swapchain、HEVC / VP9 / AV1 解码、硬件编码、相机零拷贝、传感器、GPS、
 USB / 蓝牙 / NFC / 指纹，以及把 LinuxHub 2.0 的 proot 运行时整体替换成 Husk。

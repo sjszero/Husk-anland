@@ -51,9 +51,10 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
    且 guest EGL 报 `DRI3 error: Could not get DRI3 device`（shim 的假 `renderD128` 答不了
    DRM 版本查询）。2.0 侧 `GpuRuntimeEnvironment.gnomeSessionShell()` 还在硬钉
    `MESA_LOADER_DRIVER_OVERRIDE=swrast GALLIUM_DRIVER=llvmpipe`。属架构活，不在这版。
-5. 交付形态：**已落地**（`tools/guest/install-husk.sh`，evidence 130）——本地 tarball 或 URL 一条命令
-   装完 + 生成启动器，本机 app 私有目录端到端通；**真 Termux 验收 UNKNOWN**（本机没装 Termux，
-   adb shell 里也没有 curl/wget，URL 分支只在 macOS 上证过下载段）。
+5. 交付形态：**已落地**（`tools/guest/install-husk.sh`，evidence 130）——本地 tarball 一条命令装完 +
+   生成启动器，唯一支持的目标是**本应用的私有目录**（`run-as .../files/...`），端到端实测通过。
+   **Termux 不是交付形态，也不承诺可用**：guest 树需要的二进制与库 Termux 的 `$PREFIX` 不提供，
+   在那里跑会直接卡在缺依赖上（FACT，已实测失败），不是脚本能补的缺口。
 
 **参考笔记不进仓库**：`/Users/l/Documents/Codex/2026-08-10/husk-notes/prior-art/`（必读 `references.md`）。
 **推 GitHub 走代理**：`HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 git -c http.proxy=http://127.0.0.1:7897 push origin main`

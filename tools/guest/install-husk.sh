@@ -2,9 +2,13 @@
 # install-husk.sh - put a Husk rootfs + loader into a plain directory.
 #
 # This is the "install it like proot-distro does" path: one tarball, one script,
-# no adb push per file, no root. It works in Termux, in `adb shell`, and in an
-# app's private directory (`run-as`), because all it needs is a writable
-# directory and a loader the kernel lets us execute.
+# no adb push per file, no root. What it needs is a writable directory and a
+# loader the kernel lets us execute.
+#
+# The supported target is this app's own private directory (`run-as ... files/...`).
+# Termux is NOT a supported environment and is not tested: the guest tree expects
+# binaries and libraries that a Termux $PREFIX does not provide, so a run from
+# there fails on missing dependencies rather than on anything this script can fix.
 #
 # usage:
 #   install-husk.sh --rootfs <rootfs.tar[.gz]> [--dest DIR] [--loader PATH] [--user NAME]
@@ -106,15 +110,16 @@ case "$probe" in
         echo "install-husk: cannot execute the loader from here:" >&2
         echo "$probe" | head -3 | sed 's/^/    /' >&2
         echo "              a noexec mount looks like this; put the loader where" >&2
-        echo "              exec is allowed (Termux \$PREFIX allows it, /data/local/tmp does not)." >&2
+        echo "              exec is allowed (an app private dir under run-as allows it," >&2
+        echo "              /data/local/tmp and most noexec mounts do not)." >&2
         exit 69 ;;
 esac
 
 # 1. first pass: host tar. Hard links fail on Android; that is expected.
 #    Decompress by magic instead of relying on the archiver: Android's toybox tar
-#    sniffs gzip but not xz/zstd, Termux's tar differs again, and the rootfs
-#    images in the wild come as .tar, .tar.gz, .tar.xz and .tar.zst. One code
-#    path, and a clear error for the "gz of a gz" case.
+#    sniffs gzip but not xz/zstd, and rootfs images in the wild come as .tar,
+#    .tar.gz, .tar.xz and .tar.zst. One code path, and a clear error for the
+#    "gz of a gz" case.
 echo "== pass 1: extract (hard-link errors are expected) =="
 magic=$(od -An -tx1 -N6 "$ROOTFS_TAR" | tr -d ' \n')
 dec=
