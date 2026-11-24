@@ -138,3 +138,46 @@ export GJS_DISABLE_JIT=1
 
 设备上 `files/linux/container.properties` 也是 `gpuProfile=software`。所以现在「桌面能用」是
 软件合成的结果；要它吃 GPU，需要把这一段换成 zink 环境，**并且先解决本文件第 4 节的崩溃**。
+
+## 7 · 窗口化探针：把断点缩到 `eglMakeCurrent`（FACT）
+
+新增 `tools/device-tests/egl-x11-window.c`：`XCreateSimpleWindow` 出一个真窗口 →
+`eglCreateWindowSurface` → GLES2 上下文 → 60 帧 `glClear` + `eglSwapBuffers` → 回读 1 像素。
+每步都打一行，所以崩在哪一步是可读的。同一条命令，只换 ICD：
+
+| ICD | window surface | context | makeCurrent | 帧 | 结果 |
+|---|---|---|---|---|---|
+| lavapipe（`LIBGL_ALWAYS_SOFTWARE=1` 下的 zink） | OK | OK | OK | 前几帧 swap 通过（`renderer=zink Vulkan 1.4(llvmpipe ...)`） | 通过 |
+| PanVK（Mali-G77） | OK | OK | **SIGSEGV** | 一帧都没画 | **崩** |
+
+PanVK 那一组的完整输出：
+
+```
+stage 1: XOpenDisplay OK
+stage 1b: root window=1297
+stage 2: window mapped id=33554433
+MESA-EGL: warning: DRI3 error: Could not get DRI3 device
+WARNING: panvk is not a conformant Vulkan implementation, testing use only.
+FristOneRR 1.2.0 (Mesa 26.3.0-devel)
+stage 3: eglInitialize 1.5
+stage 4: config OK
+stage 5: window surface OK
+stage 6: context OK
+segv|sig=11|fa=0|pc=498848721076|lr=367560552960|x0=0|x1=0|x2=367558870928|x8=-16|ld=498869526528|lc=0
+```
+
+（`stage 6` 与 `stage 7` 之间只有 `eglMakeCurrent` 一句；加 `MESA_DEBUG=1 VK_LOADER_DEBUG=error,warn`
+也没有多出任何日志。）
+
+### 7.1 所以不是「PanVK 不能用」，是「PanVK + xcb 窗口呈现」这一段挂
+
+- `libvulkan_panfrost_frist370_execva.so` 里**确实有** `VK_KHR_xcb_surface` 与 `VK_KHR_swapchain`
+  （`strings` 可查），不是缺扩展。
+- 同一份 PanVK 在 surfaceless 平台下 ES3 workload 全通过（第 3 节）；换成窗口 surface 就在
+  `eglMakeCurrent` 里挂。差异只有 WSI。
+- Lorie 侧 `xdpyinfo` 列出 `DRI3`、`Present`、`SYNC` 三个扩展，但 Mesa 说
+  `Could not get DRI3 device`——**扩展在、设备拿不到**（Mali 没有 DRM render node，只有
+  `/dev/mali0`，DRI3 拿不到 dma-buf 句柄）。所以 X11 侧永远只能走 SHM 呈现。
+
+**待验（UNKNOWN）**：崩在 PanVK 的 xcb/SHM 呈现，还是崩在 Husk loader 与这一段的交互。
+要分开这两者，需要一个不经过 zink 的裸 Vulkan xcb swapchain 探针（下一步）。
