@@ -64,14 +64,17 @@ sh husk-session.sh files/linux/distributions/<发行版>/rootfs -- /usr/bin/true
 | `open` + `close` × 20 000 | 1 252 ms | 8 481 ms | **6.8×** |
 | `make -j4`，200 目标链接 | 5 194 ms | 24 182 ms | **4.7×** |
 | 顺序写 256 MB | 1 294 ms | 1 321 ms | 1.0× |
+| 打开「设置」到首个窗口（桌面） | 4 462 ms | 5 353 ms | 1.2× |
 
 前两行是路径与 syscall 密集的活，要付 proot 每条 syscall 的 `ptrace` 往返；第三行是大块写，
 不经过被翻译的路径，所以打平——表里照写，不藏。
 
 > [!NOTE]
-> 这张表只放能在纯命令行里测的维度。图形相关（图形栈启动、窗口、帧率）不进表：本版不把桌面
-> 列为交付能力，rootfs 里也没有独立的 X server，没有两个可比的对象。
-> 完整条件与代价见 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)。
+> 图形这一维也测了，但只有 Husk 这边有对象：桌面会话冷启动 8–9 s、X 根窗口 2400×1080
+> 非黑像素 100%、帧率 640×480 clear+swap 是 **131 fps**，而同一台机器上软件渲染（llvmpipe）
+> 是 300 fps —— **这一格对 Husk 不利，照写**：瓶颈是呈现路径上的那次 SHM 拷贝（DRI3 未通），
+> 不是 GPU 算力。proot 侧没有可比的桌面，凡是「不可比」的格子是真的没有对象，不是我们没测。
+> 完整条件、样本数与代价见 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)。
 
 ## 和容器、虚拟机的区别
 
