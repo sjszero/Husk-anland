@@ -307,9 +307,12 @@ unsafe fn set_errno_ptr(e: CInt, p: *mut CChar) -> *mut CChar {
 // before libc can see an errno, so glibc's documented "EPERM/ENOSYS -> fall
 // back" paths never run. We install a SIGSYS handler with SA_SIGINFO, which
 // hands us si_syscall, and can then either
+//   (default)         -> per-syscall table: syscalls whose *documented* fallback
+//                        is an error return get -ENOSYS and the process lives;
+//                        anything else still dies with 159 (honest: we do not
+//                        pretend an unknown call succeeded)
 //   NR_SIGSYS=log     -> record the number and die with the same 159
-//   NR_SIGSYS=enosys  -> make the syscall return -ENOSYS and skip the `svc`
-//                        so libc takes its fallback path
+//   NR_SIGSYS=enosys  -> every trapped syscall returns -ENOSYS (experiment only)
 // This is per-syscall, not ptrace: cost is zero unless the trap fires.
 // ---------------------------------------------------------------------------
 const SYS_RT_SIGACTION: usize = 134;
@@ -339,6 +342,58 @@ struct KSigaction {
     mask: u64,
 }
 
+/// What a trapped syscall should return, or `None` if we must not answer it.
+///
+/// Only syscalls whose *documented* failure mode is "not implemented, use the
+/// older path" belong here: returning ENOSYS there is exactly what the kernel
+/// would have said on a device without the syscall, so glibc/musl/Go take the
+/// fallback they already ship. Anything absent from this table keeps the
+/// kernel's fatal semantics - a wrong guess here would silently change program
+/// behaviour, which is worse than a visible crash.
+///
+/// aarch64 numbering (asm-generic/unistd.h); all of these are post-4.19 kernel
+/// additions, which is why the app seccomp policy of a 4.19 device traps them.
+fn sigsys_answer(nr: i32) -> Option<i64> {
+    const ENOSYS: i64 = 38;
+    let hit = match nr {
+        99 => true,                    // set_robust_list (glibc ignores the failure)
+        283 => true,                   // membarrier
+        291 => true,                   // statx (glibc falls back to fstat)
+        293 => true,                   // rseq (glibc disables it and continues)
+        424 => true,                   // pidfd_send_signal
+        425 | 426 | 427 => true,       // io_uring_setup / _enter / _register
+        428 | 429 => true,             // open_tree / move_mount
+        430 | 431 | 432 | 433 => true, // fsopen / fsconfig / fsmount / fspick
+        434 => true,                   // pidfd_open
+        435 => true,                   // clone3  <- glibc/pthread fall back to clone
+        436 => true,                   // close_range
+        437 => true,                   // openat2
+        438 => true,                   // pidfd_getfd
+        439 => true,                   // faccessat2
+        440 => true,                   // process_madvise
+        441 => true,                   // epoll_pwait2
+        442 => true,                   // mount_setattr
+        444 | 445 | 446 => true,       // landlock_create_ruleset / add_rule / restrict_self
+        447 => true,                   // memfd_secret
+        448 => true,                   // process_mrelease
+        449 => true,                   // futex_waitv
+        450 => true,                   // set_mempolicy_home_node
+        451 => true,                   // cachestat
+        452 => true,                   // fchmodat2 (glibc falls back to fchmodat)
+        453 => true,                   // map_shadow_stack
+        454 | 455 | 456 => true,       // futex_wake / futex_wait / futex_requeue
+        457 | 458 => true,             // statmount / listmount
+        459 | 460 | 461 => true,       // lsm_get_self_attr / lsm_set_self_attr / lsm_list_modules
+        462 => true,                   // mseal
+        _ => false,
+    };
+    if hit {
+        Some(-ENOSYS)
+    } else {
+        None
+    }
+}
+
 static SIGSYS_MODE: AtomicU8 = AtomicU8::new(0);
 static SIGSYS_HITS: AtomicU8 = AtomicU8::new(0);
 
@@ -357,9 +412,11 @@ unsafe fn sigsys_mode() -> u8 {
     if m != 0 {
         return m;
     }
+    // 3 == the per-syscall table (default), 1 == log-only, 2 == everything ENOSYS.
     let v = match env_lookup(b"NR_SIGSYS") {
         Some(b"enosys") => 2u8,
-        _ => 1u8,
+        Some(b"log") => 1u8,
+        _ => 3u8,
     };
     SIGSYS_MODE.store(v, Ordering::Relaxed);
     v
@@ -670,19 +727,26 @@ extern "C" fn on_sigsys(_sig: CInt, info: *const u8, uc: *mut u8) {
             return;
         }
 
-        if mode == 2 {
+        // mode 2 answers everything with ENOSYS (experiment); the default mode
+        // answers only the syscalls in sigsys_answer(), which is the set whose
+        // documented fallback is an error return.
+        let answer = if mode == 2 {
+            Some(-38i64)
+        } else if mode == 3 {
+            sigsys_answer(nr)
+        } else {
+            None
+        };
+        if let Some(v) = answer {
             if pc_off == 0 {
                 // cannot locate the frame: never spin on the same syscall
                 record(b"sigsys|frame not found\n");
                 syscall4(SYS_EXIT_GROUP, 128 + SIGSYS_NUM, 0, 0, 0);
             }
-            // Return -ENOSYS and step over the `svc 0` so libc takes its
-            // documented "not implemented, use the fallback" path.
+            // Step over the `svc 0` with x0 already holding the answer, so the
+            // caller sees a normal -1/ENOSYS return and runs its fallback.
             let pc_now = core::ptr::read_unaligned(uc.add(pc_off) as *const u64);
-            core::ptr::write_unaligned(
-                uc.add(pc_off - SC_PC_TO_REGS0) as *mut u64,
-                (-38i64) as u64,
-            );
+            core::ptr::write_unaligned(uc.add(pc_off - SC_PC_TO_REGS0) as *mut u64, v as u64);
             core::ptr::write_unaligned(uc.add(pc_off) as *mut u64, pc_now.wrapping_add(4));
             nr = 0;
             let _ = nr;
