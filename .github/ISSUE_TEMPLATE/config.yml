@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: How it works / architecture
+    url: https://github.com/xishanp/Husk/blob/main/docs/ARCHITECTURE.md
+    about: Loader, path shim, guest rootfs and where each part stops.
+  - name: Known limitations
+    url: https://github.com/xishanp/Husk/blob/main/docs/LIMITATIONS.md
+    about: What Husk deliberately does not do (root, ptrace, static binaries, ...).

@@ -1,0 +1,48 @@
+name: Bug report
+description: Something that used to work (or should work) does not.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: run `make check`, and if the problem is on a device, note
+        which gate or command you ran. "It does not work" cannot be reproduced.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: The exact command, and the exact output. Paste text, not a screenshot of text.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: device
+    attributes:
+      label: Device and build
+      description: |
+        Output of:
+        ```
+        adb shell getprop ro.product.model
+        adb shell getprop ro.build.version.release
+        adb shell getprop ro.product.cpu.abilist
+        cat files/linux/husk/assets.version
+        ```
+      placeholder: |
+        model / Android version / abi list / assets.version
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        `docs/STATUS.md` lists where the runtime writes its logs
+        (`/tmp/nr-sigsys.log`, `/tmp/doro-*.log`). Trim them to the interesting part.
+      render: text
+    validations:
+      required: false

@@ -1,0 +1,7 @@
+# Default owner for everything in the repo.
+*                       @xishanp
+
+# The loader and the shim are the parts where a wrong byte is a dead process.
+/tools/loader/          @xishanp
+/runtime/crates/path-shim/ @xishanp
+/runtime/crates/nr-tools/  @xishanp

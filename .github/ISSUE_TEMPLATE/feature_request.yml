@@ -1,0 +1,31 @@
+name: Feature request
+description: A capability you want Husk to have.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Husk has hard boundaries on purpose: no root, no bootloader unlock, no
+        hardware virtualization, no `ptrace`. `docs/GOALS.md` and
+        `docs/LIMITATIONS.md` say what is in and out of scope; a request that
+        needs one of those is out of scope, not a bug.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you cannot do today, and what you tried.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead
+      description: proot / chroot / Termux / a VM - what did they do about it?
+    validations:
+      required: false

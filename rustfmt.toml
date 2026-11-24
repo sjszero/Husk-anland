@@ -1,0 +1,4 @@
+# The formatting the tree is already in: `cargo fmt --all --check` is a release
+# gate, so this file only pins what rustfmt would otherwise infer.
+edition = "2021"
+max_width = 100
