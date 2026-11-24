@@ -7275,6 +7275,61 @@ pub unsafe extern "C" fn statfs(path: *const CChar, buf: *mut u8) -> CInt {
     }))
 }
 
+/// `statvfs(3)` is glibc's own wrapper around `statfs(2)`: the conversion runs
+/// *inside* libc, so a caller's `statvfs()` never lands on a GOT slot we can
+/// rewrite and the kernel is asked about the host path. Measured 2026-11-24:
+/// `apt-get install` died with
+/// `Couldn't determine free space in /var/cache/apt/archives/ - statvfs (2: No
+/// such file or directory)`, i.e. it statvfs'd a directory that only exists in
+/// the guest. Interpose it, translate once, then do glibc's statfs->statvfs
+/// field mapping ourselves.
+#[no_mangle]
+pub unsafe extern "C" fn statvfs(path: *const CChar, out: *mut u8) -> CInt {
+    statvfs_common(path, out)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn statvfs64(path: *const CChar, out: *mut u8) -> CInt {
+    statvfs_common(path, out)
+}
+
+unsafe fn statvfs_common(path: *const CChar, out: *mut u8) -> CInt {
+    if out.is_null() {
+        return set_errno(14);
+    }
+    // asm-generic struct statfs: every field is a 64-bit long except f_fsid
+    // (two ints) -- f_type f_bsize f_blocks f_bfree f_bavail f_files f_ffree
+    // f_fsid f_namelen f_frsize f_flags f_spare[4].
+    let mut sf = [0u64; 15];
+    let r = xattr_pinned(path, |p| {
+        syscall4(SYS_STATFS, p as usize, sf.as_mut_ptr() as usize, 0, 0)
+    });
+    if r != 0 {
+        if r == -1 {
+            // xattr_pinned already recorded the reason (ENOENT, EACCES, ...).
+            return -1;
+        }
+        return ret_or_errno(r);
+    }
+    // struct statvfs (aarch64): 11 unsigned long + int __f_spare[6] = 112 bytes.
+    let o = out as *mut u64;
+    *o.add(0) = sf[1]; // f_bsize
+    *o.add(1) = sf[9]; // f_frsize
+    *o.add(2) = sf[2]; // f_blocks
+    *o.add(3) = sf[3]; // f_bfree
+    *o.add(4) = sf[4]; // f_bavail
+    *o.add(5) = sf[5]; // f_files
+    *o.add(6) = sf[6]; // f_ffree
+    *o.add(7) = sf[6]; // f_favail
+    *o.add(8) = 0; // f_fsid -- glibc reports 0 here
+    *o.add(9) = sf[10]; // f_flag
+    *o.add(10) = sf[8]; // f_namemax
+    *o.add(11) = 0;
+    *o.add(12) = 0;
+    *o.add(13) = 0;
+    0
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn execve(
     path: *const CChar,
