@@ -63,6 +63,8 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
    **30 分钟空载长稳已跑完**（evidence 169）：PSS 137.3 → 139.9 MB（前 60 秒启动分配，
    之后 29 分钟只涨 11 KB），线程 33 / fd 41 恒定、僵尸 0、同一 pid，结束后 X 根窗口仍
    100% 非黑。只覆盖空闲；睡眠/唤醒与负载型 soak **未测**。
+   **重绘也是实测的**（evidence 171）：同一会话四帧指纹，空载两帧逐字节相同，
+   开/关 GNOME 概览各换一帧 —— 不是静态位图。
    未做：DRI3 零拷贝（`Could not get DRI3 device` 仍在）、
    2.0 侧 `GpuRuntimeEnvironment.gnomeSessionShell()` 仍硬钉 swrast。
 5. 交付形态：**已落地**（`tools/guest/install-husk.sh`，evidence 130）——本地 tarball 一条命令装完 +
