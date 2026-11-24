@@ -62,6 +62,31 @@ make loader
 | 稳定性 | 空载 30 分钟：RSS、线程数、fd 数、僵尸数都不涨（`docs/design/evidence/153-*`） |
 | 性能 | `tools/bench/run-all.sh <runner>`——同一份 rootfs、同一个 shell，只换运行器 |
 
+## 发布
+
+版本号只有一个来源：仓库根的 `VERSION`。`./husk --version`、`CHANGELOG.md` 最新一节、
+release tag 三处由 `make version-check` 强制对齐。
+
+**每发一版，小数位加一：0.01 → 0.02 → 0.03 …**（不跳号、不回填）。发版流程：
+
+```sh
+# 1. 版本与变更
+printf '0.02\n' > VERSION
+#    在 CHANGELOG.md 顶部加一节 ## [0.02] - YYYY-MM-DD，并把链接改成
+#    [0.02]: https://github.com/xishanp/Husk/releases/tag/v0.02
+make check                     # 含 version-check
+NDK=<ndk>/bin make dist        # 产出 dist/husk-arm64.tar.gz + SHA256SUMS
+
+# 2. 打标签、推、建 release（annotated tag，不要轻量标签）
+git tag -a v0.02 -m "Husk 0.02"
+git push origin main && git push origin v0.02
+gh release create v0.02 dist/husk-arm64.tar.gz dist/SHA256SUMS \
+  --title "Husk 0.02" --notes-file <(sed -n '/## \[0.02\]/,/## \[/p' CHANGELOG.md)
+```
+
+release notes 里必须写：本版修了什么（带 evidence 编号）、已知问题、产物 sha256。
+**没在设备上验过的东西，不写进 release notes。**
+
 ## 报告 bug
 
 用 issue 模板。附上它要的设备属性、完整命令、完整输出。如果运行时打了 `SIGSYS`，说清是

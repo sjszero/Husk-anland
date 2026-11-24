@@ -127,22 +127,27 @@ case "$probe" in
 esac
 
 # 1. first pass: host tar. Hard links fail on Android; that is expected.
-#    Decompress by magic instead of relying on the archiver: Android's toybox tar
-#    sniffs gzip but not xz/zstd, and rootfs images in the wild come as .tar,
-#    .tar.gz, .tar.xz and .tar.zst. One code path, and a clear error for the
-#    "gz of a gz" case.
+#    Pick the decompressor by magic: toybox tar handles .tar and .tar.gz, but not
+#    xz/zstd, and images in the wild come as all four. .gz goes straight through
+#    tar (see the gzclose note below); the others are staged to a plain tar.
 echo "== pass 1: extract (hard-link errors are expected) =="
 magic=$(od -An -tx1 -N6 "$ROOTFS_TAR" | tr -d ' \n')
 dec=
+rc=0
 case "$magic" in
-    1f8b*)          dec="gzip -dc" ;;
+    1f8b*)
+        # gzip: let tar decompress. Staging the stream through `gzip -dc > file`
+        # is wrong on this device: toybox gzip writes the complete file and then
+        # exits 1 with "gzclose: Inappropriate ioctl for device" (measured
+        # 2026-11-24), so an honest exit-code check cannot tell that apart from a
+        # truncated archive.
+        tar xzf "$ROOTFS_TAR" -C "$DEST" > "$OUT/.husk-pass1.log" 2>&1
+        rc=$? ;;
     fd377a585a00*)  dec="xz -dc" ;;
     28b52ffd*)      dec="zstd -dc" ;;
 esac
 if [ -n "$dec" ]; then
     command -v "${dec%% *}" >/dev/null 2>&1 || { echo "install-husk: $ROOTFS_TAR is compressed but ${dec%% *} is not available" >&2; exit 67; }
-    # decompress to a real file first: it makes the nested-compression check
-    # below a two-byte read instead of a stream trick, and costs no RAM.
     echo "   ($dec -> $OUT/.husk-pass1.tar)"
     $dec "$ROOTFS_TAR" > "$OUT/.husk-pass1.tar" || { echo "install-husk: decompression failed" >&2; exit 67; }
     case "$(od -An -tx1 -N2 "$OUT/.husk-pass1.tar" | tr -d ' \n')" in
@@ -152,9 +157,6 @@ if [ -n "$dec" ]; then
     tar xf "$OUT/.husk-pass1.tar" -C "$DEST" > "$OUT/.husk-pass1.log" 2>&1
     rc=$?
     rm -f "$OUT/.husk-pass1.tar"
-else
-    tar xf "$ROOTFS_TAR" -C "$DEST" > "$OUT/.husk-pass1.log" 2>&1
-    rc=$?
 fi
 sed 's/^/   /' "$OUT/.husk-pass1.log"
 # Hard links inside app data fail with EACCES/EPERM because SELinux refuses

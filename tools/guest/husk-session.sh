@@ -103,6 +103,19 @@ if [ -n "${NR_FORCE_SOFTWARE_GPU:-}" ]; then
     force_gpu="NR_FORCE_SOFTWARE_GPU=$NR_FORCE_SOFTWARE_GPU"
 fi
 
+# GPU: when the tree carries the kbase-backed PanVK ICD, point Vulkan at it and
+# send GL through Zink, so EGL/GL calls execute on the Mali GPU instead of
+# llvmpipe (evidence 156: renderer goes from "llvmpipe (LLVM …)" to
+# "zink Vulkan 1.3(Mali-G77 MC9)"). HUSK_GPU=llvmpipe keeps the software path,
+# which is what you want while bisecting a rendering bug or on a tree without the
+# ICD. The API ceiling of that combination is GLES 2.0 for now (LIMITATIONS 7).
+gpu_env=
+icd=usr/share/vulkan/icd.d/husk_panvk_frist370_execva.json
+if [ -r "$ROOTFS/$icd" ] && [ "${HUSK_GPU:-zink}" != llvmpipe ]; then
+    gpu_env="VK_ICD_FILENAMES=/$icd VK_DRIVER_FILES=/$icd"
+    gpu_env="$gpu_env MESA_LOADER_DRIVER_OVERRIDE=zink GALLIUM_DRIVER=zink"
+fi
+
 cd "$ROOTFS"
 # env is started by the loader with a relative path; everything after it is a
 # normal exec (absolute guest paths are fine there).
@@ -119,5 +132,6 @@ exec "$NR_LD" --library-path "$LIBS" usr/bin/env -i -C "$CWD" \
     PATH="$PATH_GUEST" LANG=C.UTF-8 TERM="${TERM:-xterm-256color}" COLORTERM=truecolor \
     NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" \
     NR_FAKE_UID="$uid" NR_FAKE_GID="$gid" \
+    $gpu_env \
     $force_gpu \
     "$@"

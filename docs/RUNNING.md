@@ -21,6 +21,7 @@ APK 内 `assets/husk/arm64-v8a/`：
 | `husk-ldconfig` | 写 `ld.so.cache` 与 `ld.so.husk-path` 的 Rust 程序，替换发行版的静态 `ldconfig` |
 | `husk-usermgr` | `useradd` / `groupadd` / `passwd` 一族的替身（发行版的 shadow 工具在这个 SELinux 域里跑不起来） |
 | `husk-su` | 提权替身（`su` 的 PAM 路径在这里不通） |
+| `husk-symlinks` | 把 rootfs 里的绝对符号链接改写成相对（否则内核按 Android 根解析，`dlopen` 报 ENOENT），并 `--verify` 确认没有漏网 |
 
 首次使用（应用启动、开会话前）按顺序做这些事，全部自动，不需要用户操作：
 
@@ -36,6 +37,14 @@ APK 内 `assets/husk/arm64-v8a/`：
    `tmp/.X11-unix`、`dev/shm`；
 7. 写版本标记 `files/linux/husk/assets.version`；标记与 APK 内的
    `ASSET_REVISION` 不一致时重做 1–6 步。
+
+安装器（以及 APK 的资产步骤）还要做两件和"能不能用"直接相关的事：
+
+- **符号链接规范化**：跑一遍 `husk-symlinks --root / --apply`，再用 `--verify` 确认；
+  然后用 `ctypes.CDLL('libblas.so.3')` / `liblapack.so.3` 验一次 soname 真能装载。
+- **libc 一致性**：把 libc 的 sha256 写进 `<安装目录>/.husk-install-state`。`husk-session.sh`
+  每次开会话前比对：被 `apt upgrade` 换掉就自动恢复，恢复不了就拒绝启动（exit 74），
+  而不是让你在几步之后收到一句 `Cannot fork`。
 
 ## 2 · 跑得动的三条硬前提
 

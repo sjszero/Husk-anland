@@ -145,6 +145,7 @@ APK assets/husk/arm64-v8a/
   husk-ldconfig     写 ld.so.cache 与 ld.so.husk-path
   husk-usermgr      useradd / groupadd / passwd 一族替身
   husk-su           提权替身
+  husk-symlinks     绝对符号链接改相对 + 校验（否则 dlopen 找不到明明存在的库）
 ```
 
 首次启动自动完成：解压 loader → 放三个工具进 `usr/sbin` → 按 sha256 替换 libc（只认已知

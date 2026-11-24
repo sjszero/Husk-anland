@@ -81,6 +81,7 @@ dist:
 	sh tools/guest-config/build-guest-tools.sh
 	@mkdir -p dist
 	cp tools/loader/ld-embedded.so dist/libld.so
+	@chmod 755 dist/libld.so   # tar keeps the mode; a 644 loader is "not executable"
 	cp $(PROFILE_DIR)/husk-ldconfig $(PROFILE_DIR)/husk-usermgr \
 	   $(PROFILE_DIR)/husk-su $(PROFILE_DIR)/husk-symlinks dist/
 	cp tools/loader/libc-nop.so.6 dist/libc.so.6   # the artifact install-libc-patch.sh just refreshed
