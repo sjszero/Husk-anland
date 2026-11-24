@@ -147,9 +147,11 @@ Nautilus / gvfs / tracker。整条链路四个独立故障与修法见 evidence 
    独立故障都修在 shim 里：`RLIMIT_NOFILE` 天花板（`setrlimit` 钳位）、容器不能给自己人
    发信号（kill 家族透传）、GDBus 的 `SCM_CREDENTIALS`（`sendmsg` 改写 `ucred`）、
    系统总线 `EXTERNAL` 认证（改 `ANONYMOUS`）；外加 2.0 侧 X socket 路径错位。
-   剩下的都是"桌面能不能用"的问题，不是"能不能上屏"：僵尸（kernel 4.19 没有
-   `P_PIDFD`，GLib 的 `waitid` 报 EINVAL，见 147 §7）、`polkitd` 退出 1、gvfs 点对点
-   总线、at-spi、xrandr scaling。
+   僵尸也一并修了（kernel 4.19 没有 `waitid(P_PIDFD)`，GLib 的 child watch 于是不回收——
+   shim 里按 `/proc/self/fdinfo` 把 pidfd 翻成 pid，100 s 后 0 僵尸，见 147 §7.1）。
+   剩下的都是"桌面能不能用"的问题，不是"能不能上屏"：**桌面收不到输入**（`X11Runtime`
+   根本没有注入指针/键盘的入口，147 §8）、`polkitd` 退出 1、gvfs 点对点总线、at-spi、
+   xrandr scaling。
 
 ## 已知环境细节（踩过的坑，别再踩）
 

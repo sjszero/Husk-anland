@@ -8353,6 +8353,118 @@ pub unsafe extern "C" fn tgkill(tgid: CInt, tid: CInt, sig: CInt) -> CInt {
     r
 }
 
+// ------------------------------------------------------------ child reaping
+//
+// This kernel has pidfd but not waitid(P_PIDFD):
+//
+//   GLib-WARNING **: waitid(pid:10017, pidfd=11) failed: 无效的参数 (22)
+//
+// GLib 2.76+ prefers the pidfd path for every child watch, so each child that
+// exits under gnome-shell / nautilus / tracker is never reaped: one desktop
+// session left 105 zombies on 2.0's tree (evidence 147 §7). P_PIDFD only
+// reached waitid in kernel 5.4 and this is 4.19.191, so translate the call:
+// the kernel already prints the pid for that fd in /proc/self/fdinfo, so look
+// it up and wait by pid instead. Everything else is passed through untouched;
+// if the fd is not a pidfd the kernel's own answer stands.
+const SYS_WAITID_NR: usize = 95;
+const P_PID_C: CInt = 1;
+const P_PIDFD_C: CInt = 3;
+
+unsafe fn pid_of_pidfd(fd: CInt) -> Option<CInt> {
+    if fd < 0 || fd > 999_999 {
+        return None;
+    }
+    let mut path = [0u8; 32];
+    let prefix = b"/proc/self/fdinfo/";
+    let mut n = prefix.len();
+    path[..n].copy_from_slice(prefix);
+    let mut d = [0u8; 8];
+    let mut k = 0usize;
+    let mut v = fd as u32;
+    loop {
+        d[k] = b'0' + (v % 10) as u8;
+        v /= 10;
+        k += 1;
+        if v == 0 || k == d.len() {
+            break;
+        }
+    }
+    while k > 0 {
+        k -= 1;
+        path[n] = d[k];
+        n += 1;
+    }
+    if n >= path.len() {
+        return None;
+    }
+    path[n] = 0;
+    let f = syscall4(
+        SYS_OPENAT,
+        AT_FDCWD as usize,
+        path.as_ptr() as usize,
+        0, // O_RDONLY
+        0,
+    );
+    if f < 0 {
+        return None;
+    }
+    let mut buf = [0u8; 256];
+    let r = syscall4(SYS_PREAD64, f as usize, buf.as_mut_ptr() as usize, buf.len(), 0);
+    syscall4(SYS_CLOSE, f as usize, 0, 0, 0);
+    if r <= 0 {
+        return None;
+    }
+    let text = &buf[..(r as usize).min(buf.len())];
+    // A line that starts with "Pid:"; "NSpid:" must not match.
+    let mut i = 0usize;
+    while i + 4 <= text.len() {
+        let at_line_start = i == 0 || text[i - 1] == b'\n';
+        if at_line_start && &text[i..i + 4] == b"Pid:" {
+            let mut j = i + 4;
+            while j < text.len() && (text[j] == b' ' || text[j] == b'\t') {
+                j += 1;
+            }
+            let mut pid = 0i64;
+            let mut any = false;
+            while j < text.len() && text[j].is_ascii_digit() {
+                pid = pid * 10 + (text[j] - b'0') as i64;
+                j += 1;
+                any = true;
+                if pid > i32::MAX as i64 {
+                    return None;
+                }
+            }
+            return if any { Some(pid as CInt) } else { None };
+        }
+        i += 1;
+    }
+    None
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn waitid(idtype: CInt, id: u32, infop: *mut u8, options: CInt) -> CInt {
+    let mut which = idtype;
+    let mut upid = id;
+    if idtype == P_PIDFD_C {
+        if let Some(pid) = pid_of_pidfd(id as CInt) {
+            which = P_PID_C;
+            upid = pid as u32;
+        }
+    }
+    let r = syscall5(
+        SYS_WAITID_NR,
+        which as usize,
+        upid as usize,
+        infop as usize,
+        options as usize,
+        0,
+    );
+    if r < 0 {
+        return set_errno((-r) as CInt);
+    }
+    r as CInt
+}
+
 // ------------------------------------------------------------- posix_spawn
 // make(1) runs every recipe through posix_spawn(), and glibc's implementation
 // execs the child through an internal alias of execve: a guest path would reach

@@ -169,7 +169,7 @@ LH_LAYOUT monitors=1 stage_visible=false stage_size=2400x1080
 
 | 项 | 现状（FACT） | 影响 |
 |---|---|---|
-| 僵尸堆积 | 该会话起来后 uid 10265 的 142 个进程里有 **105 个 Z**；GLib 先报过 `waitid(pid:10017, pidfd=11) failed: 无效的参数 (22)` | 桌面越跑越脏；kernel 4.19 没有 `P_PIDFD`（5.4+），`pidfd_open`(434) 也没有（5.3+）。下一步要在 shim 里把 `waitid(P_PIDFD)` 翻译成按 pid 等待，或让 GLib 走 `waitpid` 回退 |
+| ~~僵尸堆积~~ **已修** | 修之前那个会话：uid 10265 的 142 个进程里 **105 个 Z**，GLib 报 `waitid(pid:10017, pidfd=11) failed: 无效的参数 (22)`。修之后同一套流程跑 100 s：37 个进程、**0 个 Z**、`waitid` 警告 0 条 | 见 §7.1 |
 | `polkitd` 起不来 | `/usr/lib/polkit-1/polkitd --no-debug` 立即 `exit=1`，stderr 一个字都没有 | 网络控制、部分设置对话框报 "PolicyKit1 exited with status 1" |
 | gvfs 点对点总线 | `用尽了所有可用的认证机制（已尝试：EXTERNAL）`，随后回退到会话总线 | 功能上能用（已回退），只是日志噪音 |
 | accessibility bus | `Couldn't register with accessibility bus` | at-spi 不可用 |
@@ -177,7 +177,30 @@ LH_LAYOUT monitors=1 stage_visible=false stage_size=2400x1080
 | `landlock` trap 噪音 | `nr-sigsys.log` 832 KB，几乎全是 `nr=444 mode=2` | 无害但淹没真记录，要按 nr 去重 |
 | 无 xrandr scaling | `Impossible to set scaling on crtc 63` | 分辨率不能改 |
 
-## 8 · 复现
+### 7.1 · 僵尸的根因与修法（FACT）
+
+这台 kernel 有 pidfd（所以 GLib 用得上），但 `waitid` 不认 `P_PIDFD`：
+
+```text
+GLib-WARNING **: waitid(pid:10017, pidfd=11) failed: 无效的参数 (22)
+```
+
+`P_PIDFD` 是 5.4 才进 `waitid` 的，这里是 4.19.191，于是内核直接 EINVAL；而
+GLib 2.76+ 的 child watch **优先** 走 pidfd，失败之后那个 child 就没人回收——一晚上
+105 个僵尸。修法（`path-shim` interpose `waitid`）：遇到 `idtype == P_PIDFD` 时，先读
+`/proc/self/fdinfo/<fd>` 里内核自己打的 `Pid:` 行（`NSpid:` 不算），拿到 pid 后按
+`P_PID` 下发同一个调用；读不出来就原样交给内核，行为与修之前一致。实测：同一套
+桌面流程 100 s 后僵尸 0、`waitid` 警告 0 条，进程数从 142 降到 37（之前的差值就是僵尸）。
+
+## 8 · 还没做的：桌面收不到输入（FACT）
+
+点屏幕上任何位置，guest 里的光标不动（一直停在右下角），桌面也不响应。
+代码层面同一条结论：`X11Runtime` 接口只有 `attachSurface/resize/detachSurface`，
+**没有任何注入指针或键盘的入口**——termux-x11 的 `LorieView` 那套触摸转发随它的
+Activity 一起删掉了，2.0 这条路径还没有替代品。这是"桌面能不能用"的第一块砖，
+排在 §7 剩下的几条之前。
+
+## 8.1 · 复现
 
 ```sh
 # 1) 三个 shim 改动打进 loader
@@ -191,4 +214,4 @@ run-as ... sh files/linux/xe.sh bin/sh -c 'pkill -9 -f /usr/bin/dbus-daemon; pki
 # 4) App 里点显示器按钮，看 tmp/doro-startup-stage.log 走到 stage=exec-shell
 ```
 
-loader：`5c0d42b7217645528de6135667b867bd20e8db48f856b81ae24d170a1eb48192`（738,816 B）。
+loader：`ba615759e809a17b8dbfaebf564bea209edf2460d10894ffe56fe790c4822511`（738,816 B，含 §7.1 的 `waitid` 翻译）。
