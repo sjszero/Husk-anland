@@ -87,7 +87,7 @@ fork/exec 不经翻译层；I/O 直落内核）、**代价**（生态成熟度�
 |---|---|
 | `README.md` | 英文为主（国际惯例），结构见 C2；首屏 30 秒可读 |
 | `README.zh-CN.md` | 中文镜像，结构与数字与英文版一致；两版顶部互相链接 |
-| `LICENSE` | **必须换成 OSI 认可许可证**（建议 Apache-2.0：含专利授权、商标条款清晰）。当前 `LICENSE` 声明"PRIVATE 不可再分发"，与公开发布直接冲突，必须先改 |
+| `LICENSE` | Apache-2.0（已落地，2026-11-24）。`binaries/` 下的 glibc 构件按 LGPL-2.1+ 单独声明于 `NOTICE`，发布前改为构建时按校验和获取，从仓库移出 |
 | `NOTICE` | 第三方组件、商标、字体与图标来源声明 |
 | `CHANGELOG.md` | Keep a Changelog 1.1 格式 + SemVer 2.0；每个 release 一节 |
 | `CONTRIBUTING.md` | 起环境、跑门禁、提交规范、PR 要求、代码风格 |

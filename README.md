@@ -1,4 +1,18 @@
+<div align="center">
+
+<img src="docs/assets/brand/husk-mark-hexagon-h-512.png" width="140" alt="Husk">
+
 # Husk（壳）
+
+**让完整的 Linux 发行版以普通应用进程的身份，直接被 Android 内核执行。**
+
+![License](https://img.shields.io/badge/license-Apache--2.0-blue)
+![Platform](https://img.shields.io/badge/platform-Android%20arm64-3DDC84)
+![Rust](https://img.shields.io/badge/rust-2021%20edition-DEA584)
+![Syscall interception](https://img.shields.io/badge/syscall%20interception-none-brightgreen)
+![PRs](https://img.shields.io/badge/PRs-welcome-brightgreen)
+
+</div>
 
 **Husk 是一个 Android 运行时：让完整的 Linux 发行版（glibc 用户态）以普通应用进程的身份，
 直接被 Android 内核执行——不需要 root、不需要解 Bootloader、不需要硬件虚拟化、不做 ptrace。**
@@ -79,4 +93,5 @@ USB / 蓝牙 / NFC / 指纹，以及把 LinuxHub 2.0 的 proot 运行时整体�
 
 ## 许可
 
-见 [LICENSE](LICENSE)。
+Apache License 2.0，见 [LICENSE](LICENSE)；第三方组件、glibc 构件与商标声明见
+[NOTICE](NOTICE)。

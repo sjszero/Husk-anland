@@ -1,0 +1,43 @@
+Husk
+Copyright 2026 戏山 (xishanp)
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+--------------------------------------------------------------------------------
+Trademarks
+
+"Android" is a trademark of Google LLC. "Ubuntu" is a trademark of Canonical Ltd.
+"GNOME" is a trademark of the GNOME Foundation. "Termux", "proot" and
+"proot-distro" refer to projects of their respective authors. Husk is not
+affiliated with, endorsed by, or sponsored by any of them.
+
+--------------------------------------------------------------------------------
+Third-party components
+
+1) Build-time Rust crates. Husk is written in Rust; its dependencies are resolved
+   by Cargo at build time and are not vendored here. Each crate keeps its own
+   license; the build does not redistribute them.
+
+2) glibc artifacts used to bootstrap the loader. The following files under
+   `binaries/` are compiled artifacts of the GNU C Library as shipped by the
+   Ubuntu 24.04 archive (package `libc6`, architecture arm64):
+
+     binaries/ld-linux-aarch64.so.1.orig   GNU C Library dynamic loader
+     binaries/libc-nop.so.6                derived from the GNU C Library shared object
+     binaries/ld-embedded.so               loader built from the above
+
+   glibc is licensed under the GNU Lesser General Public License v2.1 or later.
+   These files are redistributed unmodified (or, in the case of
+   `libc-nop.so.6`, as a locally derived binary) solely so the loader can be
+   rebuilt. Corresponding source is available from the upstream GNU C Library
+   and from the Ubuntu archive for the same version. They are NOT covered by the
+   Apache License 2.0 that applies to Husk's own source.
+
+   A distribution release that only needs to run Husk does not require these
+   files; see `docs/RUNNING.md`.
+
+3) Brand assets under `docs/assets/brand/` are original artwork created for this
+   project and are covered by the same license as the rest of the repository.
+
+4) No part of the LinuxHub application, its private data, or its rootfs images is
+   included in this repository.
