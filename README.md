@@ -1,18 +1,19 @@
-<!-- 三段分开的居中块：GitHub 只在空行处结束 HTML 块，合进一个 div 会让标题退回左对齐 -->
+<!-- 标题在上、图标在其下一格：GitHub 只在空行处结束 HTML 块，合成一个 div 会让标题退回左对齐 -->
+<h1 align="center">Husk</h1>
+
 <p align="center">
   <img src="docs/assets/brand/husk-mark-hexagon-h-512.png" width="132" alt="Husk">
 </p>
-
-<h1 align="center">Husk</h1>
 
 <p align="center">让完整的 Linux 发行版以普通应用进程的身份，直接被 Android 内核执行。</p>
 
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
+  <img alt="Rust" src="https://img.shields.io/badge/rust-96%25%20of%20code-DEA584?logo=rust&logoColor=white">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Android%20arm64-3DDC84">
-  <img alt="Rust" src="https://img.shields.io/badge/rust-2021%20edition-DEA584">
-  <img alt="Syscall interception" src="https://img.shields.io/badge/syscall%20interception-none-brightgreen">
-  <img alt="PRs" src="https://img.shields.io/badge/PRs-welcome-brightgreen">
+  <img alt="ptrace" src="https://img.shields.io/badge/ptrace-none-brightgreen">
+  <img alt="root" src="https://img.shields.io/badge/root-not%20required-brightgreen">
+  <img alt="Virtualization" src="https://img.shields.io/badge/virtualization-none-brightgreen">
 </p>
 
 **Husk 是一个 Android 运行时：让完整的 Linux 发行版（glibc 用户态）以普通应用进程的身份，
