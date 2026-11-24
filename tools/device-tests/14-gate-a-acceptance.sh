@@ -120,22 +120,41 @@ echo "PASS=$P FAIL=$F"
 [ "$F" -eq 0 ]
 GUEST
 
-adb -s "$DEV" push "$TMP/accept.sh" /data/local/tmp/husk-accept.sh >/dev/null
-adb -s "$DEV" shell "run-as $PKG cp /data/local/tmp/husk-accept.sh $ROOTFS/tmp/husk-accept.sh"
-adb -s "$DEV" shell "run-as $PKG chmod 755 $ROOTFS/tmp/husk-accept.sh"
-# Three things the loader needs and none of them are defaults:
+cat > "$TMP/husk-exec.sh" <<'GUESTEXEC'
+#!/bin/sh
+# Guest launcher for the gate scripts. Four things the loader needs and none of
+# them are defaults:
 #   * cwd inside the guest root - the program argument is guest-relative
 #     ("usr/bin/bash") and is resolved against it;
-#   * --library-path, which *replaces* the loader's search path, so every guest
-#     library directory has to be listed (libtinfo.so.6 is the first thing bash
-#     asks for);
-#   * NR_ROOTFS and NR_LD both set. Without NR_ROOTFS the parent process does
-#     no rewriting at all (measured: a relative program still starts, every
-#     absolute path - /tmp/husk-accept.sh included - then misses); without NR_LD
-#     a re-entering child falls back to the distro loader.
-LIBS="lib/aarch64-linux-gnu:usr/lib/aarch64-linux-gnu:usr/lib/aarch64-linux-gnu/mutter-14:usr/lib/gnome-shell:usr/lib/aarch64-linux-gnu/gvfs"
-# HOME and the XDG base directories are dropped on purpose: the app process'
-# own values point at /data/user/0/<package>, and dconf happily creates
-# $HOME/.cache/dconf - which the shim then creates *inside* the rootfs as
-# rootfs/data/user/0/..., i.e. host-shaped dirt in the guest (measured).
-adb -s "$DEV" shell "run-as $PKG sh -c 'R=\$PWD/$ROOTFS; L=\$PWD/$LD; unset XDG_CACHE_HOME XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME; cd \"\$R\" && HOME=/root EXPECT_PKGS=${EXPECT_PKGS:-811} PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin NR_ROOTFS=\$R NR_LD=\$L exec \$L --library-path \"\$R/$LIBS\" usr/bin/bash /tmp/husk-accept.sh'" 2>&1
+#   * --library-path, which *replaces* the loader's search path, so the guest's
+#     standard directories and every directory its own binaries declare in
+#     DT_RUNPATH go here (glibc resolves RUNPATH inside the loader, where nothing
+#     can interpose - evidence 139);
+#   * NR_ROOTFS and NR_LD both set. Without NR_ROOTFS the parent process does no
+#     rewriting at all; without NR_LD a re-entering child falls back to the
+#     distro loader;
+#   * the app process' HOME/XDG values dropped, or dconf creates
+#     $HOME/.cache/dconf *inside* the rootfs as rootfs/data/user/0/... (measured).
+# usage: husk-exec.sh <rootfs> <loader> <program> [args...]
+R=$1; L=$2; shift 2
+# Both come in relative to the app's data directory (what run-as starts in): make
+# them absolute before the cd below, or the loader path breaks with it.
+case $R in /*) ;; *) R=$PWD/$R ;; esac
+case $L in /*) ;; *) L=$PWD/$L ;; esac
+E=
+[ -f "$R/etc/ld.so.husk-path" ] && E=$(sed -n 's|^/|'"$R"'|p' "$R/etc/ld.so.husk-path" | tr '\n' ':')
+cd "$R" || exit 1
+unset XDG_CACHE_HOME XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME
+HOME=/root EXPECT_PKGS=${EXPECT_PKGS:-811} \
+  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  NR_ROOTFS=$R NR_LD=$L \
+  exec "$L" --library-path "$R/lib/aarch64-linux-gnu:$R/usr/lib/aarch64-linux-gnu:$E" "$@"
+GUESTEXEC
+
+adb -s "$DEV" push "$TMP/accept.sh" /data/local/tmp/husk-accept.sh >/dev/null
+adb -s "$DEV" push "$TMP/husk-exec.sh" /data/local/tmp/husk-exec.sh >/dev/null
+adb -s "$DEV" shell "run-as $PKG cp /data/local/tmp/husk-accept.sh $ROOTFS/tmp/husk-accept.sh"
+adb -s "$DEV" shell "run-as $PKG chmod 755 $ROOTFS/tmp/husk-accept.sh"
+adb -s "$DEV" shell "run-as $PKG cp /data/local/tmp/husk-exec.sh $ROOTFS/tmp/husk-exec.sh"
+adb -s "$DEV" shell "run-as $PKG chmod 755 $ROOTFS/tmp/husk-exec.sh"
+adb -s "$DEV" shell "run-as $PKG env EXPECT_PKGS=${EXPECT_PKGS:-811} sh $ROOTFS/tmp/husk-exec.sh $ROOTFS $LD usr/bin/bash /tmp/husk-accept.sh" 2>&1
