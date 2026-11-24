@@ -9,7 +9,7 @@
 **设备**：`adb` serial `UKHMMB8PYTGECMNV`（RMX3357）。2.0 集成现场是应用
 `com.linuxhub.myth.husk`（debug 包名后缀），rootfs 在
 `files/linux/distributions/ubuntu-24.04/rootfs`，loader 在 `files/linux/husk/libld.so`，
-资产版本标记 `files/linux/husk/assets.version`（当前 `husk-runtime-spawn-link-21`）。
+资产版本标记 `files/linux/husk/assets.version`（当前 `husk-runtime-spawn-link-22`）。
 旧测试会话的 `com.linuxhub.husk`（`files/rootfs-full`、`files/libld3.so`）不要动。
 
 **启动契约（两个变量必须同时设，缺一个就"看起来像 shim 坏了"）**：
@@ -70,6 +70,15 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 门禁 A：`tools/device-tests/14-gate-a-acceptance.sh` **36 PASS / 0 FAIL**（桌面会话运行中）。
 sudo/PAM 一条按"不需要"结案：`husk-su` 已覆盖提权路径，PAM 的 `ENOTSOCK`/audit netlink 不再出现在
 任何验收判据里（evidence 139）。
+
+## apt / libc：装包可用，但 libc6 升级会拆掉运行时（2026-11-24，evidence 154）
+
+| 项 | 结论 |
+|---|---|
+| `apt install` | **可用**（815 → 882 包，27 秒）。两个前置修好了：`statvfs/statvfs64` 进 shim（`apt` 的剩余空间检查原来问的是 host 路径）、`/sbin/ldconfig.real` 换成 `husk-ldconfig`（静态 ldconfig 看不见 guest） |
+| `dpkg --configure -a` | rc=0（`husk-ldconfig` 写 `/etc/ld.so.cache`，950 条 / 6 个目录） |
+| ⚠️ `apt upgrade` 升 libc6 | **会覆盖运行时打过补丁的 libc**，之后 `getent shadow` 返回空、`sudo` 的用户查询失败、桌面起不来（`/bin/sh: 1: Cannot fork`）。修法：`tools/guest-config/install-libc-patch.sh` 重新打补丁 |
+| 判据 | `python3 -c 'import os;print(os.statvfs("/").f_blocks)'` = 28 292 600（不是 194 478）；`getent shadow husk` 非空 |
 
 **参考笔记不进仓库**：`/Users/l/Documents/Codex/2026-08-10/husk-notes/prior-art/`（必读 `references.md`）。
 **推 GitHub 走代理**：`HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 git -c http.proxy=http://127.0.0.1:7897 push origin main`
