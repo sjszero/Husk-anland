@@ -210,6 +210,15 @@ if [ ! -s "$DEST/etc/resolv.conf" ]; then
     echo "   wrote etc/resolv.conf ($(grep -c nameserver "$DEST/etc/resolv.conf") nameservers)"
 fi
 
+# 2b-2b. GPU 运行时默认值：写进 /etc/profile.d，让"进到 guest 里再开程序"也拿到
+#        ICD 与 GL 驱动（husk-session.sh 覆盖的是它自己拉起的那一条会话链）。
+if [ -f "$HERE/guest-config/husk-gpu-defaults.sh" ]; then
+    mkdir -p "$DEST/etc/profile.d"
+    cp "$HERE/guest-config/husk-gpu-defaults.sh" "$DEST/etc/profile.d/husk-gpu.sh"
+    chmod 644 "$DEST/etc/profile.d/husk-gpu.sh"
+    echo "   wrote etc/profile.d/husk-gpu.sh (GPU defaults, escape: HUSK_GPU=llvmpipe)"
+fi
+
 # 2b-3. log directories apt and dpkg expect. The release tarball drops var/log
 #       (session logs of the verifying device); without these, every install
 #       prints `E: Directory '/var/log/apt/' missing` and apt still exits with an
