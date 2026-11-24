@@ -45,12 +45,15 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
       `rust/getifaddrs-bridge` 也已出库；登录、会话、`executeContainerCommand`、桌面启动只走
       `HuskRuntime.command`。判据是同 rootfs 回归：空 checkpoint 从 UI 跑完 814 包、`dpkg -C` 空、
       0 `Bad system call`、门禁 A 34/34、supervisor 8/8、542.8 s（删 proot 前 533/541 s）；
-4. **GPU 仍是软件渲染**（FACT，未修）：rootfs 原先只有 Adreno 的 `freedreno_icd`；
-   已装 `mesa-vulkan-drivers 25.2.8`（`panfrost_icd.json` 到位、Vulkan loader 能列举设备），
-   但 PanVK 起不来这颗 MTK 4.19 kbase（`Failed to detect any valid GPUs`），
-   且 guest EGL 报 `DRI3 error: Could not get DRI3 device`（shim 的假 `renderD128` 答不了
-   DRM 版本查询）。2.0 侧 `GpuRuntimeEnvironment.gnomeSessionShell()` 还在硬钉
-   `MESA_LOADER_DRIVER_OVERRIDE=swrast GALLIUM_DRIVER=llvmpipe`。属架构活，不在这版。
+4. **GPU：桌面已经在 Mali 上由 GPU 出帧，但呈现仍是拷贝路径**（evidence 165）：
+   重编 PanVK 打开 x11 平台（`-Dplatforms=x11`）后 `VK_KHR_xcb_surface` 进表，
+   `gl-probe window` 的 `stage 7/8/9/10` 全过、60 次 swap，
+   `renderer=zink Vulkan 1.3 (Mali-G77 MC9 (MESA_PANVK))`；gnome-shell 46 在 zink 上起来并
+   出帧（X 根窗口 `2400x1080`、非黑像素 100%）。mutter 启动时的 MIT-SHM `BadAccess` 已定位
+   并绕开：guest 没有 SysV IPC，X server 在 guest 外，`ShmAttach` 必然失败，所以 guest 侧
+   如实报告"不支持 MIT-SHM"。
+   未做：DRI3 零拷贝（`Could not get DRI3 device` 仍在，呈现走 SHM 拷贝）、帧率数字、
+   30 分钟长稳；2.0 侧 `GpuRuntimeEnvironment.gnomeSessionShell()` 仍硬钉 swrast。
 5. 交付形态：**已落地**（`tools/guest/install-husk.sh`，evidence 130）——本地 tarball 一条命令装完 +
    生成启动器，唯一支持的目标是**本应用的私有目录**（`run-as .../files/...`），端到端实测通过。
    **Termux 不是交付形态，也不承诺可用**：guest 树需要的二进制与库 Termux 的 `$PREFIX` 不提供，
@@ -110,7 +113,7 @@ sudo/PAM 一条按"不需要"结案：`husk-su` 已覆盖提权路径，PAM 的 
 | loader + path-shim | 零 ptrace，路径一次改写完成；dlopen 进来的库也覆盖 | 27 / 100 |
 | exec / PTY / 信号 / 生命周期 | 600 秒长稳、零僵尸、无重启风暴；旋转与 Surface 重建不重启会话 | 32 / 72 |
 | 页大小 | rootfs 2987 个 ELF + loader + 我们全部产物在 4K/16K/64K 静态体检全绿（含 `p_align % 页` 规则）；**真 16K 内核（RPi5 kernel）与真 64K 内核（Ubuntu `linux-image-6.8.0-31-generic-64k`）上我们的 loader 端到端全绿**：`cat /etc/os-release`、`/usr/bin` 计数、嵌套 exec、`/tmp` 写读、`check-elf` 727 个 ELF 三档 congruent；修掉三个真 Bug（段重叠、mprotect 对齐、xattr/readlink 返回裸 -errno）；**16K/64K 真机仍 UNKNOWN**（本机只有 4K） | 30, 122, 124, 125, 126 |
-| GPU | PanVK 列举 Mali-G77、compute、离屏 graphics、Zink surfaceless | 46 / 47 |
+| GPU | PanVK 列举 Mali-G77、compute、离屏 graphics、Zink surfaceless；X11 窗口化 EGL 与桌面出帧 | 46 / 47 / 165 |
 | 设备族探测与降级 | `path-shim/src/plan.rs`：按节点定族（mali0 / kgsl-3d0 / renderD128 / 都没有），只有 Mali 才遮蔽 `/dev/dri`，有真节点则透传，其它家族拒绝并输出 `nr-plan: … reason=…`；`NR_FORCE_SOFTWARE_GPU` 实测降到 llvmpipe 且不崩。Adreno 与真 DRM 节点仍 UNKNOWN（无设备） | 127 |
 | 外设族探测 | `gpu-probe periph`：传感器/GPS/USB/蓝牙/NFC/指纹/输入/i2c/spi 逐个节点实测，`EACCES`(13) 与 `ENOENT`(2) 分开记录；不造假节点、进程退出码 0。本机是否真有传感器仍 UNKNOWN（EACCES 藏住了） | 128 |
 | 用户身份与 2.0 swap | `NR_FAKE_UID/GID` + `setuid/setresuid/setreuid/getresuid` 跟随 + `getgroups` 只报主组：`id` 报 `uid=1000(hu1)`，`su` 这一步可以删；`tools/guest/husk-session.sh` 是 `prootCommand()` 的替代契约（`env -i` 必须带 `NR_ROOTFS/NR_LD`）。**`su`/PAM 仍报 `PAM_SYSTEM_ERR`（UNKNOWN，已绕开）** | 129 |

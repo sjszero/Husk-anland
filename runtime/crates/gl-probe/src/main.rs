@@ -953,13 +953,126 @@ fn run_window() -> i32 {
     }
 }
 
+/// Capture what the X server is actually showing and write it as a PPM.
+///
+/// Needed because the App draws its own UI on top of the phone screen: `screencap`
+/// on the device proves nothing about the guest desktop. This reads the X root
+/// window through `XGetImage`, so it is the compositor's own output.
+///
+///   gl-probe root [out.ppm]
+fn run_root() -> i32 {
+    let x11 = match Lib::open("libX11.so.6") {
+        Some(l) => l,
+        None => {
+            say!("FAIL dlopen X11");
+            return 1;
+        }
+    };
+    let out = std::env::args()
+        .nth(2)
+        .unwrap_or_else(|| "/tmp/root.ppm".to_string());
+    unsafe {
+        let open: unsafe extern "C" fn(*const c_char) -> *mut c_void =
+            cast(x11.sym("XOpenDisplay"));
+        let root_of: unsafe extern "C" fn(*mut c_void) -> Window =
+            cast(x11.sym("XDefaultRootWindow"));
+        let dw: unsafe extern "C" fn(*mut c_void, c_int) -> c_int = cast(x11.sym("XDisplayWidth"));
+        let dh: unsafe extern "C" fn(*mut c_void, c_int) -> c_int = cast(x11.sym("XDisplayHeight"));
+        let get_image: unsafe extern "C" fn(
+            *mut c_void,
+            Window,
+            c_int,
+            c_int,
+            c_uint,
+            c_uint,
+            c_ulong,
+            c_int,
+        ) -> *mut c_void = cast(x11.sym("XGetImage"));
+        let free: unsafe extern "C" fn(*mut c_void) -> c_int = cast(x11.sym("XFree"));
+
+        let display = open(std::ptr::null());
+        if display.is_null() {
+            say!("FAIL XOpenDisplay");
+            return 1;
+        }
+        let root = root_of(display);
+        let w = dw(display, 0) as c_uint;
+        let h = dh(display, 0) as c_uint;
+        say!("root {w}x{h} window={root}");
+        // AllPlanes, ZPixmap
+        let img = get_image(display, root, 0, 0, w, h, c_ulong::MAX, 2);
+        if img.is_null() {
+            say!("FAIL XGetImage");
+            return 1;
+        }
+        let base = img as *const u8;
+        let iw = *(base as *const c_int) as usize;
+        let ih = *(base.add(4) as *const c_int) as usize;
+        let data = *(base.add(16) as *const *const u8);
+        let stride = *(base.add(44) as *const c_int) as i64 as usize;
+        let bpp = *(base.add(48) as *const c_int) as i64 as usize;
+        say!("image {iw}x{ih} stride={stride} bpp={bpp}");
+        if data.is_null() || iw == 0 || ih == 0 {
+            say!("FAIL empty image");
+            return 1;
+        }
+        if std::mem::size_of::<usize>() != 8 {
+            say!("FAIL unexpected pointer size");
+            return 1;
+        }
+        let step = (bpp / 8).max(4);
+        let mut ppm = Vec::with_capacity(iw * ih * 3 + 32);
+        ppm.extend_from_slice(format!("P6\n{iw} {ih}\n255\n").as_bytes());
+        let mut nonblack = 0usize;
+        let mut hist = [0usize; 8];
+        for y in 0..ih {
+            let row = data.add(y * stride);
+            for x in 0..iw {
+                let q = row.add(x * step);
+                let (b, g, r) = (*q, *q.add(1), *q.add(2));
+                ppm.push(r);
+                ppm.push(g);
+                ppm.push(b);
+                if r > 8 || g > 8 || b > 8 {
+                    nonblack += 1;
+                    let lum = (r as usize + g as usize + b as usize) / 3;
+                    hist[(lum * 8 / 256).min(7)] += 1;
+                }
+            }
+        }
+        (free)(img as *mut c_void);
+        match std::fs::File::create(&out) {
+            Ok(mut f) => {
+                use std::io::Write;
+                if let Err(e) = f.write_all(&ppm) {
+                    say!("FAIL write {out}: {e}");
+                    return 1;
+                }
+            }
+            Err(e) => {
+                say!("FAIL create {out}: {e}");
+                return 1;
+            }
+        }
+        let total = iw * ih;
+        say!(
+            "nonblack={nonblack}/{total} ({:.1}%) histogram={:?}",
+            nonblack as f64 * 100.0 / total as f64,
+            hist
+        );
+        say!("wrote {out}");
+        0
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = match args.first().map(String::as_str) {
         Some("es3") => run_es3(),
         Some("window") => run_window(),
+        Some("root") => run_root(),
         _ => {
-            eprintln!("usage: gl-probe <es3 | window>");
+            eprintln!("usage: gl-probe <es3 | window | root [out.ppm]>");
             2
         }
     };

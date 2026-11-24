@@ -138,6 +138,7 @@ const SYS_OPENAT: usize = 56;
 const SYS_CLOSE: usize = 57;
 const SYS_CLOSE_RANGE: usize = 436;
 const SYS_FCNTL: usize = 25;
+const SYS_DUP: usize = 23;
 const F_GETFD: usize = 1;
 const F_DUPFD_CLOEXEC: usize = 1030;
 const ROOTFD_FLOOR: usize = 1024;
@@ -3378,6 +3379,48 @@ unsafe fn synth_proc_status(p: &[u8], at: &mut usize) -> bool {
 /// Fill VTEXT for a file this namespace answers itself. None = not ours.
 unsafe fn virt_synth(p: &[u8]) -> Option<usize> {
     let mut at = 0usize;
+    // GPU sysfs. A DRM client does not stop at the node: libdrm's platform-bus
+    // parser reads `<device>/uevent` for the bus type and OF compatibles, and
+    // udev/sd-device reads `/sys/class/drm/<node>/uevent`. Without them the node
+    // we just faked stats as a device nothing can attribute, and the client
+    // silently goes to software (Chromium/Electron, GStreamer's VA plugin).
+    // The same three lookups are what Portal fabricates for KGSL.
+    if plan::gpu_family() == plan::GPU_MALI {
+        let meta = mali_meta();
+        if p == b"/proc/bus/pci/devices" {
+            // Android denies this file (EACCES, not ENOENT) and Chromium's GPU
+            // process treats "cannot enumerate PCI" as "no GPU". This device has
+            // no PCI bus, so an empty table is the truthful answer.
+            return Some(0);
+        }
+        if let Some((_, rdev)) = meta {
+            let (maj, min) = dev_major_minor(rdev);
+            if p.starts_with(b"/sys/dev/char/") && p.ends_with(b"/device/uevent") {
+                vt_put(&mut at, b"DRIVER=mali\nOF_NAME=mali\nOF_FULLNAME=/soc/mali");
+                vt_num(&mut at, maj as u64);
+                vt_put(
+                    &mut at,
+                    b"\nOF_COMPATIBLE_0=arm,mali-valhall\nOF_COMPATIBLE_N=1\n",
+                );
+                return Some(at);
+            }
+            if p == b"/sys/class/drm/renderD128/uevent" {
+                vt_put(&mut at, b"MAJOR=");
+                vt_num(&mut at, maj as u64);
+                vt_put(&mut at, b"\nMINOR=");
+                vt_num(&mut at, min as u64);
+                vt_put(&mut at, b"\nDEVNAME=dri/renderD128\nDEVTYPE=drm_minor\n");
+                return Some(at);
+            }
+            if p == b"/sys/class/drm/renderD128/dev" {
+                vt_num(&mut at, maj as u64);
+                vt_put(&mut at, b":");
+                vt_num(&mut at, min as u64);
+                vt_put(&mut at, b"\n");
+                return Some(at);
+            }
+        }
+    }
     if p.len() > 7 && &p[..6] == b"/proc/" && p.ends_with(b"/status") {
         if synth_proc_status(p, &mut at) {
             return Some(at);
@@ -4251,6 +4294,9 @@ unsafe fn stat_like(path: *const CChar, st: *mut u8, flags: CInt) -> CInt {
         }
         if let Some(vn) = video_index(&gp[..n]) {
             return v4l2_stat(vn, st);
+        }
+        if is_drm_node(&gp[..n]) && plan::gpu_family() == plan::GPU_MALI && drm_node_stat(st) {
+            return 0;
         }
         if passthrough(&gp[..n]) {
             return ret_or_errno(syscall4(
@@ -6623,6 +6669,9 @@ pub unsafe extern "C" fn close(fd: CInt) -> CInt {
     if fd >= 0 && nl_is_fake(fd) {
         nl_forget(fd);
     }
+    if fd >= 0 && is_fake_fd(fd) {
+        drm_forget(fd);
+    }
     alias_refresh(fd);
     ret_or_errno(syscall4(SYS_CLOSE, fd as usize, 0, 0, 0))
 }
@@ -6660,16 +6709,62 @@ pub unsafe extern "C" fn close_range(first: u32, last: u32, flags: CInt) -> CInt
                     return ret_or_errno(rc);
                 }
             }
+            drm_forget_range(first, last);
             return 0;
         }
     }
-    ret_or_errno(syscall4(
+    let r = ret_or_errno(syscall4(
         SYS_CLOSE_RANGE,
         first as usize,
         last as usize,
         flags as usize,
         0,
-    ))
+    ));
+    if r == 0 {
+        drm_forget_range(first, last);
+    }
+    r
+}
+
+// dup 家族：Mesa 复制渲染节点就靠它们（见 drm_inherit_fake 的注释）。
+// 除了把新 fd 记成假的以外，行为与内核完全一致：dup2 走 dup3(flags=0)，
+// dup2(fd, fd) 按 POSIX 直接返回 fd（dup3 同值会 EINVAL，那是 dup3 的语义）。
+#[no_mangle]
+pub unsafe extern "C" fn dup(fd: CInt) -> CInt {
+    let r = ret_or_errno(syscall4(SYS_DUP, fd as usize, 0, 0, 0));
+    if r >= 0 {
+        drm_inherit_fake(fd, r);
+    }
+    r
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn dup2(fd: CInt, newfd: CInt) -> CInt {
+    if fd == newfd {
+        const F_GETFD: usize = 1;
+        let r = ret_or_errno(syscall4(SYS_FCNTL, fd as usize, F_GETFD, 0, 0));
+        return if r < 0 { r } else { newfd };
+    }
+    let r = ret_or_errno(syscall4(SYS_DUP3, fd as usize, newfd as usize, 0, 0));
+    if r >= 0 {
+        drm_inherit_fake(fd, r);
+    }
+    r
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn dup3(fd: CInt, newfd: CInt, flags: CInt) -> CInt {
+    let r = ret_or_errno(syscall4(
+        SYS_DUP3,
+        fd as usize,
+        newfd as usize,
+        flags as usize,
+        0,
+    ));
+    if r >= 0 {
+        drm_inherit_fake(fd, r);
+    }
+    r
 }
 
 #[no_mangle]
@@ -6812,6 +6907,14 @@ pub unsafe extern "C" fn statx(
             }
             if let Some(vn) = video_index(&gp[..n]) {
                 return v4l2_statx(vn, buf);
+            }
+            // coreutils >= 9 and every Chromium-family binary stat through
+            // statx, which does not go near newfstatat: without this branch the
+            // fake render node "does not exist" for exactly the clients that
+            // need it most.
+            if is_drm_node(&gp[..n]) && plan::gpu_family() == plan::GPU_MALI && drm_node_statx(buf)
+            {
+                return 0;
             }
         }
     }
@@ -9410,6 +9513,13 @@ pub unsafe extern "C" fn fstatat64(
 
 #[no_mangle]
 pub unsafe extern "C" fn fstat64(fd: CInt, st: *mut u8) -> CInt {
+    // The fake DRM node is a stand-in for the vendor character device, and the
+    // first thing libdrm/EGL does with an opened node is fstat it to learn which
+    // device it is. Answering /dev/null's numbers there makes Mesa skip DRI3 and
+    // copy every frame instead of importing a buffer.
+    if is_fake_fd(fd) && plan::gpu_family() == plan::GPU_MALI && drm_node_stat(st) {
+        return 0;
+    }
     let r = ret_or_errno(syscall4(SYS_FSTAT, fd as usize, st as usize, 0, 0));
     if r == 0 {
         own_patch_stat(st);
@@ -10149,6 +10259,81 @@ fn is_drm_node(p: &[u8]) -> bool {
     p == b"/dev/dri/renderD128" || p == b"/dev/dri/card0"
 }
 
+/// The vendor node the fake render node stands for, as `(dev, rdev)`, cached.
+///
+/// Everything that resolves a DRM device through libdrm/udev starts from the
+/// *device number* of the node it opened: `/sys/dev/char/<major>:<minor>/device`
+/// and `/sys/class/drm/renderD128/`. If the fake node stats as a regular file,
+/// those lookups describe a file that is not a GPU and the client falls back to
+/// software (Chromium/Electron does exactly that). So the fake node has to
+/// report the real kbase character device's numbers.
+static mut MALI_DEV: u64 = 0;
+static mut MALI_RDEV: u64 = 0;
+static mut MALI_META_READY: u8 = 0;
+
+unsafe fn mali_meta() -> Option<(u64, u64)> {
+    if MALI_META_READY == 0 {
+        let mut buf = [0u8; 256];
+        let r = syscall4(
+            SYS_NEWFSTATAT,
+            AT_FDCWD as usize,
+            b"/dev/mali0\0".as_ptr() as usize,
+            buf.as_mut_ptr() as usize,
+            0,
+        );
+        if r < 0 {
+            return None;
+        }
+        // struct stat: st_dev at 0, st_rdev at 32 (aarch64 LP64)
+        MALI_DEV = core::ptr::read_unaligned(buf.as_ptr() as *const u64);
+        MALI_RDEV = core::ptr::read_unaligned(buf.as_ptr().add(32) as *const u64);
+        MALI_META_READY = 1;
+    }
+    Some((MALI_DEV, MALI_RDEV))
+}
+
+/// Write a `struct stat` that says "character device, 0666, kbase's numbers".
+unsafe fn drm_node_stat(st: *mut u8) -> bool {
+    let Some((dev, rdev)) = mali_meta() else {
+        return false;
+    };
+    core::ptr::write_bytes(st, 0, 128);
+    core::ptr::write_unaligned(st as *mut u64, dev);
+    core::ptr::write_unaligned(st.add(8) as *mut u64, 0x4452_0000_0001); // st_ino
+    core::ptr::write_unaligned(st.add(16) as *mut u32, 0o020666); // S_IFCHR | 0666
+    core::ptr::write_unaligned(st.add(20) as *mut u32, 1); // st_nlink
+    core::ptr::write_unaligned(st.add(32) as *mut u64, rdev);
+    core::ptr::write_unaligned(st.add(56) as *mut u32, 4096); // st_blksize
+    true
+}
+
+/// Same fake node, `struct statx` flavour (offsets per aarch64 uapi).
+unsafe fn drm_node_statx(buf: *mut u8) -> bool {
+    let Some((dev, rdev)) = mali_meta() else {
+        return false;
+    };
+    let (rmaj, rmin) = dev_major_minor(rdev);
+    let (dmaj, dmin) = dev_major_minor(dev);
+    core::ptr::write_bytes(buf, 0, 256);
+    core::ptr::write_unaligned(buf as *mut u32, 0x7ff); // STATX_BASIC_STATS
+    core::ptr::write_unaligned(buf.add(4) as *mut u32, 4096); // stx_blksize
+    core::ptr::write_unaligned(buf.add(16) as *mut u32, 1); // stx_nlink
+    core::ptr::write_unaligned(buf.add(28) as *mut u16, 0o020666); // stx_mode
+    core::ptr::write_unaligned(buf.add(32) as *mut u64, 0x4452_0000_0001); // stx_ino
+    core::ptr::write_unaligned(buf.add(128) as *mut u32, rmaj); // stx_rdev_major
+    core::ptr::write_unaligned(buf.add(132) as *mut u32, rmin); // stx_rdev_minor
+    core::ptr::write_unaligned(buf.add(136) as *mut u32, dmaj); // stx_dev_major
+    core::ptr::write_unaligned(buf.add(140) as *mut u32, dmin); // stx_dev_minor
+    true
+}
+
+/// Split a Linux `dev_t` into major/minor the way glibc does on arm64.
+fn dev_major_minor(rdev: u64) -> (u32, u32) {
+    let major = (((rdev >> 8) & 0xfff) | ((rdev >> 32) & !0xfff)) as u32;
+    let minor = ((rdev & 0xff) | ((rdev >> 12) & !0xff)) as u32;
+    (major, minor)
+}
+
 /* ---- 与 LD_PRELOAD 层（libhusk-drm.so）的交接 -------------------------------
  *
  * 我们靠 _dl_init 钩子改 GOT，只能覆盖**启动时**已加载的对象；Mesa 运行时
@@ -10231,15 +10416,56 @@ unsafe fn is_fake_fd(fd: CInt) -> bool {
     false
 }
 
-unsafe fn register_fake_fd(fd: CInt) {
+unsafe fn register_fake_fd(fd: CInt) -> bool {
     let mut i = 0;
     while i < FAKE_FDS.len() {
         if FAKE_FDS[i] < 0 {
             FAKE_FDS[i] = fd;
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+/// 释放一个假 DRM fd 的记账。
+///
+/// 之前只有 v4l2 / netlink 的假 fd 会在 close 时注销，DRM 的一直留着：`FAKE_FDS` 只有 8 槽，
+/// 反复 open("/dev/dri/renderD128") 八次之后槽位耗尽，第九次开始的节点不再被记账，
+/// 它的 ioctl/mmap 会落到 memfd 上（EINVAL/ENOTTY），客户端就此退回软件。
+unsafe fn drm_forget(fd: CInt) {
+    let mut i = 0;
+    while i < FAKE_FDS.len() {
+        if FAKE_FDS[i] == fd && fd >= 0 {
+            FAKE_FDS[i] = -1;
             return;
         }
         i += 1;
     }
+}
+
+/// close_range 一次关掉一整段：把落在区间里的槽位一起清掉，否则同样是泄漏。
+unsafe fn drm_forget_range(first: u32, last: u32) {
+    let mut i = 0;
+    while i < FAKE_FDS.len() {
+        let f = FAKE_FDS[i];
+        if f >= 0 && (f as u32) >= first && (f as u32) <= last {
+            FAKE_FDS[i] = -1;
+        }
+        i += 1;
+    }
+}
+
+/// dup 出来的新 fd 指向同一个对象，对它的 ioctl/mmap 必须和原 fd 一样被接管。
+///
+/// 这一条不是抄来的：Mesa 拿渲染节点时会 fcntl(F_DUPFD) 复制一份再在副本上问
+/// DRM_IOCTL_VERSION，副本不在表里就等于"不是我们的 fd"，版本查询直接失败。
+unsafe fn drm_inherit_fake(old: CInt, new: CInt) {
+    if new < 0 || !is_fake_fd(old) {
+        return;
+    }
+    drm_forget(new);
+    let _ = register_fake_fd(new);
 }
 
 /// 假节点打开：懒初始化 kbase context，然后给调用方一个真 fd（/dev/null），
@@ -10271,7 +10497,11 @@ unsafe fn drm_fake_open() -> CInt {
     if fd < 0 {
         return set_errno(5);
     }
-    register_fake_fd(fd as CInt);
+    if !register_fake_fd(fd as CInt) {
+        // 8 个槽位用完了：这个 fd 不会被接管，对它的 ioctl/mmap 会落到 memfd 上。
+        // 正常路径不该走到这里（close 现在会注销），走到就是记账泄漏。
+        dbg(&[b"nrshim drm: fake fd slots exhausted\n"]);
+    }
     fd as CInt
 }
 
@@ -10605,6 +10835,11 @@ pub unsafe extern "C" fn fcntl(fd: CInt, cmd: CInt, arg: usize) -> CInt {
     const F_GETFL: CInt = 3;
     const F_SETFL: CInt = 4;
     let r = syscall4(SYS_FCNTL, fd as usize, cmd as usize, arg, 0);
+    const F_DUPFD: CInt = 0;
+    const F_DUPFD_CLOEXEC: CInt = 1030;
+    if r >= 0 && (cmd == F_DUPFD || cmd == F_DUPFD_CLOEXEC) {
+        drm_inherit_fake(fd, r as CInt);
+    }
     if r >= 0 && v4l2_is_fake(fd) {
         if cmd == F_SETFL {
             v4l2_nonblock(fd, (arg & 0o4000) != 0); // O_NONBLOCK
@@ -10613,6 +10848,14 @@ pub unsafe extern "C" fn fcntl(fd: CInt, cmd: CInt, arg: usize) -> CInt {
         }
     }
     ret_or_errno(r)
+}
+
+/// glibc 在 LP64 上把 `fcntl` 与 `fcntl64` 导出成两个符号，CPython 的 `_Py_dup`
+/// 走的是 `fcntl(fd, F_DUPFD_CLOEXEC)` 那一支（在 glibc 上落到 `fcntl64`）。
+/// 只 interpose `fcntl` 会让这条路径绕过假 fd 记账，于是 dup 出来的渲染节点不被接管。
+#[no_mangle]
+pub unsafe extern "C" fn fcntl64(fd: CInt, cmd: CInt, arg: usize) -> CInt {
+    fcntl(fd, cmd, arg)
 }
 
 // ------------------------------------------------------- SysV IPC: shm ---
@@ -11228,6 +11471,25 @@ pub unsafe extern "C" fn shmctl(shmid: CInt, cmd: CInt, buf: usize) -> CInt {
     let r = shmctl_locked(shmid, cmd, buf);
     ipc_unlockf(lf);
     r
+}
+
+// ------------------------------------------------- X11 MIT-SHM: reported absent
+//
+// A guest client cannot hand an X server a SysV segment. `XShmAttach` carries an
+// integer id; the server (Lorie, in the App process, outside the guest) would have
+// to `shmat()` that id on a kernel that has no SysV IPC at all, so it answers
+// BadAccess and the client dies. Measured 2026-11-24, probe in evidence 165:
+// server advertises MIT-SHM 1.2, `XShmAttach` -> X error (code 10 BadAccess,
+// request 130 minor 1), and gnome-shell 46 dies on exactly that call.
+//
+// MIT-SHM 1.2 also has an fd-based attach, which *would* work here - the segments
+// are real files under /run/husk/ipc/shm and `shmat` is already `mmap(MAP_SHARED)`
+// - but Xlib exposes no fd API, so translating the request means writing the
+// protocol by hand. Until that lands, answer "no MIT-SHM" so clients take their
+// copy path (XPutImage) instead of aborting on the error.
+#[no_mangle]
+pub unsafe extern "C" fn XShmQueryExtension(_dpy: *mut core::ffi::c_void) -> CInt {
+    0
 }
 
 unsafe fn shmctl_locked(shmid: CInt, cmd: CInt, buf: usize) -> CInt {

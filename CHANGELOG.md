@@ -9,6 +9,32 @@
 
 ## [未发布]
 
+### 修复
+
+- **桌面在 X11 上由 GPU 出帧**：重编 PanVK 打开 x11 平台后 `VK_KHR_xcb_surface` 才会暴露
+  （`panvk_instance.c:125` 的 `#ifdef` 之前被 `platforms=[]` 关掉），`gl-probe window` 从
+  "死在 `eglMakeCurrent`" 变成 1→10 全过、60 次 swap；gnome-shell 46 在 zink 上起来并出帧，
+  X 根窗口抓到完整桌面（evidence 165）。
+- **mutter 启动崩溃（MIT-SHM `BadAccess`）的定位**：guest 的 SysV IPC 是 shim 用文件模拟的，
+  X server 在 guest 外，拿整数 `shmid` 去 `shmat` 必然 `BadAccess`。这个机理是实测的（FACT）；
+  但"让 `XShmQueryExtension` 返回 0"这条修法**未验证生效**（补测它仍返回 1），
+  桌面不再崩另有原因，按 UNKNOWN 记（evidence 165 §2.1）。
+- **假 DRM 节点现在"像"设备**：`/dev/dri/renderD128`、`card0` 的 `stat`/`statx`/`fstat`
+  回真 `/dev/mali0` 的字符设备号（10:33）+ 0666，并合成
+  `/sys/dev/char/<maj>:<min>/device/uevent`、`/sys/class/drm/renderD128/{dev,uevent}`、
+  `/proc/bus/pci/devices`（空表）。这是 Chromium/Electron 与 GStreamer VA 认可 GPU 的前提；
+  DRI3 零拷贝仍未通（evidence 165）。
+- **假 DRM 节点的 dup 记账**：`dup`/`dup2`/`dup3` 与 `fcntl(F_DUPFD)`/`fcntl64` 以前不认假 fd，
+  复制出来的渲染节点（`rdev=0:0`、memfd）上的 DRM ioctl 全部落空，客户端退回软件渲染。
+  现在副本也报 `rdev=10:33`（evidence 166）。
+- **假 DRM fd 只进不出**：`close()` 从不注销 DRM 假 fd，8 个槽位用满之后新开的节点不再被接管；
+  `close()`/`close_range()` 现在会注销，槽位真的用完时会打一条日志（evidence 166）。
+
+### 工具
+
+- `gl-probe root [out.ppm]`：用 `XGetImage` 读 X 根窗口并写 PPM，再打印非黑像素与直方图。
+  手机 `screencap` 抓的是 App 自己的 UI，不能当 guest 出帧的证据。
+
 ## [0.0.2] - 2026-11-24
 
 这一版没有新功能，只有「装得上、跑得稳、说得准」。全部结论来自目标机实测
