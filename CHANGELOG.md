@@ -7,10 +7,10 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
-## [未发布]
+## [0.0.3] - 2026-11-24
 
-> 下一版是 **0.0.3**：主题是「图形通路落到 GPU，并且默认就生效」。发版时本节改名为
-> `## [0.0.3] - 日期`，`VERSION`、tag、Release、本文件四处同时对齐。
+> 主题：**图形通路落到 GPU，并且默认就生效**。桌面不再是软件渲染——gnome-shell 46 跑在
+> zink → PanVK 上出帧，默认值写在 guest 的 `/etc/profile.d/husk-gpu.sh`，不需要给应用单独配置。
 
 ### 修复
 
@@ -178,6 +178,7 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.2...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.3...HEAD
+[0.0.3]: https://github.com/xishanp/Husk/releases/tag/v0.0.3
 [0.0.2]: https://github.com/xishanp/Husk/releases/tag/v0.0.2
 [0.0.1]: https://github.com/xishanp/Husk/releases/tag/v0.0.1
