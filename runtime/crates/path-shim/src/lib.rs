@@ -4913,6 +4913,7 @@ unsafe fn fake_id() -> (u32, u32) {
             FAKE_GID = parse_dec(v);
         }
     }
+    ident_sync(FAKE_UID, FAKE_GID);
     (FAKE_UID, FAKE_GID)
 }
 
@@ -12202,7 +12203,9 @@ unsafe fn env_uint_of_pid(pid: CInt, key: &[u8]) -> Option<u32> {
     n += tail.len();
     path[n] = 0;
     let f = syscall4(SYS_OPENAT, AT_FDCWD as usize, path.as_ptr() as usize, 0, 0);
+    ident_note(b'o', pid, f as i64, n as i64);
     if f < 0 {
+        ident_note(b'e', pid, -1, f as i64);
         return None;
     }
     let mut buf = [0u8; 8192];
@@ -12282,6 +12285,7 @@ unsafe fn environ_identity(pid: CInt) -> Option<(bool, Option<u32>, Option<u32>)
     path[n] = 0;
     let f = syscall4(SYS_OPENAT, AT_FDCWD as usize, path.as_ptr() as usize, 0, 0);
     if f < 0 {
+        ident_note(b'e', pid, -1, f as i64);
         return None;
     }
     let mut buf = [0u8; 8192];
@@ -12301,6 +12305,7 @@ unsafe fn environ_identity(pid: CInt) -> Option<(bool, Option<u32>, Option<u32>)
     }
     syscall4(SYS_CLOSE, f as usize, 0, 0, 0);
     if have == 0 {
+        ident_note(b'e', pid, -2, 0);
         return None;
     }
     let text = &buf[..have];
@@ -12346,6 +12351,208 @@ fn parse_u32_dec(v: &[u8]) -> Option<u32> {
     }
 }
 
+/// The one question `peer_identity` cannot answer silently: a peer that is one
+/// of ours but whose environment could not be read, so the caller falls back to
+/// the kernel's answer (the app's real uid, which no passwd has and which makes
+/// socket-credential authentication fail). Written only for the first few pids
+/// a process sees, so a busy session cannot fill the disk, and used to tell
+/// "we rewrote this credential" apart from "we gave up" in the field.
+static mut IDENT_NOTES: u32 = 0;
+const IDENT_NOTE_LIMIT: u32 = 4096;
+
+unsafe fn ident_note(tag: u8, pid: CInt, a: i64, b: i64) {
+    if IDENT_NOTES >= IDENT_NOTE_LIMIT {
+        return;
+    }
+    IDENT_NOTES += 1;
+    let root = guest_root();
+    let suf = b"/tmp/nr-ident.log";
+    if root.is_empty() || root.len() + suf.len() + 1 >= PATH_MAX {
+        return;
+    }
+    let mut p = [0u8; PATH_MAX];
+    p[..root.len()].copy_from_slice(root);
+    p[root.len()..root.len() + suf.len()].copy_from_slice(suf);
+    let n = root.len() + suf.len();
+    p[n] = 0;
+    let fd = syscall4(
+        SYS_OPENAT,
+        AT_FDCWD as usize,
+        p.as_ptr() as usize,
+        (0o1 | 0o100 | 0o2000) as usize,
+        0o644,
+    );
+    if fd < 0 {
+        return;
+    }
+    let (pb, pk) = dec_buf(pid as i64);
+    let (ab, ak) = dec_buf(a);
+    let (bb, bk) = dec_buf(b);
+    let me = syscall4(SYS_GETPID, 0, 0, 0, 0) as i64;
+    let (sb, sk) = dec_buf(me);
+    let _ = syscall4(SYS_WRITE, fd as usize, &tag as *const u8 as usize, 1, 0);
+    let _ = syscall4(SYS_WRITE, fd as usize, b" self=".as_ptr() as usize, 6, 0);
+    let _ = syscall4(SYS_WRITE, fd as usize, sb.as_ptr().add(sk) as usize, sb.len() - sk, 0);
+    let _ = syscall4(SYS_WRITE, fd as usize, b" peer=".as_ptr() as usize, 6, 0);
+    let _ = syscall4(SYS_WRITE, fd as usize, pb.as_ptr().add(pk) as usize, pb.len() - pk, 0);
+    let _ = syscall4(SYS_WRITE, fd as usize, b" a=".as_ptr() as usize, 3, 0);
+    let _ = syscall4(SYS_WRITE, fd as usize, ab.as_ptr().add(ak) as usize, ab.len() - ak, 0);
+    let _ = syscall4(SYS_WRITE, fd as usize, b" b=".as_ptr() as usize, 3, 0);
+    let _ = syscall4(SYS_WRITE, fd as usize, bb.as_ptr().add(bk) as usize, bb.len() - bk, 0);
+    let _ = syscall4(SYS_WRITE, fd as usize, b"\n".as_ptr() as usize, 1, 0);
+    rc::close(fd as CInt);
+}
+
+// ------------------------------------------------ identity registry ---
+//
+// `/proc` is per mount namespace, and this device mounts it `hidepid=2`: the
+// desktop session runs in its own namespace, so a daemon there finds
+// `/proc/<terminal pid>` ENOENT and cannot read a caller's environment at all
+// (evidence 151). The rootfs is the one tree every namespace agrees on and the
+// single real uid every guest shares can write, so the fiction travels through
+// it instead:
+//
+//     <rootfs>/tmp/.nr-ident/<pid>   ->  "<uid> <gid>\n"
+//
+// A process publishes on the first call that reports its identity; receivers
+// read that first and fall back to environ for the not-yet-published window.
+static mut IDENT_PUB_UID: u32 = u32::MAX;
+static mut IDENT_PUB_GID: u32 = u32::MAX;
+
+unsafe fn ident_path(pid: CInt, out: &mut [u8; 512], dir_only: bool) -> Option<usize> {
+    let root = guest_root();
+    if root.is_empty() || pid <= 0 {
+        return None;
+    }
+    let mid: &[u8] = b"/tmp/.nr-ident";
+    let mut n = root.len() + mid.len();
+    if n + 12 > out.len() {
+        return None;
+    }
+    out[..root.len()].copy_from_slice(root);
+    out[root.len()..n].copy_from_slice(mid);
+    if dir_only {
+        out[n] = 0;
+        return Some(n);
+    }
+    out[n] = b'/';
+    n += 1;
+    let mut digits = [0u8; 10];
+    let mut k = 0usize;
+    let mut v = pid as u32;
+    loop {
+        digits[k] = b'0' + (v % 10) as u8;
+        v /= 10;
+        k += 1;
+        if v == 0 || k == digits.len() {
+            break;
+        }
+    }
+    while k > 0 {
+        k -= 1;
+        out[n] = digits[k];
+        n += 1;
+    }
+    out[n] = 0;
+    Some(n)
+}
+
+unsafe fn ident_publish(uid: u32, gid: u32) {
+    let mut dir = [0u8; 512];
+    if ident_path(1, &mut dir, true).is_none() {
+        return;
+    }
+    syscall4(SYS_MKDIRAT, AT_FDCWD as usize, dir.as_ptr() as usize, 0o755, 0);
+    let me = syscall4(SYS_GETPID, 0, 0, 0, 0) as CInt;
+    let mut p = [0u8; 512];
+    if ident_path(me, &mut p, false).is_none() {
+        return;
+    }
+    let fd = syscall4(
+        SYS_OPENAT,
+        AT_FDCWD as usize,
+        p.as_ptr() as usize,
+        (0o1 | 0o100 | 0o1000) as usize, // O_WRONLY | O_CREAT | O_TRUNC
+        0o644,
+    );
+    if fd < 0 {
+        return;
+    }
+    let (ub, uk) = dec_buf(uid as i64);
+    let (gb, gk) = dec_buf(gid as i64);
+    let _ = syscall4(SYS_WRITE, fd as usize, ub.as_ptr().add(uk) as usize, ub.len() - uk, 0);
+    let _ = syscall4(SYS_WRITE, fd as usize, b" ".as_ptr() as usize, 1, 0);
+    let _ = syscall4(SYS_WRITE, fd as usize, gb.as_ptr().add(gk) as usize, gb.len() - gk, 0);
+    let _ = syscall4(SYS_WRITE, fd as usize, b"\n".as_ptr() as usize, 1, 0);
+    rc::close(fd as CInt);
+}
+
+/// Publish only when the reported identity changed (a launcher seeds it once,
+/// `su` changes it mid-life).
+unsafe fn ident_sync(uid: u32, gid: u32) {
+    if uid == IDENT_PUB_UID && gid == IDENT_PUB_GID {
+        return;
+    }
+    ident_publish(uid, gid);
+    IDENT_PUB_UID = uid;
+    IDENT_PUB_GID = gid;
+}
+
+unsafe fn ident_from_registry(pid: CInt) -> Option<(u32, u32)> {
+    let mut p = [0u8; 512];
+    if ident_path(pid, &mut p, false).is_none() {
+        return None;
+    }
+    let fd = syscall4(SYS_OPENAT, AT_FDCWD as usize, p.as_ptr() as usize, 0, 0);
+    if fd < 0 {
+        return None;
+    }
+    let mut buf = [0u8; 32];
+    let mut have = 0usize;
+    while have < buf.len() {
+        let r = syscall4(
+            SYS_PREAD64,
+            fd as usize,
+            buf.as_mut_ptr().add(have) as usize,
+            buf.len() - have,
+            have,
+        );
+        if r <= 0 {
+            break;
+        }
+        have += r as usize;
+    }
+    rc::close(fd as CInt);
+    if have == 0 {
+        return None;
+    }
+    let text = &buf[..have];
+    let mut i = 0usize;
+    let mut vals = [0u32; 2];
+    let mut got = 0usize;
+    while i < text.len() && got < 2 {
+        if text[i].is_ascii_digit() {
+            let mut n: u64 = 0;
+            while i < text.len() && text[i].is_ascii_digit() {
+                n = n * 10 + (text[i] - b'0') as u64;
+                if n > u32::MAX as u64 {
+                    return None;
+                }
+                i += 1;
+            }
+            vals[got] = n as u32;
+            got += 1;
+        } else {
+            i += 1;
+        }
+    }
+    if got == 2 {
+        Some((vals[0], vals[1]))
+    } else {
+        None
+    }
+}
+
 /// A guest process is one this runtime started: it carries `NR_ROOTFS`.
 /// `NR_FAKE_UID`/`GID` are only present when the launcher seeded a user, so a
 /// guest without them reports the shim's own default, uid 0 - the same answer
@@ -12365,6 +12572,12 @@ unsafe fn peer_identity(pid: CInt) -> Option<(u32, u32)> {
             return Some((PEER_CACHE[i].1, PEER_CACHE[i].2));
         }
         i += 1;
+    }
+    if let Some(id) = ident_from_registry(pid) {
+        ident_note(b'R', pid, id.0 as i64, id.1 as i64);
+        PEER_CACHE[PEER_CACHE_NEXT] = (pid, id.0, id.1);
+        PEER_CACHE_NEXT = (PEER_CACHE_NEXT + 1) % PEER_CACHE_SLOTS;
+        return Some(id);
     }
     let (guest, uid, gid) = match environ_identity(pid) {
         Some(v) => v,
@@ -12400,9 +12613,12 @@ unsafe fn restore_credentials(msg: *mut u8) {
         let ctype = core::ptr::read_unaligned(p.add(12) as *const i32);
         if level == 1 && ctype == 2 && clen >= 28 {
             let pid = core::ptr::read_unaligned(p.add(16) as *const i32);
-            if let Some((uid, gid)) = peer_identity(pid) {
-                core::ptr::write_unaligned(p.add(20) as *mut u32, uid);
-                core::ptr::write_unaligned(p.add(24) as *mut u32, gid);
+            match peer_identity(pid) {
+                Some((uid, gid)) => {
+                    core::ptr::write_unaligned(p.add(20) as *mut u32, uid);
+                    core::ptr::write_unaligned(p.add(24) as *mut u32, gid);
+                }
+                None => {}
             }
         }
         off += (clen + 7) & !7usize;
@@ -12431,9 +12647,12 @@ pub unsafe extern "C" fn getsockopt(
     if r == 0 && fake_root_on() && level == 1 && optname == SO_PEERCRED_C && !optval.is_null() {
         // struct ucred { pid_t pid; uid_t uid; gid_t gid; }: 12 bytes.
         let pid = core::ptr::read_unaligned(optval as *const i32);
-        if let Some((uid, gid)) = peer_identity(pid) {
-            core::ptr::write_unaligned(optval.add(4) as *mut u32, uid);
-            core::ptr::write_unaligned(optval.add(8) as *mut u32, gid);
+        match peer_identity(pid) {
+            Some((uid, gid)) => {
+                core::ptr::write_unaligned(optval.add(4) as *mut u32, uid);
+                core::ptr::write_unaligned(optval.add(8) as *mut u32, gid);
+            }
+            None => {}
         }
     }
     r
