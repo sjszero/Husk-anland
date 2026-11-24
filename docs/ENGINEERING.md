@@ -71,10 +71,10 @@
 
 | 文件 | sha256 |
 |---|---|
-| `ld-embedded.so`（成品动态链接器） | `7b4300a4966edcc27fdf3528392cc7228b1615c01b9fa4d31acfdd7b6124f91a` |
+| `ld-embedded.so`（成品动态链接器） | `33dcd6814a42cf718aaabbc2c7f9aba4940f7c8481ee654fb056098969624f78` |
 | `ld-linux-aarch64.so.1.orig`（原始） | `bd29514c1b45cc29b152011dd7c504e00dce240c19e4dd120196053873af9180` |
 | `libc-nop.so.6`（guest 使用，含 HUSK-SLOT-1 槽位页 + clone3→ENOSYS） | `32d4d3f9501a2c717cf2246a2df1a898f1361b49e0576614461d70fc94774b56` |
-| `libpath_shim.so`（嵌入前） | `1b86173bea3ba33e8a86caf6232d9e508faed429a5ea0d90fb960f3a6262ed75` |
+| `libpath_shim.so`（嵌入前） | `06abee35bcfd8122a6a263130bbaee786ddf8247e62e3b105aae92dc13b2a8c1` |
 
 在本仓库执行 `tools/loader/build-embedded-loader.sh`，产出应与第一行一致。
 

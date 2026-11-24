@@ -3521,6 +3521,15 @@ unsafe fn alias_refresh(fd: CInt) {
 
 #[no_mangle]
 unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt) -> CInt {
+    // dpkg unpacks a conffile by creating `<dest>.dpkg-new` with the mode the
+    // package asks for and then writing through that very descriptor. Modes
+    // such as sudo's /etc/sudoers.d/README (0440) leave the *owner* without
+    // write permission, and the kernel enforces that against the real app uid,
+    // not the uid we report. Root ignores those bits, so a file we create always
+    // keeps owner rw: measured as "unable to open
+    // '/etc/sudoers.d/README.dpkg-new': Permission denied" in the 2.0 sudo step
+    // (evidence 137).
+    let mode = if flags & O_CREAT != 0 { mode | 0o600 } else { mode };
     if path.is_null() {
         return ret_or_errno(syscall4(
             SYS_OPENAT,
@@ -3704,9 +3713,46 @@ unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt)
 }
 
 
+/// Root inside the container may write what the kernel refuses to us.
+///
+/// The real uid is the app's, never 0, so a file the guest itself just created
+/// with a restrictive mode is off-limits to its own next open(). dpkg does
+/// exactly that: it unpacks a conffile as `<dest>.dpkg-new`, applies the
+/// package's mode, and then opens that name again for the content, which turned
+/// into "unable to open '/etc/sudoers.d/README.dpkg-new': Permission denied"
+/// while installing sudo (evidence 138). Widen the owner bit once and retry; the
+/// guest still reads back whatever mode it set itself.
+unsafe fn widen_owner_write(dirfd: CInt, path: *const CChar) -> bool {
+    if let Some(v) = env_lookup(b"NR_FAKE_UID") {
+        if v != b"0" {
+            return false;
+        }
+    }
+    let mut gp = [0u8; PATH_MAX];
+    let n = match abs_guest(path, &mut gp) {
+        Some(n) => n,
+        None => return false,
+    };
+    if ro_gp(&gp[..n]) {
+        return false;
+    }
+    chmod_target(dirfd, path, 0o600, true) == 0
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt) -> CInt {
-    let r = openat_inner(dirfd, path, flags, mode);
+    let mut r = openat_inner(dirfd, path, flags, mode);
+    if r < 0
+        && !path.is_null()
+        && flags & O_WRITEISH != 0
+        && *__errno_location() == EACCES
+        && widen_owner_write(dirfd, path)
+    {
+        if dbg_on() {
+            dbg_file(&[b"openat widened owner write ", bytes(path), b"\n"]);
+        }
+        r = openat_inner(dirfd, path, flags, mode);
+    }
     // EINVAL out of an open is always a real defect: either the guest asked for
     // a flag combination this kernel cannot honour, or our own translation
     // mangled it. Record which, rather than let a package manager report
@@ -3714,6 +3760,17 @@ pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mo
     if r < 0 && !path.is_null() && *__errno_location() == EINVAL && dbg_on() {
         let (b, k) = dec_buf(flags as i64);
         dbg_file(&[b"openat EINVAL flags=", &b[k..], b" ", bytes(path), b"\n"]);
+    }
+    // A denial here is worth a line of its own: when a package manager reports
+    // "unable to open ...: Permission denied" the flag word and the exact path
+    // are the whole diagnosis, and neither shows up in its own message.
+    if r < 0 && !path.is_null() && dbg_on() {
+        let e = *__errno_location();
+        if e != 0 {
+            let (b, k) = dec_buf(flags as i64);
+            let (c, j) = dec_buf(e as i64);
+            dbg_file(&[b"openat denied errno=", &c[j..], b" flags=", &b[k..], b" ", bytes(path), b"\n"]);
+        }
     }
     r
 }
