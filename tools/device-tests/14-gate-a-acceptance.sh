@@ -66,7 +66,14 @@ eq "cleanup" "gone" "$(id nrtest >/dev/null 2>&1 && echo present || echo gone)"
 
 echo "== dpkg =="
 eq "dpkg -C clean before" "0" "$(dpkg -C >/tmp/dpkgC.1 2>&1; wc -l < /tmp/dpkgC.1 | tr -d ' ')"
-eq "installed packages" "${EXPECT_PKGS:-811}" "$(dpkg-query -W -f='${Status}\n' | grep -c 'install ok installed')"
+# Package count is a property of the rootfs, not of the runtime: a tree with
+# mesa-vulkan-drivers installed carries more packages than the bare one this
+# gate was written against. Judge dpkg health (below) plus a floor, and print
+# the exact number instead of demanding one magic value.
+pkg_n=$(dpkg-query -W -f='${Status}\n' | grep -c 'install ok installed')
+[ "$pkg_n" -ge "${EXPECT_PKGS_MIN:-700}" ] \
+  && ok "installed packages ($pkg_n >= ${EXPECT_PKGS_MIN:-700})" \
+  || bad "installed packages (want >= ${EXPECT_PKGS_MIN:-700} got $pkg_n)"
 eq "unpacked packages" "0" "$(dpkg-query -W -f='${Status}\n' | grep -c 'install ok unpacked')"
 # A .deb to re-install. The App tree removes its offline cache once the
 # initialisation ends, so discovery has to look in more than one place; when
@@ -96,8 +103,14 @@ outside=$(env | grep '/data/user' | cut -d= -f1 | sort | tr '\n' ' ' | sed 's/ $
 echo "  vars whose value points at the app dir: ${outside:-<none>}"
 eq "host paths only in internal NR_ vars" "0" \
   "$(echo "$outside" | tr ' ' '\n' | grep -v '^NR_' | grep -c . || true)"
-eq "ps sees only the guest process tree" "small" \
-  "$( [ "$(ps -e -o pid= 2>/dev/null | wc -l | tr -d ' ')" -le 16 ] && echo small || echo many )"
+# The invariant is containment, not a process count: a desktop session
+# legitimately runs 60+ guest processes while an idle shell runs 5, so counting
+# proved nothing and was changed on 2026-11-24. What must never happen is the
+# guest seeing *another* Android app: our own package (and its :x11 process) is
+# expected - it is the container - anything else is a leak.
+eq "ps exposes no Android app other than this one" "0" \
+  "$(ps -e -o args= 2>/dev/null | grep -oE 'com\.[a-z0-9_.]+' \
+     | grep -v '^com\.linuxhub\.myth\.husk$' | sort -u | wc -l | tr -d ' ')"
 eq "no host system processes visible" "0" \
   "$(ps -e -o args 2>/dev/null | grep -v '/data/user' | grep -cE 'system_server|zygote|/system/bin|/apex' || true)"
 # FACT worth recording: the loader keeps its own argv, so a guest reading

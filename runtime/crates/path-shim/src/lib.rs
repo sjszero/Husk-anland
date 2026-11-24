@@ -376,6 +376,72 @@ unsafe fn sigsys_mode() -> u8 {
 static mut SEEN_NR: [u16; 24] = [0; 24];
 static mut SEEN_COUNT: usize = 0;
 
+/// Cross-process half of the same rule: a session runs hundreds of short-lived
+/// processes and each of them would otherwise re-print its own copy of the
+/// same line. The rootfs is shared by every process, so a marker file there
+/// makes the whole session print each (nr, mode) once - the log then stays a
+/// few dozen lines no matter how many programs start.
+unsafe fn first_sighting_on_disk(nr: u16, mode: u16) -> bool {
+    let root = guest_root();
+    if root.is_empty() {
+        return true;
+    }
+    let dir_suffix = b"/tmp/.nr-sigsys";
+    if root.len() + dir_suffix.len() + 1 >= PATH_MAX {
+        return true;
+    }
+    let mut dir = [0u8; PATH_MAX];
+    dir[..root.len()].copy_from_slice(root);
+    dir[root.len()..root.len() + dir_suffix.len()].copy_from_slice(dir_suffix);
+    let dn = root.len() + dir_suffix.len();
+    dir[dn] = 0;
+    syscall4(SYS_MKDIRAT, AT_FDCWD as usize, dir.as_ptr() as usize, 0o755, 0);
+
+    let mut p = [0u8; PATH_MAX];
+    p[..dn].copy_from_slice(&dir[..dn]);
+    let mut n = dn;
+    p[n] = b'/';
+    n += 1;
+    for v in [nr as u32, mode as u32] {
+        let mut digits = [0u8; 10];
+        let mut k = 0usize;
+        let mut x = v;
+        loop {
+            digits[k] = b'0' + (x % 10) as u8;
+            x /= 10;
+            k += 1;
+            if x == 0 || k == digits.len() {
+                break;
+            }
+        }
+        while k > 0 {
+            k -= 1;
+            p[n] = digits[k];
+            n += 1;
+        }
+        p[n] = b'-';
+        n += 1;
+    }
+    n -= 1; // drop the trailing '-'
+    if n + 1 >= PATH_MAX {
+        return true;
+    }
+    p[n] = 0;
+    // O_WRONLY|O_CREAT|O_EXCL: succeeds exactly once per (nr, mode) per rootfs.
+    let fd = syscall4(
+        SYS_OPENAT,
+        AT_FDCWD as usize,
+        p.as_ptr() as usize,
+        (0o1 | 0o100 | 0o200) as usize,
+        0o644,
+    );
+    if fd < 0 {
+        return false;
+    }
+    syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+    true
+}
+
 unsafe fn first_sighting(nr: u16, mode: u16) -> bool {
     let key = (nr << 4) | (mode & 0xf);
     let mut i = 0usize;
@@ -389,7 +455,7 @@ unsafe fn first_sighting(nr: u16, mode: u16) -> bool {
         SEEN_NR[SEEN_COUNT] = key;
         SEEN_COUNT += 1;
     }
-    true
+    first_sighting_on_disk(nr, mode)
 }
 
 unsafe fn record(line: &[u8]) {
