@@ -30,6 +30,18 @@
 | gvfs（`gio mount -l`） | 可用，不回退到会话总线 | evidence 152 |
 | RandR（`xrandr --version`） | 可用，无缩放告警 | evidence 152 |
 
+## GPU
+
+| 项 | Husk（0.01 的树） | 证据 |
+|---|---|---|
+| `/dev/mali0` 直开 | 可用 | evidence 156 |
+| PanVK（kbase 后端）枚举 + compute + 离屏 graphics | 可用，`Mali-G77 MC9` | evidence 156 |
+| GL/EGL 经 Zink 落到 GPU | 可用，renderer `zink Vulkan 1.3(Mali-G77 MC9)`，上限 GLES 2.0 | evidence 156 |
+| 桌面硬件加速（WSI / 窗口呈现） | 未做 | `docs/LIMITATIONS.md` §7 |
+
+不开 Zink 时 GL 落在 `llvmpipe`；开了 zink 但用发行版自带的 `panfrost_icd.json` 会
+`VK_ERROR_INCOMPATIBLE_DRIVER`，因为它要的是 DRM render node，本机只有 kbase。
+
 ## 浏览器
 
 不可用，原因明确：随附 rootfs 来自离线包索引，其中没有浏览器包
@@ -38,5 +50,6 @@
 
 ## 不在支持范围
 
-Termux 不是交付形态（`LIMITATIONS.md` §3）。传感器 / GPS / USB / 蓝牙 / NFC / 指纹、
-硬件视频编解码均未开始。
+Termux 不是交付形态（`LIMITATIONS.md` §3）。传感器 / GPS / USB / 蓝牙 / NFC / 指纹未开始；
+硬件视频解码只有应用侧的 MediaCodec 链路（evidence 80），guest 内的全链未见可用结论。
+桌面硬件加速（WSI）未做，见 `LIMITATIONS.md` §7。

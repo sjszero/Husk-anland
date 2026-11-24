@@ -38,14 +38,15 @@ FLAGS="-C linker=$NDK/bin/clang \
        -C link-arg=-fuse-ld=$NDK/bin/ld.lld \
        -C link-arg=-Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 \
        -C link-arg=-Wl,-z,max-page-size=65536"
-for pkg in usermgr ldconfig husk-rd husk-su; do
+for pkg in usermgr ldconfig husk-rd husk-su husk-symlinks; do
   RUSTFLAGS="$FLAGS" cargo build --release -p "$pkg" --target aarch64-unknown-linux-gnu
 done
-for b in husk-usermgr husk-ldconfig husk-rd husk-su; do
+for b in husk-usermgr husk-ldconfig husk-rd husk-su husk-symlinks; do
   printf '%s  ' "$b"
   "$NDK/bin/llvm-readelf" -h "target/aarch64-unknown-linux-gnu/release/$b" | awk -F: '/Entry point/{print "entry" $2}'
 done
 ls -l target/aarch64-unknown-linux-gnu/release/husk-usermgr \
       target/aarch64-unknown-linux-gnu/release/husk-ldconfig \
       target/aarch64-unknown-linux-gnu/release/husk-rd \
-      target/aarch64-unknown-linux-gnu/release/husk-su
+      target/aarch64-unknown-linux-gnu/release/husk-su \
+      target/aarch64-unknown-linux-gnu/release/husk-symlinks

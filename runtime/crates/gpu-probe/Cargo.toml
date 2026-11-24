@@ -2,7 +2,7 @@
 name = "gpu-probe"
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+license.workspace = true
 
 [[bin]]
 name = "gpu-probe"

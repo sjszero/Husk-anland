@@ -2,7 +2,7 @@
 name = "v4l2-shim"
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+license.workspace = true
 
 [lib]
 crate-type = ["rlib"]

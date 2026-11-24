@@ -44,14 +44,37 @@ guest 里 `/proc/self/fd/1` 是 socket。`make` 往它写完（309 字节就够�
 写入全部 `EACCES`。proot 下完全一样，所以不是 shim 的行为；但它限定了基准的取样方式：
 构建类步骤统一重定向到 `/dev/null`，只记墙钟（evidence 155）。
 
-## 7 · GPU 只到"能开、能算"，没到"能上线"
+## 7 · GPU：能算、GL 也能落到 GPU，但桌面还吃不到
 
-GPU 那条路是真的：用户态直开 `/dev/mali0`，PanVK 给出 logical device，compute 与离屏
-graphics 通过，Zink surfaceless 也通（evidence 97）。**没有做的是 WSI / swapchain**，也就是
-把一个窗口的表面交给 GPU 直接呈现这条链；显示侧目前走的是 `AHardwareBuffer` → dma-buf →
-`SurfaceControl` 的零拷贝路径（evidence 59），两条链还没有合起来。
+**已经是 FACT（evidence 156，2026-11-24，0.01 的树）**：guest 进程直开 `/dev/mali0`；
+kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，compute 与离屏 graphics
+都能跑并回读 GPU 写入的值；开 Zink 后 EGL/GL 的 renderer 是
+`zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`，不开就是 `llvmpipe`。
 
-## 8 · 未开始
+**还差的三件事**：
 
-传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、硬件编码。随附 rootfs 里没有浏览器包，
-而且没有跑过任何一个浏览器。
+1. **API 上限只有 GLES 2.0 / GL 2.1**。GNOME 46 的 Clutter/Cogl 要 GLES 3.0+ 或 GL 3.3+，
+   所以整条桌面还走不到 GPU。原因是 Zink 在这个配置下判定出来的能力集，**不是**设备不支持。
+2. **WSI / swapchain 没做**：把窗口表面交给 GPU 直接呈现这条链还没接。呈现仍走
+   `AHardwareBuffer` → dma-buf → `SurfaceControl`（evidence 59），GPU 直接把画面交给
+   SurfaceFlinger 的那一步不存在。
+3. **桌面合成器仍以软件渲染验收**：`docs/BENCHMARKS.md` 里图形那一维因此不进表——不是没测，
+   是没有两个可比对象。
+
+## 8 · 分区很细：这一版不是「什么都跑得起来」
+
+| 能力 | 状态 | 证据 |
+|---|---|---|
+| 命令行用户态（bash、coreutils、apt、dpkg、gcc、make、python3+numpy、git） | 可用 | evidence 154、155 |
+| 会话服务（polkit、at-spi、gvfs、RandR） | 可用 | evidence 151、152 |
+| GPU：Vulkan compute / 离屏 graphics | 可用 | evidence 156 |
+| GPU：GL/EGL 经 Zink 落到 GPU（GLES 2.0 上限） | 可用 | evidence 156 |
+| GPU：窗口呈现（WSI）、桌面硬件加速 | 未做 | 本节 §7 |
+| 硬件视频解码（平台 MediaCodec，应用侧） | 有实测链路，未产品化 | evidence 80 |
+| guest 内 VA-API 全链（播放器直接用） | 部分 | evidence 81–87 |
+| 相机（V4L2 前端 + 平台编码） | 有实测链路 | evidence 91–93 |
+| 音频（PulseAudio → AAudio） | 可用，10 秒级，非长稳 | evidence 62 |
+| 传感器、GPS、USB、蓝牙、NFC、指纹 | 未开始 | — |
+| 浏览器 | 随附 rootfs 无浏览器包，未跑过 | — |
+
+「有实测链路」不等于「产品可用」：这四类都还是「跑通过一次」的程度，稳定性与错误路径没做完。

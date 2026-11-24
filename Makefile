@@ -18,9 +18,22 @@ PROFILE_DIR := runtime/target/$(TARGET)/release
 
 all: lint check version-check
 
+# What README promises `make check` does: formatting, type check for the target
+# the runtime actually runs on, lints, shell syntax, doc links and the version
+# triple. Before, `check` only ran the cargo check and the other gates lived in
+# separate targets, so "make check passed" said less than it looked like.
 check:
+	cargo fmt --all --check --manifest-path $(MANIFEST)
 	cargo check --manifest-path $(MANIFEST) --target $(TARGET) \
 		-p runtime-core -p nr-tools -p ldconfig -p path-shim
+# No --all-targets: path-shim is no_std and its test harness collides with the
+# crate's own panic handler (duplicate lang item). Warnings there are tracked
+# separately; this gate fails on errors.
+	cargo clippy --manifest-path $(MANIFEST) --target $(TARGET) \
+		-p runtime-core -p nr-tools -p ldconfig -p path-shim
+	sh tools/ci/check-shell.sh
+	python3 tools/ci/check-links.py
+	@$(MAKE) --no-print-directory version-check
 
 lint:
 	cargo fmt --all --check --manifest-path $(MANIFEST)
@@ -69,15 +82,15 @@ dist:
 	@mkdir -p dist
 	cp tools/loader/ld-embedded.so dist/libld.so
 	cp $(PROFILE_DIR)/husk-ldconfig $(PROFILE_DIR)/husk-usermgr \
-	   $(PROFILE_DIR)/husk-su dist/
-	cp binaries/libc-nop.so.6 dist/libc.so.6
+	   $(PROFILE_DIR)/husk-su $(PROFILE_DIR)/husk-symlinks dist/
+	cp tools/loader/libc-nop.so.6 dist/libc.so.6   # the artifact install-libc-patch.sh just refreshed
 	cp tools/guest/install-husk.sh tools/guest/husk-session.sh dist/
 	cp VERSION dist/VERSION
 	tar czf dist/husk-arm64.tar.gz -C dist \
-	    libld.so libc.so.6 husk-ldconfig husk-usermgr husk-su \
+	    libld.so libc.so.6 husk-ldconfig husk-usermgr husk-su husk-symlinks \
 	    install-husk.sh husk-session.sh VERSION
 	@rm -f dist/libld.so dist/libc.so.6 dist/husk-ldconfig dist/husk-usermgr \
-	    dist/husk-su dist/install-husk.sh dist/husk-session.sh dist/VERSION
+	    dist/husk-su dist/husk-symlinks dist/install-husk.sh dist/husk-session.sh dist/VERSION
 	@cd dist && sha256sum husk-arm64.tar.gz > SHA256SUMS && cat SHA256SUMS
 
 clean:

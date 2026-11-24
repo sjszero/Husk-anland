@@ -1,0 +1,10 @@
+[package]
+name = "husk-symlinks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rewrite absolute symlinks in a guest rootfs into relative ones, and verify none are left."
+
+[[bin]]
+name = "husk-symlinks"
+path = "src/main.rs"

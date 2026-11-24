@@ -2,7 +2,7 @@
 name = "husk-va-driver"
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+license.workspace = true
 
 [lib]
 name = "husk_va_driver"

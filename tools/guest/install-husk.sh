@@ -149,11 +149,26 @@ if [ -n "$dec" ]; then
         1f8b|fd37|28b5) echo "install-husk: $ROOTFS_TAR is compressed twice (a .gz of a .gz); pass the inner tarball" >&2
                         rm -f "$OUT/.husk-pass1.tar"; exit 67 ;;
     esac
-    tar xf "$OUT/.husk-pass1.tar" -C "$DEST" 2>&1 | sed 's/^/   /' || true
+    tar xf "$OUT/.husk-pass1.tar" -C "$DEST" > "$OUT/.husk-pass1.log" 2>&1
+    rc=$?
     rm -f "$OUT/.husk-pass1.tar"
 else
-    tar xf "$ROOTFS_TAR" -C "$DEST" 2>&1 | sed 's/^/   /' || true
+    tar xf "$ROOTFS_TAR" -C "$DEST" > "$OUT/.husk-pass1.log" 2>&1
+    rc=$?
 fi
+sed 's/^/   /' "$OUT/.husk-pass1.log"
+# Hard links inside app data fail with EACCES/EPERM because SELinux refuses
+# link(2); pass 2 materialises those names through the shim. That is the *only*
+# tolerated failure. A pipe used to hide tar's exit status here, so a truncated
+# or corrupt archive could "succeed" on an os-release check alone.
+if [ "$rc" -ne 0 ]; then
+    if grep -vi 'link' "$OUT/.husk-pass1.log" | grep -qiE 'error|cannot|denied|corrupt|unexpected'; then
+        echo "install-husk: pass 1 failed (tar rc=$rc); this archive is not usable" >&2
+        exit 68
+    fi
+    echo "   (pass 1 reported link errors only; pass 2 rewrites those names)"
+fi
+rm -f "$OUT/.husk-pass1.log"
 [ -d "$DEST/bin" ] || { echo "install-husk: pass 1 produced no /bin - bad tarball?" >&2; exit 66; }
 
 # 2. second pass: the guest's own tar through the loader, so link() -> copy.
@@ -172,6 +187,62 @@ LIBS="$DEST/lib/aarch64-linux-gnu:$DEST/usr/lib/aarch64-linux-gnu"
 #     here, so an install never inherits sockets or a stale /root.
 mkdir -p "$DEST/dev" "$DEST/dev/shm" "$DEST/proc" "$DEST/sys" "$DEST/run" "$DEST/root" "$DEST/tmp"
 chmod 1777 "$DEST/tmp"
+
+# 2c. absolute symlinks. The guest loader is a host process, so the kernel
+#     resolves a link target against the *host* root: /etc/alternatives/...
+#     escapes the tree and dlopen() reports ENOENT for a library that is right
+#     there (evidence 155). Rewrite them relative, then verify none is left.
+echo "== symlinks: absolute -> relative =="
+if [ -f "$HERE/husk-symlinks" ]; then
+    cp "$HERE/husk-symlinks" "$DEST/usr/bin/husk-symlinks"
+    chmod 755 "$DEST/usr/bin/husk-symlinks"
+fi
+guest_run() {
+    ( cd "$DEST" && NR_ROOTFS=$DEST NR_LD=$LOADER "$LOADER" --library-path "$LIBS" usr/bin/env -i \
+        PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+        NR_ROOTFS=$DEST NR_LD=$LOADER "$@" )
+}
+if [ -x "$DEST/usr/bin/husk-symlinks" ]; then
+    guest_run usr/bin/husk-symlinks --root / --apply 2>&1 | sed 's/^/   /'
+    guest_run usr/bin/husk-symlinks --root / --verify --quiet 2>&1 | sed 's/^/   /' || {
+        echo "install-husk: absolute symlinks still escape the rootfs; those names will not dlopen" >&2
+        exit 71; }
+else
+    echo "   (this bundle has no husk-symlinks; absolute links, if any, stay)" >&2
+fi
+
+# 2d. the guest libc is not stock (slot page + clone3 -> ENOSYS, LIMITATIONS 4).
+#     If the tree carries a different libc than the one this bundle shipped, it
+#     is either a distro upgrade or a stale image; both die later with a
+#     misleading `Cannot fork`. Put the bundled one back and say so.
+echo "== libc =="
+shipped_libc="$HERE/libc.so.6"
+tree_libc="$DEST/usr/lib/aarch64-linux-gnu/libc.so.6"
+[ -f "$tree_libc" ] || tree_libc="$DEST/lib/aarch64-linux-gnu/libc.so.6"
+libc_sha=
+if [ -f "$shipped_libc" ] && [ -f "$tree_libc" ]; then
+    want=$(sha256sum "$shipped_libc" | cut -d' ' -f1)
+    have=$(sha256sum "$tree_libc" | cut -d' ' -f1)
+    if [ "$want" != "$have" ]; then
+        echo "   tree libc $(echo "$have" | cut -c1-12) != bundle $(echo "$want" | cut -c1-12): restoring"
+        cp "$shipped_libc" "$DEST/usr/lib/aarch64-linux-gnu/libc.so.6"
+        [ "$tree_libc" = "$DEST/lib/aarch64-linux-gnu/libc.so.6" ] && \
+            cp "$shipped_libc" "$DEST/lib/aarch64-linux-gnu/libc.so.6"
+        chmod 755 "$DEST/usr/lib/aarch64-linux-gnu/libc.so.6"
+        have=$(sha256sum "$DEST/usr/lib/aarch64-linux-gnu/libc.so.6" | cut -d' ' -f1)
+        [ "$want" = "$have" ] || { echo "install-husk: libc restore failed" >&2; exit 72; }
+    fi
+    libc_sha=$want
+    echo "   libc $(echo "$libc_sha" | cut -c1-12) matches the bundle"
+else
+    echo "   (no bundled libc.so.6 next to the installer; keeping the tree's own)" >&2
+fi
+{
+    echo "version=$HUSK_VERSION"
+    echo "libc_sha256=${libc_sha:-unknown}"
+    echo "loader_sha256=$(sha256sum "$LOADER" | cut -d' ' -f1)"
+    echo "installed=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+} > "$OUT/.husk-install-state"
 
 # 3. session script + launcher, both in the parent of the rootfs. Absolute paths
 #    are baked in: $0 inside the launcher is the launcher, not the rootfs.
@@ -222,6 +293,20 @@ case "$hl" in
     yes) echo "== ok: hard links materialised (perl5.38.2 + uncompress are real files) ==" ;;
     *)   echo "install-husk: warning - hard links missing; pass 2 did not go through the shim" >&2 ;;
 esac
+
+# 4b. the check that would have caught both symlink bugs: a soname that only
+#     resolves when the /etc/alternatives chain is relative.
+if [ -x "$DEST/usr/bin/python3" ]; then
+    son=$( guest_run /usr/bin/python3 -c \
+        "import ctypes; [ctypes.CDLL(n) for n in ('libblas.so.3','liblapack.so.3')]; print('sonames ok')" \
+        2>&1 | tail -2 )
+    echo "$son" | sed 's/^/   /'
+    case "$son" in
+        *"sonames ok"*) ;;
+        *) echo "install-husk: soname resolution failed (libblas/liblapack) - do not ship this tree" >&2
+           exit 73 ;;
+    esac
+fi
 
 cat <<DONE
 

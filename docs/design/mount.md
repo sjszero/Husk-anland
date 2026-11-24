@@ -57,7 +57,14 @@
    看不到新挂载，它 exec 出来的子进程能看到。容器里没有这个差别（内核全局）。
 2. 最多 8 个挂载点，单条路径 ≤128 字节；超出返回 `ENOSPC`/`ENAMETOOLONG`。
 3. tmpfs 的 `size=` 不执行；`df` 报的是底层文件系统。
-4. 只读判定只覆盖 `openat` 写标志与改树系统调用；`chmod/chown/utimensat` 目前不做 ro 检查（待补）。
+4. 只读判定覆盖 `openat` 写标志、改树系统调用（`mkdir/rmdir/unlink/rename/symlink/link/mknod`）
+   以及**元数据写**（`chmod/fchmodat`、`chown/fchownat/lchown`、`utimensat/utimes/lutimes`、
+   xattr）——它们都走 `ro_refuse_at()`，只读挂载上返回 `EROFS`（`lib.rs` 里的
+   `chmod_target` / `chown_target` / `utimens_target` 开头即判定）。
+   仍有的缺口：fd 形式的 `fchmod/fchown`（没有路径可判）与 `renameat2(RENAME_EXCHANGE)`
+   的两端判定，**没有端到端复验**。2026-11-24 想在目标机上补测时，
+   `mount -o remount,ro` 被内核拒绝（`mount point not mounted or bad option`），只读 bind
+   没能建立，因此这条仍记为 UNKNOWN，需要一个专门的只读挂载夹具。
 6. `mount -o remount,ro,bind <target>`（util-linux 先查 mountinfo 的那条路径）目前 rc=32；
    单次形式 `mount -o bind,ro <src> <tgt>` 正常。合成的 mountinfo 字段还不完整。
 5. 没有传播语义，挂载不会被"继承"到子命名空间（我们本来也没有子命名空间）。

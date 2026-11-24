@@ -23,6 +23,7 @@ members = [
     "crates/su",
     "crates/runtime-core",
     "crates/vulkan-probe",
+    "crates/husk-symlinks",
     "crates/video-protocol",
     "crates/video-bridge",
     "crates/va-driver",
@@ -35,7 +36,7 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+license = "Apache-2.0"
 
 [profile.release]
 panic = "abort"

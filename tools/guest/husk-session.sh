@@ -48,6 +48,33 @@ done
 NR_LD=${NR_LD:-$(dirname "$ROOTFS")/libld.so}
 [ -x "$NR_LD" ] || { echo "husk-session: loader not executable: $NR_LD" >&2; exit 69; }
 
+# The guest libc is not stock: it carries the shim's slot page and clone3 ->
+# ENOSYS (docs/LIMITATIONS.md 4). `apt upgrade` of libc6 replaces it with the
+# distro's own copy and the symptom appears much later and far away from the
+# cause: empty `getent shadow`, failing `su`, and `/bin/sh: Cannot fork`. Check
+# the hash the installer recorded, and put the bundled copy back if it moved.
+STATE=$(dirname "$ROOTFS")/.husk-install-state
+LIBC=$ROOTFS/usr/lib/aarch64-linux-gnu/libc.so.6
+if [ -f "$STATE" ] && [ -f "$LIBC" ]; then
+    want=$(sed -n 's/^libc_sha256=//p' "$STATE" | head -1)
+    if [ -n "${want:-}" ] && [ "$want" != unknown ]; then
+        have=$(sha256sum "$LIBC" | cut -d' ' -f1)
+        if [ "$want" != "$have" ]; then
+            bundled=$(dirname "$ROOTFS")/libc.so.6
+            if [ -f "$bundled" ] && [ "$(sha256sum "$bundled" | cut -d' ' -f1)" = "$want" ]; then
+                cp "$bundled" "$LIBC" && chmod 755 "$LIBC"
+                echo "husk-session: libc was $(echo "$have" | cut -c1-12), not the installed $(echo "$want" | cut -c1-12); restored" >&2
+            else
+                echo "husk-session: guest libc is $(echo "$have" | cut -c1-12) but this install recorded" \
+                     "$(echo "$want" | cut -c1-12), and no matching libc.so.6 sits next to the rootfs." >&2
+                echo "              an apt upgrade of libc6 does this; rebuild the install, or re-run" >&2
+                echo "              tools/guest-config/install-libc-patch.sh. Refusing to start a broken tree." >&2
+                exit 74
+            fi
+        fi
+    fi
+fi
+
 # The session identity comes from the guest's own /etc/passwd, not from the
 # Android uid the app really runs as.
 creds=$(grep "^$USER_NAME:" "$ROOTFS/etc/passwd" 2>/dev/null | head -1 || true)

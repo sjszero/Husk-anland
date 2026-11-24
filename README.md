@@ -86,6 +86,11 @@ sh husk-session.sh files/linux/distributions/<发行版>/rootfs -- /usr/bin/true
 一句话：容器和虚拟机都是「把用户态装进一个边界」，Husk 是「让用户态自己跑，只在装载时
 把路径改对一次」。所以它既不需要特权，也不为每条 syscall 付费。
 
+> [!WARNING]
+> **Husk 不是恶意代码沙箱。** 路径改写只覆盖「经过动态链接函数入口」的调用：自己发 raw
+> `syscall` 的程序、静态链接的二进制、以及不经我们 loader 启动的进程，看到的都是宿主路径。
+> 它能把普通 Linux 用户态按普通应用权限跑起来，**不能**用来隔离不可信的代码。
+
 ## 硬件接口
 
 这是 Husk 和翻译层方案最实质的区别：**用户态进程拿到的文件描述符是真的**，能直开的设备节点
@@ -100,7 +105,7 @@ sh husk-session.sh files/linux/distributions/<发行版>/rootfs -- /usr/bin/true
 
 | 能力 | 用户态里的路径 | 实测 |
 |---|---|---|
-| GPU（Mali-G77） | 直开 `/dev/mali0`，PanVK 后端 | logical device、compute、离屏 graphics、Zink surfaceless 全通（evidence 97） |
+| GPU | 直开 `/dev/mali0`，kbase 后端的 PanVK | 枚举到 `Mali-G77 MC9`、compute 与离屏 graphics 回读通过；开 Zink 后 GL renderer 是 `zink Vulkan 1.3(Mali-G77 MC9)`（evidence 156）。**上限 GLES 2.0，窗口呈现（WSI）未做** |
 | 显示 | `AHardwareBuffer` → dma-buf → `SurfaceControl`，零拷贝 | 3-buffer ring + 真实 `SYNC_FD`：submitted=10 000 / completed=10 000（evidence 59） |
 | 视频解码 | MediaCodec `c2.mtk.avc.decoder` + AHB 三平面 | H.264 1080p30 连续 600 秒，`dropped=0`（evidence 80） |
 | 相机 | V4L2 `/dev/videoN`（前端为 Camera2 + `AImageReader`） | 拍照 JPEG + 30 秒录制，硬件 H.264 编码（evidence 93） |
