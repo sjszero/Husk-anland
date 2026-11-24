@@ -9,7 +9,7 @@
 **设备**：`adb` serial `UKHMMB8PYTGECMNV`（RMX3357）。2.0 集成现场是应用
 `com.linuxhub.myth.husk`（debug 包名后缀），rootfs 在
 `files/linux/distributions/ubuntu-24.04/rootfs`，loader 在 `files/linux/husk/libld.so`，
-资产版本标记 `files/linux/husk/assets.version`（当前 `husk-runtime-spawn-link-19`）。
+资产版本标记 `files/linux/husk/assets.version`（当前 `husk-runtime-spawn-link-21`）。
 旧测试会话的 `com.linuxhub.husk`（`files/rootfs-full`、`files/libld3.so`）不要动。
 
 **启动契约（两个变量必须同时设，缺一个就"看起来像 shim 坏了"）**：
@@ -55,6 +55,21 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
    生成启动器，唯一支持的目标是**本应用的私有目录**（`run-as .../files/...`），端到端实测通过。
    **Termux 不是交付形态，也不承诺可用**：guest 树需要的二进制与库 Termux 的 `$PREFIX` 不提供，
    在那里跑会直接卡在缺依赖上（FACT，已实测失败），不是脚本能补的缺口。
+
+## A 项：门禁 A 前的六条已知问题（2026-11-24 全部闭合）
+
+| # | 问题 | 状态 | 实测 | 记录 |
+|---|---|---|---|---|
+| A1 | polkit 调用者可信层 | ✅ | `pkcheck ... power-off --process <gnome-shell>` rc=0；`GetConnectionCredentials` 报 uid=1000 | evidence 151 |
+| A2 | at-spi 无障碍总线 | ✅ | 连上 at-spi 总线并 `ListNames`（同因：EXTERNAL 身份） | evidence 151 |
+| A3 | 会话总线/终端 gvfs | ✅ | `dbus-send --session ListNames` 正常；`gio mount -l` 不再报 proxy 错 | evidence 152 |
+| A4 | xrandr scaling 告警 | ✅ | `xrandr --version` 报 RandR 1.2；`grep -c "Impossible to set scaling"` = 0 | evidence 152 |
+| A5 | 触控默认模式 | ✅ | 默认模式 2 点左上角开出 GNOME 概览（点哪落哪）；模式 3 同 | evidence 152 |
+| A6 | `nr-sigsys.log` 噪声 | ✅ | 单次会话 246 行（此前单会话 4499 行） | evidence 152 |
+
+门禁 A：`tools/device-tests/14-gate-a-acceptance.sh` **36 PASS / 0 FAIL**（桌面会话运行中）。
+sudo/PAM 一条按"不需要"结案：`husk-su` 已覆盖提权路径，PAM 的 `ENOTSOCK`/audit netlink 不再出现在
+任何验收判据里（evidence 139）。
 
 **参考笔记不进仓库**：`/Users/l/Documents/Codex/2026-08-10/husk-notes/prior-art/`（必读 `references.md`）。
 **推 GitHub 走代理**：`HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 git -c http.proxy=http://127.0.0.1:7897 push origin main`
