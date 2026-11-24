@@ -217,6 +217,12 @@ if [ -f "$HERE/guest-config/husk-gpu-defaults.sh" ]; then
     cp "$HERE/guest-config/husk-gpu-defaults.sh" "$DEST/etc/profile.d/husk-gpu.sh"
     chmod 644 "$DEST/etc/profile.d/husk-gpu.sh"
     echo "   wrote etc/profile.d/husk-gpu.sh (GPU defaults, escape: HUSK_GPU=llvmpipe)"
+else
+    # Not fatal (a tree can carry the file already), but it must never be silent:
+    # measured 2026-11-24, the release bundle was built without guest-config/ and
+    # every install from it had no GPU defaults and no error to show for it.
+    echo "   WARNING: no guest-config/husk-gpu-defaults.sh next to the installer;" >&2
+    echo "            etc/profile.d/husk-gpu.sh is NOT installed (no GPU defaults)." >&2
 fi
 
 # 2b-3. log directories apt and dpkg expect. The release tarball drops var/log

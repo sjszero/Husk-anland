@@ -154,12 +154,20 @@ dist:
 	   $(PROFILE_DIR)/husk-su $(PROFILE_DIR)/husk-symlinks dist/
 	cp tools/loader/libc-nop.so.6 dist/libc.so.6   # the artifact `make libc-patch` refreshed
 	cp tools/guest/install-husk.sh tools/guest/husk-session.sh dist/
+	@mkdir -p dist/guest-config
+	cp tools/guest-config/husk-gpu-defaults.sh dist/guest-config/
 	cp VERSION dist/VERSION
 	tar czf dist/husk-arm64.tar.gz -C dist \
 	    libld.so libc.so.6 husk-ldconfig husk-usermgr husk-su husk-symlinks \
-	    install-husk.sh husk-session.sh VERSION
+	    guest-config install-husk.sh husk-session.sh VERSION
+# The installer writes /etc/profile.d/husk-gpu.sh from guest-config/, and skips it
+# silently when the file is not next to it: a bundle without it installs a tree
+# with no GPU defaults and no error. Asserted on the tarball, not on dist/.
+	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/husk-gpu-defaults.sh' || \
+	    { echo "dist: bundle is missing guest-config/husk-gpu-defaults.sh" >&2; exit 1; }
 	@rm -f dist/libld.so dist/libc.so.6 dist/husk-ldconfig dist/husk-usermgr \
 	    dist/husk-su dist/husk-symlinks dist/install-husk.sh dist/husk-session.sh dist/VERSION
+	@rm -rf dist/guest-config
 	@cd dist && sha256sum husk-arm64.tar.gz > SHA256SUMS && cat SHA256SUMS
 
 clean:

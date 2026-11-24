@@ -3,17 +3,20 @@
 日期：2026-11-24 23:20（CST）。会话：`gnome-shell 46 --x11` on zink → PanVK，GPU 默认值来自
 `/etc/profile.d/husk-gpu.sh`（evidence 167）。设备 RMX3357（MT6893 / Mali-G77 MC9）。
 
-方法：`XGetImage` 取整个根窗口（2400×1080、ZPixmap、32 bpp），对像素缓冲取 sha256 前 16 位。
-同一个会话内连续取四帧，中间只做一次输入注入（`xdotool key super` 开 GNOME 概览，
-`Escape` 关）。探针是**设备侧一次性脚本**（python3 + ctypes，放 guest 的 `/tmp`，不入库）；
-仓库里做同一件事的工具是 `gl_probe root`。
+方法：仓库里的 `gl_probe root <out.ppm>`（`XGetImage` 取整个根窗口 → PPM），对写出的 PPM
+取 sha256 前 16 位。同一个会话内连续取四帧，中间只做一次输入注入（`xdotool key super` 开
+GNOME 概览，`Escape` 关）。设备上的 `gl_probe` 是 23:20 由 `build-guest-tools.sh` 重编后推上去的那份
+（旧的那份是 18:00 的构建，没有 `root` 子命令）。
 
-| 帧 | 时刻 | 动作 | 非黑 | 像素 sha256 前 16 位 |
+| 帧 | 时刻 | 动作 | 非黑 | PPM sha256 前 16 位 |
 |---|---|---|---:|---|
-| A | T+0 | 空载 | 100.0% | `38c003c3de3e5984` |
-| B | T+2 s | 空载（没有任何输入） | 100.0% | `38c003c3de3e5984`（与 A 逐字节相同） |
-| C | T+2 s | `super` 开概览之后 | 100.0% | `3273f0567847d1f9`（与 A 不同） |
-| D | T+2 s | `Escape` 关概览之后 | 100.0% | `e5c9772cef52d6f0`（与 A 不同） |
+| A | T+0 | 空载 | 100.0% | `9d9abb4614fe6cac` |
+| B | T+2 s | 空载（没有任何输入） | 100.0% | `9d9abb4614fe6cac`（与 A 逐字节相同） |
+| C | T+2 s | `super` 开概览之后 | 100.0% | `2e6d561dbc35408c`（与 A 不同） |
+| D | T+2 s | `Escape` 关概览之后 | 100.0% | `9d9abb4614fe6cac`（回到与 A 逐字节相同） |
+
+同一时刻 `gl_probe root` 打印的直方图（A 帧）：
+`nonblack=2592000/2592000 (100.0%) histogram=[81194, 63686, 99070, 579709, 1075165, 211721, 42536, 438919]`。
 
 ## 这四帧说明什么
 
@@ -23,13 +26,15 @@
 2. **合成器在按状态重画。** 概览是 mutter 自己绘制的全屏 overlay；它能改变根窗口内容，
    说明 mutter 的合成路径（`cogl=gles2` + `MESA_GLES_VERSION_OVERRIDE=3.2` +
    `MESA_LOADER_DRIVER_OVERRIDE=zink`）确实把新帧交了出来，而不仅仅是"首帧能出"。
-3. **D ≠ A 是预期的**：关掉概览后回到桌面，顶栏时钟等元素已经不同，所以不是"回到完全相同的一帧"。
-   这不是缺陷，别拿 D == A 当验收条件。
+3. **D == A：关掉概览后回到了逐字节相同的一帧**，说明这条链路是确定性的
+   （空载桌面在这一分钟内没有任何动画/光标闪烁落进根窗口）。之前用一次性 python 探针先测过一遍
+   同样的关系（A==B、C≠A），那次 D≠A —— 差别在于两次取样的时间跨过了顶栏时钟跳分钟；
+   时间敏感的元素在场时，**别拿 D == A 当验收条件**，拿 C ≠ A 当"确实重绘了"的判据。
 
 ## 这四帧**不能**说明什么
 
-- 不是帧率：这里只有两次采样，间隔 2 s，量不出 fps。帧率数字在 evidence 168
-  （640×480 `glClear`+swap：zink 131 fps vs llvmpipe 300 fps）。
+- 不是帧率：这里只有两次采样，间隔 2 s，量不出 fps。同一棵树上 `gl_probe window` 的 60 次
+  swap 是 481.6 ms / **124.6 fps**（evidence 168 的同口径中位是 131 fps）。
 - 不是"每个 swap 都被 X server 看见"：`gl_probe window` 的 60 次 swap 与这里的像素变化是
   **两条独立证据**，谁也不能替代谁。
 - 没有做录屏逐帧对齐，所以"按键 → 屏幕像素"的那段延迟仍未测（evidence 168 §3 记的是

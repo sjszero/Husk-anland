@@ -36,6 +36,14 @@
   集合比对，所以"装上了"和"少 5 个"看起来一样。应用层这 5 个名字仍由 shim 的 GOT 覆盖，
   libc **内部**的直调仍然落到 host —— 这是已知缺口，本版只是把它变成会失败的断言，没有修
   （evidence 170 §3）。
+- **发布启动器包里没有 GPU 默认值**（打包缺陷）：`make dist` 打的 `husk-arm64.tar.gz` 一直
+  没带 `guest-config/husk-gpu-defaults.sh`，而安装器那个 `if [ -f … ]` 没有 else，于是从发布包
+  装出来的树**没有** `/etc/profile.d/husk-gpu.sh`、也没有任何提示。现在包里带上了，`make dist`
+  在打完的 tar 上断言它存在，安装器缺文件时打 WARNING（evidence 172）。
+- **`make-release.sh` 会悄悄打出带 `tmp/proc/dev/run/root` 的包**（打包缺陷）：排除表用
+  here-document 写，而 mksh 的临时目录在 `run-as` 下不可写，脚本只有 `set -u`，于是排除表是空的、
+  `tar -X` 拿到空表。改成 `printf` + 非空检查 + 失败即退出，并加前置拒绝：
+  树里出现 `data`/`storage`/`sdcard`（guest 里造出来的宿主路径自镜像）就不许打包（evidence 172）。
 - **假 DRM fd 只进不出**：`close()` 从不注销 DRM 假 fd，8 个槽位用满之后新开的节点不再被接管；
   `close()`/`close_range()` 现在会注销，槽位真的用完时会打一条日志（evidence 166）。
 
@@ -46,6 +54,12 @@
   （evidence 169）。八维第 7 维补上 GPU 桌面这一行；睡眠/唤醒与负载型 soak 仍未测。
 - **桌面在重绘，不是静态位图**：同一会话四帧根窗口指纹，空载两帧逐字节相同、开关一次
   GNOME 概览各换一帧（evidence 171）。
+
+### 测过
+
+- **发布产物端到端**：`make dist` 的启动器包 + 从验证过的树打出的 rootfs tar → 全新目录装一遍
+  → 门禁 A **34 PASS / 0 FAIL**（少的 2 项是发布包不含 apt 缓存、`dpkg-deb` 重装那两条被跳过，
+  不是失败）。树包 102 110 条目、1.42 GB，设备侧与主机侧 sha256 一致（evidence 172）。
 
 ### 工具
 

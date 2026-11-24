@@ -23,23 +23,18 @@ OUT=${2:?usage: make-release.sh <rootfs-dir> <out.tar>}
 [ -d "$SRC/usr" ] || { echo "make-release: $SRC does not look like a rootfs" >&2; exit 66; }
 case "$OUT" in /*) ;; *) OUT=$(pwd)/$OUT ;; esac
 
+# No here-document for the exclusion list: mksh picks its temp directory once at
+# startup (from TMPDIR, which `run-as` leaves unwritable), so a here-doc fails
+# with "can't create temporary file /data/local/shXXXX.tmp" -- and, because this
+# script runs with `set -u` only, it fails *softly* with an empty list. printf
+# writes the file directly and the failure is fatal.
 EX=$(dirname "$OUT")/.release-exclude
-cat > "$EX" <<'LIST'
-tmp
-proc
-sys
-dev
-run
-root
-var/cache/apt/archives
-var/lib/apt/lists
-var/log
-var/lib/husk/owners
-etc/ld.so.husk-path
-etc/hostname
-etc/resolv.conf
-etc/machine-id
-LIST
+set -- tmp proc sys dev run root \
+    var/cache/apt/archives var/lib/apt/lists var/log \
+    var/lib/husk/owners etc/ld.so.husk-path etc/hostname \
+    etc/resolv.conf etc/machine-id
+printf '%s\n' "$@" > "$EX" || { echo "make-release: cannot write $EX" >&2; exit 70; }
+[ -s "$EX" ] || { echo "make-release: exclusion list is empty" >&2; exit 70; }
 
 # A host path created *inside* the guest (a `mkdir -p` with the app dir spelled
 # out, which the shim translates back under the rootfs) leaves a mirror of this
