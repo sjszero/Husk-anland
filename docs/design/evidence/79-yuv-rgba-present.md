@@ -88,7 +88,7 @@ ea173f48b982c2fedd10f6d40450da13f5a79b8177c5021c7f04a4234ba072e6  libhuskapp.so
 
 ```sh
 cd runtime
-NDK=/Users/l/Library/Android/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64/bin
+NDK=$NDK
 CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=$NDK/clang \
 RUSTFLAGS='-C link-arg=--target=aarch64-linux-gnu -C link-arg=--sysroot=/tmp/gccroot -C link-arg=-fuse-ld=lld' \
   cargo build --release -p vulkan-probe --target aarch64-unknown-linux-gnu

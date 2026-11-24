@@ -129,8 +129,8 @@ Mesa **25.2.8**。panthor 用不上（CSF 死），**panfrost 正好是 JM + Val
 ## 8. 复现命令
 
 ```sh
-cd /Users/l/Documents/Codex/2026-08-10/husk/runtime
-export NDK=/Users/l/Library/Android/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64/bin
+cd $REPO/runtime
+export NDK=$NDK
 CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=$NDK/clang \
 RUSTFLAGS="-C link-arg=--target=aarch64-linux-gnu -C link-arg=--sysroot=/tmp/gccroot \
  -C link-arg=-B/tmp/gccroot/usr/lib/gcc/aarch64-linux-gnu/13 \

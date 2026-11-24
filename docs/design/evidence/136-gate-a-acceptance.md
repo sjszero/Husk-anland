@@ -20,7 +20,7 @@ tools/device-tests/12-supervisor.sh (参数化后) →  PASS=8  FAIL=0
 ## 1 · 怎么复现
 
 ```sh
-cd /Users/l/Documents/Codex/2026-08-10/husk
+cd $REPO
 DEV=UKHMMB8PYTGECMNV PKG=com.linuxhub.myth.husk \
 ROOTFS=files/linux/husk-clean/rootfs LD=files/linux/husk/libld.so \
   ./tools/device-tests/14-gate-a-acceptance.sh

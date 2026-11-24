@@ -61,7 +61,7 @@ drmfake|verdict|PASS|假 renderD128 上的 DRM 语义已生效（interpose 通�
 ## 5. 复现命令
 
 ```sh
-cd /Users/l/Documents/Codex/2026-08-10/husk
+cd $REPO
 NDK=<ndk>/toolchains/llvm/prebuilt/darwin-x86_64/bin sh tools/loader/build-embedded-loader.sh
 adb push tools/probe-app/app/src/main/jniLibs/arm64-v8a/libld.so /data/local/tmp/ld-gpu.so
 adb push runtime/target/aarch64-unknown-linux-gnu/release/drmfake /data/local/tmp/

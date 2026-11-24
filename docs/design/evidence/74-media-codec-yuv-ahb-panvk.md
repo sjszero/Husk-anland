@@ -112,8 +112,8 @@ RESULT PASS
 构建：
 
 ```sh
-cd /Users/l/Documents/Codex/2026-08-10/husk
-NDK=/Users/l/Library/Android/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64/bin
+cd $REPO
+NDK=$NDK
 
 cd app-rs
 CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$NDK/aarch64-linux-android24-clang \
@@ -133,7 +133,7 @@ RUSTFLAGS='-C link-arg=--target=aarch64-linux-gnu -C link-arg=--sysroot=/tmp/gcc
 部署并启动：
 
 ```sh
-cd /Users/l/Documents/Codex/2026-08-10/husk
+cd $REPO
 
 adb -s UKHMMB8PYTGECMNV install -r app/app/build/outputs/apk/debug/app-debug.apk
 adb -s UKHMMB8PYTGECMNV push \

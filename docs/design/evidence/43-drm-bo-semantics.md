@@ -54,7 +54,7 @@ ioctl 编号按 `_IOC(dir,'d',0x40+nr,size)` 现算，`SUBMIT` 用 `_IOW`，其�
 ## 4. 复现命令
 
 ```sh
-cd /Users/l/Documents/Codex/2026-08-10/husk/runtime
+cd $REPO/runtime
 cargo build --release --target aarch64-unknown-linux-gnu -p drm-probe   # 交叉编译参数同 evidence 41
 adb push target/aarch64-unknown-linux-gnu/release/drm-probe /data/local/tmp/
 adb shell 'run-as com.linuxhub.husk cp /data/local/tmp/drm-probe files/rootfs/usr/bin/'

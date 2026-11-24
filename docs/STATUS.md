@@ -88,7 +88,7 @@ sudo/PAM 一条按"不需要"结案：`husk-su` 已覆盖提权路径，PAM 的 
 | ⚠️ `apt upgrade` 升 libc6 | **会覆盖运行时打过补丁的 libc**，之后 `getent shadow` 返回空、`sudo` 的用户查询失败、桌面起不来（`/bin/sh: 1: Cannot fork`）。修法：`tools/guest-config/install-libc-patch.sh` 重新打补丁 |
 | 判据 | `python3 -c 'import os;print(os.statvfs("/").f_blocks)'` = 28 292 600（不是 194 478）；`getent shadow husk` 非空 |
 
-**参考笔记不进仓库**：`/Users/l/Documents/Codex/2026-08-10/husk-notes/prior-art/`（必读 `references.md`）。
+**参考笔记不进仓库**：`$REPO-notes/prior-art/`（必读 `references.md`）。
 **推 GitHub 走代理**：`HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 git -c http.proxy=http://127.0.0.1:7897 push origin main`
 
 ## 一句话

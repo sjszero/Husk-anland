@@ -37,8 +37,8 @@ Husk 在 guest 系统层提供 `husk_drv_video.so`。芯片差异只在 VA-API �
 构建：
 
 ```sh
-cd /Users/l/Documents/Codex/2026-08-10/husk/runtime
-NDK=/Users/l/Library/Android/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64/bin
+cd $REPO/runtime
+NDK=$NDK
 CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=$NDK/clang \
 RUSTFLAGS='-C link-arg=--target=aarch64-linux-gnu -C link-arg=--sysroot=/tmp/gccroot -C link-arg=-fuse-ld=lld' \
   cargo build --release -p husk-va-driver -p va-node-shim \

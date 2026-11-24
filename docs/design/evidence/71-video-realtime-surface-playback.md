@@ -3,7 +3,7 @@
 Date: 2026-11-23
 Device: RMX3357 / MediaTek MT6893 / Dimensity 1200 / Mali-G77 MC9 /
 Android 13 / kernel 4.19.191+ / 4 KiB pages / arm64
-Repository: `/Users/l/Documents/Codex/2026-08-10/husk`
+Repository: `$REPO`
 
 ## Conclusion
 

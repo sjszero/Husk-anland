@@ -2,7 +2,7 @@
 
 Date: 2026-11-23
 Device: RMX3357 / MT6893 / Android 13 / kernel 4.19.191 / 4 KiB / arm64
-Repository: `/Users/l/Documents/Codex/2026-08-10/husk`
+Repository: `$REPO`
 Test tree: `/data/data/com.linuxhub.husk/files/rootfs-full` (private copy)
 
 > Superseded in part by evidence 65: metadata calls are now pinned to the final

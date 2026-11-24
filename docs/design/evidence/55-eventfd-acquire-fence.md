@@ -65,10 +65,10 @@ screenshot sha256: 9002cd2ed4e5e6abbdc245cb4589c75f27fa15b57f6d55d9bb6a6747e3b82
 ## 5. 可复现命令（主机侧）
 
 ```sh
-cd /Users/l/Documents/Codex/2026-08-10/husk
+cd $REPO
 
 # build guest probe
-NDK=/Users/l/Library/Android/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64/bin
+NDK=$NDK
 CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=$NDK/clang \
 RUSTFLAGS='-C link-arg=--target=aarch64-linux-gnu -C link-arg=--sysroot=/tmp/gccroot -C link-arg=-fuse-ld=lld' \
 cargo build --release -p vulkan-probe --target aarch64-unknown-linux-gnu \

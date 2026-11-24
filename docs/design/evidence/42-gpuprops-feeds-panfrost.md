@@ -64,7 +64,7 @@ panfrost 要的 `DRM_PANFROST_PARAM_*` 逐条对应 kbase 的 `RAW_*`：
 ## 5. 复现命令
 
 ```sh
-cd /Users/l/Documents/Codex/2026-08-10/husk/runtime
+cd $REPO/runtime
 # 交叉编译（同 evidence 41 的 RUSTFLAGS）
 cargo build --release --target aarch64-unknown-linux-gnu -p drm-probe
 adb push target/aarch64-unknown-linux-gnu/release/drm-probe /data/local/tmp/

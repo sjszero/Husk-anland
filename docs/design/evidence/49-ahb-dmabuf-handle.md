@@ -34,7 +34,7 @@ APK sha256：`dfe3dccee9851b4561ff60b043d391f09bf6f427ddb79d87d9cf0f2d23690899`
 `app-rs/src/ahb.rs`。构建命令：
 
 ```sh
-NDK=/Users/l/Library/Android/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64/bin
+NDK=$NDK
 CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$NDK/aarch64-linux-android24-clang \
   cargo build --release --target aarch64-linux-android --manifest-path app-rs/Cargo.toml
 cp app-rs/target/aarch64-linux-android/release/libhuskapp.so \

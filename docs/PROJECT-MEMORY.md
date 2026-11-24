@@ -14,7 +14,7 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
 
 ## 1. 产品边界（USER_STATED）
 
-- 目标仓库：`/Users/l/Documents/Codex/2026-08-10/husk`，公开远端 `github.com/xishanp/Husk`。
+- 目标仓库：`$REPO`，公开远端 `github.com/xishanp/Husk`。
 - 产品名：**Husk**；一次运行中的发行版实例称为一个 husk。
 - Husk 是运行时、载体，不是终端模拟器，也不是虚拟机或 root 容器。
 - 终端只是演示前端；不要为了终端渲染、桌面 UI、输入法外观等非运行时问题扩大战线。
@@ -251,7 +251,7 @@ eglinfo 报 Mali-G77；音频出声并有延迟数字；H.264/HEVC 硬解、AV �
 
 - 当前测试机：RMX3357 / MT6893 / Dimensity 1200 / Mali-G77 / Android 13 /
   kernel 4.19.191 / 4 KiB / arm64 / `untrusted_app`。
-- 2.0 资产唯一来源：`/Users/l/Documents/Codex/2026-08-10/linuxhub/LinuxHub-2.0/app/src/main/assets/`。
+- 2.0 资产唯一来源：`$LINUXHUB_2_0/app/src/main/assets/`。
 - 回滚 APK：`artifacts/rollback/LinuxHub-Myth-Prometheus.apk`，
   sha256 `c4951876599b5a8a388170952039a724959f5c48004aec8f92e1de7379adc2b7`。
 - 设备操作不要用 `rm -f`；使用新文件名或显式路径，避免误删。

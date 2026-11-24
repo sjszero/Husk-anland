@@ -35,9 +35,8 @@ loader:
 
 bench:
 	sh tools/bench/install.sh
-	sh tools/bench/run-all.sh husk
-	sh tools/bench/run-all.sh proot
-	sh tools/bench/run-all.sh proot-distro
+	sh tools/bench/run-interleaved.sh $${REPS:-5}
+	python3 tools/bench/compare.py docs/design/evidence/bench-*-il.log
 
 gate-a:
 	DEV=$${DEV:?} PKG=$${PKG:-com.linuxhub.myth.husk} \
@@ -48,14 +47,17 @@ gate-a:
 docs:
 	python3 tools/ci/check-links.py
 
-dist: 
+# Two artifacts: the launcher bundle (loader + installer + session script) and,
+# built on a device from a verified tree, the rootfs tarball itself. Both get a
+# SHA256SUMS; the release notes quote those hashes.
+dist:
 	@test -n "$$NDK" || { echo "set NDK=<ndk>/bin" >&2; exit 1; }
 	sh tools/loader/build-embedded-loader.sh
-	sh tools/guest-config/build-guest-tools.sh
 	@mkdir -p dist
 	cp tools/loader/ld-embedded.so dist/libld.so
-	cp $(PROFILE_DIR)/husk-ldconfig $(PROFILE_DIR)/husk-su \
-	   $(PROFILE_DIR)/husk-usermgr $(PROFILE_DIR)/husk-rd dist/
+	cp tools/guest/install-husk.sh tools/guest/husk-session.sh dist/
+	tar czf dist/husk-arm64.tar.gz -C dist libld.so install-husk.sh husk-session.sh
+	@rm -f dist/libld.so dist/install-husk.sh dist/husk-session.sh
 	cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
 
 clean:

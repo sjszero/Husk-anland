@@ -2,7 +2,7 @@
 
 Date: 2026-11-23
 Device: RMX3357 / MT6893 / Android 13 / kernel 4.19.191+ / 4 KiB / arm64
-Repository: `/Users/l/Documents/Codex/2026-08-10/husk`
+Repository: `$REPO`
 Test rootfs: `/data/user/0/com.linuxhub.husk/files/rootfs-full` (private copy)
 
 This is the second pass over the third-party reliability audit. It records only

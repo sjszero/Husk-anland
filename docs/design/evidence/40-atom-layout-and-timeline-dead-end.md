@@ -142,7 +142,7 @@ UNKNOWN：0x34/0x40 都不被校验，那 `core_req` 到底在哪；atom 是否�
 ## 9. 复现命令
 
 ```sh
-cd /Users/l/Documents/Codex/2026-08-10/husk
+cd $REPO
 adb push runtime/target/aarch64-unknown-linux-gnu/release/gpu-probe /data/local/tmp/
 adb shell 'run-as com.linuxhub.husk cp /data/local/tmp/gpu-probe files/rootfs/usr/bin/'
 adb shell 'run-as com.linuxhub.husk sh files/gexec.sh usr/bin/gpu-probe ddkver'

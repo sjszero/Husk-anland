@@ -50,7 +50,7 @@ ptrace/root/虚拟化。
 ### 1. 构建
 
 ```sh
-NDK=/Users/l/Library/Android/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64/bin
+NDK=$NDK
 CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$NDK/aarch64-linux-android24-clang \
   cargo build --release --target aarch64-linux-android --manifest-path app-rs/Cargo.toml
 cp app-rs/target/aarch64-linux-android/release/libhuskapp.so \

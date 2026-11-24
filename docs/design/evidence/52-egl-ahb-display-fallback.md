@@ -47,9 +47,9 @@ AOSP Android 13 的 `native/android/surface_control.cpp` 在该窗口没有
 ## 复现命令
 
 ```sh
-cd /Users/l/Documents/Codex/2026-08-10/husk
+cd $REPO
 
-NDK=/Users/l/Library/Android/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64/bin
+NDK=$NDK
 CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$NDK/aarch64-linux-android24-clang \
   cargo build --release --target aarch64-linux-android --manifest-path app-rs/Cargo.toml
 cp app-rs/target/aarch64-linux-android/release/libhuskapp.so \

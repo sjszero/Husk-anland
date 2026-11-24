@@ -2,7 +2,7 @@
 
 Date: 2026-11-23
 Device: RMX3357 / MT6893 / Dimensity 1200 / Mali-G77 / Android 13 / kernel 4.19.191 / 4 KiB / arm64
-Repository: `/Users/l/Documents/Codex/2026-08-10/husk`
+Repository: `$REPO`
 Private test tree: `/data/data/com.linuxhub.husk/files/rootfs-full`
 Final loader sha256: `6c0796482ea3dbff508abd1a9f47267086819a9e1f38e73c642f89369cf78b9c`
 

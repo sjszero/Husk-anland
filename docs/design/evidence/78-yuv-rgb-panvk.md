@@ -78,7 +78,7 @@ eabc2457e25abe119a312e13c5322ce4811d6f3b4690b2370f507a347a698c11  app-debug.apk
 生成 SPIR-V：
 
 ```sh
-GLSLC=/Users/l/Library/Android/sdk/ndk/29.0.14206865/shader-tools/darwin-x86_64/glslc
+GLSLC=$HOME/Library/Android/sdk/ndk/29.0.14206865/shader-tools/darwin-x86_64/glslc
 $GLSLC -O -o runtime/crates/vulkan-probe/shaders/yuv_to_rgba.spv \
   runtime/crates/vulkan-probe/shaders/yuv_to_rgba.comp
 ```
@@ -87,7 +87,7 @@ $GLSLC -O -o runtime/crates/vulkan-probe/shaders/yuv_to_rgba.spv \
 
 ```sh
 cd runtime
-NDK=/Users/l/Library/Android/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64/bin
+NDK=$NDK
 CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=$NDK/clang \
 RUSTFLAGS='-C link-arg=--target=aarch64-linux-gnu -C link-arg=--sysroot=/tmp/gccroot -C link-arg=-fuse-ld=lld' \
   cargo build --release -p vulkan-probe --target aarch64-unknown-linux-gnu
