@@ -86,9 +86,15 @@ tools/bench/compare.py docs/design/evidence/bench-*-il.log
 所以没有任何可比的图形数字——不是没测出来，是没有两个可比的被测对象。
 
 第 7 维（空载 30 分钟的 RSS / 线程 / fd 增长与僵尸数）单独跑 soak，不放进计时的轮次里：
-Husk 30 分钟 PSS 232 661 → 232 138 KiB、线程 47、fd 118、guest 僵尸 0（evidence 153）；
-proot 与 proot-distro 的 soak 在 `docs/design/evidence/soak-*.log`。电池放电曲线未测：
-adb 需要 USB，全程在充电。
+
+| 运行器 | 30 分钟空载 | 结论 |
+|---|---|---|
+| Husk | PSS 232 661 → 232 138 KiB，线程 47，fd 118，guest 僵尸 0（evidence 153） | 通过 |
+| proot | RSS 恒定 3 480 KiB，线程 1，fd 3，僵尸 0（`soak-proot-20261124.log`） | 通过 |
+| proot-distro | 采样到第 420 秒后 RSS / 线程 / fd 全部是 `NA`，会话已经不在了（`soak-proot-distro-20261124.log`） | **没跑完**：它的 `--kill-on-exit` 与持久的 `sleep` 冲突，会把会话拆掉 |
+
+proot-distro 这一格我们**没有数据**，不拿别的数字顶替。电池放电曲线也没测：adb 需要 USB，
+全程在充电。
 
 ## 为什么
 

@@ -58,7 +58,7 @@ APK 内 `assets/husk/arm64-v8a/`：
 | 项 | 要求 | 参考环境（我们实测的那台） |
 |---|---|---|
 | 架构 | arm64 | arm64 |
-| 系统 | Android 8+ | Android 13（SDK 33） |
+| 系统 | Android（实际只验证了 13；更低版本未验证，`8+` 是推断） | Android 13（SDK 33） |
 | 页大小 | 4 KiB | 4 KiB（16/64 KiB 只在 QEMU 上验证过） |
 | 内核 | 能跑 `untrusted_app` 的 SELinux 策略 | 4.19.191 |
 | 权限 | 普通应用即可，无 root、无 Shizuku、未解 Bootloader | 同左 |

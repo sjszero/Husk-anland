@@ -26,13 +26,32 @@ shell、服务）作为普通 `untrusted_app` 进程直接跑在 Android 内核�
 **参考发行版**是 Ubuntu 24.04（glibc 2.39），**参考设备**是一台 arm64 Android 手机
 （型号与内核写在 `docs/STATUS.md`，那只是实测条件，不是要求）。
 
+## 能跑起来的前提
+
+> [!IMPORTANT]
+> **这一节只讲一件事：它怎么才能跑起来。三条硬前提，缺一条就跑不起来；其它条件只影响跑得
+> 多完整，不影响能不能跑。** 逐条的自查方式与原因在 [`docs/RUNNING.md`](docs/RUNNING.md) §2。
+
+| # | 硬前提 | 不满足时的样子 | 怎么自查 |
+|---|---|---|---|
+| 1 | **arm64（aarch64）**：用户态是 aarch64 ELF，loader 的 GOT 改写与 syscall 直通只对这一个 ABI 成立 | 直接 `Exec format error` | `uname -m` → `aarch64` |
+| 2 | **一个既能执行、又可写、沙箱也允许的目录**：loader 与用户态二进制都要被 `exec`。Android 上只有应用私有目录满足；`noexec` 挂载直接失败 | 看起来像 loader 坏了：`cannot execute the loader from here` | 直接跑 loader，它应回 `missing program name`（说明 `exec` 成功） |
+| 3 | **系统没有对 `untrusted_app` 额外收紧 seccomp / SELinux**：用户态要 `execve` / `clone` / `open*` 直通内核；厂商另封一层就没有可绕的余地 | `Bad system call`，进程当场被杀 | 先跑 `bin/true`；或跑 `tools/device-tests/01-functional-matrix.sh` |
+
+```sh
+# 1、2：loader 自己能不能被 exec —— 期望输出 missing program name
+cd files/linux/husk && ./libld.so
+
+# 2、3：guest 程序能不能直通内核 —— 期望退出码 0
+sh husk-session.sh files/linux/distributions/<发行版>/rootfs -- /usr/bin/true
+```
+
 ## 目录
 
-- [为什么是 Husk](#为什么是-husk) · [和容器、虚拟机的区别](#和容器虚拟机的区别)
+- [能跑起来的前提](#能跑起来的前提) · [为什么是 Husk](#为什么是-husk) · [和容器、虚拟机的区别](#和容器虚拟机的区别)
 - [硬件接口](#硬件接口) · [特性](#特性) · [快速开始](#快速开始)
 - [工作原理](#工作原理) · [性能](#性能) · [兼容性](#兼容性)
-- [限制](#限制) · [从源码构建](#从源码构建)
-- [仓库结构](#仓库结构) · [文档](#文档)
+- [从源码构建](#从源码构建) · [仓库结构](#仓库结构) · [文档](#文档)
 - [常见问题](#常见问题) · [参与贡献](#参与贡献) · [许可](#许可)
 
 ## 为什么是 Husk
@@ -48,6 +67,11 @@ shell、服务）作为普通 `untrusted_app` 进程直接跑在 Android 内核�
 
 前两行是路径与 syscall 密集的活，要付 proot 每条 syscall 的 `ptrace` 往返；第三行是大块写，
 不经过被翻译的路径，所以打平——表里照写，不藏。
+
+> [!NOTE]
+> 这张表只放能在纯命令行里测的维度。图形相关（图形栈启动、窗口、帧率）不进表：本版不把桌面
+> 列为交付能力，rootfs 里也没有独立的 X server，没有两个可比的对象。
+> 完整条件与代价见 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)。
 
 ## 和容器、虚拟机的区别
 
@@ -68,6 +92,11 @@ shell、服务）作为普通 `untrusted_app` 进程直接跑在 Android 内核�
 就直开，被 Android 沙箱拒绝的那部分（需要应用身份、需要 Surface、需要 MediaCodec 的）由
 应用内的硬件后端提供接口，边界写在
 [`docs/design/husk-backend-interface.md`](docs/design/husk-backend-interface.md)。
+
+> [!IMPORTANT]
+> 表里写的是**验证到什么程度**，不是「功能已完成」。GPU 只到「能开、能算」，没到「能上线」：
+> WSI / swapchain 还没做，所以画面不会由 GPU 直接呈现（`docs/LIMITATIONS.md` §7）。相机、视频、
+> 音频都是「有一条能跑的链路」，不是产品级的稳定性承诺。
 
 | 能力 | 用户态里的路径 | 实测 |
 |---|---|---|
@@ -96,6 +125,11 @@ shell、服务）作为普通 `untrusted_app` 进程直接跑在 Android 内核�
   原始日志在仓库里。
 
 ## 快速开始
+
+
+> [!IMPORTANT]
+> **这些资产不能脱离应用沙箱直接用在别的终端环境里。** 别的环境没有这套依赖，也没有「可写 +
+> 可执行 + 沙箱允许」三者同时成立的目录。交付形态只有一种：打进 APP，和 proot 方案一样。
 
 交付形态和 proot 方案一样：**把运行时作为 assets 打进 APP**，首次使用时解压到应用私有目录。
 
@@ -158,16 +192,6 @@ loader 自己解析（含 `PT_INTERP` 与 shebang），嵌套 exec 会重新回�
 参考发行版 Ubuntu 24.04 / glibc 2.39；逐项矩阵见
 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)。
 
-## 限制
-
-- ⚠️ 一个 ABI（arm64）；loader 的补丁带 glibc 版本断言，换发行版会直接报错，不会半好不坏
-  地跑起来。
-- ⚠️ stock rootfs 需要准备：libc 打补丁、绝对符号链接改相对、用 `husk-ldconfig`
-  替换静态 `ldconfig`。
-- 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码均未实现。Termux 不是支持的环境。
-
-完整清单与每条的证据：[`docs/LIMITATIONS.md`](docs/LIMITATIONS.md)。
-
 ## 从源码构建
 
 ```sh
@@ -207,6 +231,7 @@ docs/design/evidence/  文档里每个数字背后的设备原始输出
 | [`docs/STATUS.md`](docs/STATUS.md) | 目标机上的当前状态 |
 | [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md) | 1.0 之前的工程日记 |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | 怎么构建、怎么测、术语表 |
+| [`QUICKSTART.md`](QUICKSTART.md) | 从零跑通：生成 rootfs、构建、推到设备 |
 
 ## 常见问题
 
@@ -225,8 +250,9 @@ Alpine 是 musl，是另一个问题；其余没跑过。装载器的补丁是�
 **为什么 rootfs 要打补丁？** 两个 Android 特有的缺口：libc 内部调用需要 slot 项；rootfs 里的
 绝对符号链接会按 Android 根解析。步骤在 `docs/RUNNING.md`，工具在 `tools/guest-config/`。
 
-**能在 Termux 里跑吗？** 不能，也不支持。用户态需要的二进制与库 Termux 的 `$PREFIX`
-不提供。
+> [!CAUTION]
+> **能在 Termux 里跑吗？不能，也不支持。** 用户态需要的二进制与库 Termux 的 `$PREFIX`
+> 不提供，在那边跑会直接卡在缺依赖上。
 
 **验证过哪些 Android 与内核？** 参考环境是 Android 13、kernel 4.19.191、4 KiB 页、arm64
 （具体型号见 `docs/STATUS.md`）。16 KiB 与 64 KiB 页只在 QEMU 上跑过。这不是要求，是实测
