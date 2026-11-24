@@ -3,7 +3,8 @@
 #   make check   type-check the runtime for the target it actually runs on
 #   make lint    formatting gate (what CI runs)
 #   make test    unit tests; needs an arm64 Linux host (the shim is inline asm)
-#   make loader  rebuild tools/loader/ld-embedded.so
+#   make loader  rebuild the embedded loader into the APK's jniLibs
+#   make apk     loader + ArkTS-free Rust app .so + Gradle assembleDebug
 #   make bench   three-runner benchmark (needs a device)
 #   make gate-a  the 36-item acceptance gate (needs a device, desktop running)
 #   make docs    markdown link check
@@ -15,7 +16,7 @@ MANIFEST    := runtime/Cargo.toml
 PROFILE_DIR := runtime/target/$(TARGET)/release
 HUSK_TOOLS  := runtime/target/debug/husk-tools
 
-.PHONY: all check lint test tools loader bench gate-a docs dist clean version-check
+.PHONY: all check lint test tools loader apk bench gate-a docs dist clean version-check
 
 all: lint check version-check
 
@@ -52,6 +53,23 @@ test:
 loader:
 	@test -n "$$NDK" || { echo "set NDK=<ndk>/bin (needs clang + llvm-objcopy)" >&2; exit 1; }
 	sh tools/loader/build-embedded-loader.sh
+
+# The APK is two native pieces and one Gradle skeleton: the embedded loader
+# (jniLibs/libld.so) and the App's own .so (jniLibs/libhuskapp.so). Both are
+# build outputs and neither is tracked, so a clean clone builds them here.
+JNI := app/app/src/main/jniLibs/arm64-v8a
+CC_ANDROID := $(NDK)/aarch64-linux-android24-clang
+
+apk:
+	@test -n "$$NDK" || { echo "set NDK=<ndk>/bin (needs clang, llvm-objcopy, llvm-ar)" >&2; exit 1; }
+	@$(MAKE) --no-print-directory loader
+	mkdir -p $(JNI)
+	CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$(CC_ANDROID) \
+	CC_aarch64_linux_android=$(CC_ANDROID) AR_aarch64_linux_android=$(NDK)/llvm-ar \
+	  cargo build --release --manifest-path app-rs/Cargo.toml --target aarch64-linux-android
+	cp app-rs/target/aarch64-linux-android/release/libhuskapp.so $(JNI)/
+	cd app && ./gradlew :app:assembleDebug
+	@ls -l $(JNI) app/app/build/outputs/apk/debug/*.apk
 
 bench:
 	sh tools/bench/install.sh

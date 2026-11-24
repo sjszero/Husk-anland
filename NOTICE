@@ -18,20 +18,22 @@ Third-party components
    by Cargo at build time and are not vendored here. Each crate keeps its own
    license; the build does not redistribute them.
 
-2) glibc artifacts used to bootstrap the loader. The following files under
-   `binaries/` are compiled artifacts of the GNU C Library as shipped by the
-   Ubuntu 24.04 archive (package `libc6`, architecture arm64):
+2) One glibc artifact, used as a build input:
 
-     binaries/ld-linux-aarch64.so.1.orig   GNU C Library dynamic loader
-     binaries/libc-nop.so.6                derived from the GNU C Library shared object
-     binaries/ld-embedded.so               loader built from the above
+     tools/loader/ld-noble2404-ld.so   the unmodified dynamic loader from the
+                                       Ubuntu 24.04 archive (`libc6`, arm64)
 
    glibc is licensed under the GNU Lesser General Public License v2.1 or later.
-   These files are redistributed unmodified (or, in the case of
-   `libc-nop.so.6`, as a locally derived binary) solely so the loader can be
-   rebuilt. Corresponding source is available from the upstream GNU C Library
-   and from the Ubuntu archive for the same version. They are NOT covered by the
-   Apache License 2.0 that applies to Husk's own source.
+   It is redistributed unmodified solely so the loader can be rebuilt without a
+   rootfs at hand; `docs/ENGINEERING.md` records its sha256. Corresponding
+   source is available from the upstream GNU C Library and from the Ubuntu
+   archive for the same version.
+
+   Everything derived from it (`ld-embedded.so`, `libc-nop.so.6`,
+   `libpath_shim.so`) is a build output: `make loader` produces it locally and it
+   is not part of this source tree. Same for the App's own `jniLibs/*.so`, which
+   `make apk` builds. None of these are covered by the Apache License 2.0 that
+   applies to Husk's own source.
 
    A distribution release that only needs to run Husk does not require these
    files; see `docs/RUNNING.md`.

@@ -17,7 +17,9 @@ set -e
 cd "$(dirname "$0")"
 ROOT=$(cd ../.. && pwd)
 NDK=${NDK:?set NDK to your NDK toolchain bin dir, e.g. $ANDROID_HOME/ndk/<ver>/toolchains/llvm/prebuilt/<host>/bin}
-OUT=${OUT:-$ROOT/dist/embedded-loader}
+# The APK packages the loader from jniLibs, so that is where a plain build puts
+# it. It is a build output and is not tracked (see .gitignore).
+OUT=${OUT:-$ROOT/app/app/src/main/jniLibs/arm64-v8a}
 HOOK_CFLAGS=${HOOK_CFLAGS:-}
 SHIM_STRIP=${SHIM_STRIP:-symbols}
 # The base loader must come from the rootfs that will actually run: ld.so and

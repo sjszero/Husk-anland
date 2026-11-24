@@ -63,8 +63,8 @@ the `clone3` `svc` with `movn x0,#37` after asserting that the next instruction
 checks x0. This keeps the guest process out of Android's `SECCOMP_RET_TRAP`
 while preserving glibc's normal fork/thread bookkeeping.
 
-`./build-embedded-loader.sh` runs all of it and drops the result into the probe
-APK's `jniLibs`. With `LIBC=<pristine libc.so.6>` it also emits `libc-nop.so.6`,
+`./build-embedded-loader.sh` runs all of it and drops the result into the App's
+`jniLibs` (a build output, not tracked; `make apk` packages it). With `LIBC=<pristine libc.so.6>` it also emits `libc-nop.so.6`,
 which is the file that must be installed into the guest rootfs (the device copy
 is byte-identical to it). Output is deterministic (`nr-tools embed` twice → identical bytes).
 

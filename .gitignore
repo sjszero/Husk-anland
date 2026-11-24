@@ -9,15 +9,22 @@ tools/loader/init-hook.bin
 tools/device-tests/path-probe
 tools/device-tests/dirfd-probe
 tools/device-tests/fdops-kernel-probe
-tools/probe-app/app/src/main/jniLibs/
 
 # 本地构建产物
 app/local.properties
 dist/*.apk
 
-# loader 构建中间产物（由 build-embedded-loader.sh 生成）
+# 构建产物：由 build-embedded-loader.sh / make apk 生成，任何时候都能重建
+app/app/src/main/jniLibs/
+tools/loader/ld-embedded.so
+tools/loader/ld-stage1.so
+tools/loader/ldpreload-shim-reference.so
+tools/loader/libc-nop.so.6
 tools/loader/libc-slots.so.6
 tools/loader/libc-interpose.txt
+tools/loader/*.bin
+tools/loader/*.o
+binaries/
 
 # The CI workflow needs the `workflow` scope on the pushing token. Kept out of
 # the tree until that scope is granted, so an ordinary `git add -A` cannot fail

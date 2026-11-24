@@ -87,7 +87,7 @@ fork/exec 不经翻译层；I/O 直落内核）、**代价**（生态成熟度�
 |---|---|
 | `README.md` | **中文为主**（产品主文档），结构见 C2；首屏 30 秒可读 |
 | `README_EN.md` | 英文镜像，结构与数字与中文版一致；两版顶部互相链接 |
-| `LICENSE` | Apache-2.0（已落地，2026-11-24）。`binaries/` 下的 glibc 构件按 LGPL-2.1+ 单独声明于 `NOTICE`，发布前改为构建时按校验和获取，从仓库移出 |
+| `LICENSE` | Apache-2.0（已落地，2026-11-24）。第三方 glibc 二进制只剩一个构建输入（`tools/loader/ld-noble2404-ld.so`，LGPL-2.1+，声明见 `NOTICE`）；其余 `binaries/` 构件已从仓库移出，改为 `make loader` 本地生成 |
 | `NOTICE` | 第三方组件、商标、字体与图标来源声明 |
 | `CHANGELOG.md` | Keep a Changelog 1.1 格式 + SemVer 2.0；每个 release 一节 |
 | `CONTRIBUTING.md` | 起环境、跑门禁、提交规范、PR 要求、代码风格 |
