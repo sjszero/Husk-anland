@@ -556,6 +556,24 @@ extern "C" fn on_sigsys(_sig: CInt, info: *const u8, uc: *mut u8) {
         put(&mut buf, &mut k, b"\n");
         record(&buf[..k]);
 
+        // The kill family is handed to the kernel on purpose, so a trap here
+        // means this ROM refuses the call at the seccomp layer. Answer EPERM and
+        // step over the `svc`: a signal that cannot be delivered must not turn
+        // into a dead process (see the signalling block).
+        if nr == 129 || nr == 130 || nr == 131 {
+            if pc_off == 0 {
+                record(b"sigsys|kill frame not found\n");
+                syscall4(SYS_EXIT_GROUP, 128 + SIGSYS_NUM, 0, 0, 0);
+            }
+            let pc_now = core::ptr::read_unaligned(uc.add(pc_off) as *const u64);
+            core::ptr::write_unaligned(
+                uc.add(pc_off - SC_PC_TO_REGS0) as *mut u64,
+                (-1i64) as u64,
+            );
+            core::ptr::write_unaligned(uc.add(pc_off) as *mut u64, pc_now.wrapping_add(4));
+            return;
+        }
+
         if mode == 2 {
             if pc_off == 0 {
                 // cannot locate the frame: never spin on the same syscall
@@ -4785,6 +4803,68 @@ pub unsafe extern "C" fn getgroups(size: CInt, list: *mut u32) -> CInt {
     1
 }
 
+// ------------------------------------------------------- RLIMIT_NOFILE ceiling
+//
+// Android hands an app process `RLIMIT_NOFILE` { soft 32768, hard 32768 } and no
+// CAP_SYS_RESOURCE, so the hard limit cannot be raised (measured on the RMX3357:
+// `ulimit -Hn 65536` -> "error setting limit (Operation not permitted)").
+// dbus-daemon 1.14 asks for 65536 every time it sets up a connection and treats
+// the EPERM as "this connection is not allowed": it accepts the client's socket,
+// logs `org.freedesktop.DBus.Error.AccessDenied: Failed to set fd limit to 65536`
+// against that connection and hangs up before the auth reply. `dbus-send` then
+// prints "Did not receive a reply" while the daemon sits in epoll_wait with the
+// socket still listening, so the address is occupied and unusable forever
+// (evidence 147; both private buses, which is what stopped the desktop at
+// `stage=outer-root`).
+//
+// The container has one honest answer: it cannot hold more fds than the kernel
+// gives it. Clamp the request to the hard limit and report success - the same
+// answer the call gets on any host whose ceiling is lower - and leave every
+// other call untouched: a request inside the ceiling still goes straight to the
+// kernel, and the soft limit still moves where the caller pointed it.
+const SYS_PRLIMIT64: usize = 261;
+
+#[repr(C)]
+struct KernelRlimit {
+    cur: u64,
+    max: u64,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn setrlimit(resource: CInt, rlim: *const KernelRlimit) -> CInt {
+    if rlim.is_null() {
+        return set_errno(EFAULT);
+    }
+    let mut ceiling = KernelRlimit { cur: 0, max: 0 };
+    let probe = syscall4(
+        SYS_PRLIMIT64,
+        0,
+        resource as usize,
+        0,
+        &mut ceiling as *mut KernelRlimit as usize,
+    );
+    if probe < 0 {
+        return ret_or_errno(probe);
+    }
+    let mut want = KernelRlimit {
+        cur: (*rlim).cur,
+        max: (*rlim).max,
+    };
+    if want.max > ceiling.max {
+        want.max = ceiling.max;
+    }
+    if want.cur == u64::MAX || want.cur > want.max {
+        want.cur = want.max;
+    }
+    ret_or_errno(syscall4(
+        SYS_PRLIMIT64,
+        0,
+        resource as usize,
+        &mut want as *mut KernelRlimit as usize,
+        0,
+    ))
+}
+
 // ------------------------------------------------ fictional ownership, on disk
 //
 // `chown_target()` below answers one process, and that was enough for files
@@ -8229,56 +8309,25 @@ pub unsafe extern "C" fn signal(sig: CInt, handler: usize) -> usize {
 }
 
 // ------------------------------------------------------------ signalling
-// Measured on RMX3357 (Android 13, kernel 4.19): `kill(2)` from an app is answered
-// with a SIGSYS that no handler can catch -- `openat2` traps, `kill` kills. bash's
-// job-control setup calls kill(shell_pid, SIGTTIN) and the guest dies there, which
-// is what looked like "loader bootstrap gets killed".
 //
-// So the call never reaches the kernel:
-//   * a job-control signal aimed at ourselves -> success, no-op. Job control is
-//     meaningless for an app that owns no real controlling terminal.
-//   * anything aimed at another process      -> EPERM, which is exactly what an
-//     Android app already gets from the kernel.
-//   * any other self-signal                  -> passed through untouched (dying
-//     from the real signal is never worse than dying from SIGSYS).
+// A container's processes are one Unix user, so the kernel's own permission
+// check is the answer this runtime wants: a sibling of the same app gets the
+// signal, everything outside it gets EPERM. The shim used to refuse every
+// non-self target outright, and that made `pkill`, `timeout`, `kill -TERM $$`
+// and every `kill <pid>` in a desktop session a silent no-op - a container that
+// cannot stop its own dbus-daemon, pulseaudio or gnome-shell (evidence 147: six
+// daemons nobody could stop, all still holding their sockets; a shell that
+// survives `kill -TERM $$`). Nothing here is a security boundary that the
+// kernel does not already enforce: an app can only signal its own uid.
+//
+// If this ROM answers a kill-family trap with SIGSYS instead of EPERM, the
+// handler in this file finishes the call with -EPERM rather than dying - see
+// on_sigsys. Nothing about *receiving* signals is interposed.
 const SYS_KILL_NR: usize = 129;
 const SYS_GETTID: usize = 178;
-const SIGCONT_N: CInt = 18;
-const SIGTSTP_N: CInt = 20;
-const SIGTTIN_N: CInt = 21;
-const SIGTTOU_N: CInt = 22;
-
-fn is_job_control(sig: CInt) -> bool {
-    sig == SIGCONT_N || sig == SIGTSTP_N || sig == SIGTTIN_N || sig == SIGTTOU_N
-}
-
-unsafe fn targets_self(pid: CInt) -> bool {
-    let me = syscall4(SYS_GETPID, 0, 0, 0, 0) as CInt;
-    pid == 0 || pid == -1 || pid == me || pid == -me
-}
-
-/// Shared policy for kill/tkill/tgkill. Returns Some(result) when handled here.
-unsafe fn signal_policy(pid: CInt, sig: CInt) -> Option<CInt> {
-    if !targets_self(pid) {
-        return Some(set_errno(1)); // EPERM: apps cannot signal other processes
-    }
-    // Measured: this ROM answers kill(2) -- even kill(getpid(), ...) -- with a
-    // SIGSYS that no handler can catch, so *nothing* self-targeted may reach the
-    // kernel. Jobs control signals are no-ops for us; anything else is logged and
-    // dropped, which is the honest maximum an app sandbox allows.
-    if sig != 0 && !is_job_control(sig) {
-        dbgn(&[b"nr-kill|self pid="], pid as i64);
-        dbgn(&[b"|sig="], sig as i64);
-        dbg(&[b"\n"]);
-    }
-    Some(0)
-}
 
 #[no_mangle]
 pub unsafe extern "C" fn kill(pid: CInt, sig: CInt) -> CInt {
-    if let Some(r) = signal_policy(pid, sig) {
-        return r;
-    }
     let r = syscall4(SYS_KILL_NR, pid as usize, sig as usize, 0, 0) as CInt;
     if r < 0 {
         return set_errno(-r);
@@ -8288,9 +8337,6 @@ pub unsafe extern "C" fn kill(pid: CInt, sig: CInt) -> CInt {
 
 #[no_mangle]
 pub unsafe extern "C" fn tkill(tid: CInt, sig: CInt) -> CInt {
-    if let Some(r) = signal_policy(tid, sig) {
-        return r;
-    }
     let r = syscall4(130, tid as usize, sig as usize, 0, 0) as CInt;
     if r < 0 {
         return set_errno(-r);
@@ -8300,9 +8346,6 @@ pub unsafe extern "C" fn tkill(tid: CInt, sig: CInt) -> CInt {
 
 #[no_mangle]
 pub unsafe extern "C" fn tgkill(tgid: CInt, tid: CInt, sig: CInt) -> CInt {
-    if let Some(r) = signal_policy(tgid, sig) {
-        return r;
-    }
     let r = syscall4(131, tgid as usize, tid as usize, sig as usize, 0) as CInt;
     if r < 0 {
         return set_errno(-r);
@@ -11651,8 +11694,63 @@ pub unsafe extern "C" fn send(fd: CInt, buf: usize, len: usize, flags: CInt) -> 
     )) as Ssize
 }
 
+/// Credentials a fiction cannot send.
+///
+/// Under the fake identity the process reports uid 0 (or the session user), and
+/// GDBus builds its SCM_CREDENTIALS from exactly that answer. The kernel accepts
+/// such a control message only when uid/gid equal the *real* ones - anything
+/// else needs CAP_SYS_ADMIN - so every GDBus connection died with "Error sending
+/// credentials: Error sending message: Operation not permitted". That is what
+/// made gnome-shell open display :0, announce itself as the window manager and
+/// then refuse its own session bus (evidence 147 §5).
+///
+/// Rewrite the three fields to what the kernel already knows about this process:
+/// the receiver reads the same values from SO_PEERCRED, so nothing is being
+/// claimed that the kernel would not hand over anyway.
+unsafe fn rewrite_credentials(msg: *const u8) {
+    if msg.is_null() {
+        return;
+    }
+    // struct msghdr (arm64): name 0, namelen 8, iov 16, iovlen 24,
+    // control 32, controllen 40, flags 48.
+    let control = core::ptr::read_unaligned(msg.add(32) as *const usize) as *mut u8;
+    let controllen = core::ptr::read_unaligned(msg.add(40) as *const usize);
+    if control.is_null() || controllen < 16 {
+        return;
+    }
+    let mut off = 0usize;
+    while off + 16 <= controllen {
+        let p = control.add(off);
+        let clen = core::ptr::read_unaligned(p as *const usize);
+        if clen < 16 || clen > controllen - off {
+            return;
+        }
+        let level = core::ptr::read_unaligned(p.add(8) as *const i32);
+        let ctype = core::ptr::read_unaligned(p.add(12) as *const i32);
+        // SOL_SOCKET = 1, SCM_CREDENTIALS = 2, sizeof(struct ucred) = 12.
+        if level == 1 && ctype == 2 && clen >= 28 {
+            core::ptr::write_unaligned(
+                p.add(16) as *mut i32,
+                syscall4(SYS_GETPID, 0, 0, 0, 0) as i32,
+            );
+            core::ptr::write_unaligned(
+                p.add(20) as *mut u32,
+                syscall4(SYS_GETUID, 0, 0, 0, 0) as u32,
+            );
+            core::ptr::write_unaligned(
+                p.add(24) as *mut u32,
+                syscall4(SYS_GETGID, 0, 0, 0, 0) as u32,
+            );
+        }
+        off += (clen + 7) & !7usize;
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn sendmsg(fd: CInt, msg: *const u8, flags: CInt) -> Ssize {
+    if !msg.is_null() && fake_root_on() {
+        rewrite_credentials(msg);
+    }
     if nl_is_fake(fd) && !msg.is_null() {
         // struct msghdr (arm64): name 0, namelen 8, iov 16, iovlen 24.
         let iov = core::ptr::read_unaligned(msg.add(16) as *const usize);
