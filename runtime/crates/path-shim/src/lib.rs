@@ -7113,8 +7113,90 @@ unsafe fn exec_library_path(
         n += dir.len();
         i += 1;
     }
+    // The launcher normally hands us its list, which already contains every
+    // directory the guest's own binaries declare in DT_RUNPATH (evidence 141).
+    // Without it the fixed list above was the whole answer, and a child then
+    // lost private directories: /usr/bin/sudo is linked against
+    // /usr/libexec/sudo/libsudo_util.so.0, so `sudo` typed inside a shell said
+    // "cannot open shared object file" while the same command as the session's
+    // first program worked. Read the declaration the guest wrote instead of
+    // guessing.
+    let mut gp = [0u8; PATH_MAX];
+    if root.len() + DECLARED_REL.len() < PATH_MAX {
+        gp[..root.len()].copy_from_slice(root);
+        gp[root.len()..root.len() + DECLARED_REL.len()].copy_from_slice(DECLARED_REL);
+        let gl = root.len() + DECLARED_REL.len();
+        gp[gl] = 0;
+        n = exec_declared_dirs(out, n, root, gp.as_ptr() as *const CChar);
+    }
+    if n >= PATH_MAX {
+        return None;
+    }
     out[n] = 0;
     Some(n)
+}
+
+const DECLARED_REL: &[u8] = b"/etc/ld.so.husk-path";
+
+/// Append `<root><dir>` for every `dir` line of the guest's declaration file.
+/// Raw syscalls only: this runs inside execve(), before the child exists.
+unsafe fn exec_declared_dirs(
+    out: &mut [u8; PATH_MAX],
+    mut n: usize,
+    root: &[u8],
+    path: *const CChar,
+) -> usize {
+    const SYS_READ2: usize = 63;
+    const SYS_OPENAT2: usize = 56;
+    const SYS_CLOSE2: usize = 57;
+    let fd = syscall4(
+        SYS_OPENAT2,
+        AT_FDCWD as usize,
+        path as usize,
+        0,
+        0,
+    );
+    if fd < 0 {
+        return n;
+    }
+    let mut buf = [0u8; 2048];
+    let r = syscall4(
+        SYS_READ2,
+        fd as usize,
+        buf.as_mut_ptr() as usize,
+        buf.len(),
+        0,
+    );
+    syscall4(SYS_CLOSE2, fd as usize, 0, 0, 0);
+    if r <= 0 {
+        return n;
+    }
+    let data = &buf[..(r as usize).min(buf.len())];
+    let mut i = 0usize;
+    while i < data.len() {
+        let mut e = i;
+        while e < data.len() && data[e] != b'\n' {
+            e += 1;
+        }
+        let line = &data[i..e];
+        i = e + 1;
+        if line.is_empty() || line[0] != b'/' || line[line.len() - 1] == b'\r' {
+            continue;
+        }
+        // The file lists guest absolute directories; the loader wants host ones.
+        if n + 1 + root.len() + line.len() > PATH_MAX - 8 {
+            break;
+        }
+        if n != 0 {
+            out[n] = b':';
+            n += 1;
+        }
+        out[n..n + root.len()].copy_from_slice(root);
+        n += root.len();
+        out[n..n + line.len()].copy_from_slice(line);
+        n += line.len();
+    }
+    n
 }
 
 // --------------------------------------------------------------- temp names

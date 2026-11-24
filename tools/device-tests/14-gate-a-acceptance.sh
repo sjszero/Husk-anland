@@ -145,10 +145,15 @@ E=
 [ -f "$R/etc/ld.so.husk-path" ] && E=$(sed -n 's|^/|'"$R"'|p' "$R/etc/ld.so.husk-path" | tr '\n' ':')
 cd "$R" || exit 1
 unset XDG_CACHE_HOME XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME
+# NR_LIBRARY_PATH is the launcher-to-shim contract for *nested* execs (the app
+# exports it). Without it a child falls back to the shim's built-in list plus
+# /etc/ld.so.husk-path, which is close but not what the app does - and the gate
+# has to measure the app's launch, not a cousin of it.
+LP="$R/lib/aarch64-linux-gnu:$R/usr/lib/aarch64-linux-gnu:$E"
 HOME=/root EXPECT_PKGS=${EXPECT_PKGS:-811} \
   PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-  NR_ROOTFS=$R NR_LD=$L \
-  exec "$L" --library-path "$R/lib/aarch64-linux-gnu:$R/usr/lib/aarch64-linux-gnu:$E" "$@"
+  NR_ROOTFS=$R NR_LD=$L NR_LIBRARY_PATH="$LP" \
+  exec "$L" --library-path "$LP" "$@"
 GUESTEXEC
 
 adb -s "$DEV" push "$TMP/accept.sh" /data/local/tmp/husk-accept.sh >/dev/null
