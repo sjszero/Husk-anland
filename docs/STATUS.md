@@ -9,7 +9,7 @@
 **设备**：`adb` serial `UKHMMB8PYTGECMNV`（RMX3357）。2.0 集成现场是应用
 `com.linuxhub.myth.husk`（debug 包名后缀），rootfs 在
 `files/linux/distributions/ubuntu-24.04/rootfs`，loader 在 `files/linux/husk/libld.so`，
-资产版本标记 `files/linux/husk/assets.version`（当前 `husk-runtime-spawn-link-22`）。
+资产版本标记 `files/linux/husk/assets.version`（当前 `husk-runtime-spawn-link-23`）。
 旧测试会话的 `com.linuxhub.husk`（`files/rootfs-full`、`files/libld3.so`）不要动。
 
 **启动契约（两个变量必须同时设，缺一个就"看起来像 shim 坏了"）**：
@@ -70,6 +70,14 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 门禁 A：`tools/device-tests/14-gate-a-acceptance.sh` **36 PASS / 0 FAIL**（桌面会话运行中）。
 sudo/PAM 一条按"不需要"结案：`husk-su` 已覆盖提权路径，PAM 的 `ENOTSOCK`/audit netlink 不再出现在
 任何验收判据里（evidence 139）。
+
+## 构建与动态链接：argv 截断、绝对符号链接（2026-11-24，evidence 155）
+
+| 项 | 结论 |
+|---|---|
+| `make -j4`（200 目标） | **可用**：`MAKE_RC=0`，3 509 ms。原来 shim 的 `execve` 用栈上 64 槽数组拼 argv，collect2 的第 64 个以后被静默丢掉，`ld` 报 `hidden symbol '__TMC_END__' isn't defined` —— 改成 `argv_len`/`argv_alloc` 堆分配（loader rev 23） |
+| rootfs 绝对符号链接 | 552 个，宿主机加载器按 **host 根** 解析链接目标 → 逃出 guest。`tools/guest-config/relative-symlinks.py --apply` 改写 551 条为相对路径后，`numpy 1.26.4`、`libblas.so.3`、`liblapack.so.3` 按 soname 全部可用 |
+| ⚠️ `adb shell` 的 guest stdout | 是 socket。`make` 往它写完，同一会话后续写入全部 `EACCES`；**proot 下完全一样**，不是 shim 行为。基准因此统一 `make -s -j4 >/dev/null 2>&1` |
 
 ## apt / libc：装包可用，但 libc6 升级会拆掉运行时（2026-11-24，evidence 154）
 
