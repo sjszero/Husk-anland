@@ -1,0 +1,11 @@
+// Husk container policy.
+//
+// Inside this sandbox the session user is the device owner, and there is no
+// working password path (PAM cannot authenticate here: evidence 129), so
+// polkit's interactive fallback can never succeed. Treat root and the session
+// user as administrators instead of leaving every privileged action denied.
+polkit.addRule(function (action, subject) {
+    if (subject.uid == 0 || subject.uid == 1000 || subject.user == "husk") {
+        return polkit.Result.YES;
+    }
+});
