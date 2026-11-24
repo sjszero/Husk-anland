@@ -1319,6 +1319,38 @@ unsafe fn pseudo_path(p: &[u8]) -> bool {
 /// `..` can climb out of /proc, /dev or /sys; `/proc/*/root` and `/proc/*/cwd`
 /// can jump straight back to the host namespace. Ordinary proc queries such as
 /// `/proc/self/status` and `/dev/null` remain passthrough.
+/// Shared storage is the one host tree a guest is meant to see by name.
+/// `NR_SHARED_STORAGE=0` turns it off so a failure can be attributed to it.
+unsafe fn shared_storage(p: &[u8]) -> bool {
+    if matches!(env_lookup(b"NR_SHARED_STORAGE"), Some(v) if v == b"0" || v == b"off") {
+        return false;
+    }
+    let mut under = false;
+    for root in [b"/sdcard".as_ref(), b"/storage".as_ref()] {
+        if p == root
+            || (p.len() > root.len() && &p[..root.len()] == root && p[root.len()] == b'/')
+        {
+            under = true;
+            break;
+        }
+    }
+    if !under {
+        return false;
+    }
+    // A `..` component is resolved by the kernel *after* the path has been
+    // handed to it, and `/storage/../system` is the host's `/system`, not the
+    // guest's. There is no bind mount here to stop at the mount point, so the
+    // only safe answer is "not passthrough": the path then goes through the
+    // guest root like any other (and misses, because /storage lives nowhere
+    // inside the rootfs). Same rule the /proc and /dev trees already use.
+    for c in p.split(|x| *x == b'/') {
+        if c == b".." {
+            return false;
+        }
+    }
+    true
+}
+
 unsafe fn passthrough(p: &[u8]) -> bool {
     if under_root(p) {
         return true;
@@ -1360,6 +1392,18 @@ unsafe fn passthrough(p: &[u8]) -> bool {
     // host tree that describes interfaces the guest cannot use.
     if p == b"/sys/class/net" || (p.len() > 14 && &p[..14] == b"/sys/class/net" && (p[14] == b'/' || p[14] == 0)) {
         return false;
+    }
+    // The phone's shared storage: proot delivered it with
+    // `-b /storage/emulated/0:/sdcard`; there is no bind here and the guest root
+    // has no /sdcard of its own, so without this the desktop's file manager sees
+    // a volume that does not exist. These two names are the *app's own* view of
+    // that volume (the kernel resolves /sdcard -> /storage/self/primary ->
+    // /storage/emulated/<user>), so they pass through as host paths; what the
+    // guest can reach is exactly what the app uid may reach. Every guest path is
+    // normalised before this point, so `..` cannot climb out of /storage into the
+    // host namespace.
+    if shared_storage(p) {
+        return true;
     }
     if !pseudo_path(p) {
         return false;

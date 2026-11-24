@@ -73,3 +73,18 @@
 2026-11-23 追加（evidence 113，`tools/device-tests/05-mount-audit.sh`，`PASS=11 FAIL=0`）：
 只读对目录描述符同样生效、卸载后存储目录被删除、2080 字节最坏表完整往返、
 等长两跳链可达、并发解析 + 挂载抖动零错误、xattr 走固定 inode、`ln -L` 可用。
+
+## 7. 共享存储：一个"透传名字"，不是挂载（evidence 145）
+
+`/sdcard`、`/storage` 不走挂载表：它们是**手机的卷**，不是 guest 状态。proot 时代用一个
+`-b /storage/emulated/0:/sdcard` 表达这件事；现在表达在 `passthrough()` 里（`shared_storage()`）：
+
+- `/sdcard`、`/storage` 及其子路径按宿主路径交给内核，因此 `/sdcard` 仍然是
+  `-> /storage/self/primary -> /storage/emulated/<本机用户>`，多用户也正确；
+- 能读到什么由 App 自己的 `MANAGE_EXTERNAL_STORAGE` 与内核权限决定，路径层不放大权限；
+- 含 `..` 的路径**不算**透传（没有挂载点能截断 `..`，第一版 `/storage/../system` 曾落到宿主
+  `/system`），它们回到 guest root 解析后落空；
+- `NR_SHARED_STORAGE=0` 关闭，便于把回归归因到这一条。
+
+与挂载表的区别要记住：挂载点可以 `umount`，这里的两个名字不能；它们也不出现在
+`/proc/mounts`（`/proc/mounts` 只列 guest 自己 `mount()` 出来的条目）。

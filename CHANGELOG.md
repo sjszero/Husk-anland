@@ -1,5 +1,20 @@
 # 变更记录
 
+## 2026-11-24 — 共享存储：删了 `-b /sdcard` 之后把它补回来
+
+- **evidence 145**：删 proot 时把 `-b /storage/emulated/0:/sdcard` 一起删了，guest 里
+  `/sdcard` 直接 ENOENT（桌面的文件管理器会少一个卷）。现在 `path-shim` 的 `passthrough()`
+  多一条 `shared_storage()`：`/sdcard` 与 `/storage` 是宿主路径（内核把 `/sdcard` 解析到
+  `/storage/self/primary`，多用户也对），能碰到什么仍由 App 自己的 `MANAGE_EXTERNAL_STORAGE`
+  和内核权限决定；`NR_SHARED_STORAGE=0` 可单独关。
+- 第一版只做前缀匹配，`/storage/../system` 会落到**宿主** `/system`（EACCES）——内核在 `..`
+  上解析，而这里没有挂载点能停住。现在和 `/proc`/`/dev` 一样：路径含 `..` 就不算透传。
+- 实测（App 自带终端，即 App 自己的域）：`ls -ld /sdcard` → `-> /storage/self/primary`，
+  `ls /sdcard | head -3` → 真实目录项，`touch /sdcard/…` → 写入成功。
+- 回归：空 checkpoint 重跑 814 包、`dpkg -C` 空、0 `Bad system call`、1,193 条 trap、
+  548.2 s、门禁 A 34/34、监督器 8/8。
+- 指纹：loader `d0fa2614…`（shim `535fca70…`），设备 `assets.version = husk-runtime-spawn-link-12`。
+
 ## 2026-11-24 — 2.0 里删掉 proot：同一个 rootfs，功能不减
 
 - **evidence 144**：LinuxHub 2.0 的 APK 不再带 `libproot.so`、`libproot-loader.so`、
