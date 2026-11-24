@@ -25,6 +25,9 @@ set -e
 cd "$(dirname "$0")/../../runtime"
 NDK=${NDK:-/Users/l/Library/Android/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64}
 SYSROOT=${SYSROOT:-/tmp/nr-toolchain/root}
+# Accept both spellings: build-embedded-loader.sh wants <prebuilt>/bin because it
+# calls $NDK/clang, this script wants <prebuilt> because it calls $NDK/bin/clang.
+case "$NDK" in */bin) NDK=${NDK%/bin} ;; esac
 [ -x "$NDK/bin/clang" ] || { echo "$0: no clang at $NDK/bin/clang" >&2; exit 1; }
 for f in usr/lib/aarch64-linux-gnu/crt1.o usr/lib/aarch64-linux-gnu/libc.so lib/ld-linux-aarch64.so.1; do
   [ -e "$SYSROOT/$f" ] || { echo "$0: incomplete sysroot: $SYSROOT/$f missing" >&2; exit 1; }

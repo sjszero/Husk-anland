@@ -53,12 +53,19 @@ docs:
 dist:
 	@test -n "$$NDK" || { echo "set NDK=<ndk>/bin" >&2; exit 1; }
 	sh tools/loader/build-embedded-loader.sh
+	sh tools/guest-config/build-guest-tools.sh
 	@mkdir -p dist
 	cp tools/loader/ld-embedded.so dist/libld.so
+	cp $(PROFILE_DIR)/husk-ldconfig $(PROFILE_DIR)/husk-usermgr \
+	   $(PROFILE_DIR)/husk-su dist/
+	cp binaries/libc-nop.so.6 dist/libc.so.6
 	cp tools/guest/install-husk.sh tools/guest/husk-session.sh dist/
-	tar czf dist/husk-arm64.tar.gz -C dist libld.so install-husk.sh husk-session.sh
-	@rm -f dist/libld.so dist/install-husk.sh dist/husk-session.sh
-	cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
+	tar czf dist/husk-arm64.tar.gz -C dist \
+	    libld.so libc.so.6 husk-ldconfig husk-usermgr husk-su \
+	    install-husk.sh husk-session.sh
+	@rm -f dist/libld.so dist/libc.so.6 dist/husk-ldconfig dist/husk-usermgr \
+	    dist/husk-su dist/install-husk.sh dist/husk-session.sh
+	@cd dist && sha256sum husk-arm64.tar.gz > SHA256SUMS && cat SHA256SUMS
 
 clean:
 	cargo clean --manifest-path $(MANIFEST)
