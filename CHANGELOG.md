@@ -1,5 +1,29 @@
 # 变更记录
 
+## 2026-11-24 — 走 App 的 UI 流程：从「第一条 guest 命令就死」到 INITIALIZATION COMPLETE
+
+- **evidence 137**：UI 流程暴露两个根因。① `/usr/sbin/ldconfig` 是包装脚本，真正的
+  `/sbin/ldconfig.real` 是**静态** glibc，装不进 shim，在 `untrusted_app` 域被 seccomp 打死
+  （`Bad system call`）——`run-as` 走的是 `runas_app` 域，量不出这个，**门禁类结论必须在
+  App 进程里量**。② 嵌套 exec 用解析后的目标路径当程序名，`addgroup → adduser` 的符号链接
+  分派失效，perl 的 `$0` 变成 `adduser`，`addgroup --system X` 建的是用户不是组。
+  修法：dynamic ELF 加 `--argv0`，`#!` 脚本把调用时用的路径交给解释器。
+- **evidence 138**：`dpkg` 拆 conffile 的顺序是 create → write → `chmod`(0440) → **再 open 写**，
+  内核按真实 uid 判 owner 位 → `EACCES`，`sudo` 装不上。`openat` 现在 `O_CREAT` 补 `0600`，
+  并在「写意图 + `EACCES` + `NR_FAKE_UID=0`」时把目标 `chmod 0600` 重试一次；`NR_DEBUG` 下把
+  失败的 `errno/flags/path` 写进 `<rootfs>/tmp/nr-exec.log`（dpkg 自己的报错不给 flag 字）。
+  已知偏差：`README` 落地 `0600` 而非 `0440`（模式保真待修）。
+- **evidence 139**：util-linux 的 `su` 在容器里不可用（`runuser` 明说 `cannot set groups`；
+  `su` 是 `PAM_SYSTEM_ERR`，换/删/插 PAM 配置都不变，失败在读配置之前）。新增
+  `husk-su`（Rust）：身份本来就是 `NR_FAKE_UID`/`NR_FAKE_GID` 的虚构，它只查账户、设变量、
+  exec shell，不需要权限；`/usr/bin/su`、`/usr/sbin/runuser` 用 `dpkg-divert` 换成 wrapper。
+  App 的初始化第一次走完。`14-gate-a-acceptance.sh` 改成自洽启动（`cd` guest root、
+  显式 `--library-path`、`HOME=/root`、丢掉 `XDG_*`），在 App 的树上 34 PASS / 0 FAIL。
+  顺带记账：guest `DT_RUNPATH` 不被改写（sudo 找不到 `libsudo_util.so.0`）、
+  sudo 认不出虚构 owner（`/etc/sudo.conf is owned by uid 10265`）、dconf 的
+  `SCM_CREDENTIALS` EPERM（G 段已知）。
+- 指纹：loader `33dcd681…`（shim `06abee35…`），`husk-su` `e64cdf1e…`，libc 不变。
+
 ## 2026-11-23 — 页大小体检：4K / 16K / 64K 全绿（含两个我们自己造的坑）
 
 - **evidence 122**：guest rootfs 里 **2987 个 ELF** 在 4K/16K/64K 三档全部通过，
