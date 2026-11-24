@@ -10,6 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/xishanp/Husk/releases"><img alt="Release" src="https://img.shields.io/github/v/release/xishanp/Husk?style=flat-square&color=EA580C"></a>
+  <a href="https://github.com/xishanp/Husk/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/xishanp/Husk/actions/workflows/ci.yml/badge.svg?branch=main&style=flat-square"></a>
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/github/license/xishanp/Husk?style=flat-square&color=2563EB"></a>
   <img alt="Platform: Android arm64" src="https://img.shields.io/badge/Platform-Android%20arm64-3DDC84?style=flat-square&logo=android&logoColor=white">
   <img alt="Rust 1.75+" src="https://img.shields.io/badge/Rust-1.75%2B-DEA584?style=flat-square&logo=rust&logoColor=white">
@@ -220,8 +221,8 @@ NDK=$ANDROID_HOME/ndk/<ver>/toolchains/llvm/prebuilt/<host>/bin \
 # Rust crates（no_std shim + 宿主工具）
 cargo build --release --manifest-path runtime/Cargo.toml
 
-# CI 里跑的检查
-make check   # fmt + aarch64 cargo check + clippy + shell 语法 + 文档链接
+# 本地门禁：CI 把同一组命令拆成七个作业跑，任何一个红了就不算过
+make check   # fmt + aarch64 cargo check + clippy + shell 语法 + 文档链接 + 版本三元组
 ```
 
 ## 仓库结构
