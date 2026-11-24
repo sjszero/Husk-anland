@@ -1,5 +1,24 @@
 # 变更记录
 
+## 2026-11-24 — 2.0 里删掉 proot：同一个 rootfs，功能不减
+
+- **evidence 144**：LinuxHub 2.0 的 APK 不再带 `libproot.so`、`libproot-loader.so`、
+  `libtalloc`/`libandroid-shmem`、getifaddrs 桥（server + `LD_PRELOAD` client），
+  Kotlin 侧只剩 `HuskRuntime.command` 一条路；仓库里 `tools/proot`、`tools/getifaddrs_bridge`、
+  `rust/getifaddrs-bridge` 也一起出库（没有 Gradle 任务引用）。
+- 删的依据是"把 proot 补丁逐项换成 shim 已有能力"：`-r`→`NR_ROOTFS`、`-0`+`su`→
+  `NR_FAKE_UID/GID`、`-b /dev -b /proc -b /sys` 与兼容文件→shim 自己合成、
+  `--link2symlink`→`link()` 退化复制、getifaddrs 桥→`AF_NETLINK` interpose、
+  Android 组名补丁（proot 的 `getgroups` 泄漏）→ 不需要。
+- 唯一语义改变：`/run/doro-audio` 从"宿主目录 bind 进 guest"变成 rootfs 里的真目录，
+  宿主 `ContainerAudioBridge` 与 guest `module-pipe-sink` 用同一个 FIFO，电池读数也写在同一处。
+- 回归（RMX3357，空 checkpoint，全程 UI）：814 包、`dpkg -C` 空、0 `Bad system call`、
+  1,181×`name_to_handle_at` + 12×`fchmodat2` 全接住、542.8 s（删前 533/541 s）、
+  门禁 A 34/34、supervisor 8/8、10,379 个 guest 进程/次。
+- 仍开口：GNOME 首帧无画面（G，延后；删除前本机没启动过桌面，归因 UNKNOWN）、
+  `/sdcard` 可见性未单独验收（B 段）。
+- APK `sha256 30ff02f6…`，1,050,179,937 B。
+
 ## 2026-11-24 — 带虚构所有权从头初始化两遍，并补齐嵌套 exec 的库目录
 
 - **evidence 143**：两遍**空 checkpoint** 的 App 界面初始化（loader `d210644d` / `07c890f2`）

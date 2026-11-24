@@ -40,6 +40,11 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
       另外把「嵌套 exec 的库目录」从写死的 6 个目录改成读 guest 自己的 `/etc/ld.so.husk-path`
       兜底，并让初始化在 `SAVE_CONFIGURATION` 再声明一次 —— 否则 App 重启前 `sudo` 找不到
       `/usr/libexec/sudo/libsudo_util.so.0`（evidence 143）；
+   ④ **C 段：proot 已整段删除**（evidence 144）——APK 不再带 proot / loader / libtalloc /
+      libandroid-shmem / getifaddrs 桥，`tools/proot`、`tools/getifaddrs_bridge`、
+      `rust/getifaddrs-bridge` 也已出库；登录、会话、`executeContainerCommand`、桌面启动只走
+      `HuskRuntime.command`。判据是同 rootfs 回归：空 checkpoint 从 UI 跑完 814 包、`dpkg -C` 空、
+      0 `Bad system call`、门禁 A 34/34、supervisor 8/8、542.8 s（删 proot 前 533/541 s）；
 4. 交付形态：**已落地**（`tools/guest/install-husk.sh`，evidence 130）——本地 tarball 或 URL 一条命令
    装完 + 生成启动器，本机 app 私有目录端到端通；**真 Termux 验收 UNKNOWN**（本机没装 Termux，
    adb shell 里也没有 curl/wget，URL 分支只在 macOS 上证过下载段）。
@@ -54,7 +59,7 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 按"对标容器/轻量虚拟机"的环境口径，A（账号）、B（挂载）、C（设备节点）、D（网络表面）
 四段已收口，E（进程视图 + 服务监督器）已收口；**F 只剩 16K/64K 实机和 Mali 以外的 GPU 家族适配**。
 桌面帧出屏（G）按目标延后，不作为环境完整性判据。传感器、GPS、USB / 蓝牙 / NFC / 指纹
-尚未开始；2.0 的初始化路径已经全程跑在 Husk 上（proot 分支仍在 Kotlin 里，等 C 段逐项删）。
+尚未开始；2.0 已经**不含 proot**——APK 与仓库里都没有 proot，初始化与会话全部跑在 Husk 上（evidence 144）。
 
 另外记一条会反复踩的事实（evidence 130）：2.0 assets 里的 `ubuntu-base-24.04.4-base-arm64.tar`
 **是 gzip**（`1f 8b`，md5 `0be8b9e5…`），只是文件名没有 `.gz`。装之前先 `od -An -tx1 -N6`。
@@ -86,6 +91,8 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 | locale | `locale-gen` 全量生成 `zh_CN.utf8`/`zh_SG.utf8` 进 `/usr/lib/locale/locale-archive`，`LC_ALL=zh_CN.UTF-8 locale charmap` → `UTF-8` | 134 |
 | 门禁 A（干净重跑 + 验收） | APK 自带的 ubuntu-base tar → 新目录 → 资产里的包 → `dpkg --configure -a`：`RC=0`、`dpkg -C` 空、status 811/811 installed、`zh_CN.utf8`/`zh_SG.utf8` 生成、真实 SIGSYS trap 0 次。随后验收 `tools/device-tests/14-gate-a-acceptance.sh` **36/36 PASS**（bash 6、locale 3、用户管理 9、dpkg 7 含 force-overwrite 重装、apt 4、宿主路径 5、trap 1）与 `12-supervisor.sh` **8/8 PASS**；两个脚本已参数化（`PKG`/`ROOTFS`/`LD`）。已知不是门禁失败的项：`/proc/self/exe` 与 argv 暴露宿主 loader 路径（同 uid，无权限跨界）。清单里 165 个 deb 资产里没有（原现场也没有），已记账。App UI 流程当时仍未在干净目录上跑 | 135 / 136 |
 | **门禁 A（App 自己跑）** | APK 自带的 ubuntu-base tar → 空 checkpoint → **全程 UI 点击**：`EXTRACT_SYSTEM → CREATE_CONTAINER → CREATE_USER → CONFIGURE_SUDO → INITIALIZE_ENVIRONMENT → SAVE_CONFIGURATION` 全部 DONE，`INITIALIZATION COMPLETE`，522.7 s。同一棵树上：`dpkg -C` 空、814 装、0 unpacked、窗口内 `error processing package` 0 次、`Bad system call` 0 次，1202 条 seccomp trap 全被 handler 接住（1182 `name_to_handle_at` / 19 `fchmodat2`）；`14-gate-a-acceptance.sh` **34/34**、`12-supervisor.sh` **8/8**。噪声全部定性：62 条 dpkg 符号链接尺寸警告、python3 两条 pre-dependency 由后续轮次补上（末态 `ii`）、libpxbackend 的 RUNPATH 缺口、dconf 的 `SCM_CREDENTIALS` | 140 |
+| 跨进程虚构所有权 | rootfs 文件一律报 `0:0`，只有 guest 自己 chown/创建的是别人；锚点是 `/var/lib/husk/owners` 的 inode 例外表（约 30 行/树），从 `stat`/`fstatat`/`statx` 读出、从 `chown`/`O_CREAT`/`mkdir`/`symlink` 写入、`unlink` 时按 `nlink==1` 清理，只对 rootfs 的 `st_dev` 生效 | 142 |
+| **C 段：删除 proot** | APK 与仓库都不再有 proot：`libproot.so`/`libproot-loader.so`/`libtalloc`/`libandroid-shmem`/getifaddrs 桥（server + `LD_PRELOAD`）全部出包，`tools/proot`、`tools/getifaddrs_bridge`、`rust/getifaddrs-bridge` 出库；登录/会话/命令/桌面只走 `HuskRuntime.command`，`/run/doro-audio` 改成 rootfs 里的真目录（宿主与 guest 用同一个 FIFO）。判据是同 rootfs 回归：空 checkpoint 全程 UI，814 包、`dpkg -C` 空、0 `Bad system call`、1,193 条 trap 全接住、542.8 s（删前 533/541 s）、门禁 A 34/34、supervisor 8/8。桌面首帧仍无画面（G 延后），删除前本机没启动过桌面，故与删除无关这一条是 UNKNOWN | 144 |
 | `argv[0]` 与符号链接分派 | 嵌套 exec 原先把程序名换成**解析后的目标路径**，`/usr/sbin/addgroup → adduser` 这类符号链接分派因此失效（perl 的 `$0` 变成 `…/adduser`，`addgroup --system X` 建的是**用户**不是组，dpkg-statoverride 报 `group 'geoclue' does not exist`）。现在 dynamic ELF 走加载器的 `--argv0 <调用方 argv[0]>`，`#!` 脚本把**调用时用的路径**交给解释器（内核语义）；`ps` 的 comm 同步跳过 `--argv0` 的值。实测 `addgroup` 建组、`adduser` 不受影响、嵌套 exec 与 `ps -o comm` 正常 | 137 |
 | 静态二进制是域边界 | guest 里静态链接的 ELF 不过 shim，于是没有 SIGSYS handler、也没有路径层：`/sbin/ldconfig.real` 在 `untrusted_app` 域被 seccomp 直接打死（159），在 `adb shell`/`run-as` 下却能跑（只是写宿主 /etc 得 EROFS）。所以**门禁类结论必须在 App 进程里量**；`/usr/sbin/ldconfig → husk-ldconfig` 从"最好有"升级为"第一条 guest 命令之前就必须有" | 135 / 137 |
 | `dpkg` 拆 conffile 的写权限 | dpkg 的拆包顺序是 create → write → `chmod`（包里的模式）→ **再 open 写**；`/etc/sudoers.d/README` 是 `0440`，内核按真实 app uid 判 owner 位 → `EACCES`，`sudo` 装不上（`unable to open '/etc/sudoers.d/README.dpkg-new': Permission denied`）。`openat` 现在 `O_CREAT` 时补 `0600`，并在「写意图 + `EACCES` + `NR_FAKE_UID=0`」时把目标 `chmod 0600` 重试一次；`NR_DEBUG` 下把失败的 `errno/flags/path` 记进 `<rootfs>/tmp/nr-exec.log`。实测 `dpkg --purge sudo` 后再 `dpkg -i` → `rc=0`、`/usr/bin/sudo` 保持 `-rwsr-xr-x`。已知偏差：`README` 落地 `0600` 而非 `0440`（模式保真待修） | 138 |
@@ -125,8 +132,8 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
    剩 16K/64K **真机** UNKNOWN（本机只有 4 KiB），不是代码问题。
 2. **F：GPU 家族适配器**——本机只验了 Mali(kbase)。Adreno(kgsl + Turnip) 与通用 DRM
    按 `docs/design/device-adapters.md` 的表结构补适配器，没设备的一律 UNKNOWN。
-3. **2.0 集成**：替换 proot 运行时，逐项删除 proot 专用补丁（用 artifacts/rollback 里的
-   已知好包做对照）。
+3. **2.0 集成：运行时替换已完成**（evidence 140–144；proot 及其补丁已全部删除）。
+   还剩 `/sdcard` 等外部存储路径的可见性未单独验收（B 段）。
 4. **G（延后）**：GNOME 帧出屏。前置未解：会话进程须 `NR_FAKE_ROOT=0`、GDBus 的
    `SCM_CREDENTIALS` 在 fake root 下 EPERM、gnome-shell 46 会 `free(): invalid pointer` 崩。
 
