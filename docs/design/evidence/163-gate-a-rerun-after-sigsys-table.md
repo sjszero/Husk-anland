@@ -40,14 +40,19 @@ evidence/14 与 2.0 时代记录的「`nr-sigsys.log` 刷屏（landlock）」在
 发生时才进处理器），但只要换一台策略真的 TRAP 的 ROM，它就是「静态 ELF 与裸 `svc` 不会
 被直接打死」的那道防线。要让它从「未验证」变成「已验证」，需要一个真的会 TRAP 的目标环境。
 
-## 3. 长稳（进行中，不是结论）
+## 3. 运行时空载 30 分钟（新 loader）—— 已完成
 
-30 分钟空载 soak 已用当前 loader 起在 APK 域：
+用当前 loader 在 APK 域跑 `bench/soak.sh husk 1800`：每 60 s 一个采样点，共 30 个。
 
-```
-run-as com.linuxhub.myth.husk sh files/linux/bench/soak.sh husk 1800
-  -> files/linux/soak-husk-20261124.csv（t_s,rss_kb,threads,fd,zombies 每分钟一行）
-```
+| 指标 | 首（t=0） | 末（t=1800） | 最小 | 最大 | 结论 |
+|---|---|---|---|---|---|
+| RSS (KiB) | 836 | 1 252 | 836 | 1 252 | 60 s 内升到 1 252，之后 30 分钟**完全恒定**（首点低是 loader 还没把 guest 映射完） |
+| 线程 | 1 | 1 | 1 | 1 | 恒定 |
+| fd | 4 | 4 | 4 | 4 | 恒定 |
+| 僵尸 | 0 | 0 | 0 | 0 | 30 分钟零僵尸 |
 
-**还在跑**，结论要等最后一个采样点（写这份文档时只有 t_s=0 一行）。跑完之后把首末行贴回
-这里，才算这一项闭环。
+原始采样：`docs/design/evidence/soak-husk-runtime-20261124.csv`（30 个采样点 + 首尾注释行）。
+
+**这一条不是「桌面长稳」。** 桌面那 30 分钟是 evidence 153（rev 21、GNOME 46 X11 会话、
+47 线程恒定、guest 僵尸 0）。本节的结论只到这一步：**换上新 loader 之后，运行时空载不涨
+RSS、不涨 fd、不留僵尸**。桌面那一项要在 app 侧会话里重跑，本轮没做，不拿这个顶替。
