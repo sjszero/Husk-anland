@@ -291,7 +291,13 @@ pub unsafe fn nr_main(sp: *const usize) -> isize {
     let mut log_rel = [0u8; 20];
     log_rel[..15].copy_from_slice(b"/var/log/syslog");
     mkdir_p(root, b"/var/log", log_path.as_mut_ptr());
-    sys(SYS_MKDIRAT, AT_FDCWD as usize, log_path.as_ptr() as usize, 0o755, 0);
+    sys(
+        SYS_MKDIRAT,
+        AT_FDCWD as usize,
+        log_path.as_ptr() as usize,
+        0o755,
+        0,
+    );
     let mut lat = rl;
     core::ptr::copy_nonoverlapping(root, log_path.as_mut_ptr(), rl);
     put(log_path.as_mut_ptr(), &mut lat, b"/var/log/syslog");
@@ -302,7 +308,13 @@ pub unsafe fn nr_main(sp: *const usize) -> isize {
         return 1;
     }
     // A stale socket file from a previous run is ours to clear.
-    sys(SYS_UNLINKAT, AT_FDCWD as usize, sock_path.as_ptr() as usize, 0, 0);
+    sys(
+        SYS_UNLINKAT,
+        AT_FDCWD as usize,
+        sock_path.as_ptr() as usize,
+        0,
+        0,
+    );
     let mut sa = [0u8; 110];
     sa[0] = AF_UNIX as u8;
     sa[1] = 0;
@@ -319,7 +331,13 @@ pub unsafe fn nr_main(sp: *const usize) -> isize {
         return 0;
     }
     // Every uid in the guest must be able to send, like a real /dev/log.
-    sys(SYS_FCHMODAT, AT_FDCWD as usize, sock_path.as_ptr() as usize, 0o666, 0);
+    sys(
+        SYS_FCHMODAT,
+        AT_FDCWD as usize,
+        sock_path.as_ptr() as usize,
+        0o666,
+        0,
+    );
 
     let mut buf = [0u8; 8192];
     loop {

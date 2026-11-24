@@ -201,7 +201,11 @@ struct Buf {
 
 impl Buf {
     const fn new() -> Self {
-        Buf { addr: 0, len: 0, queued: false }
+        Buf {
+            addr: 0,
+            len: 0,
+            queued: false,
+        }
     }
 }
 
@@ -804,7 +808,11 @@ impl Ctx {
     unsafe fn write_pix(&self, i: usize, base: *mut u8, off: usize, w: u32, h: u32, fourcc: u32) {
         let d = &self.devs[i];
         let bpl = if fourcc == FMT_YUYV { w * 2 } else { w };
-        let size = if fourcc == FMT_YUYV { w * h * 2 } else { w * h * 3 / 2 };
+        let size = if fourcc == FMT_YUYV {
+            w * h * 2
+        } else {
+            w * h * 3 / 2
+        };
         st32(base, off, w);
         st32(base, off + 4, h);
         st32(base, off + 8, fourcc);
@@ -883,8 +891,7 @@ impl Ctx {
         let mut count = ld32(arg, 0);
         let type_ = ld32(arg, 4);
         let memory = ld32(arg, 8);
-        if type_ != BUF_TYPE_VIDEO_CAPTURE || (memory != MEMORY_MMAP && memory != MEMORY_USERPTR)
-        {
+        if type_ != BUF_TYPE_VIDEO_CAPTURE || (memory != MEMORY_MMAP && memory != MEMORY_USERPTR) {
             return -EINVAL;
         }
         if self.devs[i].streaming {
@@ -931,7 +938,11 @@ impl Ctx {
             st32(
                 arg,
                 72,
-                if b.addr != 0 { b.len as u32 } else { d.size_image() },
+                if b.addr != 0 {
+                    b.len as u32
+                } else {
+                    d.size_image()
+                },
             );
         }
         true
@@ -1092,8 +1103,12 @@ impl Ctx {
             let bytes = field(l, b"bytes=").and_then(parse_u32).unwrap_or(0) as usize;
             let seq = field(l, b"seq=").and_then(parse_u32).unwrap_or(0);
             let ts = field(l, b"ts=").and_then(parse_u64).unwrap_or(0);
-            let fw = field(l, b"w=").and_then(parse_u32).unwrap_or(self.devs[i].w);
-            let fh = field(l, b"h=").and_then(parse_u32).unwrap_or(self.devs[i].h);
+            let fw = field(l, b"w=")
+                .and_then(parse_u32)
+                .unwrap_or(self.devs[i].w);
+            let fh = field(l, b"h=")
+                .and_then(parse_u32)
+                .unwrap_or(self.devs[i].h);
             let scratch = match self.scratch() {
                 Some(p) => p,
                 None => return -EIO,

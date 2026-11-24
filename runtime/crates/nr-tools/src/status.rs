@@ -198,7 +198,10 @@ fn synth(name: &str, version: &str, arch: &str) -> Stanza {
             "Maintainer".into(),
             "Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>".into(),
         ),
-        ("Description".into(), format!("{name} (staged into a husk rootfs)")),
+        (
+            "Description".into(),
+            format!("{name} (staged into a husk rootfs)"),
+        ),
     ]
 }
 
@@ -230,7 +233,9 @@ fn status_from_tar(path: &Path) -> Option<String> {
         }
         let size = crate::provision::tar_octal(&h[124..136]) as usize;
         let kind = h[156];
-        let mut name = String::from_utf8_lossy(&h[0..100]).trim_end_matches('\0').to_string();
+        let mut name = String::from_utf8_lossy(&h[0..100])
+            .trim_end_matches('\0')
+            .to_string();
         if let Some(i) = name.find('\0') {
             name.truncate(i);
         }
@@ -280,7 +285,11 @@ pub(crate) fn main(argv: &[String]) {
     let mut from: [usize; 3] = [0; 3];
     let mut collapsed = 0usize;
 
-    let mut merge = |st: Stanza, rank: usize, map: &mut BTreeMap<String, Stanza>, from: &mut [usize; 3], collapsed: &mut usize| {
+    let mut merge = |st: Stanza,
+                     rank: usize,
+                     map: &mut BTreeMap<String, Stanza>,
+                     from: &mut [usize; 3],
+                     collapsed: &mut usize| {
         let Some(name) = get(&st, "Package").map(|s| s.to_string()) else {
             return;
         };
@@ -293,12 +302,10 @@ pub(crate) fn main(argv: &[String]) {
                 *collapsed += 1;
                 let take = match (score(&st), score(old)) {
                     (a, b) if a != b => a > b,
-                    _ => {
-                        match (get(&st, "Version"), get(old, "Version")) {
-                            (Some(a), Some(b)) => version_cmp(a, b) > 0,
-                            _ => false,
-                        }
-                    }
+                    _ => match (get(&st, "Version"), get(old, "Version")) {
+                        (Some(a), Some(b)) => version_cmp(a, b) > 0,
+                        _ => false,
+                    },
                 };
                 if take {
                     from[rank] += 1;
@@ -372,7 +379,9 @@ pub(crate) fn main(argv: &[String]) {
                 for line in text.lines() {
                     if line.is_empty() {
                         if !name.is_empty() && !ver.is_empty() {
-                            let e = idx.entry(name.clone()).or_insert((String::new(), String::new()));
+                            let e = idx
+                                .entry(name.clone())
+                                .or_insert((String::new(), String::new()));
                             // later suites win: noble-updates carries the newer build
                             e.0 = ver.clone();
                             e.1 = arch.clone();
@@ -391,7 +400,9 @@ pub(crate) fn main(argv: &[String]) {
                     }
                 }
                 if !name.is_empty() && !ver.is_empty() {
-                    let e = idx.entry(name.clone()).or_insert((String::new(), String::new()));
+                    let e = idx
+                        .entry(name.clone())
+                        .or_insert((String::new(), String::new()));
                     e.0 = ver;
                     e.1 = arch;
                 }
@@ -400,7 +411,9 @@ pub(crate) fn main(argv: &[String]) {
         let mut epochs = 0usize;
         let mut archs = 0usize;
         for (name, st) in map.iter_mut() {
-            let Some((iver, iarch)) = idx.get(name) else { continue };
+            let Some((iver, iarch)) = idx.get(name) else {
+                continue;
+            };
             let synthetic = get(st, "Description")
                 .map(|d| d.contains("(staged "))
                 .unwrap_or(false);
@@ -444,12 +457,7 @@ pub(crate) fn main(argv: &[String]) {
             // what apt reads for `apt-mark hold`. Holding the packages the
             // runtime patched is what keeps an apt upgrade from overwriting them.
             if let Some(e) = st.iter_mut().find(|(k, _)| k == "Status") {
-                let tail: String = e
-                    .1
-                    .splitn(3, ' ')
-                    .skip(1)
-                    .collect::<Vec<_>>()
-                    .join(" ");
+                let tail: String = e.1.splitn(3, ' ').skip(1).collect::<Vec<_>>().join(" ");
                 e.1 = format!("hold {tail}");
                 fixed = true;
             }
@@ -469,7 +477,10 @@ pub(crate) fn main(argv: &[String]) {
     }
     fs::write(&dst, text.as_bytes()).unwrap_or_else(|e| die(format!("{}: {e}", dst.display())));
 
-    let no_maint = map.values().filter(|s| get(s, "Maintainer").is_none()).count();
+    let no_maint = map
+        .values()
+        .filter(|s| get(s, "Maintainer").is_none())
+        .count();
     println!(
         "dpkg status: {} packages -> {}\n  from base database: {}, from tree: {}, from manifests: {}\n  duplicates collapsed: {}, fields repaired: {}, missing Maintainer: {}",
         map.len(),

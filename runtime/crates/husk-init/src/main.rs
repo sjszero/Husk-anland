@@ -267,20 +267,36 @@ fn is_space(c: u8) -> bool {
 /// Copy `s` into a NUL-terminated static buffer at `dst`, returning the length
 /// without the NUL.
 unsafe fn put(dst: &mut [u8], s: &[u8]) -> usize {
-    let n = if s.len() < dst.len() - 1 { s.len() } else { dst.len() - 1 };
+    let n = if s.len() < dst.len() - 1 {
+        s.len()
+    } else {
+        dst.len() - 1
+    };
     dst[..n].copy_from_slice(&s[..n]);
     dst[n] = 0;
     n
 }
 
 unsafe fn read_file(path: &[u8], dst: &mut [u8]) -> usize {
-    let fd = sc4(NR_OPENAT, AT_FDCWD as usize, path.as_ptr() as usize, O_RDONLY | O_CLOEXEC, 0);
+    let fd = sc4(
+        NR_OPENAT,
+        AT_FDCWD as usize,
+        path.as_ptr() as usize,
+        O_RDONLY | O_CLOEXEC,
+        0,
+    );
     if fd < 0 {
         return 0;
     }
     let mut total = 0usize;
     loop {
-        let r = sc4(NR_READ, fd as usize, dst[total..].as_mut_ptr() as usize, dst.len() - total, 0);
+        let r = sc4(
+            NR_READ,
+            fd as usize,
+            dst[total..].as_mut_ptr() as usize,
+            dst.len() - total,
+            0,
+        );
         if r <= 0 {
             break;
         }
@@ -369,7 +385,11 @@ unsafe fn parse_config() -> usize {
                 // record field lengths via a parallel array
                 f += 1;
                 if f == 1 {
-                    svc.name_len = if k - s < NAME_MAX { k - s } else { NAME_MAX - 1 };
+                    svc.name_len = if k - s < NAME_MAX {
+                        k - s
+                    } else {
+                        NAME_MAX - 1
+                    };
                     let mut z = 0usize;
                     while z < svc.name_len {
                         svc.name[z] = line[s + z];
@@ -568,9 +588,19 @@ unsafe fn spawn(idx: usize) -> isize {
                     out(&[b"\n"]);
                 }
             }
-            ec = sc4(NR_EXECVE, ARGV[0], ARGV.as_ptr() as usize, envp.as_ptr() as usize, 0);
+            ec = sc4(
+                NR_EXECVE,
+                ARGV[0],
+                ARGV.as_ptr() as usize,
+                envp.as_ptr() as usize,
+                0,
+            );
         }
-        out(&[b"husk-init: exec failed for ", &svc.name[..svc.name_len], b" errno="]);
+        out(&[
+            b"husk-init: exec failed for ",
+            &svc.name[..svc.name_len],
+            b" errno=",
+        ]);
         outn(b"", ec as i64);
         out(&[b"\n"]);
         sys_exit_group(127);
@@ -623,9 +653,7 @@ unsafe fn reap(now_ms: u64) {
                     outn(b"", svc.backoff as i64);
                     out(&[b"s\n"]);
                     svc.started_ns = now_ms;
-                    svc.pid = -(
-                        (now_ms + svc.backoff * 1000) as isize
-                    ); // negative pid = restart deadline
+                    svc.pid = -((now_ms + svc.backoff * 1000) as isize); // negative pid = restart deadline
                     if svc.backoff < 30 {
                         svc.backoff *= 2;
                     }
@@ -646,7 +674,11 @@ unsafe fn start_due(now_ms: u64) {
         if SERVICES[i].pid == 0 && !SERVICES[i].done {
             SERVICES[i].started_ns = now_ms;
             SERVICES[i].pid = spawn(i);
-            out(&[b"husk-init: started ", &SERVICES[i].name[..SERVICES[i].name_len], b" pid="]);
+            out(&[
+                b"husk-init: started ",
+                &SERVICES[i].name[..SERVICES[i].name_len],
+                b" pid=",
+            ]);
             outn(b"", SERVICES[i].pid as i64);
             out(&[b"\n"]);
         } else if SERVICES[i].pid < 0 {
@@ -654,7 +686,11 @@ unsafe fn start_due(now_ms: u64) {
             if now_ms >= deadline {
                 SERVICES[i].started_ns = now_ms;
                 SERVICES[i].pid = spawn(i);
-                out(&[b"husk-init: restarted ", &SERVICES[i].name[..SERVICES[i].name_len], b" pid="]);
+                out(&[
+                    b"husk-init: restarted ",
+                    &SERVICES[i].name[..SERVICES[i].name_len],
+                    b" pid=",
+                ]);
                 outn(b"", SERVICES[i].pid as i64);
                 out(&[b"\n"]);
             }
@@ -789,8 +825,20 @@ pub unsafe extern "C" fn _start() -> ! {
     set |= 1u64 << (SIGTERM - 1);
     set |= 1u64 << (SIGINT - 1);
     set |= 1u64 << (SIGQUIT - 1);
-    sc4(NR_RT_SIGPROCMASK, SIG_BLOCK, core::ptr::addr_of!(set) as usize, 0, 8);
-    let sfd = sc4(NR_SIGNALFD4, (-1isize) as usize, core::ptr::addr_of!(set) as usize, 8, 0);
+    sc4(
+        NR_RT_SIGPROCMASK,
+        SIG_BLOCK,
+        core::ptr::addr_of!(set) as usize,
+        0,
+        8,
+    );
+    let sfd = sc4(
+        NR_SIGNALFD4,
+        (-1isize) as usize,
+        core::ptr::addr_of!(set) as usize,
+        8,
+        0,
+    );
     if sfd < 0 {
         out(&[b"husk-init: signalfd4 failed\n"]);
         sys_exit_group(5);

@@ -294,7 +294,6 @@ unsafe fn ssize_or_errno(r: Ssize) -> Ssize {
     }
 }
 
-
 unsafe fn set_errno_ptr(e: CInt, p: *mut CChar) -> *mut CChar {
     *__errno_location() = e;
     p
@@ -395,7 +394,13 @@ unsafe fn first_sighting_on_disk(nr: u16, mode: u16) -> bool {
     dir[root.len()..root.len() + dir_suffix.len()].copy_from_slice(dir_suffix);
     let dn = root.len() + dir_suffix.len();
     dir[dn] = 0;
-    syscall4(SYS_MKDIRAT, AT_FDCWD as usize, dir.as_ptr() as usize, 0o755, 0);
+    syscall4(
+        SYS_MKDIRAT,
+        AT_FDCWD as usize,
+        dir.as_ptr() as usize,
+        0o755,
+        0,
+    );
 
     let mut p = [0u8; PATH_MAX];
     p[..dn].copy_from_slice(&dir[..dn]);
@@ -660,10 +665,7 @@ extern "C" fn on_sigsys(_sig: CInt, info: *const u8, uc: *mut u8) {
                 syscall4(SYS_EXIT_GROUP, 128 + SIGSYS_NUM, 0, 0, 0);
             }
             let pc_now = core::ptr::read_unaligned(uc.add(pc_off) as *const u64);
-            core::ptr::write_unaligned(
-                uc.add(pc_off - SC_PC_TO_REGS0) as *mut u64,
-                (-1i64) as u64,
-            );
+            core::ptr::write_unaligned(uc.add(pc_off - SC_PC_TO_REGS0) as *mut u64, (-1i64) as u64);
             core::ptr::write_unaligned(uc.add(pc_off) as *mut u64, pc_now.wrapping_add(4));
             return;
         }
@@ -1083,7 +1085,13 @@ pub(crate) unsafe fn name_once() {
     if fd < 0 {
         return;
     }
-    let n = syscall4(SYS_READ, fd as usize, buf.as_mut_ptr() as usize, buf.len(), 0);
+    let n = syscall4(
+        SYS_READ,
+        fd as usize,
+        buf.as_mut_ptr() as usize,
+        buf.len(),
+        0,
+    );
     syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
     if n <= 0 {
         return;
@@ -1146,13 +1154,7 @@ pub(crate) unsafe fn name_once() {
     if j == 0 {
         return;
     }
-    syscall4(
-        SYS_PRCTL,
-        PR_SET_NAME,
-        name.as_ptr() as usize,
-        0,
-        0,
-    );
+    syscall4(SYS_PRCTL, PR_SET_NAME, name.as_ptr() as usize, 0, 0);
 }
 
 unsafe fn rootfd() -> CInt {
@@ -1448,8 +1450,7 @@ unsafe fn shared_storage(p: &[u8]) -> bool {
     }
     let mut under = false;
     for root in [b"/sdcard".as_ref(), b"/storage".as_ref()] {
-        if p == root
-            || (p.len() > root.len() && &p[..root.len()] == root && p[root.len()] == b'/')
+        if p == root || (p.len() > root.len() && &p[..root.len()] == root && p[root.len()] == b'/')
         {
             under = true;
             break;
@@ -1511,7 +1512,9 @@ unsafe fn passthrough(p: &[u8]) -> bool {
     // domain, so /sys/class/net is materialised inside the guest root (see
     // tools/guest-config/mksys-net.sh) instead of being passed through to a
     // host tree that describes interfaces the guest cannot use.
-    if p == b"/sys/class/net" || (p.len() > 14 && &p[..14] == b"/sys/class/net" && (p[14] == b'/' || p[14] == 0)) {
+    if p == b"/sys/class/net"
+        || (p.len() > 14 && &p[..14] == b"/sys/class/net" && (p[14] == b'/' || p[14] == 0))
+    {
         return false;
     }
     // The phone's shared storage: proot delivered it with
@@ -1621,7 +1624,6 @@ pub unsafe extern "C" fn __open_nocancel(path: *const CChar, flags: CInt, mode: 
 pub unsafe extern "C" fn __open64_nocancel(path: *const CChar, flags: CInt, mode: CInt) -> CInt {
     openat(AT_FDCWD, path, flags, mode)
 }
-
 
 // --------------------------------------------------------------- virtual files
 //
@@ -1768,7 +1770,13 @@ unsafe fn mnt_mkdir_dir() {
         Err(_) => return,
     };
     let nl = name.iter().position(|c| *c == 0).unwrap_or(0);
-    syscall4(SYS_MKDIRAT, parent as usize, name.as_ptr() as usize, 0o755, 0);
+    syscall4(
+        SYS_MKDIRAT,
+        parent as usize,
+        name.as_ptr() as usize,
+        0o755,
+        0,
+    );
     rc::close(parent);
 }
 
@@ -1884,7 +1892,11 @@ unsafe fn mnt_save() {
         let e = &MNT[i];
         let start = at;
         let ok = mnt_pad(&mut out, &mut at, if e.tmpfs != 0 { b"t" } else { b"b" })
-            && mnt_pad(&mut out, &mut at, if e.ro != 0 { b"\t1\t" } else { b"\t0\t" })
+            && mnt_pad(
+                &mut out,
+                &mut at,
+                if e.ro != 0 { b"\t1\t" } else { b"\t0\t" },
+            )
             && mnt_pad(&mut out, &mut at, &e.tgt[..e.tlen as usize])
             && mnt_pad(&mut out, &mut at, b"\t")
             && mnt_pad(&mut out, &mut at, &e.src[..e.slen as usize])
@@ -1914,7 +1926,12 @@ unsafe fn rm_rf_guest(dir: &[u8], depth: usize) -> bool {
     let mut z = [0u8; 321];
     z[..dir.len()].copy_from_slice(dir);
     z[dir.len()] = 0;
-    let dfd = openat(AT_FDCWD, z.as_ptr() as *const CChar, O_DIRECTORY | O_CLOEXEC, 0);
+    let dfd = openat(
+        AT_FDCWD,
+        z.as_ptr() as *const CChar,
+        O_DIRECTORY | O_CLOEXEC,
+        0,
+    );
     if dfd < 0 {
         return false;
     }
@@ -1969,7 +1986,10 @@ unsafe fn mnt_apply(gp: &mut [u8; PATH_MAX], n: usize) -> Option<usize> {
     while i < MNT_N {
         let e = &MNT[i];
         let tl = e.tlen as usize;
-        if tl <= n && &gp[..tl] == &e.tgt[..tl] && (n == tl || gp[tl] == b'/') && (tl as isize) > best
+        if tl <= n
+            && &gp[..tl] == &e.tgt[..tl]
+            && (n == tl || gp[tl] == b'/')
+            && (tl as isize) > best
         {
             best = tl as isize;
             bi = i;
@@ -2020,7 +2040,10 @@ unsafe fn mnt_is_ro(gp: &[u8]) -> bool {
     while i < MNT_N {
         let e = &MNT[i];
         let tl = e.tlen as usize;
-        if e.ro != 0 && tl <= gp.len() && &gp[..tl] == &e.tgt[..tl] && (gp.len() == tl || gp[tl] == b'/')
+        if e.ro != 0
+            && tl <= gp.len()
+            && &gp[..tl] == &e.tgt[..tl]
+            && (gp.len() == tl || gp[tl] == b'/')
         {
             hit = true;
             break;
@@ -2043,7 +2066,11 @@ unsafe fn mnt_unmap(gp: &mut [u8; PATH_MAX], n: usize) -> Option<usize> {
     while i < MNT_N {
         let e = &MNT[i];
         let sl = e.slen as usize;
-        if sl > 0 && sl <= n && &gp[..sl] == &e.src[..sl] && (n == sl || gp[sl] == b'/') && (sl as isize) > best
+        if sl > 0
+            && sl <= n
+            && &gp[..sl] == &e.src[..sl]
+            && (n == sl || gp[sl] == b'/')
+            && (sl as isize) > best
         {
             best = sl as isize;
             bi = i;
@@ -2482,12 +2509,7 @@ pub unsafe extern "C" fn mq_unlink(name: *const CChar) -> CInt {
     };
     qp[qn] = 0;
     // Drop whatever is queued, then the queue directory itself.
-    let dfd = openat(
-        AT_FDCWD,
-        qp.as_ptr() as *const CChar,
-        O_DIRECTORY,
-        0,
-    );
+    let dfd = openat(AT_FDCWD, qp.as_ptr() as *const CChar, O_DIRECTORY, 0);
     if dfd < 0 {
         return -1;
     }
@@ -2535,7 +2557,12 @@ unsafe fn mq_count(dfd: CInt) -> usize {
     let mut n = 0usize;
     let mut buf = [0u8; 1024];
     let mut pb = [0u8; 32];
-    let scan = openat(AT_FDCWD, fd_proc_path(dfd, &mut pb).as_ptr() as *const CChar, O_DIRECTORY | 0o4000, 0);
+    let scan = openat(
+        AT_FDCWD,
+        fd_proc_path(dfd, &mut pb).as_ptr() as *const CChar,
+        O_DIRECTORY | 0o4000,
+        0,
+    );
     let sfd = if scan >= 0 { scan } else { dfd };
     loop {
         let r = syscall4(61, sfd as usize, buf.as_mut_ptr() as usize, buf.len(), 0) as isize;
@@ -2564,7 +2591,12 @@ unsafe fn mq_count(dfd: CInt) -> usize {
 }
 
 /// Scans the queue directory and remembers the best (priority, name) message.
-unsafe fn mq_pick(dfd: CInt, best: &mut [u8; 64], best_len: &mut usize, best_prio: &mut u32) -> bool {
+unsafe fn mq_pick(
+    dfd: CInt,
+    best: &mut [u8; 64],
+    best_len: &mut usize,
+    best_prio: &mut u32,
+) -> bool {
     let mut found = false;
     let mut buf = [0u8; 1024];
     // getdents64 keeps a file offset on the descriptor; without this the second
@@ -2618,12 +2650,7 @@ unsafe fn mq_is_nonblock(mqdes: CInt) -> bool {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn mq_send(
-    mqdes: CInt,
-    msg: *const CChar,
-    len: usize,
-    prio: u32,
-) -> CInt {
+pub unsafe extern "C" fn mq_send(mqdes: CInt, msg: *const CChar, len: usize, prio: u32) -> CInt {
     mq_send_impl(mqdes, msg, len, prio)
 }
 
@@ -2726,13 +2753,7 @@ unsafe fn mq_receive_impl(
         let mut best_len = 0usize;
         let mut best_prio = 0u32;
         if mq_pick(mqdes, &mut best, &mut best_len, &mut best_prio) {
-            let fd = syscall4(
-                SYS_OPENAT,
-                mqdes as usize,
-                best.as_ptr() as usize,
-                0,
-                0,
-            );
+            let fd = syscall4(SYS_OPENAT, mqdes as usize, best.as_ptr() as usize, 0, 0);
             if fd < 0 {
                 continue;
             }
@@ -2774,7 +2795,14 @@ pub unsafe extern "C" fn mq_getattr(mqdes: CInt, attr: *mut i64) -> CInt {
     let fl = syscall4(25, mqdes as usize, F_GETFL as usize, 0, 0);
     let nonblock = fl >= 0 && (fl as CInt) & MQ_FLAGS_NONBLOCK != 0;
     let a = attr;
-    core::ptr::write_volatile(a, if nonblock { MQ_FLAGS_NONBLOCK as i64 } else { 0 });
+    core::ptr::write_volatile(
+        a,
+        if nonblock {
+            MQ_FLAGS_NONBLOCK as i64
+        } else {
+            0
+        },
+    );
     core::ptr::write_volatile(a.add(1), 0); // mq_maxmsg: unbounded
     core::ptr::write_volatile(a.add(2), 8192); // mq_msgsize ceiling we honour
     core::ptr::write_volatile(a.add(3), mq_count(mqdes) as i64);
@@ -2787,11 +2815,7 @@ pub unsafe extern "C" fn mq_getattr(mqdes: CInt, attr: *mut i64) -> CInt {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn mq_setattr(
-    mqdes: CInt,
-    attr: *const i64,
-    old: *mut i64,
-) -> CInt {
+pub unsafe extern "C" fn mq_setattr(mqdes: CInt, attr: *const i64, old: *mut i64) -> CInt {
     if mqdes < 0 {
         return set_errno(22);
     }
@@ -2832,20 +2856,44 @@ unsafe fn virt_mount_text(info: bool) -> usize {
         vt_put(&mut at, b" ");
         vt_put(&mut at, root);
         vt_put(&mut at, b" rw\n");
-        vt_put(&mut at, b"21 20 0:5 / /proc rw,nosuid,nodev,noexec,relatime - proc proc rw\n");
-        vt_put(&mut at, b"22 20 0:6 / /sys rw,nosuid,nodev,noexec,relatime - sysfs sysfs rw\n");
-        vt_put(&mut at, b"23 20 0:7 / /dev rw,nosuid,relatime - devtmpfs devtmpfs rw\n");
-        vt_put(&mut at, b"24 23 0:8 / /dev/pts rw,nosuid,noexec,relatime - devpts devpts rw\n");
-        vt_put(&mut at, b"25 23 0:9 / /dev/shm rw,nosuid,nodev - tmpfs tmpfs rw\n");
+        vt_put(
+            &mut at,
+            b"21 20 0:5 / /proc rw,nosuid,nodev,noexec,relatime - proc proc rw\n",
+        );
+        vt_put(
+            &mut at,
+            b"22 20 0:6 / /sys rw,nosuid,nodev,noexec,relatime - sysfs sysfs rw\n",
+        );
+        vt_put(
+            &mut at,
+            b"23 20 0:7 / /dev rw,nosuid,relatime - devtmpfs devtmpfs rw\n",
+        );
+        vt_put(
+            &mut at,
+            b"24 23 0:8 / /dev/pts rw,nosuid,noexec,relatime - devpts devpts rw\n",
+        );
+        vt_put(
+            &mut at,
+            b"25 23 0:9 / /dev/shm rw,nosuid,nodev - tmpfs tmpfs rw\n",
+        );
     } else {
         vt_put(&mut at, root);
         vt_put(&mut at, b" / ");
         vt_put(&mut at, fs);
         vt_put(&mut at, b" rw,relatime 0 0\n");
-        vt_put(&mut at, b"proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0\n");
-        vt_put(&mut at, b"sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0\n");
+        vt_put(
+            &mut at,
+            b"proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0\n",
+        );
+        vt_put(
+            &mut at,
+            b"sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0\n",
+        );
         vt_put(&mut at, b"devtmpfs /dev devtmpfs rw,nosuid,relatime 0 0\n");
-        vt_put(&mut at, b"devpts /dev/pts devpts rw,nosuid,noexec,relatime 0 0\n");
+        vt_put(
+            &mut at,
+            b"devpts /dev/pts devpts rw,nosuid,noexec,relatime 0 0\n",
+        );
         vt_put(&mut at, b"tmpfs /dev/shm tmpfs rw,nosuid,nodev 0 0\n");
     }
     mnt_ensure();
@@ -2860,7 +2908,14 @@ unsafe fn virt_mount_text(info: bool) -> usize {
             vt_put(&mut at, b" ");
             vt_put(&mut at, if e.ro != 0 { b"ro" } else { b"rw" });
             vt_put(&mut at, b",relatime - ");
-            vt_put(&mut at, if e.tmpfs != 0 { b"tmpfs tmpfs " } else { b"none none " });
+            vt_put(
+                &mut at,
+                if e.tmpfs != 0 {
+                    b"tmpfs tmpfs "
+                } else {
+                    b"none none "
+                },
+            );
             vt_put(&mut at, if e.ro != 0 { b"ro" } else { b"rw" });
             vt_put(&mut at, b"\n");
         } else {
@@ -2920,7 +2975,14 @@ unsafe fn sysinfo_read() -> Option<Sysinfo> {
 
 unsafe fn now_secs() -> u64 {
     let mut ts = [0u64; 2];
-    if syscall4(SYS_CLOCK_GETTIME, CLOCK_REALTIME, ts.as_mut_ptr() as usize, 0, 0) != 0 {
+    if syscall4(
+        SYS_CLOCK_GETTIME,
+        CLOCK_REALTIME,
+        ts.as_mut_ptr() as usize,
+        0,
+        0,
+    ) != 0
+    {
         return 0;
     }
     ts[0]
@@ -3123,7 +3185,6 @@ unsafe fn synth_net_route(at: &mut usize) -> bool {
     true
 }
 
-
 /// `/proc/<pid>/status` as a guest sees it.
 ///
 /// polkit does not trust the credentials it was handed: `polkit_unix_process`
@@ -3311,7 +3372,11 @@ nodev\tbpf\nnodev\tfusectl\nnodev\tramfs\n\text4\n\tf2fs\n",
         }
         return Some(at);
     }
-    if p == b"/proc/net/tcp" || p == b"/proc/net/udp" || p == b"/proc/net/tcp6" || p == b"/proc/net/udp6" {
+    if p == b"/proc/net/tcp"
+        || p == b"/proc/net/udp"
+        || p == b"/proc/net/tcp6"
+        || p == b"/proc/net/udp6"
+    {
         vt_put(
             &mut at,
             b"  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n",
@@ -3319,7 +3384,10 @@ nodev\tbpf\nnodev\tfusectl\nnodev\tramfs\n\text4\n\tf2fs\n",
         return Some(at);
     }
     if p == b"/proc/net/unix" {
-        vt_put(&mut at, b"Num       RefCount Protocol Flags    Type St Inode Path\n");
+        vt_put(
+            &mut at,
+            b"Num       RefCount Protocol Flags    Type St Inode Path\n",
+        );
         return Some(at);
     }
     if p == b"/proc/sysvipc/shm" || p == b"/proc/sysvipc/sem" || p == b"/proc/sysvipc/msg" {
@@ -3332,7 +3400,6 @@ nodev\tbpf\nnodev\tfusectl\nnodev\tramfs\n\text4\n\tf2fs\n",
     }
     None
 }
-
 
 /// Calls `f(id)` for every `<id>.m` under a SysV store directory.
 unsafe fn ipc_each<F: FnMut(i32)>(dir: &[u8], mut f: F) {
@@ -3484,13 +3551,7 @@ unsafe fn virt_open(p: &[u8], flags: CInt) -> Option<CInt> {
         return Some(set_errno(13));
     }
     static VNAME: [u8; 10] = *b"husk-virt\0";
-    let fd = syscall4(
-        SYS_MEMFD_CREATE,
-        VNAME.as_ptr() as usize,
-        0usize,
-        0,
-        0,
-    );
+    let fd = syscall4(SYS_MEMFD_CREATE, VNAME.as_ptr() as usize, 0usize, 0, 0);
     if fd < 0 {
         return Some(set_errno(5));
     }
@@ -3526,12 +3587,7 @@ unsafe fn virt_open(p: &[u8], flags: CInt) -> Option<CInt> {
 // nobody mistakes it for the real thing.
 static mut LINK_COPY_NOTICED: u32 = 0;
 
-unsafe fn copy_file(
-    ffd: CInt,
-    from: *const CChar,
-    tfd: CInt,
-    to: *const CChar,
-) -> Ssize {
+unsafe fn copy_file(ffd: CInt, from: *const CChar, tfd: CInt, to: *const CChar) -> Ssize {
     const O_WRONLY: CInt = 0o1;
     const O_CREAT: CInt = 0o100;
     const O_EXCL: CInt = 0o200;
@@ -3644,7 +3700,13 @@ unsafe fn proc_fd_read(fd: CInt) -> Ssize {
         n += 1;
     }
     p[n] = 0;
-    syscall4(SYS_OPENAT, AT_FDCWD as usize, p.as_ptr() as usize, O_RDONLY | O_CLOEXEC, 0)
+    syscall4(
+        SYS_OPENAT,
+        AT_FDCWD as usize,
+        p.as_ptr() as usize,
+        O_RDONLY | O_CLOEXEC,
+        0,
+    )
 }
 
 unsafe fn alias_register(dirfd: CInt, dev: u64, ino: u64, dst: *const CChar) {
@@ -3827,7 +3889,11 @@ unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt)
     // keeps owner rw: measured as "unable to open
     // '/etc/sudoers.d/README.dpkg-new': Permission denied" in the 2.0 sudo step
     // (evidence 137).
-    let mode = if flags & O_CREAT != 0 { mode | 0o600 } else { mode };
+    let mode = if flags & O_CREAT != 0 {
+        mode | 0o600
+    } else {
+        mode
+    };
     if path.is_null() {
         return ret_or_errno(syscall4(
             SYS_OPENAT,
@@ -3858,7 +3924,7 @@ unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt)
                     return match rc::resolve_open(rfd, &gp[..n], flags, mode) {
                         Ok(fd) => fd,
                         Err(e) => set_errno(e),
-                    }
+                    };
                 }
                 Ok(None) => {}
                 Err(e) => return set_errno(e),
@@ -4010,7 +4076,6 @@ unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt)
     ))
 }
 
-
 /// Root inside the container may write what the kernel refuses to us.
 ///
 /// The real uid is the app's, never 0, so a file the guest itself just created
@@ -4075,7 +4140,15 @@ pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mo
         if e != 0 {
             let (b, k) = dec_buf(flags as i64);
             let (c, j) = dec_buf(e as i64);
-            dbg_file(&[b"openat denied errno=", &c[j..], b" flags=", &b[k..], b" ", bytes(path), b"\n"]);
+            dbg_file(&[
+                b"openat denied errno=",
+                &c[j..],
+                b" flags=",
+                &b[k..],
+                b" ",
+                bytes(path),
+                b"\n",
+            ]);
         }
     }
     r
@@ -4696,18 +4769,11 @@ unsafe fn utimens_target(
     let mut raw = [0u8; PATH_MAX];
     let mut nb = [0u8; 260];
     let mut gscratch = [0u8; PATH_MAX];
-    let (parent, name, own, _g) = match one_side(
-        rfd,
-        dirfd,
-        path,
-        false,
-        &mut raw,
-        &mut nb,
-        &mut gscratch,
-    ) {
-        Ok(v) => v,
-        Err(e) => return set_errno(e),
-    };
+    let (parent, name, own, _g) =
+        match one_side(rfd, dirfd, path, false, &mut raw, &mut nb, &mut gscratch) {
+            Ok(v) => v,
+            Err(e) => return set_errno(e),
+        };
     let r = syscall4(
         SYS_UTIMENSAT,
         parent as usize,
@@ -4809,21 +4875,19 @@ where
     let mut nbb = [0u8; 260];
     let mut ga = [0u8; PATH_MAX];
     let mut gb = [0u8; PATH_MAX];
-    let (pa, na, own_a, gla) =
-        match one_side(rfd, afd, a, follow_a, &mut rawa, &mut nba, &mut ga) {
-            Ok(v) => v,
-            Err(e) => return set_errno(e),
-        };
-    let (pb, nb, own_b, glb) =
-        match one_side(rfd, bfd, b, follow_b, &mut rawb, &mut nbb, &mut gb) {
-            Ok(v) => v,
-            Err(e) => {
-                if own_a {
-                    rc::close(pa);
-                }
-                return set_errno(e);
+    let (pa, na, own_a, gla) = match one_side(rfd, afd, a, follow_a, &mut rawa, &mut nba, &mut ga) {
+        Ok(v) => v,
+        Err(e) => return set_errno(e),
+    };
+    let (pb, nb, own_b, glb) = match one_side(rfd, bfd, b, follow_b, &mut rawb, &mut nbb, &mut gb) {
+        Ok(v) => v,
+        Err(e) => {
+            if own_a {
+                rc::close(pa);
             }
-        };
+            return set_errno(e);
+        }
+    };
     // rename() touches both sides, link() only creates the new name; either way
     // a read-only emulated mount must refuse before the kernel sees the call.
     if (ro_a && gla > 0 && ro_gp(&ga[..gla])) || (ro_b && glb > 0 && ro_gp(&gb[..glb])) {
@@ -5184,10 +5248,13 @@ unsafe fn own_slot(dev: u64, ino: u64) -> (Option<usize>, bool) {
     while n < OWN_CAP {
         let s = &*OWN_TAB.add(i);
         if s.state == 0 {
-            return (Some(match free {
-                Some(f) => f,
-                None => i,
-            }), false);
+            return (
+                Some(match free {
+                    Some(f) => f,
+                    None => i,
+                }),
+                false,
+            );
         }
         if s.state == 1 {
             if s.dev == dev && s.ino == ino {
@@ -5340,7 +5407,13 @@ unsafe fn own_mkdir_dir() {
         Err(_) => return,
     };
     let nl = name.iter().position(|c| *c == 0).unwrap_or(0);
-    syscall4(SYS_MKDIRAT, parent as usize, name.as_ptr() as usize, 0o755, 0);
+    syscall4(
+        SYS_MKDIRAT,
+        parent as usize,
+        name.as_ptr() as usize,
+        0o755,
+        0,
+    );
     rc::close(parent);
 }
 
@@ -5504,7 +5577,13 @@ unsafe fn own_append(dev: u64, ino: u64, uid: u32, gid: u32) {
         out[at..at + part.len()].copy_from_slice(part);
         at += part.len();
     }
-    let w = syscall4(SYS_WRITE, OWN_APPEND_FD as usize, out.as_ptr() as usize, at, 0);
+    let w = syscall4(
+        SYS_WRITE,
+        OWN_APPEND_FD as usize,
+        out.as_ptr() as usize,
+        at,
+        0,
+    );
     if w != at as isize {
         syscall4(SYS_CLOSE, OWN_APPEND_FD as usize, 0, 0, 0);
         OWN_APPEND_FD = -1;
@@ -5759,7 +5838,13 @@ pub unsafe extern "C" fn seteuid(_uid: u32) -> CInt {
         FAKE_UID = _uid;
         return 0;
     }
-    ret_or_errno(syscall4(SYS_SETRESUID, usize::MAX, _uid as usize, usize::MAX, 0))
+    ret_or_errno(syscall4(
+        SYS_SETRESUID,
+        usize::MAX,
+        _uid as usize,
+        usize::MAX,
+        0,
+    ))
 }
 
 #[no_mangle]
@@ -5781,13 +5866,23 @@ pub unsafe extern "C" fn setegid(_gid: u32) -> CInt {
         FAKE_GID = _gid;
         return 0;
     }
-    ret_or_errno(syscall4(SYS_SETRESGID, usize::MAX, _gid as usize, usize::MAX, 0))
+    ret_or_errno(syscall4(
+        SYS_SETRESGID,
+        usize::MAX,
+        _gid as usize,
+        usize::MAX,
+        0,
+    ))
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn setgroups(_n: usize, _list: *const u32) -> CInt {
     log_id(b"setgroups", _n as i64);
-    if fake_root_on() { 0 } else { ret_or_errno(syscall4(SYS_SETGROUPS, _n, _list as usize, 0, 0)) }
+    if fake_root_on() {
+        0
+    } else {
+        ret_or_errno(syscall4(SYS_SETGROUPS, _n, _list as usize, 0, 0))
+    }
 }
 
 /// glibc's `initgroups()` issues `setgroups` *inside* libc, so the GOT slot we
@@ -5825,7 +5920,13 @@ pub unsafe extern "C" fn setresuid(_r: u32, _e: u32, _s: u32) -> CInt {
         }
         return 0;
     }
-    ret_or_errno(syscall4(SYS_SETRESUID, _r as usize, _e as usize, _s as usize, 0))
+    ret_or_errno(syscall4(
+        SYS_SETRESUID,
+        _r as usize,
+        _e as usize,
+        _s as usize,
+        0,
+    ))
 }
 
 #[no_mangle]
@@ -5879,7 +5980,13 @@ pub unsafe extern "C" fn getresuid(r: *mut u32, e: *mut u32, s: *mut u32) -> CIn
         }
         return 0;
     }
-    ret_or_errno(syscall4(SYS_GETRESUID, r as usize, e as usize, s as usize, 0))
+    ret_or_errno(syscall4(
+        SYS_GETRESUID,
+        r as usize,
+        e as usize,
+        s as usize,
+        0,
+    ))
 }
 
 #[no_mangle]
@@ -5897,7 +6004,13 @@ pub unsafe extern "C" fn getresgid(r: *mut u32, e: *mut u32, s: *mut u32) -> CIn
         }
         return 0;
     }
-    ret_or_errno(syscall4(SYS_GETRESGID, r as usize, e as usize, s as usize, 0))
+    ret_or_errno(syscall4(
+        SYS_GETRESGID,
+        r as usize,
+        e as usize,
+        s as usize,
+        0,
+    ))
 }
 
 #[no_mangle]
@@ -5917,7 +6030,13 @@ pub unsafe extern "C" fn setresgid(_r: u32, _e: u32, _s: u32) -> CInt {
         }
         return 0;
     }
-    ret_or_errno(syscall4(SYS_SETRESGID, _r as usize, _e as usize, _s as usize, 0))
+    ret_or_errno(syscall4(
+        SYS_SETRESGID,
+        _r as usize,
+        _e as usize,
+        _s as usize,
+        0,
+    ))
 }
 
 // mknod(2) had no translation at all, so `mkfifo /tmp/x` asked the kernel for
@@ -5989,15 +6108,25 @@ pub unsafe extern "C" fn renameat(
     bfd: CInt,
     to: *const CChar,
 ) -> CInt {
-    pathop2(afd, from, bfd, to, false, false, true, true, |fa, pa, fb, pb| {
-        syscall4(
-            SYS_RENAMEAT,
-            fa as usize,
-            pa as usize,
-            fb as usize,
-            pb as usize,
-        )
-    })
+    pathop2(
+        afd,
+        from,
+        bfd,
+        to,
+        false,
+        false,
+        true,
+        true,
+        |fa, pa, fb, pb| {
+            syscall4(
+                SYS_RENAMEAT,
+                fa as usize,
+                pa as usize,
+                fb as usize,
+                pb as usize,
+            )
+        },
+    )
 }
 
 #[no_mangle]
@@ -6008,28 +6137,38 @@ pub unsafe extern "C" fn renameat2(
     to: *const CChar,
     flags: CInt,
 ) -> CInt {
-    pathop2(afd, from, bfd, to, false, false, true, true, |fa, pa, fb, pb| {
-        let r = syscall5(
-            SYS_RENAMEAT2,
-            fa as usize,
-            pa as usize,
-            fb as usize,
-            pb as usize,
-            flags as usize,
-        );
-        // renameat() cannot preserve RENAME_NOREPLACE / RENAME_EXCHANGE /
-        // RENAME_WHITEOUT. Only use the legacy fallback for flags == 0.
-        if r == -38 && flags == 0 {
-            return syscall4(
-                SYS_RENAMEAT,
+    pathop2(
+        afd,
+        from,
+        bfd,
+        to,
+        false,
+        false,
+        true,
+        true,
+        |fa, pa, fb, pb| {
+            let r = syscall5(
+                SYS_RENAMEAT2,
                 fa as usize,
                 pa as usize,
                 fb as usize,
                 pb as usize,
+                flags as usize,
             );
-        }
-        r
-    })
+            // renameat() cannot preserve RENAME_NOREPLACE / RENAME_EXCHANGE /
+            // RENAME_WHITEOUT. Only use the legacy fallback for flags == 0.
+            if r == -38 && flags == 0 {
+                return syscall4(
+                    SYS_RENAMEAT,
+                    fa as usize,
+                    pa as usize,
+                    fb as usize,
+                    pb as usize,
+                );
+            }
+            r
+        },
+    )
 }
 
 #[no_mangle]
@@ -6078,7 +6217,14 @@ pub unsafe extern "C" fn link(old: *const CChar, new: *const CChar) -> CInt {
             // "error creating new backup file '/var/lib/dpkg/status-old'".
             // The copy fallback is shared with linkat(3), because this SELinux
             // policy refuses the real call inside app data.
-            let r = syscall5(SYS_LINKAT, fa as usize, pa as usize, fb as usize, pb as usize, 0);
+            let r = syscall5(
+                SYS_LINKAT,
+                fa as usize,
+                pa as usize,
+                fb as usize,
+                pb as usize,
+                0,
+            );
             if r >= 0 {
                 return r;
             }
@@ -6100,7 +6246,14 @@ pub unsafe extern "C" fn linkat(
 ) -> CInt {
     let follow_old = flags & AT_SYMLINK_FOLLOW != 0;
     let make_link = |fa: CInt, pa: *const CChar, fb: CInt, pb: *const CChar, fl: usize| {
-        let r = syscall5(SYS_LINKAT, fa as usize, pa as usize, fb as usize, pb as usize, fl);
+        let r = syscall5(
+            SYS_LINKAT,
+            fa as usize,
+            pa as usize,
+            fb as usize,
+            pb as usize,
+            fl,
+        );
         if r >= 0 {
             return r;
         }
@@ -6136,9 +6289,17 @@ pub unsafe extern "C" fn linkat(
         rc::close(fd);
         return r;
     }
-    pathop2(ofd, old, nfd, new, false, false, false, true, |fa, pa, fb, pb| {
-        make_link(fa, pa, fb, pb, 0)
-    })
+    pathop2(
+        ofd,
+        old,
+        nfd,
+        new,
+        false,
+        false,
+        false,
+        true,
+        |fa, pa, fb, pb| make_link(fa, pa, fb, pb, 0),
+    )
 }
 
 unsafe fn syscall5(n: usize, a: usize, b: usize, c: usize, d: usize, e: usize) -> Ssize {
@@ -7183,7 +7344,11 @@ pub unsafe extern "C" fn execve(
             dbg_file(&[b"  ! resolve failed for ", &gp[..n], b"\n"]);
             return set_errno(2);
         }
-        dbg_file(&[b"  real=", &real[..real.iter().position(|c| *c == 0).unwrap_or(0)], b"\n"]);
+        dbg_file(&[
+            b"  real=",
+            &real[..real.iter().position(|c| *c == 0).unwrap_or(0)],
+            b"\n",
+        ]);
         rc::close(parent);
     }
 
@@ -7527,13 +7692,7 @@ unsafe fn exec_declared_dirs(
     const SYS_READ2: usize = 63;
     const SYS_OPENAT2: usize = 56;
     const SYS_CLOSE2: usize = 57;
-    let fd = syscall4(
-        SYS_OPENAT2,
-        AT_FDCWD as usize,
-        path as usize,
-        0,
-        0,
-    );
+    let fd = syscall4(SYS_OPENAT2, AT_FDCWD as usize, path as usize, 0, 0);
     if fd < 0 {
         return n;
     }
@@ -7938,13 +8097,7 @@ pub unsafe extern "C" fn system(cmd: *const CChar) -> CInt {
     }
     let mut st: CInt = 0;
     loop {
-        let r = syscall4(
-            SYS_WAIT4,
-            pid as usize,
-            &mut st as *mut CInt as usize,
-            0,
-            0,
-        );
+        let r = syscall4(SYS_WAIT4, pid as usize, &mut st as *mut CInt as usize, 0, 0);
         if r == pid as Ssize {
             break;
         }
@@ -7959,7 +8112,6 @@ pub unsafe extern "C" fn system(cmd: *const CChar) -> CInt {
     // status shape system(3) documents rather than flattening it to 0..255.
     st
 }
-
 
 // ------------------------------------------------------------- Unix sockets
 //
@@ -8269,7 +8421,13 @@ pub unsafe extern "C" fn fchown(fd: CInt, uid: u32, gid: u32) -> CInt {
 pub unsafe extern "C" fn fchmod(fd: CInt, mode: u32) -> CInt {
     let mut p = [0u8; 32];
     fd_host_path(fd, &mut p);
-    ret_or_errno(syscall4(SYS_FCHMODAT, AT_FDCWD as usize, p.as_ptr() as usize, mode as usize, 0))
+    ret_or_errno(syscall4(
+        SYS_FCHMODAT,
+        AT_FDCWD as usize,
+        p.as_ptr() as usize,
+        mode as usize,
+        0,
+    ))
 }
 
 #[no_mangle]
@@ -8286,7 +8444,13 @@ pub unsafe extern "C" fn futimens(fd: CInt, times: *const u64) -> CInt {
     let rr = ret_or_errno(r);
     if dbg_on() {
         let (b, k) = dec_buf(rr as i64);
-        dbg_file(&[b"futimens fd=", bytes(p.as_ptr() as *const CChar), b" -> ", &b[k..], b"\n"]);
+        dbg_file(&[
+            b"futimens fd=",
+            bytes(p.as_ptr() as *const CChar),
+            b" -> ",
+            &b[k..],
+            b"\n",
+        ]);
     }
     rr
 }
@@ -8654,7 +8818,13 @@ unsafe fn pid_of_pidfd(fd: CInt) -> Option<CInt> {
         return None;
     }
     let mut buf = [0u8; 256];
-    let r = syscall4(SYS_PREAD64, f as usize, buf.as_mut_ptr() as usize, buf.len(), 0);
+    let r = syscall4(
+        SYS_PREAD64,
+        f as usize,
+        buf.as_mut_ptr() as usize,
+        buf.len(),
+        0,
+    );
     syscall4(SYS_CLOSE, f as usize, 0, 0, 0);
     if r <= 0 {
         return None;
@@ -9521,7 +9691,13 @@ unsafe fn process_has_gid(g: u32) -> bool {
     if LEN == usize::MAX {
         let n = syscall4(SYS_GETGROUPS, 0, 0, 0, 0) as isize;
         let n = if n <= 0 { 0 } else { (n as usize).min(128) };
-        let r = syscall4(SYS_GETGROUPS, n, core::ptr::addr_of_mut!(LIST) as usize, 0, 0) as isize;
+        let r = syscall4(
+            SYS_GETGROUPS,
+            n,
+            core::ptr::addr_of_mut!(LIST) as usize,
+            0,
+            0,
+        ) as isize;
         LEN = if r <= 0 { 0 } else { r as usize };
     }
     let list = core::slice::from_raw_parts(core::ptr::addr_of!(LIST) as *const u32, LEN);
@@ -10112,7 +10288,7 @@ unsafe fn v4l2_stat(n: u32, st: *mut u8) -> CInt {
     core::ptr::write_unaligned(st.add(8) as *mut u64, n as u64 + 1); // ino
     core::ptr::write_unaligned(st.add(16) as *mut u32, 0o020666u32); // S_IFCHR|0666
     core::ptr::write_unaligned(st.add(20) as *mut u32, 1u32); // nlink
-    // rdev: major 81 (0x51) minor N, makedev(81,N) = (81<<8)|N on this kernel
+                                                              // rdev: major 81 (0x51) minor N, makedev(81,N) = (81<<8)|N on this kernel
     core::ptr::write_unaligned(st.add(32) as *mut u64, ((81u64) << 8) | n as u64);
     core::ptr::write_unaligned(st.add(48) as *mut i64, 0i64); // size
     core::ptr::write_unaligned(st.add(56) as *mut i64, 4096i64); // blksize
@@ -10321,7 +10497,16 @@ struct ShmMeta {
 
 impl ShmMeta {
     const fn empty() -> Self {
-        ShmMeta { key: 0, size: 0, mode: 0o660, cuid: 0, cgid: 0, cpid: 0, ctime: 0, rmid: 0 }
+        ShmMeta {
+            key: 0,
+            size: 0,
+            mode: 0o660,
+            cuid: 0,
+            cgid: 0,
+            cpid: 0,
+            ctime: 0,
+            rmid: 0,
+        }
     }
 }
 
@@ -10406,7 +10591,12 @@ unsafe fn ipc_mkdirs() {
 
 /// Takes the metadata lock. Returns the descriptor, or -1 with errno set.
 unsafe fn ipc_lockf() -> CInt {
-    let fd = openat(AT_FDCWD, IPC_LOCK.as_ptr() as *const CChar, 0o2 | 0o100, 0o600);
+    let fd = openat(
+        AT_FDCWD,
+        IPC_LOCK.as_ptr() as *const CChar,
+        0o2 | 0o100,
+        0o600,
+    );
     if fd < 0 {
         return -1;
     }
@@ -10440,7 +10630,13 @@ unsafe fn ipc_read_file(path: &[u8], buf: &mut [u8]) -> isize {
     if fd < 0 {
         return -1;
     }
-    let r = syscall4(SYS_READ, fd as usize, buf.as_mut_ptr() as usize, buf.len(), 0) as isize;
+    let r = syscall4(
+        SYS_READ,
+        fd as usize,
+        buf.as_mut_ptr() as usize,
+        buf.len(),
+        0,
+    ) as isize;
     rc::close(fd);
     r
 }
@@ -10722,13 +10918,13 @@ unsafe fn shmget_locked(key: i32, size: usize, shmflg: CInt) -> CInt {
                 // the create path below do its job.
                 keys_remove_id(id);
             } else {
-            if create && excl {
-                return set_errno(17); // EEXIST
-            }
-            if size != 0 && size as u64 > m.size {
-                return set_errno(22); // EINVAL
-            }
-            return id;
+                if create && excl {
+                    return set_errno(17); // EEXIST
+                }
+                if size != 0 && size as u64 > m.size {
+                    return set_errno(22); // EINVAL
+                }
+                return id;
             }
         }
         if !create {
@@ -10988,7 +11184,13 @@ unsafe fn sem_get(id: i32, idx: usize) -> i32 {
         return -1;
     }
     let mut v = 0i32;
-    let r = syscall4(SYS_PREAD, fd as usize, &mut v as *mut i32 as usize, 4, idx * 4);
+    let r = syscall4(
+        SYS_PREAD,
+        fd as usize,
+        &mut v as *mut i32 as usize,
+        4,
+        idx * 4,
+    );
     rc::close(fd);
     if r != 4 {
         return -1;
@@ -11003,7 +11205,13 @@ unsafe fn sem_set(id: i32, idx: usize, v: i32) -> bool {
     if fd < 0 {
         return false;
     }
-    let r = syscall4(SYS_PWRITE, fd as usize, &v as *const i32 as usize, 4, idx * 4);
+    let r = syscall4(
+        SYS_PWRITE,
+        fd as usize,
+        &v as *const i32 as usize,
+        4,
+        idx * 4,
+    );
     rc::close(fd);
     r == 4
 }
@@ -11081,7 +11289,13 @@ unsafe fn semget_locked(key: i32, nsems: CInt, semflg: CInt) -> CInt {
         return -1;
     }
     let zeros = [0i32; SEM_MAX];
-    syscall4(SYS_PWRITE, fd as usize, zeros.as_ptr() as usize, nsems as usize * 4, 0);
+    syscall4(
+        SYS_PWRITE,
+        fd as usize,
+        zeros.as_ptr() as usize,
+        nsems as usize * 4,
+        0,
+    );
     let _ = syscall4(46, fd as usize, nsems as usize * 4, 0, 0);
     rc::close(fd);
     let m = [key as i64, nsems as i64, (semflg as u32 & 0o777) as i64, 0];
@@ -11456,7 +11670,11 @@ unsafe fn msg_pick(
     let mut best_len = 0usize;
     let mut any = false;
     let use_lowest = msgtyp < 0;
-    let limit_type = if msgtyp < 0 { (-msgtyp) as u64 } else { msgtyp as u64 };
+    let limit_type = if msgtyp < 0 {
+        (-msgtyp) as u64
+    } else {
+        msgtyp as u64
+    };
     loop {
         let r = syscall4(61, dfd as usize, buf.as_mut_ptr() as usize, buf.len(), 0) as isize;
         if r <= 0 {
@@ -11485,7 +11703,11 @@ unsafe fn msg_pick(
                     let take = if msgtyp == 0 {
                         true
                     } else if msgtyp > 0 {
-                        if except { t != limit_type } else { t == limit_type }
+                        if except {
+                            t != limit_type
+                        } else {
+                            t == limit_type
+                        }
                     } else {
                         t <= limit_type
                     };
@@ -11647,11 +11869,16 @@ pub unsafe extern "C" fn msgrcv(
                 syscall4(SYS_CLOSE, ffd as usize, 0, 0, 0);
                 return set_errno(7) as isize; // E2BIG
             }
-            let want = if size < 0 { 0 } else { (size as usize).min(msgsz) };
+            let want = if size < 0 {
+                0
+            } else {
+                (size as usize).min(msgsz)
+            };
             let mut total = 0usize;
             syscall4(SYS_LSEEK, ffd as usize, 0, 0, 0);
             while total < want {
-                let r = syscall4(SYS_READ, ffd as usize, msgp + 8 + total, want - total, 0) as isize;
+                let r =
+                    syscall4(SYS_READ, ffd as usize, msgp + 8 + total, want - total, 0) as isize;
                 if r <= 0 {
                     break;
                 }
@@ -11707,7 +11934,8 @@ unsafe fn msgctl_locked(msqid: CInt, cmd: CInt, buf: usize) -> CInt {
             if dfd >= 0 {
                 let mut b = [0u8; 1024];
                 loop {
-                    let r = syscall4(61, dfd as usize, b.as_mut_ptr() as usize, b.len(), 0) as isize;
+                    let r =
+                        syscall4(61, dfd as usize, b.as_mut_ptr() as usize, b.len(), 0) as isize;
                     if r <= 0 {
                         break;
                     }
@@ -11956,7 +12184,7 @@ pub unsafe extern "C" fn socket(domain: CInt, typ: CInt, proto: CInt) -> CInt {
         }
         let mut fds = [0 as CInt; 2];
         let kind = SOCK_DGRAM_KIND | (typ as usize & 0o2000000); // keep SOCK_CLOEXEC
-        // socketpair(domain, type, protocol, sv): the array goes in x3.
+                                                                 // socketpair(domain, type, protocol, sv): the array goes in x3.
         let r = syscall4(
             SYS_SOCKETPAIR_NR,
             AF_UNIX_DOM,
@@ -12148,7 +12376,13 @@ pub unsafe extern "C" fn sendmsg(fd: CInt, msg: *mut u8, flags: CInt) -> Ssize {
         }
         return nl_handle(fd, tmp.as_ptr(), at);
     }
-    ret_or_errno(syscall4(SYS_SENDMSG_NR, fd as usize, msg as usize, flags as usize, 0)) as Ssize
+    ret_or_errno(syscall4(
+        SYS_SENDMSG_NR,
+        fd as usize,
+        msg as usize,
+        flags as usize,
+        0,
+    )) as Ssize
 }
 
 /// iproute2 refuses a datagram whose sender address is missing ("Sender
@@ -12201,7 +12435,11 @@ unsafe fn nl_empty_done(fd: CInt, msg: *mut u8) -> Ssize {
             } else {
                 NLMSG_DONE
             };
-            (NL_SLOTS[i].seq, t, if t == NLMSG_DONE { NLM_F_MULTI } else { 0 })
+            (
+                NL_SLOTS[i].seq,
+                t,
+                if t == NLMSG_DONE { NLM_F_MULTI } else { 0 },
+            )
         }
         None => (0, NLMSG_DONE, NLM_F_MULTI),
     };
@@ -12216,7 +12454,6 @@ unsafe fn nl_empty_done(fd: CInt, msg: *mut u8) -> Ssize {
     core::ptr::write_unaligned(base.add(16) as *mut u32, 0u32); // error 0
     20
 }
-
 
 // --------------------------------------------------------- peer identity ---
 //
@@ -12313,7 +12550,6 @@ unsafe fn env_uint_of_pid(pid: CInt, key: &[u8]) -> Option<u32> {
     }
     None
 }
-
 
 /// One pass over `/proc/<pid>/environ`: is this one of ours, and what does it
 /// report for uid/gid? (Presence of `NR_ROOTFS` is the only marker every guest
@@ -12458,13 +12694,37 @@ unsafe fn ident_note(tag: u8, pid: CInt, a: i64, b: i64) {
     let (sb, sk) = dec_buf(me);
     let _ = syscall4(SYS_WRITE, fd as usize, &tag as *const u8 as usize, 1, 0);
     let _ = syscall4(SYS_WRITE, fd as usize, b" self=".as_ptr() as usize, 6, 0);
-    let _ = syscall4(SYS_WRITE, fd as usize, sb.as_ptr().add(sk) as usize, sb.len() - sk, 0);
+    let _ = syscall4(
+        SYS_WRITE,
+        fd as usize,
+        sb.as_ptr().add(sk) as usize,
+        sb.len() - sk,
+        0,
+    );
     let _ = syscall4(SYS_WRITE, fd as usize, b" peer=".as_ptr() as usize, 6, 0);
-    let _ = syscall4(SYS_WRITE, fd as usize, pb.as_ptr().add(pk) as usize, pb.len() - pk, 0);
+    let _ = syscall4(
+        SYS_WRITE,
+        fd as usize,
+        pb.as_ptr().add(pk) as usize,
+        pb.len() - pk,
+        0,
+    );
     let _ = syscall4(SYS_WRITE, fd as usize, b" a=".as_ptr() as usize, 3, 0);
-    let _ = syscall4(SYS_WRITE, fd as usize, ab.as_ptr().add(ak) as usize, ab.len() - ak, 0);
+    let _ = syscall4(
+        SYS_WRITE,
+        fd as usize,
+        ab.as_ptr().add(ak) as usize,
+        ab.len() - ak,
+        0,
+    );
     let _ = syscall4(SYS_WRITE, fd as usize, b" b=".as_ptr() as usize, 3, 0);
-    let _ = syscall4(SYS_WRITE, fd as usize, bb.as_ptr().add(bk) as usize, bb.len() - bk, 0);
+    let _ = syscall4(
+        SYS_WRITE,
+        fd as usize,
+        bb.as_ptr().add(bk) as usize,
+        bb.len() - bk,
+        0,
+    );
     let _ = syscall4(SYS_WRITE, fd as usize, b"\n".as_ptr() as usize, 1, 0);
     rc::close(fd as CInt);
 }
@@ -12528,7 +12788,13 @@ unsafe fn ident_publish(uid: u32, gid: u32) {
     if ident_path(1, &mut dir, true).is_none() {
         return;
     }
-    syscall4(SYS_MKDIRAT, AT_FDCWD as usize, dir.as_ptr() as usize, 0o755, 0);
+    syscall4(
+        SYS_MKDIRAT,
+        AT_FDCWD as usize,
+        dir.as_ptr() as usize,
+        0o755,
+        0,
+    );
     let me = syscall4(SYS_GETPID, 0, 0, 0, 0) as CInt;
     let mut p = [0u8; 512];
     if ident_path(me, &mut p, false).is_none() {
@@ -12546,9 +12812,21 @@ unsafe fn ident_publish(uid: u32, gid: u32) {
     }
     let (ub, uk) = dec_buf(uid as i64);
     let (gb, gk) = dec_buf(gid as i64);
-    let _ = syscall4(SYS_WRITE, fd as usize, ub.as_ptr().add(uk) as usize, ub.len() - uk, 0);
+    let _ = syscall4(
+        SYS_WRITE,
+        fd as usize,
+        ub.as_ptr().add(uk) as usize,
+        ub.len() - uk,
+        0,
+    );
     let _ = syscall4(SYS_WRITE, fd as usize, b" ".as_ptr() as usize, 1, 0);
-    let _ = syscall4(SYS_WRITE, fd as usize, gb.as_ptr().add(gk) as usize, gb.len() - gk, 0);
+    let _ = syscall4(
+        SYS_WRITE,
+        fd as usize,
+        gb.as_ptr().add(gk) as usize,
+        gb.len() - gk,
+        0,
+    );
     let _ = syscall4(SYS_WRITE, fd as usize, b"\n".as_ptr() as usize, 1, 0);
     rc::close(fd as CInt);
 }
@@ -12785,7 +13063,13 @@ pub unsafe extern "C" fn if_nametoindex(name: *const u8) -> u32 {
         req[i] = c;
         i += 1;
     }
-    let r = syscall4(SYS_IOCTL_NR, sock as usize, SIOCGIFINDEX_REQ, req.as_mut_ptr() as usize, 0);
+    let r = syscall4(
+        SYS_IOCTL_NR,
+        sock as usize,
+        SIOCGIFINDEX_REQ,
+        req.as_mut_ptr() as usize,
+        0,
+    );
     syscall4(SYS_CLOSE, sock as usize, 0, 0, 0);
     if r < 0 {
         *__errno_location() = 19; // ENODEV
@@ -12805,7 +13089,13 @@ pub unsafe extern "C" fn if_indextoname(index: u32, buf: *mut u8) -> *mut u8 {
     }
     let mut req = [0u8; 40];
     req[16..20].copy_from_slice(&index.to_ne_bytes());
-    let r = syscall4(SYS_IOCTL_NR, sock as usize, SIOCGIFNAME_REQ, req.as_mut_ptr() as usize, 0);
+    let r = syscall4(
+        SYS_IOCTL_NR,
+        sock as usize,
+        SIOCGIFNAME_REQ,
+        req.as_mut_ptr() as usize,
+        0,
+    );
     syscall4(SYS_CLOSE, sock as usize, 0, 0, 0);
     if r < 0 {
         *__errno_location() = 19; // ENODEV
@@ -13053,14 +13343,27 @@ unsafe fn nl_put_link(buf: &mut [u8], at: &mut usize, e: &IfEnt, seq: u32) {
     let mtu = (e.mtu.max(0) as u32).to_ne_bytes();
     nl_attr(buf, at, IFLA_MTU, &mtu);
     nl_attr(buf, at, IFLA_TXQLEN, &1000u32.to_ne_bytes());
-    nl_attr(buf, at, IFLA_OPERSTATE, &[if e.flags & 1 != 0 { 6 } else { 0 }]);
+    nl_attr(
+        buf,
+        at,
+        IFLA_OPERSTATE,
+        &[if e.flags & 1 != 0 { 6 } else { 0 }],
+    );
     nl_close_msg(buf, hdr, *at);
 }
 
 unsafe fn nl_put_addr(buf: &mut [u8], at: &mut usize, e: &IfEnt, seq: u32) {
     let hdr = nl_begin(buf, at, RTM_NEWADDR, NLM_F_MULTI, seq);
-    let prefix = if e.mask == 0 { 0 } else { (!e.mask).leading_zeros() as u8 };
-    let scope = if e.ip & 0xff == 127 { RT_SCOPE_HOST } else { RT_SCOPE_LINK };
+    let prefix = if e.mask == 0 {
+        0
+    } else {
+        (!e.mask).leading_zeros() as u8
+    };
+    let scope = if e.ip & 0xff == 127 {
+        RT_SCOPE_HOST
+    } else {
+        RT_SCOPE_LINK
+    };
     nl_push(buf, at, &[2u8, prefix, 0, scope]); // AF_INET
     nl_push_u32(buf, at, e.index as u32);
     nl_attr(buf, at, IFA_ADDRESS, &e.ip.to_be_bytes());
@@ -13160,7 +13463,11 @@ unsafe fn nl_handle(fd: CInt, req: *const u8, len: usize) -> Ssize {
                     req.add(off + 22).read(),
                     req.add(off + 23).read(),
                 ]);
-                let want = if dump || mlen < 24 || named <= 0 { -1 } else { named };
+                let want = if dump || mlen < 24 || named <= 0 {
+                    -1
+                } else {
+                    named
+                };
                 // `ip link show lo` names the interface in IFLA_IFNAME instead
                 // of using its index, so the name has to be read out as well.
                 let mut want_name = [0u8; 16];
@@ -13168,10 +13475,8 @@ unsafe fn nl_handle(fd: CInt, req: *const u8, len: usize) -> Ssize {
                 if !dump {
                     let mut a = off + 32; // nlmsghdr + ifinfomsg
                     while a + 4 <= off + mlen {
-                        let alen =
-                            core::ptr::read_unaligned(req.add(a) as *const u16) as usize;
-                        let atyp =
-                            core::ptr::read_unaligned(req.add(a + 2) as *const u16);
+                        let alen = core::ptr::read_unaligned(req.add(a) as *const u16) as usize;
+                        let atyp = core::ptr::read_unaligned(req.add(a + 2) as *const u16);
                         if alen < 4 || a + alen > off + mlen {
                             break;
                         }
@@ -13229,7 +13534,11 @@ unsafe fn nl_handle(fd: CInt, req: *const u8, len: usize) -> Ssize {
                         (!ifs[i].mask).leading_zeros() as u8
                     };
                     let net = ifs[i].ip & ifs[i].mask;
-                    let scope = if ifs[i].ip & 0xff == 127 { RT_SCOPE_HOST } else { RT_SCOPE_LINK };
+                    let scope = if ifs[i].ip & 0xff == 127 {
+                        RT_SCOPE_HOST
+                    } else {
+                        RT_SCOPE_LINK
+                    };
                     nl_put_route(
                         &mut out,
                         &mut at,
@@ -13248,9 +13557,7 @@ unsafe fn nl_handle(fd: CInt, req: *const u8, len: usize) -> Ssize {
                 // not synthesise. Neither may be answered with a bare "ok":
                 // silent success is how `ip addr add` looked like it worked
                 // while nothing changed.
-                let err = if NL_SLOTS[idx].proto == NL_ROUTE_PROTO
-                    && nl_route_is_modify(mtype)
-                {
+                let err = if NL_SLOTS[idx].proto == NL_ROUTE_PROTO && nl_route_is_modify(mtype) {
                     -1 // EPERM - we cannot touch the host's networking
                 } else {
                     -95 // EOPNOTSUPP - a read surface we do not provide

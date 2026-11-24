@@ -30,7 +30,10 @@ fn main() {
     while i < args.len() {
         match args[i].as_str() {
             "--count" => {
-                count = args.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(count);
+                count = args
+                    .get(i + 1)
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(count);
                 i += 2;
             }
             "--raw" => {
@@ -97,7 +100,12 @@ fn main() {
             let _ = sink.write_all(&rec);
         }
         if raw || ty != EV_SYN {
-            println!("input|ev|{}|{}|{}", type_name(ty), code_name(ty, code), value);
+            println!(
+                "input|ev|{}|{}|{}",
+                type_name(ty),
+                code_name(ty, code),
+                value
+            );
         }
         if ty != EV_SYN {
             seen += 1;

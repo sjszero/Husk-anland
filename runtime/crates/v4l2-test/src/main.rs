@@ -60,7 +60,10 @@ unsafe fn run(dev: &str, frames: usize, fourcc: u32, out: &str) {
     // 1. stat
     let mut st = std::mem::MaybeUninit::<libc::stat>::zeroed().assume_init();
     if libc::stat(cpath.as_ptr(), &mut st) != 0 {
-        eprintln!("v4l2test|FAIL|stat {dev}: {}", std::io::Error::last_os_error());
+        eprintln!(
+            "v4l2test|FAIL|stat {dev}: {}",
+            std::io::Error::last_os_error()
+        );
         std::process::exit(1);
     }
     let mode = st.st_mode & libc::S_IFMT;
@@ -83,7 +86,10 @@ unsafe fn run(dev: &str, frames: usize, fourcc: u32, out: &str) {
     // 3. QUERYCAP
     let mut cap = [0u8; 104];
     if libc::ioctl(fd, QUERYCAP as _, cap.as_mut_ptr()) != 0 {
-        eprintln!("v4l2test|FAIL|QUERYCAP: {}", std::io::Error::last_os_error());
+        eprintln!(
+            "v4l2test|FAIL|QUERYCAP: {}",
+            std::io::Error::last_os_error()
+        );
         std::process::exit(1);
     }
     println!(
@@ -120,7 +126,11 @@ unsafe fn run(dev: &str, frames: usize, fourcc: u32, out: &str) {
         }
         sizes.push((u32_at(&d, 12), u32_at(&d, 16)));
     }
-    println!("v4l2test|sizes|n={}|{:?}", sizes.len(), &sizes[..sizes.len().min(4)]);
+    println!(
+        "v4l2test|sizes|n={}|{:?}",
+        sizes.len(),
+        &sizes[..sizes.len().min(4)]
+    );
     if sizes.is_empty() {
         eprintln!("v4l2test|FAIL|no frame sizes");
         std::process::exit(1);
@@ -138,7 +148,10 @@ unsafe fn run(dev: &str, frames: usize, fourcc: u32, out: &str) {
     }
     let (w, h) = (u32_at(&fmt, 8), u32_at(&fmt, 12));
     let sizeimage = u32_at(&fmt, 28);
-    println!("v4l2test|setfmt|{w}x{h}|{:08x}|sizeimage={sizeimage}", u32_at(&fmt, 16));
+    println!(
+        "v4l2test|setfmt|{w}x{h}|{:08x}|sizeimage={sizeimage}",
+        u32_at(&fmt, 16)
+    );
     let mut got = [0u8; 208];
     put_u32(&mut got, 0, BUF_TYPE_VIDEO_CAPTURE);
     if libc::ioctl(fd, G_FMT as _, got.as_mut_ptr()) == 0 {
@@ -186,7 +199,10 @@ unsafe fn run(dev: &str, frames: usize, fourcc: u32, out: &str) {
             off as libc::off_t,
         );
         if p == libc::MAP_FAILED {
-            eprintln!("v4l2test|FAIL|mmap {i}: {}", std::io::Error::last_os_error());
+            eprintln!(
+                "v4l2test|FAIL|mmap {i}: {}",
+                std::io::Error::last_os_error()
+            );
             std::process::exit(1);
         }
         println!("v4l2test|buf|{i}|len={len}|off={off}");
@@ -208,7 +224,10 @@ unsafe fn run(dev: &str, frames: usize, fourcc: u32, out: &str) {
     // 10. STREAMON
     let mut type_ = BUF_TYPE_VIDEO_CAPTURE;
     if libc::ioctl(fd, STREAMON as _, &mut type_) != 0 {
-        eprintln!("v4l2test|FAIL|STREAMON: {}", std::io::Error::last_os_error());
+        eprintln!(
+            "v4l2test|FAIL|STREAMON: {}",
+            std::io::Error::last_os_error()
+        );
         std::process::exit(1);
     }
     println!("v4l2test|streamon");

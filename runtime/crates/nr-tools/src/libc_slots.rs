@@ -49,10 +49,10 @@ const ALIGN: u64 = 0x4000; // the module has to be loadable on a 16 KiB page
 /// of every page size in use, and the same value Ubuntu's own libc uses.
 const SEG_ALIGN: u64 = 0x10000;
 const PATCH_LEN: usize = 6; // instructions overwritten at the entry
-// One slot per entry, plus one for the branch back, plus two per window
-// instruction: a `b.cond`/`cbz`/`tbz` whose target falls out of the ±1 MiB
-// reach after the move is re-expressed as an inverted short branch over a
-// full-width `b`, which is a two-instruction form.
+                            // One slot per entry, plus one for the branch back, plus two per window
+                            // instruction: a `b.cond`/`cbz`/`tbz` whose target falls out of the ±1 MiB
+                            // reach after the move is re-expressed as an inverted short branch over a
+                            // full-width `b`, which is a two-instruction form.
 const STUB_LEN: usize = PATCH_LEN * 3 + 1;
 const SHT_GNU_VERSYM: u32 = 0x6FFF_FFFF;
 
@@ -246,9 +246,13 @@ fn branch_targets(e: &Elf) -> Vec<u64> {
             if (w & 0x7C00_0000) == 0x1400_0000 {
                 out.push(pc.wrapping_add((sign_extend((w & 0x03ff_ffff) as u64, 26) * 4) as u64));
             } else if (w & 0xFF00_0000) == 0x5400_0000 {
-                out.push(pc.wrapping_add((sign_extend(((w >> 5) & 0x7ffff) as u64, 19) * 4) as u64));
+                out.push(
+                    pc.wrapping_add((sign_extend(((w >> 5) & 0x7ffff) as u64, 19) * 4) as u64),
+                );
             } else if (w & 0x7E00_0000) == 0x3400_0000 {
-                out.push(pc.wrapping_add((sign_extend(((w >> 5) & 0x7ffff) as u64, 19) * 4) as u64));
+                out.push(
+                    pc.wrapping_add((sign_extend(((w >> 5) & 0x7ffff) as u64, 19) * 4) as u64),
+                );
             } else if (w & 0x7E00_0000) == 0x3600_0000 {
                 out.push(pc.wrapping_add((sign_extend(((w >> 5) & 0x3fff) as u64, 14) * 4) as u64));
             } else if (w & 0x1F00_0000) == 0x1000_0000 {
@@ -377,7 +381,10 @@ pub fn main(args: &[String]) {
         .filter(|(_, p)| p.typ == PT_NOTE)
         .collect();
     if notes.len() != 1 {
-        die(format!("expected exactly one PT_NOTE, found {}", notes.len()));
+        die(format!(
+            "expected exactly one PT_NOTE, found {}",
+            notes.len()
+        ));
     }
     let note_idx = notes[0].0;
 
@@ -418,7 +425,9 @@ pub fn main(args: &[String]) {
             continue;
         }
         cands.sort_by_key(|s| {
-            let idx = syms.iter().position(|x| x.value == s.value && x.name == s.name);
+            let idx = syms
+                .iter()
+                .position(|x| x.value == s.value && x.name == s.name);
             match idx.and_then(|i| vers.get(i)) {
                 Some(v) => v & 0x7fff,
                 None => 0,
@@ -434,7 +443,10 @@ pub fn main(args: &[String]) {
             .iter()
             .any(|o| o.value > s.value && o.value < s.value + (PATCH_LEN * 4) as u64)
         {
-            skipped.push((name.clone(), "another symbol starts inside the window".into()));
+            skipped.push((
+                name.clone(),
+                "another symbol starts inside the window".into(),
+            ));
             continue;
         }
         let off = match e.try_vaddr_to_off(s.value) {
@@ -524,7 +536,9 @@ pub fn main(args: &[String]) {
         .iter()
         .all(|b| *b == 0)
     {
-        die(format!("padding at {stub_off:#x} is not empty; refusing to overwrite it"));
+        die(format!(
+            "padding at {stub_off:#x} is not empty; refusing to overwrite it"
+        ));
     }
 
     // The slot page goes *past the end of the last LOAD*, not next to the stub.
@@ -573,8 +587,8 @@ pub fn main(args: &[String]) {
         }
         d[e_off..e_off + nm.len()].copy_from_slice(nm);
         put_u64(&mut d, e_off + 32, 0); // target: filled by the runtime
-        // The stub sits below the slot page now, so the delta is negative: the
-        // runtime adds it to the slot page base and the arithmetic wraps.
+                                        // The stub sits below the slot page now, so the delta is negative: the
+                                        // runtime adds it to the slot page base and the arithmetic wraps.
         put_u64(&mut d, e_off + 40, stub.wrapping_sub(slot_vaddr));
 
         let s_off = (stub - stub_vaddr + stub_off) as usize;
@@ -595,14 +609,21 @@ pub fn main(args: &[String]) {
 
         let a = e.try_vaddr_to_off(*entry).unwrap();
         put_u32(&mut d, a, adrp(16, *entry, slot_vaddr));
-        put_u32(&mut d, a + 4, ldr_x(17, 16, (SLOT_HDR + slot_i * SLOT_STRIDE + 32) as u64));
+        put_u32(
+            &mut d,
+            a + 4,
+            ldr_x(17, 16, (SLOT_HDR + slot_i * SLOT_STRIDE + 32) as u64),
+        );
         put_u32(&mut d, a + 8, cbnz_x(17, 12));
-        put_u32(&mut d, a + 12, ldr_x(17, 16, (SLOT_HDR + slot_i * SLOT_STRIDE + 40) as u64));
+        put_u32(
+            &mut d,
+            a + 12,
+            ldr_x(17, 16, (SLOT_HDR + slot_i * SLOT_STRIDE + 40) as u64),
+        );
         put_u32(&mut d, a + 16, ADD_X17_X16_X17);
         put_u32(&mut d, a + 20, BR_X17);
         ok += 1;
     }
-
 
     // ------------------------------------------------------------ program headers
     //
@@ -643,8 +664,16 @@ pub fn main(args: &[String]) {
             p.off,
             p.vaddr,
             p.vaddr,
-            if i == rx_i { stub_off + stub_len - rx.off } else { p.filesz },
-            if i == rx_i { stub_off + stub_len - rx.off } else { p.memsz },
+            if i == rx_i {
+                stub_off + stub_len - rx.off
+            } else {
+                p.filesz
+            },
+            if i == rx_i {
+                stub_off + stub_len - rx.off
+            } else {
+                p.memsz
+            },
         ];
         order.push((row, p.align));
     }
@@ -679,7 +708,9 @@ pub fn main(args: &[String]) {
             ));
         }
         if have_prev && vaddr < prev_vaddr {
-            die(format!("PT_LOAD at {vaddr:#x} is out of order (previous {prev_vaddr:#x})"));
+            die(format!(
+                "PT_LOAD at {vaddr:#x} is out of order (previous {prev_vaddr:#x})"
+            ));
         }
         prev_vaddr = vaddr;
         have_prev = true;

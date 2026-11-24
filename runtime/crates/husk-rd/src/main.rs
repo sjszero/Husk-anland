@@ -68,8 +68,7 @@ macro_rules! fp {
 }
 
 struct Gio {
-    bus_get_sync:
-        unsafe extern "C" fn(c_uint, *mut c_void, *mut *mut c_void) -> Conn,
+    bus_get_sync: unsafe extern "C" fn(c_uint, *mut c_void, *mut *mut c_void) -> Conn,
     call_sync: unsafe extern "C" fn(
         Conn,
         *const c_char,
@@ -103,7 +102,15 @@ struct Gio {
         *const c_char,
         *const c_char,
         c_uint,
-        unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char, *const c_char, *const c_char, GV, *mut c_void),
+        unsafe extern "C" fn(
+            *mut c_void,
+            *const c_char,
+            *const c_char,
+            *const c_char,
+            *const c_char,
+            GV,
+            *mut c_void,
+        ),
         *mut c_void,
         *mut c_void,
     ) -> c_uint,
@@ -120,32 +127,122 @@ impl Gio {
         let dl = match Dl::open() {
             Some(d) => d,
             None => {
-                eprintln!(
-                    "husk-rd: cannot dlopen libgio: {:?}",
-                    unsafe { CStr::from_ptr(dlerror()) }
-                );
+                eprintln!("husk-rd: cannot dlopen libgio: {:?}", unsafe {
+                    CStr::from_ptr(dlerror())
+                });
                 std::process::exit(3);
             }
         };
         let gio = Gio {
-            bus_get_sync: fp!(dl, "g_bus_get_sync", unsafe extern "C" fn(c_uint, *mut c_void, *mut *mut c_void) -> Conn),
-            call_sync: fp!(dl, "g_dbus_connection_call_sync", unsafe extern "C" fn(Conn, *const c_char, *const c_char, *const c_char, *const c_char, GV, *const c_char, c_uint, c_int, *mut c_void, *mut *mut c_void) -> GV),
-            v_new_uint32: fp!(dl, "g_variant_new_uint32", unsafe extern "C" fn(c_uint) -> GV),
+            bus_get_sync: fp!(
+                dl,
+                "g_bus_get_sync",
+                unsafe extern "C" fn(c_uint, *mut c_void, *mut *mut c_void) -> Conn
+            ),
+            call_sync: fp!(
+                dl,
+                "g_dbus_connection_call_sync",
+                unsafe extern "C" fn(
+                    Conn,
+                    *const c_char,
+                    *const c_char,
+                    *const c_char,
+                    *const c_char,
+                    GV,
+                    *const c_char,
+                    c_uint,
+                    c_int,
+                    *mut c_void,
+                    *mut *mut c_void,
+                ) -> GV
+            ),
+            v_new_uint32: fp!(
+                dl,
+                "g_variant_new_uint32",
+                unsafe extern "C" fn(c_uint) -> GV
+            ),
             v_new_int32: fp!(dl, "g_variant_new_int32", unsafe extern "C" fn(c_int) -> GV),
-            v_new_bool: fp!(dl, "g_variant_new_boolean", unsafe extern "C" fn(c_int) -> GV),
+            v_new_bool: fp!(
+                dl,
+                "g_variant_new_boolean",
+                unsafe extern "C" fn(c_int) -> GV
+            ),
             v_new_double: fp!(dl, "g_variant_new_double", unsafe extern "C" fn(f64) -> GV),
-            v_new_string: fp!(dl, "g_variant_new_string", unsafe extern "C" fn(*const c_char) -> GV),
-            v_new_tuple: fp!(dl, "g_variant_new_tuple", unsafe extern "C" fn(*const GV, usize) -> GV),
-            v_child: fp!(dl, "g_variant_get_child_value", unsafe extern "C" fn(GV, usize) -> GV),
-            v_new_array: fp!(dl, "g_variant_new_array", unsafe extern "C" fn(*const c_void, *const GV, usize) -> GV),
-            v_new_dict_entry: fp!(dl, "g_variant_new_dict_entry", unsafe extern "C" fn(GV, GV) -> GV),
-            v_get_uint32: fp!(dl, "g_variant_get_uint32", unsafe extern "C" fn(GV) -> c_uint),
+            v_new_string: fp!(
+                dl,
+                "g_variant_new_string",
+                unsafe extern "C" fn(*const c_char) -> GV
+            ),
+            v_new_tuple: fp!(
+                dl,
+                "g_variant_new_tuple",
+                unsafe extern "C" fn(*const GV, usize) -> GV
+            ),
+            v_child: fp!(
+                dl,
+                "g_variant_get_child_value",
+                unsafe extern "C" fn(GV, usize) -> GV
+            ),
+            v_new_array: fp!(
+                dl,
+                "g_variant_new_array",
+                unsafe extern "C" fn(*const c_void, *const GV, usize) -> GV
+            ),
+            v_new_dict_entry: fp!(
+                dl,
+                "g_variant_new_dict_entry",
+                unsafe extern "C" fn(GV, GV) -> GV
+            ),
+            v_get_uint32: fp!(
+                dl,
+                "g_variant_get_uint32",
+                unsafe extern "C" fn(GV) -> c_uint
+            ),
             v_new_variant: fp!(dl, "g_variant_new_variant", unsafe extern "C" fn(GV) -> GV),
-            v_type_new: fp!(dl, "g_variant_type_new", unsafe extern "C" fn(*const c_char) -> *mut c_void),
-            sig_subscribe: fp!(dl, "g_dbus_connection_signal_subscribe", unsafe extern "C" fn(Conn, *const c_char, *const c_char, *const c_char, *const c_char, *const c_char, c_uint, unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char, *const c_char, *const c_char, GV, *mut c_void), *mut c_void, *mut c_void) -> c_uint),
-            main_context_default: fp!(dl, "g_main_context_default", unsafe extern "C" fn() -> *mut c_void),
-            main_context_iteration: fp!(dl, "g_main_context_iteration", unsafe extern "C" fn(*mut c_void, c_int) -> c_int),
-            v_get_string: fp!(dl, "g_variant_get_string", unsafe extern "C" fn(GV, *mut usize) -> *const c_char),
+            v_type_new: fp!(
+                dl,
+                "g_variant_type_new",
+                unsafe extern "C" fn(*const c_char) -> *mut c_void
+            ),
+            sig_subscribe: fp!(
+                dl,
+                "g_dbus_connection_signal_subscribe",
+                unsafe extern "C" fn(
+                    Conn,
+                    *const c_char,
+                    *const c_char,
+                    *const c_char,
+                    *const c_char,
+                    *const c_char,
+                    c_uint,
+                    unsafe extern "C" fn(
+                        *mut c_void,
+                        *const c_char,
+                        *const c_char,
+                        *const c_char,
+                        *const c_char,
+                        GV,
+                        *mut c_void,
+                    ),
+                    *mut c_void,
+                    *mut c_void,
+                ) -> c_uint
+            ),
+            main_context_default: fp!(
+                dl,
+                "g_main_context_default",
+                unsafe extern "C" fn() -> *mut c_void
+            ),
+            main_context_iteration: fp!(
+                dl,
+                "g_main_context_iteration",
+                unsafe extern "C" fn(*mut c_void, c_int) -> c_int
+            ),
+            v_get_string: fp!(
+                dl,
+                "g_variant_get_string",
+                unsafe extern "C" fn(GV, *mut usize) -> *const c_char
+            ),
             v_unref: fp!(dl, "g_variant_unref", unsafe extern "C" fn(GV)),
             obj_unref: fp!(dl, "g_object_unref", unsafe extern "C" fn(*mut c_void)),
             err_free: fp!(dl, "g_error_free", unsafe extern "C" fn(*mut c_void)),
@@ -315,7 +412,11 @@ fn inject(gio: &Gio, a: &[String]) {
         println!("husk-rd|inject|start-failed|{e}");
         return;
     }
-    let (kind, x, y) = (a[0].as_str(), a[1].parse::<f64>().unwrap_or(0.0), a[2].parse::<i32>().unwrap_or(0));
+    let (kind, x, y) = (
+        a[0].as_str(),
+        a[1].parse::<f64>().unwrap_or(0.0),
+        a[2].parse::<i32>().unwrap_or(0),
+    );
     let res = match kind {
         "motion" => gio.call(
             bus,
@@ -323,7 +424,9 @@ fn inject(gio: &Gio, a: &[String]) {
             &path,
             RD_SESSION_IFACE,
             "NotifyPointerMotionRelative",
-            &[unsafe { (gio.v_new_double)(x) }, unsafe { (gio.v_new_double)(y as f64) }],
+            &[unsafe { (gio.v_new_double)(x) }, unsafe {
+                (gio.v_new_double)(y as f64)
+            }],
         ),
         "button" => gio.call(
             bus,
@@ -331,10 +434,9 @@ fn inject(gio: &Gio, a: &[String]) {
             &path,
             RD_SESSION_IFACE,
             "NotifyPointerButton",
-            &[
-                unsafe { (gio.v_new_int32)(x as i32) },
-                unsafe { (gio.v_new_bool)(y as i32) },
-            ],
+            &[unsafe { (gio.v_new_int32)(x as i32) }, unsafe {
+                (gio.v_new_bool)(y as i32)
+            }],
         ),
         "key" => gio.call(
             bus,
@@ -342,10 +444,9 @@ fn inject(gio: &Gio, a: &[String]) {
             &path,
             RD_SESSION_IFACE,
             "NotifyKeyboardKeycode",
-            &[
-                unsafe { (gio.v_new_uint32)(x as u32) },
-                unsafe { (gio.v_new_bool)(y as i32) },
-            ],
+            &[unsafe { (gio.v_new_uint32)(x as u32) }, unsafe {
+                (gio.v_new_bool)(y as i32)
+            }],
         ),
         "axis" => gio.call(
             bus,
@@ -353,10 +454,9 @@ fn inject(gio: &Gio, a: &[String]) {
             &path,
             RD_SESSION_IFACE,
             "NotifyPointerAxisDiscrete",
-            &[
-                unsafe { (gio.v_new_uint32)(x as u32) },
-                unsafe { (gio.v_new_int32)(y as i32) },
-            ],
+            &[unsafe { (gio.v_new_uint32)(x as u32) }, unsafe {
+                (gio.v_new_int32)(y as i32)
+            }],
         ),
         other => {
             eprintln!("unknown kind {other}");
@@ -389,8 +489,16 @@ unsafe extern "C" fn on_signal(
     params: GV,
     _ud: *mut c_void,
 ) {
-    let path = if object_path.is_null() { String::new() } else { CStr::from_ptr(object_path).to_string_lossy().into_owned() };
-    let mem = if member.is_null() { String::new() } else { CStr::from_ptr(member).to_string_lossy().into_owned() };
+    let path = if object_path.is_null() {
+        String::new()
+    } else {
+        CStr::from_ptr(object_path).to_string_lossy().into_owned()
+    };
+    let mem = if member.is_null() {
+        String::new()
+    } else {
+        CStr::from_ptr(member).to_string_lossy().into_owned()
+    };
     // PipeWireStreamAdded(u node_id): read child 0 as uint32 through the
     // function table is not available in this plain fn, so decode via the
     // statically stored fn pointers captured at load time.
@@ -518,13 +626,55 @@ fn probe(gio: &Gio) {
         }
     };
     unsafe {
-        println!("motion+  {}", call("NotifyPointerMotionRelative", &[(gio.v_new_double)(20.0), (gio.v_new_double)(10.0)]));
-        println!("motion-  {}", call("NotifyPointerMotionRelative", &[(gio.v_new_double)(-5.0), (gio.v_new_double)(-4.0)]));
-        println!("btn-down {}", call("NotifyPointerButton", &[(gio.v_new_int32)(0x110), (gio.v_new_bool)(1)]));
-        println!("btn-up   {}", call("NotifyPointerButton", &[(gio.v_new_int32)(0x110), (gio.v_new_bool)(0)]));
-        println!("key-down {}", call("NotifyKeyboardKeycode", &[(gio.v_new_uint32)(30), (gio.v_new_bool)(1)]));
-        println!("key-up   {}", call("NotifyKeyboardKeycode", &[(gio.v_new_uint32)(30), (gio.v_new_bool)(0)]));
-        println!("axis     {}", call("NotifyPointerAxisDiscrete", &[(gio.v_new_uint32)(0), (gio.v_new_int32)(1)]));
+        println!(
+            "motion+  {}",
+            call(
+                "NotifyPointerMotionRelative",
+                &[(gio.v_new_double)(20.0), (gio.v_new_double)(10.0)]
+            )
+        );
+        println!(
+            "motion-  {}",
+            call(
+                "NotifyPointerMotionRelative",
+                &[(gio.v_new_double)(-5.0), (gio.v_new_double)(-4.0)]
+            )
+        );
+        println!(
+            "btn-down {}",
+            call(
+                "NotifyPointerButton",
+                &[(gio.v_new_int32)(0x110), (gio.v_new_bool)(1)]
+            )
+        );
+        println!(
+            "btn-up   {}",
+            call(
+                "NotifyPointerButton",
+                &[(gio.v_new_int32)(0x110), (gio.v_new_bool)(0)]
+            )
+        );
+        println!(
+            "key-down {}",
+            call(
+                "NotifyKeyboardKeycode",
+                &[(gio.v_new_uint32)(30), (gio.v_new_bool)(1)]
+            )
+        );
+        println!(
+            "key-up   {}",
+            call(
+                "NotifyKeyboardKeycode",
+                &[(gio.v_new_uint32)(30), (gio.v_new_bool)(0)]
+            )
+        );
+        println!(
+            "axis     {}",
+            call(
+                "NotifyPointerAxisDiscrete",
+                &[(gio.v_new_uint32)(0), (gio.v_new_int32)(1)]
+            )
+        );
     }
     let _ = gio.call(bus, RD, &path, RD_SESSION_IFACE, "Stop", &[]);
     unsafe { (gio.obj_unref)(bus) };
@@ -602,19 +752,29 @@ fn bridge(gio: &Gio, a: &[String]) {
             let val = i32::from_ne_bytes([rec[20], rec[21], rec[22], rec[23]]);
             if ty == 3 && (code == 0 || code == 1) {
                 // ABS_X / ABS_Y in 0..32767 -> relative pixels on a 1080x2400 surface
-                let (span, last) = if code == 0 { (1080i64, &mut left) } else { (2400i64, &mut top) };
+                let (span, last) = if code == 0 {
+                    (1080i64, &mut left)
+                } else {
+                    (2400i64, &mut top)
+                };
                 let px = (val as i64 * span / 32767) as i32;
                 let d = px - *last;
                 *last = px;
                 if have && d != 0 {
-                    let dbl = if code == 0 { (d as f64, 0.0) } else { (0.0, d as f64) };
+                    let dbl = if code == 0 {
+                        (d as f64, 0.0)
+                    } else {
+                        (0.0, d as f64)
+                    };
                     let _ = gio.call(
                         bus,
                         RD,
                         &path,
                         RD_SESSION_IFACE,
                         "NotifyPointerMotionRelative",
-                        &[unsafe { (gio.v_new_double)(dbl.0) }, unsafe { (gio.v_new_double)(dbl.1) }],
+                        &[unsafe { (gio.v_new_double)(dbl.0) }, unsafe {
+                            (gio.v_new_double)(dbl.1)
+                        }],
                     );
                     events += 1;
                 }
@@ -636,7 +796,9 @@ fn bridge(gio: &Gio, a: &[String]) {
                         &path,
                         RD_SESSION_IFACE,
                         "NotifyPointerButton",
-                        &[unsafe { (gio.v_new_int32)(b as i32) }, unsafe { (gio.v_new_bool)(val) }],
+                        &[unsafe { (gio.v_new_int32)(b as i32) }, unsafe {
+                            (gio.v_new_bool)(val)
+                        }],
                     ),
                     None => gio.call(
                         bus,
@@ -644,7 +806,9 @@ fn bridge(gio: &Gio, a: &[String]) {
                         &path,
                         RD_SESSION_IFACE,
                         "NotifyKeyboardKeycode",
-                        &[unsafe { (gio.v_new_uint32)(code as u32) }, unsafe { (gio.v_new_bool)(val) }],
+                        &[unsafe { (gio.v_new_uint32)(code as u32) }, unsafe {
+                            (gio.v_new_bool)(val)
+                        }],
                     ),
                 };
                 if res.is_ok() {
@@ -660,10 +824,9 @@ fn bridge(gio: &Gio, a: &[String]) {
                     &path,
                     RD_SESSION_IFACE,
                     "NotifyPointerAxisDiscrete",
-                    &[
-                        unsafe { (gio.v_new_uint32)(0) },
-                        unsafe { (gio.v_new_int32)(-val) },
-                    ],
+                    &[unsafe { (gio.v_new_uint32)(0) }, unsafe {
+                        (gio.v_new_int32)(-val)
+                    }],
                 );
                 events += 1;
             }

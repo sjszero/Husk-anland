@@ -170,8 +170,7 @@ pub fn write(
     mvhd_p.extend_from_slice(&[0u8; 10]);
     mvhd_p.extend_from_slice(&[
         0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // unity matrix
-        0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x40, 0, 0, 0,
-        0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x40, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ]);
     mvhd_p.extend_from_slice(&[0u8; 24]); // pre_defined
     mvhd_p.extend_from_slice(&2u32.to_be_bytes()); // next track id
@@ -188,8 +187,8 @@ pub fn write(
     tkhd_p.extend_from_slice(&0u16.to_be_bytes()); // volume (video = 0)
     tkhd_p.extend_from_slice(&0u16.to_be_bytes());
     tkhd_p.extend_from_slice(&[
-        0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x40, 0, 0, 0,
-        0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x40, 0, 0, 0, 0,
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ]);
     tkhd_p.extend_from_slice(&((w as u32) << 16).to_be_bytes());
     tkhd_p.extend_from_slice(&((h as u32) << 16).to_be_bytes());
@@ -274,10 +273,7 @@ pub fn write(
         p
     });
 
-    let stbl = box_(
-        b"stbl",
-        &[stsd, stts, stss, stsc, stsz, stco].concat(),
-    );
+    let stbl = box_(b"stbl", &[stsd, stts, stss, stsc, stsz, stco].concat());
     let minf = box_(b"minf", &[vmhd, dinf, stbl].concat());
     let mdia = box_(b"mdia", &[mdhd, hdlr, minf].concat());
     let trak = box_(b"trak", &[tkhd, mdia].concat());

@@ -72,7 +72,10 @@ fn main() {
                 // chroot we cannot perform without CAP_SYS_CHROOT, so both are
                 // accepted and ignored with a note on stderr.
                 i += 1;
-                eprintln!("husk-ldconfig: note: '{}' is not applied inside the runtime", args[i - 1]);
+                eprintln!(
+                    "husk-ldconfig: note: '{}' is not applied inside the runtime",
+                    args[i - 1]
+                );
             }
             other if other.starts_with('-') => {
                 eprintln!("husk-ldconfig: unknown option {other}, ignoring");
@@ -169,7 +172,9 @@ fn scan_dir(dir: &Path, out: &mut BTreeMap<String, String>) {
     let mut entries: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect();
     entries.sort();
     for path in entries {
-        let Ok(md) = fs::metadata(&path) else { continue }; // follows symlinks
+        let Ok(md) = fs::metadata(&path) else {
+            continue;
+        }; // follows symlinks
         let ft = md.file_type();
         if ft.is_dir() {
             // ldconfig scans exactly the directories its configuration names, no
@@ -184,7 +189,9 @@ fn scan_dir(dir: &Path, out: &mut BTreeMap<String, String>) {
         if !md.is_file() {
             continue;
         }
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
         if !name.contains(".so") {
             continue;
         }
@@ -192,7 +199,8 @@ fn scan_dir(dir: &Path, out: &mut BTreeMap<String, String>) {
             continue;
         };
         // First hit wins, exactly like ldconfig with an ordered directory list.
-        out.entry(soname).or_insert_with(|| path.to_string_lossy().into_owned());
+        out.entry(soname)
+            .or_insert_with(|| path.to_string_lossy().into_owned());
     }
 }
 
@@ -242,7 +250,10 @@ fn write_library_path(out: &str) {
         text.push('\n');
     }
     match fs::write(out, text) {
-        Ok(()) => println!("husk-ldconfig: wrote {out} ({} runpath directories)", dirs.len()),
+        Ok(()) => println!(
+            "husk-ldconfig: wrote {out} ({} runpath directories)",
+            dirs.len()
+        ),
         Err(e) => {
             eprintln!("husk-ldconfig: cannot write {out}: {e}");
             std::process::exit(1);
@@ -258,7 +269,9 @@ fn collect_runpath_dirs(dir: &Path, out: &mut Vec<String>, depth: usize) {
     let mut entries: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect();
     entries.sort();
     for path in entries {
-        let Ok(md) = fs::metadata(&path) else { continue }; // follows symlinks
+        let Ok(md) = fs::metadata(&path) else {
+            continue;
+        }; // follows symlinks
         if md.is_dir() {
             collect_runpath_dirs(&path, out, depth + 1);
             continue;
@@ -266,7 +279,9 @@ fn collect_runpath_dirs(dir: &Path, out: &mut Vec<String>, depth: usize) {
         if !md.is_file() || md.len() < 64 {
             continue;
         }
-        let Some(values) = elf_runpath(&path) else { continue };
+        let Some(values) = elf_runpath(&path) else {
+            continue;
+        };
         for value in values {
             for part in value.split(':') {
                 let part = part.trim();
@@ -301,7 +316,14 @@ fn elf_runpath(path: &Path) -> Option<Vec<String>> {
     let rd16 = |o: usize| -> u16 { u16::from_le_bytes([eh[o], eh[o + 1]]) };
     let rd64 = |o: usize| -> u64 {
         u64::from_le_bytes([
-            eh[o], eh[o + 1], eh[o + 2], eh[o + 3], eh[o + 4], eh[o + 5], eh[o + 6], eh[o + 7],
+            eh[o],
+            eh[o + 1],
+            eh[o + 2],
+            eh[o + 3],
+            eh[o + 4],
+            eh[o + 5],
+            eh[o + 6],
+            eh[o + 7],
         ])
     };
     let phoff = rd64(0x20);
@@ -313,12 +335,18 @@ fn elf_runpath(path: &Path) -> Option<Vec<String>> {
     let mut phbuf = vec![0u8; phentsize * phnum];
     f.seek(SeekFrom::Start(phoff)).ok()?;
     f.read_exact(&mut phbuf).ok()?;
-    let be32 = |b: &[u8], o: usize| -> u32 {
-        u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]])
-    };
+    let be32 =
+        |b: &[u8], o: usize| -> u32 { u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]) };
     let be64 = |b: &[u8], o: usize| -> u64 {
         u64::from_le_bytes([
-            b[o], b[o + 1], b[o + 2], b[o + 3], b[o + 4], b[o + 5], b[o + 6], b[o + 7],
+            b[o],
+            b[o + 1],
+            b[o + 2],
+            b[o + 3],
+            b[o + 4],
+            b[o + 5],
+            b[o + 6],
+            b[o + 7],
         ])
     };
     let mut loads: Vec<(u64, u64, u64)> = Vec::new();
@@ -326,7 +354,11 @@ fn elf_runpath(path: &Path) -> Option<Vec<String>> {
     for i in 0..phnum {
         let p = i * phentsize;
         match be32(&phbuf, p) {
-            1 => loads.push((be64(&phbuf, p + 16), be64(&phbuf, p + 8), be64(&phbuf, p + 32))),
+            1 => loads.push((
+                be64(&phbuf, p + 16),
+                be64(&phbuf, p + 8),
+                be64(&phbuf, p + 32),
+            )),
             2 => dynamic = Some((be64(&phbuf, p + 8), be64(&phbuf, p + 32))),
             _ => {}
         }
@@ -366,7 +398,11 @@ fn elf_runpath(path: &Path) -> Option<Vec<String>> {
         }
     }
     let st_off = st_off?;
-    let n = if strsz > 0 && strsz < (1 << 20) { strsz as usize } else { 8192 };
+    let n = if strsz > 0 && strsz < (1 << 20) {
+        strsz as usize
+    } else {
+        8192
+    };
     let mut sbuf = vec![0u8; n];
     f.seek(SeekFrom::Start(st_off)).ok()?;
     let got = f.read(&mut sbuf).ok()?;
@@ -377,7 +413,9 @@ fn elf_runpath(path: &Path) -> Option<Vec<String>> {
         if off >= sbuf.len() {
             continue;
         }
-        let Some(len) = sbuf[off..].iter().position(|b| *b == 0) else { continue };
+        let Some(len) = sbuf[off..].iter().position(|b| *b == 0) else {
+            continue;
+        };
         if let Ok(s) = std::str::from_utf8(&sbuf[off..off + len]) {
             out.push(s.to_string());
         }
@@ -392,12 +430,17 @@ fn elf_soname(path: &Path) -> Option<String> {
         return None;
     }
     let rd16 = |o: usize| -> u16 { u16::from_le_bytes([data[o], data[o + 1]]) };
-    let rd32 = |o: usize| -> u32 {
-        u32::from_le_bytes([data[o], data[o + 1], data[o + 2], data[o + 3]])
-    };
+    let rd32 =
+        |o: usize| -> u32 { u32::from_le_bytes([data[o], data[o + 1], data[o + 2], data[o + 3]]) };
     let rd64 = |o: usize| -> u64 {
         u64::from_le_bytes([
-            data[o], data[o + 1], data[o + 2], data[o + 3], data[o + 4], data[o + 5], data[o + 6],
+            data[o],
+            data[o + 1],
+            data[o + 2],
+            data[o + 3],
+            data[o + 4],
+            data[o + 5],
+            data[o + 6],
             data[o + 7],
         ])
     };
@@ -524,9 +567,8 @@ fn print_cache(cache_path: &str) {
         eprintln!("husk-ldconfig: {cache_path} is not a 1.1-format cache");
         std::process::exit(1);
     }
-    let rd32 = |o: usize| -> u32 {
-        u32::from_le_bytes([data[o], data[o + 1], data[o + 2], data[o + 3]])
-    };
+    let rd32 =
+        |o: usize| -> u32 { u32::from_le_bytes([data[o], data[o + 1], data[o + 2], data[o + 3]]) };
     let nlibs = rd32(20) as usize;
     let mut out = String::from("\tlibc6 (libc6,AArch64) => name (path)\n");
     for i in 0..nlibs {
@@ -541,7 +583,11 @@ fn print_cache(cache_path: &str) {
             let n = rest.iter().position(|b| *b == 0).unwrap_or(rest.len());
             String::from_utf8_lossy(&rest[..n]).into_owned()
         };
-        out.push_str(&format!("\t{} (libc6,AArch64) => {} (0x0)\n", s(key), s(value)));
+        out.push_str(&format!(
+            "\t{} (libc6,AArch64) => {} (0x0)\n",
+            s(key),
+            s(value)
+        ));
     }
     // `ldconfig -p | head` closes the pipe early; a panic there would look like
     // a real failure to a caller that only reads the first lines.

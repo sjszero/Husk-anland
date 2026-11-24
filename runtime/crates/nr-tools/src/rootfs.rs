@@ -96,7 +96,11 @@ pub fn main(argv: &[String]) {
     if let Some(t) = &base {
         let raw = fs::read(t).unwrap_or_else(|e| die(format!("{}: {e}", t.display())));
         // Ubuntu base tarballs are gzip; the .deb bodies are handled by unpack_deb.
-        let tar = if raw.starts_with(&[0x1f, 0x8b]) { gunzip(&raw) } else { raw };
+        let tar = if raw.starts_with(&[0x1f, 0x8b]) {
+            gunzip(&raw)
+        } else {
+            raw
+        };
         extract_tar(&tar, &out);
         println!("base: {} extracted into {}", t.display(), out.display());
     }

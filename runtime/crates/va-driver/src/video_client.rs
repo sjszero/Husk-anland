@@ -192,16 +192,23 @@ impl VideoClient {
         let width = parse_field::<u32>(&fields, "w")?;
         let height = parse_field::<u32>(&fields, "h")?;
         let bytes = parse_field::<usize>(&fields, "bytes")?;
-        let expected = width as usize * height as usize + (width as usize * height as usize).div_ceil(2);
+        let expected =
+            width as usize * height as usize + (width as usize * height as usize).div_ceil(2);
         if bytes != expected {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("frame size mismatch: reply={bytes} expected={expected} for {width}x{height}"),
+                format!(
+                    "frame size mismatch: reply={bytes} expected={expected} for {width}x{height}"
+                ),
             ));
         }
         let mut nv12 = vec![0u8; bytes];
         self.stream.read_exact(&mut nv12)?;
-        Ok(Some(Frame { width, height, nv12 }))
+        Ok(Some(Frame {
+            width,
+            height,
+            nv12,
+        }))
     }
 }
 

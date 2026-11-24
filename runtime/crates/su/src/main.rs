@@ -35,7 +35,8 @@ use std::os::raw::{c_char, c_int, c_uint};
 use std::path::Path;
 
 extern "C" {
-    fn execve(path: *const c_char, argv: *const *const c_char, envp: *const *const c_char) -> c_int;
+    fn execve(path: *const c_char, argv: *const *const c_char, envp: *const *const c_char)
+        -> c_int;
     fn getuid() -> c_uint;
     fn chdir(path: *const c_char) -> c_int;
 }
@@ -133,7 +134,9 @@ fn parse(prog: String) -> Opts {
                 println!("husk-su {}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);
             }
-            _ if a.starts_with("--command=") => o.command = Some(a["--command=".len()..].to_string()),
+            _ if a.starts_with("--command=") => {
+                o.command = Some(a["--command=".len()..].to_string())
+            }
             _ if a.starts_with("--shell=") => o.shell = Some(a["--shell=".len()..].to_string()),
             _ if a.starts_with("--group=") => o.group = Some(a["--group=".len()..].to_string()),
             "-" => {}
@@ -267,7 +270,12 @@ fn main() {
     let clean = o.login && !o.preserve;
     let mut env: Vec<(String, String)> = std::env::vars_os()
         .filter(|(k, _)| !clean || keeps(&k.to_string_lossy()))
-        .map(|(k, v)| (k.to_string_lossy().into_owned(), v.to_string_lossy().into_owned()))
+        .map(|(k, v)| {
+            (
+                k.to_string_lossy().into_owned(),
+                v.to_string_lossy().into_owned(),
+            )
+        })
         .collect();
     let set = |env: &mut Vec<(String, String)>, k: &str, v: &str| {
         if let Some(slot) = env.iter_mut().find(|(n, _)| n == k) {
@@ -360,6 +368,9 @@ fn main() {
 
     let err = std::io::Error::last_os_error();
     eprintln!("{prog}: {}: {}", prog_path, err);
-    std::process::exit(if err.raw_os_error() == Some(2) { 127 } else { 1 });
+    std::process::exit(if err.raw_os_error() == Some(2) {
+        127
+    } else {
+        1
+    });
 }
-

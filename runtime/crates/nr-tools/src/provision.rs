@@ -243,7 +243,10 @@ fn ar_members(d: &[u8]) -> HashMap<String, Vec<u8>> {
 // provisioning that no longer depends on a host `tar`.
 
 pub(crate) fn tar_octal(field: &[u8]) -> u64 {
-    let end = field.iter().position(|&c| c == 0 || c == b' ').unwrap_or(field.len());
+    let end = field
+        .iter()
+        .position(|&c| c == 0 || c == b' ')
+        .unwrap_or(field.len());
     let mut v: u64 = 0;
     for &c in &field[..end] {
         if !(b'0'..=b'7').contains(&c) {
@@ -268,12 +271,19 @@ fn pax_records(data: &[u8]) -> Vec<(String, String)> {
             Some(i) => p + i,
             None => break,
         };
-        let len: usize = String::from_utf8_lossy(&data[p..sp]).trim().parse().unwrap_or(0);
+        let len: usize = String::from_utf8_lossy(&data[p..sp])
+            .trim()
+            .parse()
+            .unwrap_or(0);
         if len == 0 || p + len > data.len() {
             break;
         }
         let rec = &data[sp + 1..p + len];
-        let rec = if rec.last() == Some(&b'\n') { &rec[..rec.len() - 1] } else { rec };
+        let rec = if rec.last() == Some(&b'\n') {
+            &rec[..rec.len() - 1]
+        } else {
+            rec
+        };
         if let Some(eq) = rec.iter().position(|&c| c == b'=') {
             out.push((
                 String::from_utf8_lossy(&rec[..eq]).to_string(),
@@ -388,7 +398,8 @@ pub(crate) fn extract_tar(tar: &[u8], stage: &Path) {
         }
 
         if let Some(dir) = dest.parent() {
-            fs::create_dir_all(dir).unwrap_or_else(|e| die(format!("mkdir {}: {e}", dir.display())));
+            fs::create_dir_all(dir)
+                .unwrap_or_else(|e| die(format!("mkdir {}: {e}", dir.display())));
         }
 
         match kind {
@@ -427,7 +438,8 @@ pub(crate) fn extract_tar(tar: &[u8], stage: &Path) {
                 clear_path(&dest);
                 fs::write(&dest, body)
                     .unwrap_or_else(|e| die(format!("write {}: {e}", dest.display())));
-                let _ = fs::set_permissions(&dest, std::os::unix::fs::PermissionsExt::from_mode(mode));
+                let _ =
+                    fs::set_permissions(&dest, std::os::unix::fs::PermissionsExt::from_mode(mode));
             }
         }
     }

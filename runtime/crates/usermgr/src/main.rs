@@ -109,8 +109,15 @@ impl Sh {
     fn render(&self) -> String {
         format!(
             "{}:{}:{}:{}:{}:{}:{}:{}:{}",
-            self.name, self.passwd, self.lastchg, self.min, self.max, self.warn, self.inactive,
-            self.expire, self.flag
+            self.name,
+            self.passwd,
+            self.lastchg,
+            self.min,
+            self.max,
+            self.warn,
+            self.inactive,
+            self.expire,
+            self.flag
         )
     }
 }
@@ -268,7 +275,11 @@ impl Db {
         write_atomic(&PASSWD, &render_lines(&self.passwd, |p| p.render()), 0o644)?;
         write_atomic(&SHADOW, &render_lines(&self.shadow, |s| s.render()), 0o640)?;
         write_atomic(&GROUP, &render_lines(&self.group, |g| g.render()), 0o644)?;
-        write_atomic(&GSHADOW, &render_lines(&self.gshadow, |g| g.render()), 0o640)?;
+        write_atomic(
+            &GSHADOW,
+            &render_lines(&self.gshadow, |g| g.render()),
+            0o640,
+        )?;
         Ok(())
     }
 
@@ -370,7 +381,10 @@ fn lock_pwdb() -> R<Lock> {
     use std::os::unix::io::AsRawFd;
     let rc = unsafe { flock(f.as_raw_fd(), LOCK_EX) };
     if rc != 0 {
-        return Err(format!("cannot lock {LOCKFILE}: {}", io::Error::last_os_error()));
+        return Err(format!(
+            "cannot lock {LOCKFILE}: {}",
+            io::Error::last_os_error()
+        ));
     }
     Ok(Lock { _f: f })
 }
@@ -458,7 +472,9 @@ fn random_bytes(n: usize) -> Vec<u8> {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     for (i, b) in buf.iter_mut().enumerate() {
-        *b = ((t >> ((i % 16) * 8)) as u8).wrapping_mul(31).wrapping_add(i as u8);
+        *b = ((t >> ((i % 16) * 8)) as u8)
+            .wrapping_mul(31)
+            .wrapping_add(i as u8);
     }
     buf
 }
@@ -658,9 +674,41 @@ fn is_known(c: char, with_value: &str) -> bool {
     // swallowed, because half of them change what we are asked to write.
     matches!(
         c,
-        'm' | 'M' | 'r' | 'o' | 'U' | 'N' | 'a' | 'L' | 'u' | 'l' | 'R' | 'P' | 'e' | 'f' | 'd'
-            | 's' | 'c' | 'g' | 'G' | 'b' | 'k' | 'p' | 'K' | 'h' | 'V' | 'S' | 'F' | 'Z' | 'z'
-            | 'q' | 'C' | 'i' | 'w' | 'E' | 'n' | 'x'
+        'm' | 'M'
+            | 'r'
+            | 'o'
+            | 'U'
+            | 'N'
+            | 'a'
+            | 'L'
+            | 'u'
+            | 'l'
+            | 'R'
+            | 'P'
+            | 'e'
+            | 'f'
+            | 'd'
+            | 's'
+            | 'c'
+            | 'g'
+            | 'G'
+            | 'b'
+            | 'k'
+            | 'p'
+            | 'K'
+            | 'h'
+            | 'V'
+            | 'S'
+            | 'F'
+            | 'Z'
+            | 'z'
+            | 'q'
+            | 'C'
+            | 'i'
+            | 'w'
+            | 'E'
+            | 'n'
+            | 'x'
     )
 }
 
@@ -740,8 +788,7 @@ fn create_home(home: &str, skel: &str, mode: u32, uid: u32, gid: u32) -> R<()> {
     }
     if let Some(parent) = p.parent() {
         if !parent.exists() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("cannot create {parent:?}: {e}"))?;
+            fs::create_dir_all(parent).map_err(|e| format!("cannot create {parent:?}: {e}"))?;
         }
     }
     fs::create_dir(p).map_err(|e| format!("cannot create directory {home}: {e}"))?;
@@ -980,8 +1027,7 @@ fn cmd_useradd(args: &[String]) -> i32 {
         }));
     }
 
-    let create_home_wanted =
-        !no_home && (create_home_flag || def_yes(&defs, "CREATE_HOME"));
+    let create_home_wanted = !no_home && (create_home_flag || def_yes(&defs, "CREATE_HOME"));
     let home_mode = defs
         .get("HOME_MODE")
         .and_then(|v| u32::from_str_radix(v.trim_start_matches('0'), 8).ok())
@@ -1305,7 +1351,11 @@ fn cmd_usermod(args: &[String]) -> i32 {
     // Group membership: -G replaces, -a -G appends.
     if let Some(list) = o.vals.get("G") {
         let append = o.flags.iter().any(|f| f == "a");
-        let want: Vec<String> = list.split(',').filter(|v| !v.is_empty()).map(|v| v.to_string()).collect();
+        let want: Vec<String> = list
+            .split(',')
+            .filter(|v| !v.is_empty())
+            .map(|v| v.to_string())
+            .collect();
         for g in &want {
             if db.gr(g).is_none() {
                 eprintln!("usermod: group '{g}' does not exist");
@@ -1397,7 +1447,12 @@ fn cmd_usermod(args: &[String]) -> i32 {
 // ------------------------------------------------------------------ userdel --
 
 fn cmd_userdel(args: &[String]) -> i32 {
-    let long: &[(&str, char)] = &[("remove", 'r'), ("force", 'f'), ("root", 'R'), ("prefix", 'P')];
+    let long: &[(&str, char)] = &[
+        ("remove", 'r'),
+        ("force", 'f'),
+        ("root", 'R'),
+        ("prefix", 'P'),
+    ];
     let o = match parse_opts(args, "RP", long) {
         Ok(o) => o,
         Err(e) => {
@@ -1425,8 +1480,10 @@ fn cmd_userdel(args: &[String]) -> i32 {
             return 6;
         }
     };
-    db.passwd.retain(|l| !matches!(l, Line::Ent(p) if p.name == name));
-    db.shadow.retain(|l| !matches!(l, Line::Ent(s) if s.name == name));
+    db.passwd
+        .retain(|l| !matches!(l, Line::Ent(p) if p.name == name));
+    db.shadow
+        .retain(|l| !matches!(l, Line::Ent(s) if s.name == name));
     let mut removed_group = None;
     db.group.retain(|l| match l {
         Line::Ent(g) if g.name == name && g.gid == cur.uid => {
@@ -1445,7 +1502,8 @@ fn cmd_userdel(args: &[String]) -> i32 {
         }
     }
     if let Some(g) = &removed_group {
-        db.gshadow.retain(|l| !matches!(l, Line::Ent(gs) if &gs.name == g));
+        db.gshadow
+            .retain(|l| !matches!(l, Line::Ent(gs) if &gs.name == g));
     }
     for l in db.gshadow.iter_mut() {
         if let Line::Ent(gs) = l {
@@ -1514,8 +1572,10 @@ fn cmd_groupdel(args: &[String]) -> i32 {
         );
         return 8;
     }
-    db.group.retain(|l| !matches!(l, Line::Ent(gr) if gr.name == name));
-    db.gshadow.retain(|l| !matches!(l, Line::Ent(gs) if gs.name == name));
+    db.group
+        .retain(|l| !matches!(l, Line::Ent(gr) if gr.name == name));
+    db.gshadow
+        .retain(|l| !matches!(l, Line::Ent(gs) if gs.name == name));
     if let Err(e) = db.save() {
         eprintln!("groupdel: {e}");
         return 10;
@@ -1526,7 +1586,13 @@ fn cmd_groupdel(args: &[String]) -> i32 {
 // ---------------------------------------------------------------- chpasswd --
 
 fn cmd_chpasswd(args: &[String]) -> i32 {
-    let long: &[(&str, char)] = &[("encrypted", 'e'), ("crypt-method", 'c'), ("md5", 'm'), ("root", 'R'), ("prefix", 'P')];
+    let long: &[(&str, char)] = &[
+        ("encrypted", 'e'),
+        ("crypt-method", 'c'),
+        ("md5", 'm'),
+        ("root", 'R'),
+        ("prefix", 'P'),
+    ];
     let o = match parse_opts(args, "cRP", long) {
         Ok(o) => o,
         Err(e) => {

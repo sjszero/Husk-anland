@@ -38,7 +38,9 @@ fn read_line(stream: &mut UnixStream) -> Result<String, String> {
     let mut out = Vec::with_capacity(96);
     let mut one = [0u8; 1];
     loop {
-        stream.read_exact(&mut one).map_err(|e| format!("read: {e}"))?;
+        stream
+            .read_exact(&mut one)
+            .map_err(|e| format!("read: {e}"))?;
         match one[0] {
             b'\n' => return Ok(String::from_utf8_lossy(&out).into_owned()),
             b'\r' => {}
@@ -80,8 +82,7 @@ fn run(
     id: Option<&str>,
 ) -> Result<(), String> {
     std::fs::create_dir_all(out_dir).map_err(|e| format!("mkdir: {e}"))?;
-    let mut stream =
-        UnixStream::connect(socket).map_err(|e| format!("connect {socket}: {e}"))?;
+    let mut stream = UnixStream::connect(socket).map_err(|e| format!("connect {socket}: {e}"))?;
     let open = match id {
         Some(id) => format!("OPEN w={width} h={height} id={id}\n"),
         None => format!("OPEN w={width} h={height}\n"),
@@ -95,8 +96,12 @@ fn run(
         return Err(format!("OPEN rejected: {ready}"));
     }
     println!("camera-client|OPEN|{ready}");
-    let w: usize = field(&ready, "w").and_then(|v| v.parse().ok()).unwrap_or(width as usize);
-    let h: usize = field(&ready, "h").and_then(|v| v.parse().ok()).unwrap_or(height as usize);
+    let w: usize = field(&ready, "w")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(width as usize);
+    let h: usize = field(&ready, "h")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(height as usize);
     let bytes: usize = field(&ready, "bytes")
         .and_then(|v| v.parse().ok())
         .unwrap_or(w * h * 3 / 2);

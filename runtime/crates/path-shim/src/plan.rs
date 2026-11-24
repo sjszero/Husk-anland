@@ -131,7 +131,15 @@ pub unsafe fn log_plan_once(kind: &[u8]) {
             }
         }
     };
-    put(&[b"nr-plan: ", kind, b" -> gpu=", family_name(fam), b" reason=", gpu_reason(), b"\n"]);
+    put(&[
+        b"nr-plan: ",
+        kind,
+        b" -> gpu=",
+        family_name(fam),
+        b" reason=",
+        gpu_reason(),
+        b"\n",
+    ]);
     syscall4(SYS_WRITE, 2, buf.as_ptr() as usize, k, 0);
 }
 

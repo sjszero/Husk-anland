@@ -37,7 +37,9 @@ fn put_u32(p: &mut [u8], o: usize, v: u32) {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 5 {
-        eprintln!("usage: husk-record <socket> <dev> <seconds> <out.mp4|.h264> [w] [h] [fps] [kbps]");
+        eprintln!(
+            "usage: husk-record <socket> <dev> <seconds> <out.mp4|.h264> [w] [h] [fps] [kbps]"
+        );
         std::process::exit(2);
     }
     let socket = args[1].clone();
@@ -61,7 +63,16 @@ struct Collected {
     bytes: u64,
 }
 
-fn run(socket: &str, dev: &str, seconds: u64, out: &str, w: u32, h: u32, fps: u32, kbps: u32) -> i32 {
+fn run(
+    socket: &str,
+    dev: &str,
+    seconds: u64,
+    out: &str,
+    w: u32,
+    h: u32,
+    fps: u32,
+    kbps: u32,
+) -> i32 {
     let stream = match UnixStream::connect(socket) {
         Ok(s) => s,
         Err(e) => {
@@ -165,7 +176,9 @@ fn run(socket: &str, dev: &str, seconds: u64, out: &str, w: u32, h: u32, fps: u3
     }
     println!(
         "record|done|frames={n}|{:.2}s|{:.2}fps|sent_ok={}",
-        elapsed, rate, code == 0
+        elapsed,
+        rate,
+        code == 0
     );
     code
 }
@@ -266,7 +279,10 @@ unsafe fn capture(dev: &str, w: u32, h: u32, seconds: u64, out: &mut impl Write)
     };
     let fd = libc::open(cpath.as_ptr(), libc::O_RDWR);
     if fd < 0 {
-        eprintln!("record|FAIL|open {dev}: {}", std::io::Error::last_os_error());
+        eprintln!(
+            "record|FAIL|open {dev}: {}",
+            std::io::Error::last_os_error()
+        );
         return 1;
     }
 

@@ -200,7 +200,15 @@ unsafe fn note_link(fd: i32) {
     path[i] = 0;
     let mut buf = [0u8; 160];
     // aarch64 has no plain readlink(); 78 is readlinkat(dirfd, path, buf, len).
-    let r = raw(78, (-100i64) as usize, path.as_ptr() as usize, buf.as_mut_ptr() as usize, buf.len(), 0, 0);
+    let r = raw(
+        78,
+        (-100i64) as usize,
+        path.as_ptr() as usize,
+        buf.as_mut_ptr() as usize,
+        buf.len(),
+        0,
+        0,
+    );
     if r > 0 {
         let _ = raw(64, 2, buf.as_ptr() as usize, r as usize, 0, 0, 0);
         let _ = raw(64, 2, b"\n".as_ptr() as usize, 1, 0, 0, 0);
@@ -374,20 +382,31 @@ unsafe fn do_openat(dirfd: i32, path: *const i8, flags: i32, mode: i32) -> i32 {
     if let Some(p) = path_bytes(path) {
         let mut buf = [0u8; 256];
         if let Some(n) = sys_host(p, &mut buf) {
-            return syscall(SYS_OPENAT, AT_FDCWD as i64, buf.as_ptr() as i64, flags as i64, mode as i64)
-                as i32;
+            return syscall(
+                SYS_OPENAT,
+                AT_FDCWD as i64,
+                buf.as_ptr() as i64,
+                flags as i64,
+                mode as i64,
+            ) as i32;
         }
         if let Some(vn) = video_index(p) {
-
             match open_video(vn) {
                 Some(Ok(fd)) => return fd,
                 Some(Err(e)) => return set_errno(e),
                 None => {}
             }
-
         }
     }
-    let r = raw(SYS_OPENAT as usize, dirfd as usize, path as usize, flags as usize, mode as usize, 0, 0);
+    let r = raw(
+        SYS_OPENAT as usize,
+        dirfd as usize,
+        path as usize,
+        flags as usize,
+        mode as usize,
+        0,
+        0,
+    );
     if r < 0 {
         return set_errno(errno_of(r));
     }
@@ -445,11 +464,18 @@ unsafe fn do_ioctl(fd: i32, request: u64, arg: *mut u8) -> i32 {
         note_link(fd);
     }
     if CTX.is_video_fd(fd) {
-
         let r = CTX.ioctl(fd, request, arg);
         return if r < 0 { set_errno(errno_of(r)) } else { 0 };
     }
-    let r = raw(SYS_IOCTL as usize, fd as usize, request as usize, arg as usize, 0, 0, 0);
+    let r = raw(
+        SYS_IOCTL as usize,
+        fd as usize,
+        request as usize,
+        arg as usize,
+        0,
+        0,
+        0,
+    );
     if r < 0 {
         return set_errno(errno_of(r));
     }
@@ -469,14 +495,7 @@ pub unsafe extern "C" fn mmap(
 }
 
 #[inline(always)]
-unsafe fn do_mmap(
-    addr: *mut u8,
-    len: usize,
-    prot: i32,
-    flags: i32,
-    fd: i32,
-    off: i64,
-) -> *mut u8 {
+unsafe fn do_mmap(addr: *mut u8, len: usize, prot: i32, flags: i32, fd: i32, off: i64) -> *mut u8 {
     if CTX.is_video_fd(fd) {
         return match CTX.mmap(fd, len, off) {
             Some(p) => p,
@@ -659,7 +678,15 @@ pub unsafe extern "C" fn access(path: *const i8, mode: i32) -> i32 {
             return 0;
         }
     }
-    let r = raw(SYS_FACCESSAT as usize, AT_FDCWD as usize, path as usize, mode as usize, 0, 0, 0);
+    let r = raw(
+        SYS_FACCESSAT as usize,
+        AT_FDCWD as usize,
+        path as usize,
+        mode as usize,
+        0,
+        0,
+        0,
+    );
     if r < 0 {
         return set_errno(errno_of(r));
     }

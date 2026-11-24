@@ -810,7 +810,8 @@ unsafe extern "C" fn query_surface_status(
     if !found {
         return VA_STATUS_ERROR_INVALID_SURFACE as VAStatus;
     }
-    let decoded = with_state(ctx, |state| state.surface_frames.contains_key(&surface)).unwrap_or(false);
+    let decoded =
+        with_state(ctx, |state| state.surface_frames.contains_key(&surface)).unwrap_or(false);
     *status = if decoded {
         VASurfaceStatus_VASurfaceReady
     } else {
@@ -1319,7 +1320,9 @@ unsafe extern "C" fn create_image(
         (*format) = NV12_FORMAT;
     }
     let mut nv12 = vec![0u8; nv12_len(w, h)];
-    let rc = match with_state(ctx, |state| push_image(state, w, h, core::mem::take(&mut nv12), image)) {
+    let rc = match with_state(ctx, |state| {
+        push_image(state, w, h, core::mem::take(&mut nv12), image)
+    }) {
         Some(rc) => rc,
         None => return VA_STATUS_ERROR_INVALID_CONTEXT as VAStatus,
     };
@@ -1436,7 +1439,8 @@ unsafe extern "C" fn get_image(
         for row in 0..chroma_height {
             dest.data[dest_uv + row * image_width..dest_uv + row * image_width + chroma_width]
                 .copy_from_slice(
-                    &source[source_uv + row * frame_width..source_uv + row * frame_width + chroma_width],
+                    &source[source_uv + row * frame_width
+                        ..source_uv + row * frame_width + chroma_width],
                 );
         }
         VA_STATUS_SUCCESS as VAStatus
@@ -1444,7 +1448,6 @@ unsafe extern "C" fn get_image(
         return VA_STATUS_ERROR_INVALID_CONTEXT as VAStatus;
     };
     result
-
 }
 
 macro_rules! install_stub {
