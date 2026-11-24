@@ -13,12 +13,12 @@ import sys
 from collections import defaultdict
 
 DIMENSIONS = [
-    ("1 · Startup", ["cold_start_ms", "apt_update_cold", "apt_update_hot"]),
-    ("2 · Process & syscall density", ["fork_exec_100", "fork_50_true", "sh_loop_1000",
+    ("1 · 启动", ["cold_start_ms", "apt_update_cold", "apt_update_hot"]),
+    ("2 · 进程与 syscall 密度", ["fork_exec_100", "fork_50_true", "sh_loop_1000",
                                  "getpid_20k", "stat_20k", "open_close_20k", "make_j4"]),
-    ("3 · File I/O", ["find_usr", "tar_doc", "grep_include", "write_256m",
+    ("3 · 文件 I/O", ["find_usr", "tar_doc", "grep_include", "write_256m",
                       "read_256m", "small_files", "git_clone"]),
-    ("4 · Packages & dev workflow", ["dpkg_l", "apt_simulate", "gcc_hello",
+    ("4 · 包管理与开发工作流", ["dpkg_l", "apt_simulate", "gcc_hello",
                                 "python_json", "python_numpy"]),
 ]
 UNIT = {
@@ -31,26 +31,26 @@ UNIT = {
     "python_json": "ms", "python_numpy": "ms",
 }
 LABEL = {
-    "cold_start_ms": "Cold start to `/bin/true` (includes adb)",
-    "apt_update_cold": "`apt-get update`, cold (index deleted)",
-    "apt_update_hot": "`apt-get update`, warm",
+    "cold_start_ms": "冷启动到 `/bin/true`（含 adb）",
+    "apt_update_cold": "`apt-get update` 冷（删索引）",
+    "apt_update_hot": "`apt-get update` 热",
     "fork_exec_100": "fork+exec × 100",
     "fork_50_true": "`/bin/true` × 50",
-    "sh_loop_1000": "Shell loop, 1 000 iterations",
+    "sh_loop_1000": "shell 循环 1000 次",
     "getpid_20k": "`getpid` × 20 000",
     "stat_20k": "`stat` × 20 000",
     "open_close_20k": "`open`+`close` × 20 000",
-    "make_j4": "`make -j4`, 200-object link",
+    "make_j4": "`make -j4`（200 目标链接）",
     "find_usr": "`find /usr`",
-    "tar_doc": "Source tree, `tar xf`",
-    "grep_include": "`grep -r` over headers",
-    "write_256m": "Sequential write, 256 MB",
-    "read_256m": "Sequential read, 256 MB (page cache)",
-    "small_files": "10 000 small files, create+delete",
-    "git_clone": "Local `git clone` + `status`",
+    "tar_doc": "源码树 tar 解包",
+    "grep_include": "`grep -r` 头文件树",
+    "write_256m": "顺序写 256 MB",
+    "read_256m": "顺序读 256 MB（页缓存）",
+    "small_files": "1 万小文件建删",
+    "git_clone": "本地 `git clone` + `status`",
     "dpkg_l": "`dpkg -l`",
-    "apt_simulate": "`apt-get -s install`, resolver",
-    "gcc_hello": "`gcc` hello world",
+    "apt_simulate": "`apt-get -s install` 解析",
+    "gcc_hello": "`gcc` 编译 hello",
     "python_json": "`python3` import json",
     "python_numpy": "`python3` import numpy",
 }
@@ -87,7 +87,7 @@ def main(argv):
         print(__doc__)
         return 2
     h, p, d = (medians(a) for a in argv)
-    print("| Dimension / item | Husk | proot | proot-distro | Husk vs proot |")
+    print("| 维度 / 项 | Husk | proot | proot-distro | Husk 相对 proot |")
     print("|---|---:|---:|---:|---:|")
     for dim, keys in DIMENSIONS:
         print(f"| **{dim}** | | | | |")
@@ -97,12 +97,12 @@ def main(argv):
             cd, _ = cell(d, k)
             ratio = f"{vp / vh:.1f}×" if (vh and vp) else "—"
             print(f"| {LABEL.get(k, k)} | {ch} | {cp} | {cd} | {ratio} |")
-    print("| **8 · Compatibility** | | | | |")
+    print("| **8 · 兼容性** | | | | |")
     for k in sorted(set(h) | set(p) | set(d)):
         if not k.startswith("have_"):
             continue
         print(f"| `{k[5:]}` | " + " | ".join(
-            "yes" if m.get(k, (0,))[0] == 1 else "no" for m in (h, p, d)) + " | — |")
+            "可用" if m.get(k, (0,))[0] == 1 else "无" for m in (h, p, d)) + " | — |")
     return 0
 
 

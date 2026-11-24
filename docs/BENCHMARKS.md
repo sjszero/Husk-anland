@@ -1,147 +1,120 @@
-# Benchmarks
+# 基准
 
-One device, one rootfs, three runners. The runner is the only variable; every
-number below is a median of 5 measured repetitions on the same phone.
+一台设备、一份 rootfs、三个运行器，只换运行器。下面每个数字都是同一台手机上 5 轮的
+中位数。
 
-## What was measured
+## 测了什么
 
 | 项 | 值 |
 |---|---|
-| Device | RMX3357, MT6893 (Dimensity 1200), Mali-G77, Android 13 (SDK 33), kernel 4.19.191, 4 KiB pages, arm64 |
-| Sandbox | `untrusted_app`, no root, no Shizuku, no unlocked bootloader, no virtualization |
-| Guest | Ubuntu 24.04, glibc 2.39, 882 dpkg packages, one rootfs directory |
-| Husk | loader `rev 23`, sha256 `d5dd7e63…`, path shim embedded, zero ptrace |
-| proot | the `proot` binary and exact flag set LinuxHub 2.0 shipped (`-0 -r --link2symlink -b /dev -b /proc -b /sys`) |
-| proot-distro | the same binary with proot-distro's invocation profile |
-| Time | 2026-11-24 16:40–17:10 CST |
-| Samples | 5 per item per runner (`apt-get update` cold: 2, because it deletes the index) |
-| Battery | 100 % throughout, battery temperature 27.7–28.5 °C |
-| Power | USB powered (adb needs USB); the device was never on battery during the run |
+| 设备 | RMX3357，MT6893（天玑 1200），Mali-G77，Android 13（SDK 33），kernel 4.19.191，4 KiB 页，arm64 |
+| 沙箱 | `untrusted_app`，无 root、无 Shizuku、未解 Bootloader、无虚拟化 |
+| 用户态 | Ubuntu 24.04，glibc 2.39，882 个 dpkg 包，一个 rootfs 目录 |
+| Husk | loader `rev 23`，sha256 `d5dd7e63…`，path-shim 内嵌，零 ptrace |
+| proot | LinuxHub 2.0 原样发货的 `proot` 二进制与参数（`-0 -r --link2symlink -b /dev -b /proc -b /sys`） |
+| proot-distro | 同一个二进制，换成 proot-distro 的调用方式 |
+| 时间 | 2026-11-24 16:40–17:10（CST） |
+| 样本 | 每项每运行器 5 轮（`apt-get update` 冷启动 2 轮，因为它要删索引） |
+| 电量 | 全程 100%，电池温度 27.7–28.5 °C |
+| 供电 | USB 供电（adb 本身就要求 USB），因此全程不在电池上 |
 
-Two details that decide whether the table means anything:
+两个决定这张表算不算数的细节：
 
-**The three runners read the same directory, not three copies.** The rootfs is
-one tree under the app's private directory; Husk, proot and proot-distro are
-started with their root pointed at it. There is nothing to checksum-compare
-because nothing was duplicated — a file added between runs would be visible to
-all three.
+**三个运行器读的是同一个目录，不是三份拷贝。** rootfs 是应用私有目录下的一棵树，
+Husk、proot、proot-distro 都把根指到它。没有可比的校验和，因为没有复制——两次取样之间
+加进去的文件，三个运行器同时看得见。
 
-**The runners are interleaved, not run one after another.** Running each runner
-to completion takes ~25 minutes, and this phone throttles: the same Husk block
-measured 1.5–1.8× slower at 16:32 than at 16:05 (`stat`, `find`, `tar`, `make`).
-So the five repetitions rotate through the three runners inside one round
-(`tools/bench/run-interleaved.sh`), with a 60-second cooldown between blocks.
-Thermal and page-cache drift therefore hits all three runners the same way.
+**运行器是轮转的，不是跑完一个再跑下一个。** 分块跑一轮要 ~25 分钟，而这台手机会降频：
+同一份 Husk 在 16:32 比 16:05 慢 1.5–1.8×（`stat`、`find`、`tar`、`make`）。所以 5 轮
+在一轮内轮转三个运行器（`tools/bench/run-interleaved.sh`），块间冷却 60 秒。热漂移因此
+均摊到三个运行器，而不是记在最后跑的那个头上。
 
-Reproduce with:
+复现：
 
 ```
-tools/bench/install.sh                       # push the device-side half
-tools/bench/run-interleaved.sh 5             # 5 reps, 3 runners, round-robin
+tools/bench/install.sh                       # 推设备侧那一半
+tools/bench/run-interleaved.sh 5             # 5 轮、3 运行器、轮转
 tools/bench/compare.py docs/design/evidence/bench-*-il.log
 ```
 
-Raw logs: `docs/design/evidence/bench-{husk,proot,proot-distro}-20261124-1640-il.log`.
+原始日志：`docs/design/evidence/bench-{husk,proot,proot-distro}-20261124-1640-il.log`。
 
-## The table
+## 总表
 
-| Dimension / item | Husk | proot | proot-distro | Husk vs proot |
+| 维度 / 项 | Husk | proot | proot-distro | Husk 相对 proot |
 |---|---:|---:|---:|---:|
-| **1 · Startup** | | | | |
-| Cold start to `/bin/true` (includes adb) | 155 ms | 151 ms | 162 ms | 1.0× |
-| `apt-get update`, cold (index deleted) | 7,337 ms | 7,901 ms | 7,906 ms | 1.1× |
-| `apt-get update`, warm | 7,347 ms | 7,874 ms | 7,941 ms | 1.1× |
-| **2 · Process & syscall density** | | | | |
+| **1 · 启动** | | | | |
+| 冷启动到 `/bin/true`（含 adb） | 155 ms | 151 ms | 162 ms | 1.0× |
+| `apt-get update` 冷（删索引） | 7,337 ms | 7,901 ms | 7,906 ms | 1.1× |
+| `apt-get update` 热 | 7,347 ms | 7,874 ms | 7,941 ms | 1.1× |
+| **2 · 进程与 syscall 密度** | | | | |
 | fork+exec × 100 | 363 ms | 550 ms | 564 ms | 1.5× |
 | `/bin/true` × 50 | 207 ms | 309 ms | 315 ms | 1.5× |
-| Shell loop, 1 000 iterations | 16 ms | 30 ms | 28 ms | 1.9× |
+| shell 循环 1000 次 | 16 ms | 30 ms | 28 ms | 1.9× |
 | `getpid` × 20 000 | 62 ms | 104 ms | 99 ms | 1.7× |
 | `stat` × 20 000 | 650 ms | 3,734 ms | 3,796 ms | 5.7× |
 | `open`+`close` × 20 000 | 1,252 ms | 8,481 ms | 8,697 ms | 6.8× |
-| `make -j4`, 200-object link | 5,194 ms | 24,182 ms | 24,864 ms | 4.7× |
-| **3 · File I/O** | | | | |
+| `make -j4`（200 目标链接） | 5,194 ms | 24,182 ms | 24,864 ms | 4.7× |
+| **3 · 文件 I/O** | | | | |
 | `find /usr` | 1,484 ms | 5,464 ms | 5,623 ms | 3.7× |
-| Source tree, `tar xf` | 533 ms | 2,051 ms | 2,124 ms | 3.8× |
-| `grep -r` over headers | 214 ms | 713 ms | 885 ms | 3.3× |
-| Sequential write, 256 MB | 1,294 ms | 1,321 ms | 1,295 ms | 1.0× |
-| Sequential read, 256 MB (page cache) | 133 ms | 159 ms | 156 ms | 1.2× |
-| 10 000 small files, create+delete | 239 ms | 687 ms | 666 ms | 2.9× |
-| Local `git clone` + `status` | 889 ms | 3,357 ms | 3,380 ms | 3.8× |
-| **4 · Packages & dev workflow** | | | | |
+| 源码树 tar 解包 | 533 ms | 2,051 ms | 2,124 ms | 3.8× |
+| `grep -r` 头文件树 | 214 ms | 713 ms | 885 ms | 3.3× |
+| 顺序写 256 MB | 1,294 ms | 1,321 ms | 1,295 ms | 1.0× |
+| 顺序读 256 MB（页缓存） | 133 ms | 159 ms | 156 ms | 1.2× |
+| 1 万小文件建删 | 239 ms | 687 ms | 666 ms | 2.9× |
+| 本地 `git clone` + `status` | 889 ms | 3,357 ms | 3,380 ms | 3.8× |
+| **4 · 包管理与开发工作流** | | | | |
 | `dpkg -l` | 45 ms | 89 ms | 93 ms | 2.0× |
-| `apt-get -s install`, resolver | 89 ms | 258 ms | 249 ms | 2.9× |
-| `gcc` hello world | 165 ms | 358 ms | 385 ms | 2.2× |
+| `apt-get -s install` 解析 | 89 ms | 258 ms | 249 ms | 2.9× |
+| `gcc` 编译 hello | 165 ms | 358 ms | 385 ms | 2.2× |
 | `python3` import json | 88 ms | 169 ms | 156 ms | 1.9× |
 | `python3` import numpy | 410 ms | 726 ms | 722 ms | 1.8× |
-| **8 · Compatibility** | | | | |
-| `bash` | yes | yes | yes | — |
-| `gcc` | yes | yes | yes | — |
-| `git` | yes | yes | yes | — |
-| `make` | yes | yes | yes | — |
-| `nano` | yes | yes | yes | — |
-| `node` | yes | yes | yes | — |
-| `python3` | yes | yes | yes | — |
-| `vim` | yes | yes | yes | — |
+| **8 · 兼容性** | | | | |
+| `bash` | 可用 | 可用 | 可用 | — |
+| `gcc` | 可用 | 可用 | 可用 | — |
+| `git` | 可用 | 可用 | 可用 | — |
+| `make` | 可用 | 可用 | 可用 | — |
+| `nano` | 可用 | 可用 | 可用 | — |
+| `node` | 可用 | 可用 | 可用 | — |
+| `python3` | 可用 | 可用 | 可用 | — |
+| `vim` | 可用 | 可用 | 可用 | — |
 
-`Husk vs proot` is proot ÷ Husk: 5.7× means Husk finished 5.7 times faster.
+`Husk 相对 proot` 是 proot ÷ Husk：5.7× 表示 Husk 快 5.7 倍。
 
-Dimension 5 (desktop and graphics), 6 (interaction latency) and 7 (30-minute
-idle) are not in this table, and the reason is not "we did not get to it":
+这张表只覆盖能在纯命令行里测的维度。**图形相关（图形栈启动、窗口、帧率）这一维不进表**：
+本版不把桌面列为交付能力，rootfs 里也没有独立的 X server（`xvfb` 不在离线包索引里），
+所以没有任何可比的图形数字——不是没测出来，是没有两个可比的被测对象。
 
-- **5 / 6** — the proot runner in this repository has no display server
-  integration: proot was removed from the Android integration (evidence 144), so
-  the proot path can start a shell but not a session, and the rootfs contains no
-  X server of its own (`xvfb` is not in the offline package index). The desktop
-  numbers that do exist are Husk-only and measured in-app: GNOME Shell 46 X11
-  first frame with top bar, dock and notifications (evidence 147), and touch
-  input through `TouchInputHandler` → X server → XI2 → mutter (evidence 148).
-  A runner-to-runner graphics comparison needs a second display path, which this
-  release does not have. Both paths are software-rendered when they run.
-- **7** — measured separately as idle soaks, not as part of the timed rounds:
-  Husk 30 minutes at 232 661 → 232 138 KiB PSS, 47 threads, 118 fds, 0 guest
-  zombies (evidence 153); proot and proot-distro soaks are in
-  `docs/design/evidence/soak-*.log`. Power draw on battery is UNKNOWN: adb
-  requires USB, so the device was charging for every number on this page.
+第 7 维（空载 30 分钟的 RSS / 线程 / fd 增长与僵尸数）单独跑 soak，不放进计时的轮次里：
+Husk 30 分钟 PSS 232 661 → 232 138 KiB、线程 47、fd 118、guest 僵尸 0（evidence 153）；
+proot 与 proot-distro 的 soak 在 `docs/design/evidence/soak-*.log`。电池放电曲线未测：
+adb 需要 USB，全程在充电。
 
-## Why
+## 为什么
 
-The gap is not a constant. It tracks syscall and path density, which is exactly
-what the two designs differ on.
+差距不是一个常数，它跟着 syscall 与路径密度走——这正是两种设计的区别所在。
 
-- **Husk does not intercept syscalls.** Path virtualisation happens once, when
-  the loader rewrites the GOT of each object; after that the program's own `svc`
-  instruction goes straight to the Android kernel. Pure syscall loops therefore
-  pay almost nothing: `getpid` × 20 000 is 62 ms vs 104 ms, `fork+exec` × 100 is
-  363 ms vs 550 ms — 1.5–1.7×, the cost of the process work itself, not of a
-  translation layer.
-- **proot intercepts every syscall with ptrace.** Each `stat`, `open`, `close`,
-  `readlink` stops the tracee, gets decoded, path-translated and resumed. That is
-  why the path-heavy rows move the most: `stat` × 20 000 5.7×, `open`+`close`
-  × 20 000 6.8×, `find /usr` 3.7×, `grep -r` 3.3×, `tar xf` 3.8×.
-- **Bulk I/O is identical, and the table says so.** A 256 MB sequential write is
-  1 294 ms vs 1 321 ms (1.0×) and a cached read is 133 ms vs 159 ms. Once a
-  buffer is mapped and the data goes to the kernel in big blocks there is nothing
-  for a runner to translate — the win disappears. Likewise `apt-get update`
-  (7 347 ms vs 7 874 ms, 1.1×) is dominated by the mirror and by extraction, not
-  by the runner.
-- **Builds and interpreters sit in between**, because they are a mix of process,
-  path and CPU work: `make -j4` 4.7×, `gcc` 2.2×, `import numpy` 1.8×,
-  `git clone` 3.8×.
+- **Husk 不拦截 syscall。** 路径虚拟化在装载时做一次（改写每个对象的 GOT），之后程序
+  自己的 `svc` 直接进 Android 内核。所以纯 syscall 循环几乎不额外付钱：`getpid` × 20 000
+  62 ms 对 104 ms，`fork+exec` × 100 363 ms 对 550 ms——1.5–1.7×，这是进程本身的开销，
+  不是翻译层的开销。
+- **proot 用 ptrace 拦截每条 syscall。** 每个 `stat`、`open`、`close`、`readlink` 都要停住
+  被跟踪进程、解码、路径翻译、再放行。所以路径密集的那些行跑得最多：`stat` × 20 000 5.7×、
+  `open`+`close` × 20 000 6.8×、`find /usr` 3.7×、`grep -r` 3.3×、`tar` 解包 3.8×。
+- **大块 I/O 打平，表里就这么写。** 256 MB 顺序写 1 294 ms 对 1 321 ms（1.0×），命中页缓存
+  的读 133 ms 对 159 ms。数据成块进内核时，运行器没有可翻译的东西。`apt-get update`
+  （7 347 ms 对 7 874 ms，1.1×）同理，它被镜像与解包主导。
+- **构建与解释器在中间**，因为它们是进程、路径、CPU 的混合：`make -j4` 4.7×、`gcc` 2.2×、
+  `import numpy` 1.8×、`git clone` 3.8×。
 
-## What it costs
+## 代价
 
-- **Maturity.** proot is a general tool with a decade of distribution quirks
-  handled. Husk runs exactly the trees it has been verified against: arm64,
-  glibc 2.39, Ubuntu 24.04. The loader's patching is version-asserted, so a
-  different glibc fails loudly instead of working by accident.
-- **Distribution coverage.** One distribution, one ABI, one device family
-  (arm64 Android with 4 KiB pages verified; 16/64 KiB on QEMU only).
-- **Rootfs preparation.** A stock Ubuntu tree needs three steps before it runs
-  under Husk: libc patching, absolute symlinks rewritten to relative, and
-  `husk-ldconfig` instead of the static `ldconfig`
-  (`docs/RUNNING.md`). proot needs none of them.
-- **Graphics.** The desktop is software-rendered; proot was never the reason the
-  GPU did not work, and Husk does not fix it in this release
-  (`docs/LIMITATIONS.md` §1).
-- **Device access.** No sensors, GPS, USB, Bluetooth, NFC or fingerprint in
-  either runner.
+- **成熟度。** proot 是十年积累下来的通用工具，各种发行版的坑都处理过。Husk 只跑它验证过
+  的树：arm64、glibc 2.39、Ubuntu 24.04。loader 的补丁是版本断言的，换 glibc 会直接失败，
+  而不是碰巧能用。
+- **发行版覆盖。** 一个发行版、一个 ABI、一个设备族（arm64 Android 4 KiB 页已验证；
+  16/64 KiB 只在 QEMU 上）。
+- **rootfs 准备。** stock 的树要三步才能跑：libc 打补丁、绝对符号链接改相对、
+  `husk-ldconfig` 替换静态 `ldconfig`（`docs/RUNNING.md`）。proot 一步都不要。
+- **设备访问。** 两个运行器都没有传感器、GPS、USB、蓝牙、NFC、指纹。
+- **图形。** 本版不提供。见本节开头：没有可比对象，也不写数字。

@@ -18,3 +18,12 @@ dist/*.apk
 # loader 构建中间产物（由 build-embedded-loader.sh 生成）
 tools/loader/libc-slots.so.6
 tools/loader/libc-interpose.txt
+
+# The CI workflow needs the `workflow` scope on the pushing token. Kept out of
+# the tree until that scope is granted, so an ordinary `git add -A` cannot fail
+# the release push: add it back with
+#   gh auth refresh -h github.com -s workflow && git add -f .github/workflows/ci.yml
+.github/workflows/ci.yml
+
+# Build output of `make dist` (the tarball is a release artifact, not a source).
+dist/

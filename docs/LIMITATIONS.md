@@ -1,78 +1,57 @@
-# Limitations
+# 限制
 
-What Husk does not do, or does not do yet. Everything below is either measured on the
-one target device or explicitly marked UNKNOWN. A limit that is not listed here has
-not been studied, which is not the same as "works".
+这份文件写的是 Husk 做不到、或者还没做到的事。每条都来自目标机上的实测，或者明确标成
+未验证。**没写在这里不等于能用**——那只是还没研究。
 
-Target device for every statement in this file: RMX3357 (MT6893 / Mali-G77 /
-Android 13 / kernel 4.19.191 / 4 KiB pages / arm64), running as `untrusted_app`
-without root.
+目标机：RMX3357（MT6893 / Mali-G77 / Android 13 / kernel 4.19.191 / 4 KiB 页 / arm64），
+以 `untrusted_app` 运行，无 root。
 
-## 1 · The desktop is still software-rendered (FACT, not fixed)
+## 1 · 一个 ABI、一个设备族（FACT）
 
-GNOME Shell 46 comes up under the 2.0 integration with
-`MESA_LOADER_DRIVER_OVERRIDE=swrast` and `GALLIUM_DRIVER=llvmpipe`. The guest
-GPU path exists — a guest process opens `/dev/mali0` directly and PanVK reports a
-logical device, compute, offscreen graphics and Zink surfaceless all work
-(evidence 97) — but the Mali kbase on this MTK 4.19 kernel is not detected by the
-Mesa 25.2.8 PanVK build that ships in the rootfs, and guest EGL still fails with
-`DRI3 error: Could not get DRI3 device` because the shim's synthetic `renderD128`
-cannot answer the DRM version query.
+只跑过 arm64 Android、4 KiB 页、glibc 2.39。loader 的补丁是版本断言的
+（`nr-tools scan-syscalls` 校验 glibc 版本与 `set_robust_list` / `rseq` / `clone3` 的
+site 数量），所以换发行版或换 glibc 构建会**直接报错**，而不是半好不坏地跑起来。
+16 KiB / 64 KiB 页只在 QEMU 上验证过（evidence 125），没在手机上验证。
 
-Consequence for the benchmarks: the desktop dimensions (settings to first frame,
-window drag fps, 1080p playback) compare **runner overhead**, not GPU. They are
-labelled that way in `docs/BENCHMARKS.md` and must not be quoted as a GPU result.
+## 2 · 没有 root、没有解 Bootloader、没有虚拟化（设计如此，永久）
 
-## 2 · One device, one rootfs, one ABI (FACT)
+Husk 跑在普通应用沙箱里。沙箱碰不到的东西就碰不到：内核模块、别的应用的数据、`hidepid`
+隐藏的 `/proc` 项、裸块设备、系统级策略开关。
 
-Only arm64 Android, 4 KiB pages, glibc 2.39 (Ubuntu 24.04) has been run. The
-loader patching is version-checked (`nr-tools scan-syscalls` asserts the glibc
-version and the exact number of `set_robust_list` / `rseq` / `clone3` sites), so a
-different distribution or glibc build fails loudly instead of producing a broken
-runtime. 16 KiB / 64 KiB kernels were exercised on QEMU (evidence 125) but not on
-a phone. Non-Mali GPU families have a probe table and a documented fallback, not
-an adapter.
+## 3 · Termux 不是交付形态（FACT，已实测）
 
-## 3 · No root, no unlocked bootloader, no virtualization (design, permanent)
+用户态需要的二进制与库 Termux 的 `$PREFIX` 不提供，在那边跑会直接卡在缺依赖上。支持的
+目标目录是能执行且可写的那种（设备上的 `/data/local/tmp` 与应用私有目录都满足，见
+`docs/RUNNING.md`）。这不是脚本能补的缺口。
 
-Husk runs inside the ordinary app sandbox. Anything the app sandbox cannot reach
-stays out of reach: kernel modules, other apps' data, `/proc` entries hidden by
-`hidepid`, raw block devices, and system-wide policy knobs.
+## 4 · `apt upgrade` 升 libc6 会拆掉运行时（FACT，已给修法）
 
-## 4 · Termux is not a delivery form (FACT, measured)
+`apt` 升级 `libc6` 会把打过补丁的 libc 换成 stock 版本，丢掉两处补丁：libc 内部调用的 slot
+页、以及 `clone3 → ENOSYS`。之后 `getent shadow` 返回空、提权修复脚本失败、会话起不来，
+报错是一句误导性的 `/bin/sh: 1: Cannot fork`（evidence 154）。重跑
+`tools/guest-config/install-libc-patch.sh` 即可。
 
-The guest tree needs binaries and libraries that Termux's `$PREFIX` does not
-provide; running the installer there stops at missing dependencies. The supported
-target is the app's own private directory (`run-as … files/…`) — see
-`docs/RUNNING.md`. This is not a packaging gap that a script can close.
+## 5 · rootfs 里不能有绝对符号链接（FACT，已给工具）
 
-## 5 · `apt upgrade` on libc6 breaks the runtime (FACT, workaround shipped)
+内核按 `/` 解析符号链接目标，所以 rootfs 里的绝对链接会逃到 Android 文件系统。Ubuntu
+24.04 的树里有 552 个，`libblas.so.3` 之类经 `alternatives` 的链接全部受影响。
+`tools/guest-config/relative-symlinks.py --apply` 改写成相对路径；这是 rootfs 准备步骤，
+不是一次性修补（`docs/RUNNING.md`）。
 
-`apt` upgrading `libc6` replaces the patched guest libc with the stock one and
-drops two runtime patches: the libc-internal slot page and `clone3 → ENOSYS`.
-After that, `getent shadow` returns empty, the sudo repair step fails and the
-desktop refuses to start with a misleading `/bin/sh: 1: Cannot fork`
-(evidence 154). Re-apply with `tools/guest-config/install-libc-patch.sh`.
+## 6 · 取样走 `adb shell`，它的 stdout 是 socket（FACT）
 
-## 6 · Guest rootfs must not contain absolute symlinks (FACT, tool shipped)
+guest 里 `/proc/self/fd/1` 是 socket。`make` 往它写完（309 字节就够）之后，同一会话后续
+写入全部 `EACCES`。proot 下完全一样，所以不是 shim 的行为；但它限定了基准的取样方式：
+构建类步骤统一重定向到 `/dev/null`，只记墙钟（evidence 155）。
 
-The kernel resolves a symlink target against `/`, so an absolute link inside the
-rootfs escapes to the Android filesystem. 552 of them existed in the Ubuntu
-24.04 tree; `libblas.so.3` and every other `alternatives` link were affected.
-`tools/guest-config/relative-symlinks.py --apply` rewrites them to relative paths;
-this is a required rootfs preparation step (`docs/RUNNING.md`), not a one-off fix.
+## 7 · GPU 只到"能开、能算"，没到"能上线"
 
-## 7 · Measurement is done through `adb shell`, whose stdout is a socket (FACT)
+GPU 那条路是真的：用户态直开 `/dev/mali0`，PanVK 给出 logical device，compute 与离屏
+graphics 通过，Zink surfaceless 也通（evidence 97）。**没有做的是 WSI / swapchain**，也就是
+把一个窗口的表面交给 GPU 直接呈现这条链；显示侧目前走的是 `AHardwareBuffer` → dma-buf →
+`SurfaceControl` 的零拷贝路径（evidence 59），两条链还没有合起来。
 
-`/proc/self/fd/1` inside the guest is a socket. After `make` writes to it (309
-bytes is enough), every later write in that session fails with `EACCES`. The same
-happens under proot, so it is not a shim behaviour, but it does constrain how the
-benchmark may be sampled: build steps redirect to `/dev/null` and only the wall
-clock is recorded (evidence 155).
+## 8 · 未开始
 
-## 8 · Not started
-
-Sensors, GPS, USB, Bluetooth, NFC, fingerprint, WSI/swapchain, hardware video
-decode (HEVC / VP9 / AV1), hardware encode, camera zero-copy. Browser availability
-inside the guest is UNKNOWN in this release: no browser package is part of the
-benchmark rootfs, and none was run.
+传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、硬件编码。随附 rootfs 里没有浏览器包，
+而且没有跑过任何一个浏览器。
