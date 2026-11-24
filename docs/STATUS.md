@@ -9,7 +9,7 @@
 **设备**：`adb` serial `UKHMMB8PYTGECMNV`（RMX3357）。2.0 集成现场是应用
 `com.linuxhub.myth.husk`（debug 包名后缀），rootfs 在
 `files/linux/distributions/ubuntu-24.04/rootfs`，loader 在 `files/linux/husk/libld.so`，
-资产版本标记 `files/linux/husk/assets.version`（当前 `husk-runtime-spawn-link-4`）。
+资产版本标记 `files/linux/husk/assets.version`（当前 `husk-runtime-spawn-link-8`）。
 旧测试会话的 `com.linuxhub.husk`（`files/rootfs-full`、`files/libld3.so`）不要动。
 
 **启动契约（两个变量必须同时设，缺一个就"看起来像 shim 坏了"）**：
@@ -31,8 +31,10 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 1. 非 Mali GPU 家族**适配器**（Adreno kgsl+Turnip / 通用 DRM）：探测表与降级已落地（evidence 127），
    适配器本身等有设备再写——没设备只能出未验证代码；
 2. 传感器 / GPS / USB / 蓝牙 / NFC / 指纹——未开始（先读 `husk-notes/prior-art/sensor-gps-*.md`、`platform-peripherals-*.md`）；
-3. 2.0 集成：映射表与替代启动器已落地（docs/design/linuxhub-2.0-swap.md，evidence 129），
-   还剩两件：① `su`/PAM 的 `PAM_SYSTEM_ERR` 要定位（现在靠直接以用户身份启动绕开）；② 把 2.0 的 Kotlin 侧真正接上；
+3. 2.0 集成：映射表与替代启动器已落地（docs/design/linuxhub-2.0-swap.md，evidence 129）；
+   ① `su` 已用 husk-su 替掉（evidence 139），PAM 那条路仍是 UNKNOWN 但不再需要；
+   ② Kotlin 侧已经接上（运行时替换 + 资产），门禁 A 的干净重跑待 evidence 140；
+   ③ guest `DT_RUNPATH` 与跨进程虚构所有权（`st_uid`）是下一个口径缺口；
 4. 交付形态：**已落地**（`tools/guest/install-husk.sh`，evidence 130）——本地 tarball 或 URL 一条命令
    装完 + 生成启动器，本机 app 私有目录端到端通；**真 Termux 验收 UNKNOWN**（本机没装 Termux，
    adb shell 里也没有 curl/wget，URL 分支只在 macOS 上证过下载段）。
@@ -81,6 +83,8 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 | `argv[0]` 与符号链接分派 | 嵌套 exec 原先把程序名换成**解析后的目标路径**，`/usr/sbin/addgroup → adduser` 这类符号链接分派因此失效（perl 的 `$0` 变成 `…/adduser`，`addgroup --system X` 建的是**用户**不是组，dpkg-statoverride 报 `group 'geoclue' does not exist`）。现在 dynamic ELF 走加载器的 `--argv0 <调用方 argv[0]>`，`#!` 脚本把**调用时用的路径**交给解释器（内核语义）；`ps` 的 comm 同步跳过 `--argv0` 的值。实测 `addgroup` 建组、`adduser` 不受影响、嵌套 exec 与 `ps -o comm` 正常 | 137 |
 | 静态二进制是域边界 | guest 里静态链接的 ELF 不过 shim，于是没有 SIGSYS handler、也没有路径层：`/sbin/ldconfig.real` 在 `untrusted_app` 域被 seccomp 直接打死（159），在 `adb shell`/`run-as` 下却能跑（只是写宿主 /etc 得 EROFS）。所以**门禁类结论必须在 App 进程里量**；`/usr/sbin/ldconfig → husk-ldconfig` 从"最好有"升级为"第一条 guest 命令之前就必须有" | 135 / 137 |
 | `dpkg` 拆 conffile 的写权限 | dpkg 的拆包顺序是 create → write → `chmod`（包里的模式）→ **再 open 写**；`/etc/sudoers.d/README` 是 `0440`，内核按真实 app uid 判 owner 位 → `EACCES`，`sudo` 装不上（`unable to open '/etc/sudoers.d/README.dpkg-new': Permission denied`）。`openat` 现在 `O_CREAT` 时补 `0600`，并在「写意图 + `EACCES` + `NR_FAKE_UID=0`」时把目标 `chmod 0600` 重试一次；`NR_DEBUG` 下把失败的 `errno/flags/path` 记进 `<rootfs>/tmp/nr-exec.log`。实测 `dpkg --purge sudo` 后再 `dpkg -i` → `rc=0`、`/usr/bin/sudo` 保持 `-rwsr-xr-x`。已知偏差：`README` 落地 `0600` 而非 `0440`（模式保真待修） | 138 |
+| `su` / 换身份 | util-linux 的 `su` 在这台机器上用不了：`runuser -u X -- id` → `cannot set groups: Operation not permitted`（libc 内部 `initgroups()` 直接发 `setgroups`，拦截不到，真实 uid 无 CAP_SETGID）；`su` 无论切到哪个用户都是 `su: System error`，且换掉 `/etc/pam.d/su`、删掉它、插 `pam_echo` 都不改变结果（失败在读配置之前，具体位置 UNKNOWN）。现在 `/usr/bin/su`、`/usr/sbin/runuser` 指向 `husk-su`（Rust，`runtime/crates/su`）：查账户、设 `NR_FAKE_UID`/`NR_FAKE_GID`、exec shell，不需要任何权限。实测 `su - husk -c id` → `uid=1000(husk)`、`HOME=/home/husk`、cwd 在 home；非 root 换别人被拒并说明。App 的初始化因此第一次走完（`INITIALIZATION COMPLETE`），`14-gate-a-acceptance.sh` 在 App 的树上 34 PASS / 0 FAIL | 139 |
+| guest `DT_RUNPATH` | 不给 `--library-path` 就找不到 `RUNPATH` 目录里的库（sudo 的 `libsudo_util.so.0` 在 `/usr/libexec/sudo`，文件在、搜不到；gio 的 `libpxbackend-1.0.so` 同理）。sudo 起来之后还会拒绝：`/etc/sudo.conf is owned by uid 10265, should be 0`（跨进程的虚构所有权还没设计）。两者都不在门禁 A 判据里 | 139 |
 | 服务器表面 | `/proc` 合成、`/sys/class/net`、`/dev/log` 落地；79 PASS / 5 PARTIAL / 6 FAIL | 107 / 109 / 111 / 112 |
 | 挂载 | bind、tmpfs、只读 bind 的命名空间等价物（`mount`/`umount2` + 路径层，`/proc/mounts` 一致）；只读对目录描述符同样生效，元数据写入（chmod/chown/utimensat/xattr）同样 `EROFS`，表有锁、存储目录不留残留 | 112 / 113 / 117 |
 | 服务监督器 | `husk-init`（freestanding 静态，无 libc）按 `etc/husk/services.conf` 起服务、崩溃按 1→30s 退避重启、`once` 不重启、`on-failure` 只在失败时重启、stdout/stderr 落到 `var/log/husk/<name>.log`、`PR_SET_CHILD_SUBREAPER` 收孤儿、SIGTERM 0.5s 内停且零残留零僵尸 | 120 |

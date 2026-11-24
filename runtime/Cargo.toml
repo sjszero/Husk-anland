@@ -20,6 +20,7 @@ members = [
     "crates/husk-init",
     "crates/ldconfig",
     "crates/usermgr",
+    "crates/su",
     "crates/runtime-core",
     "crates/vulkan-probe",
     "crates/video-protocol",

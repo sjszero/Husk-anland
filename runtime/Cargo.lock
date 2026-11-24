@@ -89,6 +89,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "husk-su"
+version = "0.1.0"
+
+[[package]]
 name = "husk-va-driver"
 version = "0.1.0"
 dependencies = [

@@ -66,11 +66,19 @@ eq "cleanup" "gone" "$(id nrtest >/dev/null 2>&1 && echo present || echo gone)"
 
 echo "== dpkg =="
 eq "dpkg -C clean before" "0" "$(dpkg -C >/tmp/dpkgC.1 2>&1; wc -l < /tmp/dpkgC.1 | tr -d ' ')"
-eq "installed packages" "811" "$(dpkg-query -W -f='${Status}\n' | grep -c 'install ok installed')"
+eq "installed packages" "${EXPECT_PKGS:-811}" "$(dpkg-query -W -f='${Status}\n' | grep -c 'install ok installed')"
 eq "unpacked packages" "0" "$(dpkg-query -W -f='${Status}\n' | grep -c 'install ok unpacked')"
-deb=/var/cache/doro-offline/packages/acl_*_arm64.deb
-eq "dpkg-deb -I" "ok" "$(dpkg-deb -I $deb >/dev/null 2>&1 && echo ok || echo fail)"
-eq "force-overwrite reinstall rc" "0" "$(dpkg --force-overwrite -i $deb >/tmp/reinstall.log 2>&1; echo $?)"
+# A .deb to re-install. The App tree removes its offline cache once the
+# initialisation ends, so discovery has to look in more than one place; when
+# there is none, say so instead of turning a missing fixture into a failure.
+deb=$(ls /var/cache/doro-offline/packages/*.deb 2>/dev/null | head -1)
+[ -n "$deb" ] || deb=$(ls /var/cache/apt/archives/*.deb 2>/dev/null | head -1)
+if [ -n "$deb" ]; then
+  eq "dpkg-deb -I ($(basename "$deb"))" "ok" "$(dpkg-deb -I "$deb" >/dev/null 2>&1 && echo ok || echo fail)"
+  eq "force-overwrite reinstall rc" "0" "$(dpkg --force-overwrite -i "$deb" >/tmp/reinstall.log 2>&1; echo $?)"
+else
+  echo "  NOTE  no .deb on this tree (offline cache already removed) - reinstall checks skipped"
+fi
 eq "dpkg -C clean after" "0" "$(dpkg -C >/tmp/dpkgC.2 2>&1; wc -l < /tmp/dpkgC.2 | tr -d ' ')"
 eq "getfacl still runs" "ok" "$(getfacl --version >/dev/null 2>&1 && echo ok || echo fail)"
 
@@ -115,5 +123,19 @@ GUEST
 adb -s "$DEV" push "$TMP/accept.sh" /data/local/tmp/husk-accept.sh >/dev/null
 adb -s "$DEV" shell "run-as $PKG cp /data/local/tmp/husk-accept.sh $ROOTFS/tmp/husk-accept.sh"
 adb -s "$DEV" shell "run-as $PKG chmod 755 $ROOTFS/tmp/husk-accept.sh"
-# The launcher's program argument must be relative to the guest root.
-adb -s "$DEV" shell "run-as $PKG sh -c 'NR_LD=\$PWD/$LD exec \$PWD/$(dirname "$ROOTFS")/husk usr/bin/bash /tmp/husk-accept.sh'" 2>&1
+# Three things the loader needs and none of them are defaults:
+#   * cwd inside the guest root - the program argument is guest-relative
+#     ("usr/bin/bash") and is resolved against it;
+#   * --library-path, which *replaces* the loader's search path, so every guest
+#     library directory has to be listed (libtinfo.so.6 is the first thing bash
+#     asks for);
+#   * NR_ROOTFS and NR_LD both set. Without NR_ROOTFS the parent process does
+#     no rewriting at all (measured: a relative program still starts, every
+#     absolute path - /tmp/husk-accept.sh included - then misses); without NR_LD
+#     a re-entering child falls back to the distro loader.
+LIBS="lib/aarch64-linux-gnu:usr/lib/aarch64-linux-gnu:usr/lib/aarch64-linux-gnu/mutter-14:usr/lib/gnome-shell:usr/lib/aarch64-linux-gnu/gvfs"
+# HOME and the XDG base directories are dropped on purpose: the app process'
+# own values point at /data/user/0/<package>, and dconf happily creates
+# $HOME/.cache/dconf - which the shim then creates *inside* the rootfs as
+# rootfs/data/user/0/..., i.e. host-shaped dirt in the guest (measured).
+adb -s "$DEV" shell "run-as $PKG sh -c 'R=\$PWD/$ROOTFS; L=\$PWD/$LD; unset XDG_CACHE_HOME XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME; cd \"\$R\" && HOME=/root EXPECT_PKGS=${EXPECT_PKGS:-811} PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin NR_ROOTFS=\$R NR_LD=\$L exec \$L --library-path \"\$R/$LIBS\" usr/bin/bash /tmp/husk-accept.sh'" 2>&1
