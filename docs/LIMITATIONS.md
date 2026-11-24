@@ -69,8 +69,9 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
    **反例是文件管理器**：`nautilus` 46 能开窗、能枚举目录（日志逐条打出 `/etc/*`），但内容区
    整块空白、连列头都不出现；`GSK_RENDERER=cairo` 与 `ngl` 一样、`list-view` 与 `icon-view`
    一样，**同一份 rootfs 换 proot 起也照样空白**，同一会话里最小 `GtkColumnView` 程序却正常
-   ——所以不是 path-shim 造成的，根因 UNKNOWN（evidence 178）。WebKit/Electron 类**未测**，
-   输入交互**未测**。
+   ——所以不是 path-shim 造成的，根因 UNKNOWN（evidence 178）。WebKit/Electron 类**未测**。
+   键盘输入**已测**：XTEST 敲进 `gnome-text-editor`，标题与正文都跟着更新、折行正常
+   （evidence 180）；**没量延迟**，也没测 IME/组合键，指针注入另见 evidence 148。
    另外这棵树的整块 `glReadPixels` 是坏的：目的行距恒为 **16 字节**（与宽度无关），
    每行只有前 4 个像素落在该去的地方，写入量 = `H×16 + (W×4 − 16)` 字节
    （evidence 179 把地址学量出来了，evidence 162 是最初的现象）。截图类工具会拿到错位画面

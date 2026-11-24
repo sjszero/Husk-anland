@@ -39,6 +39,9 @@
   `__readlinkat_chk` / `__realpath_chk` / `__mq_open_2` 的"跳进窗口"是它们自己跳自己，
   真正的活是尾调用已接管的入口；`__openat64_nocancel` 这版没导出符号，标 UNKNOWN
   （evidence 175，`LIMITATIONS` 新增第 9 节）。
+- **键盘输入打通到 GTK4 客户端**：XTEST 敲进 `gnome-text-editor`，标题栏与正文都跟着更新、
+  右边界折行正常，改窗口尺寸触发全量重绘后内容一致、无残影。只测键盘，没量延迟，
+  IME/组合键未测（evidence 180）。
 - **`glReadPixels` 的机制量出来了**：目的行距恒为 16 字节（与宽度无关），每行只有前 4 个像素
   落地，写入量 = `H×16 + (W×4 − 16)`；换 `PACK_ROW_LENGTH` 无效、`PACK_ALIGNMENT=1` 更糟。
   **逐行读与逐像素读 100% 正确**，1×H 单列读同样坏。llvmpipe / zink / proot 三处完全一致
