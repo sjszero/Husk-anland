@@ -28,8 +28,9 @@ Husk 跑在普通应用沙箱里。沙箱碰不到的东西就碰不到：内核
 
 `apt` 升级 `libc6` 会把打过补丁的 libc 换成 stock 版本，丢掉两处补丁：libc 内部调用的 slot
 页、以及 `clone3 → ENOSYS`。之后 `getent shadow` 返回空、提权修复脚本失败、会话起不来，
-报错是一句误导性的 `/bin/sh: 1: Cannot fork`（evidence 154）。重跑
-`tools/guest-config/install-libc-patch.sh` 即可。
+报错是一句误导性的 `/bin/sh: 1: Cannot fork`（evidence 154）。修法：`make libc-patch`（`nr-tools libc-patch`，Rust，跑完会断言：slot 表逐个对上、
+`clone3` 站点归零、`set_robust_list` 被改写、4K/16K/64K 页都对齐），或直接重装 APK。
+会话启动前 `husk-session.sh` 还会比一次哈希：被动过就换回随包那份，换不回来就拒绝启动。（evidence 170）
 
 ## 5 · rootfs 里不能有绝对符号链接（FACT，已给工具）
 

@@ -91,7 +91,7 @@ getent passwd | head -3
 |---|---|
 | `cannot execute the loader from here` | 目录不可执行（`noexec`）或沙箱不允许，换到应用私有目录 |
 | `Exec format error` | 设备不是 arm64 |
-| `Bad system call` | libc 补丁没打：重跑 `tools/guest-config/install-libc-patch.sh` |
+| `Bad system call` | libc 补丁没打：`make libc-patch` 重新打（evidence 170） |
 | 库存在却 `ENOENT` | rootfs 里的绝对符号链接没改成相对：`husk-symlinks --root <rootfs> --apply` |
 | `dpkg` 报 `Can't stat /lib` | 静态 `ldconfig` 没换成 `husk-ldconfig` |
 | `su: System error` | `husk-su` 没装进 `usr/sbin/` |

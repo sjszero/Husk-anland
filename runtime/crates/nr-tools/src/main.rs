@@ -7,6 +7,7 @@
 //!
 //!   nr-tools scan-syscalls report <elf> [--version V] [--expect NAME=COUNT ...]
 //!   nr-tools scan-syscalls patch  <elf> <out> [--version V] [--expect ...]
+//!   nr-tools libc-patch <libc.so.6> <out.so.6> --table F [--version V] [--assert-only]
 //!   nr-tools embed <shim.so> <loader.orig> <hook.bin> <out.so>
 //!   nr-tools provision [--no-push] [--stage DIR] [--cache DIR] [--serial S]
 //!       (Rust port of tools/device-tests/provision-toolchain.sh)
@@ -14,6 +15,7 @@
 //! Why a scan and not an offset table: see the plan (docs/design/runtime.md).
 //! Every expectation below is an assertion; a different glibc must fail loudly.
 
+mod libc_patch;
 mod libc_slots;
 mod provision;
 mod rootfs;
@@ -1195,7 +1197,7 @@ fn walk_elf_candidates(p: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(cmd) = args.first() else {
-        eprintln!("usage: nr-tools {{scan-syscalls|check-elf|embed|libc-interpose|provision|rootfs|rootfs-status}} ...");
+        eprintln!("usage: nr-tools {{scan-syscalls|check-elf|embed|libc-interpose|libc-patch|provision|rootfs|rootfs-status}} ...");
         return ExitCode::from(2);
     };
     match cmd.as_str() {
@@ -1218,6 +1220,10 @@ fn main() -> ExitCode {
         }
         "libc-interpose" => {
             libc_slots::main(&args[1..]);
+            ExitCode::SUCCESS
+        }
+        "libc-patch" => {
+            libc_patch::main(&args[1..]);
             ExitCode::SUCCESS
         }
         "embed" => {

@@ -96,7 +96,7 @@ sudo/PAM 一条按"不需要"结案：`husk-su` 已覆盖提权路径，PAM 的 
 |---|---|
 | `apt install` | **可用**（815 → 882 包，27 秒）。两个前置修好了：`statvfs/statvfs64` 进 shim（`apt` 的剩余空间检查原来问的是 host 路径）、`/sbin/ldconfig.real` 换成 `husk-ldconfig`（静态 ldconfig 看不见 guest） |
 | `dpkg --configure -a` | rc=0（`husk-ldconfig` 写 `/etc/ld.so.cache`，950 条 / 6 个目录） |
-| ⚠️ `apt upgrade` 升 libc6 | **会覆盖运行时打过补丁的 libc**，之后 `getent shadow` 返回空、`sudo` 的用户查询失败、桌面起不来（`/bin/sh: 1: Cannot fork`）。修法：`tools/guest-config/install-libc-patch.sh` 重新打补丁 |
+| ⚠️ `apt upgrade` 升 libc6 | **会覆盖运行时打过补丁的 libc**，之后 `getent shadow` 返回空、`sudo` 的用户查询失败、桌面起不来（`/bin/sh: 1: Cannot fork`）。修法：`make libc-patch` 重新打补丁（Rust 化，带断言；evidence 170） |
 | 判据 | `python3 -c 'import os;print(os.statvfs("/").f_blocks)'` = 28 292 600（不是 194 478）；`getent shadow husk` 非空 |
 
 **参考笔记不进仓库**：`$REPO-notes/prior-art/`（必读 `references.md`）。

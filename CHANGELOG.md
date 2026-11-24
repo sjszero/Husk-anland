@@ -30,11 +30,22 @@
 - **假 DRM 节点的 dup 记账**：`dup`/`dup2`/`dup3` 与 `fcntl(F_DUPFD)`/`fcntl64` 以前不认假 fd，
   复制出来的渲染节点（`rdev=0:0`、memfd）上的 DRM ioctl 全部落空，客户端退回软件渲染。
   现在副本也报 `rdev=10:33`（evidence 166）。
+- **libc 内部调用少打 5 个 hook 而一直没人发现**：105 个 hook 里
+  `__readlink_chk`、`__readlinkat_chk`、`__realpath_chk`、`__mq_open_2`（入口窗口里有分支跳进来）
+  与 `__openat64_nocancel`（这个 libc 根本没导出）一直被 interposer 拒绝，旧的 shell 脚本不做
+  集合比对，所以"装上了"和"少 5 个"看起来一样。应用层这 5 个名字仍由 shim 的 GOT 覆盖，
+  libc **内部**的直调仍然落到 host —— 这是已知缺口，本版只是把它变成会失败的断言，没有修
+  （evidence 170 §3）。
 - **假 DRM fd 只进不出**：`close()` 从不注销 DRM 假 fd，8 个槽位用满之后新开的节点不再被接管；
   `close()`/`close_range()` 现在会注销，槽位真的用完时会打一条日志（evidence 166）。
 
 ### 工具
 
+- **libc 补丁链 Rust 化**：`nr-tools libc-patch`（`make libc-patch` / `make libc-verify`）
+  取代 `tools/guest-config/install-libc-patch.sh`（已删）。除了原来那两步变换，它把"结果对不对"
+  变成断言：glibc 版本绑定、slot 集合必须等于 `libc-interpose.expected`、`clone3` 归零、
+  `rseq` 不被动、4 KiB/16 KiB/64 KiB 页都对齐；失败就中止，不再出现"推了一半也算成功"。
+  同一份 stock libc 打出来的产物与仓库里 `tools/loader/libc-nop.so.6` **逐字节一致**（evidence 170）。
 - `gl-probe root [out.ppm]`：用 `XGetImage` 读 X 根窗口并写 PPM，再打印非黑像素与直方图。
   手机 `screencap` 抓的是 App 自己的 UI，不能当 guest 出帧的证据。
 - `gl-probe window` 现在打印 swap 循环的耗时与 fps（`stage 10: 60 swaps OK (506.8 ms, 118.4 fps)`），

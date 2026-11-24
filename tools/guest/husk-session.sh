@@ -68,7 +68,8 @@ if [ -f "$STATE" ] && [ -f "$LIBC" ]; then
                 echo "husk-session: guest libc is $(echo "$have" | cut -c1-12) but this install recorded" \
                      "$(echo "$want" | cut -c1-12), and no matching libc.so.6 sits next to the rootfs." >&2
                 echo "              an apt upgrade of libc6 does this; rebuild the install, or re-run" >&2
-                echo "              tools/guest-config/install-libc-patch.sh. Refusing to start a broken tree." >&2
+                echo "              `make libc-patch` on the dev box (or re-install the APK)." \
+                     "Refusing to start a broken tree." >&2
                 exit 74
             fi
         fi

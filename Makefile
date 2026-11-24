@@ -16,7 +16,8 @@ MANIFEST    := runtime/Cargo.toml
 PROFILE_DIR := runtime/target/$(TARGET)/release
 HUSK_TOOLS  := runtime/target/debug/husk-tools
 
-.PHONY: all check lint test tools loader apk bench gate-a docs dist clean version-check
+.PHONY: all check lint test tools nr-tools loader apk bench gate-a docs dist clean version-check \
+        libc-patch libc-verify
 
 all: lint check version-check
 
@@ -45,6 +46,47 @@ lint:
 # for the host and call it. Never built for $(TARGET) -- it runs on the dev box.
 tools:
 	cargo build --manifest-path $(MANIFEST) -p husk-tools
+
+nr-tools:
+	cargo build --manifest-path $(MANIFEST) -p nr-tools
+
+# The guest libc is not stock (slot page + clone3 -> ENOSYS, LIMITATIONS 4), and
+# `apt upgrade` of libc6 puts the distro's copy back. This re-applies both
+# transforms to whatever libc the tree has now, with the assertions the old
+# shell script could not make (nr-tools libc-patch; evidence 170).
+DEV        ?= UKHMMB8PYTGECMNV
+PKG        ?= com.linuxhub.myth.husk
+DEV_ROOTFS ?= files/linux/distributions/ubuntu-24.04/rootfs
+DEV_LIBC   := $(DEV_ROOTFS)/usr/lib/aarch64-linux-gnu/libc.so.6
+LIBCTMP    := runtime/target/libc-patch
+
+libc-patch: nr-tools
+	@mkdir -p $(LIBCTMP)
+	adb -s $(DEV) shell "run-as $(PKG) sh -c 'cat $(DEV_LIBC)'" > $(LIBCTMP)/libc.so.6.stock
+	runtime/target/debug/nr-tools libc-patch $(LIBCTMP)/libc.so.6.stock $(LIBCTMP)/libc.so.6 \
+	    --table tools/loader/libc-interpose.txt
+	adb -s $(DEV) shell "run-as $(PKG) sh -c 'cat > $(DEV_LIBC).husk'" < $(LIBCTMP)/libc.so.6
+	adb -s $(DEV) shell "run-as $(PKG) sh -c 'R=$$(dirname $(DEV_LIBC)); \
+	    [ -f $$R/libc.so.6.stock ] || cp $$R/libc.so.6 $$R/libc.so.6.stock; \
+	    mv $(DEV_LIBC).husk $(DEV_LIBC); chmod 755 $(DEV_LIBC); sha256sum $(DEV_LIBC)'"
+	cp $(LIBCTMP)/libc.so.6 tools/loader/libc-nop.so.6
+	@echo "tools/loader/libc-nop.so.6 refreshed from this run (commit it)"
+
+# What the release artifact has to satisfy, checked without a device. Pass
+# STOCK=<a stock glibc 2.39 libc.so.6> to also prove the whole transform is
+# byte-stable against tools/loader/libc-nop.so.6.
+libc-verify: nr-tools
+	@mkdir -p $(LIBCTMP)
+	runtime/target/debug/nr-tools libc-patch tools/loader/libc-nop.so.6 x \
+	    --table tools/loader/libc-interpose.txt --assert-only
+	@if [ -n "$$STOCK" ]; then \
+	    runtime/target/debug/nr-tools libc-patch "$$STOCK" $(LIBCTMP)/verify.so.6 \
+	        --table tools/loader/libc-interpose.txt && \
+	    cmp $(LIBCTMP)/verify.so.6 tools/loader/libc-nop.so.6 && \
+	    echo "byte-identical to tools/loader/libc-nop.so.6"; \
+	else \
+	    echo "(set STOCK=<stock glibc 2.39 libc.so.6> to also check byte identity)"; \
+	fi
 
 test:
 	cargo test --manifest-path $(MANIFEST) --target $(TARGET) \
@@ -110,7 +152,7 @@ dist:
 	@chmod 755 dist/libld.so   # tar keeps the mode; a 644 loader is "not executable"
 	cp $(PROFILE_DIR)/husk-ldconfig $(PROFILE_DIR)/husk-usermgr \
 	   $(PROFILE_DIR)/husk-su $(PROFILE_DIR)/husk-symlinks dist/
-	cp tools/loader/libc-nop.so.6 dist/libc.so.6   # the artifact install-libc-patch.sh just refreshed
+	cp tools/loader/libc-nop.so.6 dist/libc.so.6   # the artifact `make libc-patch` refreshed
 	cp tools/guest/install-husk.sh tools/guest/husk-session.sh dist/
 	cp VERSION dist/VERSION
 	tar czf dist/husk-arm64.tar.gz -C dist \

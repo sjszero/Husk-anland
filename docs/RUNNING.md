@@ -96,8 +96,8 @@ APK 内 `assets/husk/arm64-v8a/`：
   `/var/lib/husk/owners` 这张 inode 例外表里。表是按设备文件系统的 inode 号记的，**换设备必须
   丢掉这张表**（打包 release 时已排除）。
 - **`apt upgrade` 会撤销第 1 条**：升级 `libc6` 会把补丁版换回 stock，之后 `getent shadow`
-  返回空、提权失败、会话起不来（报错是误导性的 `/bin/sh: 1: Cannot fork`）。重跑
-  `tools/guest-config/install-libc-patch.sh` 或换一个 `ASSET_REVISION` 让 APK 重刷。
+  返回空、提权失败、会话起不来（报错是误导性的 `/bin/sh: 1: Cannot fork`）。在仓库里跑
+  `make libc-patch`（见 evidence 170），或换一个 `ASSET_REVISION` 让 APK 重刷。
 
 ## 5 · 启动契约
 

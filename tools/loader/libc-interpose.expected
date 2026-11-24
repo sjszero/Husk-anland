@@ -1,0 +1,13 @@
+# Entries `nr-tools libc-interpose` refuses for glibc 2.39-0ubuntu8.12, and why.
+#
+# `nr-tools libc-patch` asserts **set equality** against this list, so:
+#   * a refusal that is not listed here fails the build (the transform silently
+#     lost coverage - the bug this assertion exists for);
+#   * a listed entry that starts being patched also fails (glibc changed or the
+#     interposer was improved) - review, then drop the line.
+# Do not add a line to silence a failure without knowing the reason.
+__readlink_chk         # something branches into the window
+__readlinkat_chk       # something branches into the window
+__realpath_chk         # something branches into the window
+__mq_open_2            # something branches into the window
+__openat64_nocancel    # not exported by this libc (stripped .symtab)
