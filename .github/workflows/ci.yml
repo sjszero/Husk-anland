@@ -99,10 +99,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: runtime
       - run: cargo build --manifest-path runtime/Cargo.toml -p nr-tools
-      # The shipped libc is a built artifact, so its invariants are checked here:
-      # slot page complete (minus the declared refusals), clone3 gone, segments
-      # loadable on 4K/16K/64K pages. No device needed.
-      - run: >
-          runtime/target/debug/nr-tools libc-patch tools/loader/libc-nop.so.6 x
-          --table tools/loader/libc-interpose.txt --assert-only
+      # The guest libc is a build artifact: it lives in the rootfs, not in this
+      # repo (`tools/loader/libc-nop.so.6` is ignored on purpose). So CI does not
+      # trust a file in the tree - it rebuilds the artifact from the pinned stock
+      # package and asserts the result, which is stricter than the old
+      # `--assert-only` pass over whatever happened to be on the dev box:
+      #   * the transform is version-tied, so the input has to be glibc 2.39;
+      #   * the slot page has to name every table entry except the ones declared
+      #     refused in libc-interpose.expected (set equality, both directions);
+      #   * clone3 has to disappear, rseq has to stay untouched;
+      #   * every PT_LOAD has to be congruent modulo 4K/16K/64K;
+      #   * and the bytes have to equal the artifact the release ships.
+      # The two sha256 values below are the pin: change them only with a libc
+      # bump, and only after `make libc-patch` on the device.
+      - name: rebuild the guest libc from the pinned stock package
+        run: |
+          set -eu
+          DEB=libc6_2.39-0ubuntu8.12_arm64.deb
+          WANT_DEB=2578bc27d4e077f5e93c283d2502bc693c516d9590a20a27840b548a4d436820
+          WANT_OUT=69ceef3759f456d80b4db4e013712e933a8c8d876e9af639102d8c88fc80f77c
+          curl -fsSL --retry 3 -o "$DEB" "https://ports.ubuntu.com/pool/main/g/glibc/$DEB"
+          echo "$WANT_DEB  $DEB" | sha256sum -c -
+          dpkg-deb -x "$DEB" stock
+          LIBC=$(find stock -path '*aarch64-linux-gnu/libc.so.6' | head -1)
+          test -n "$LIBC"
+          runtime/target/debug/nr-tools libc-patch "$LIBC" "$RUNNER_TEMP/libc.so.6" \
+            --table tools/loader/libc-interpose.txt
+          echo "$WANT_OUT  $RUNNER_TEMP/libc.so.6" | sha256sum -c -

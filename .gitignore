@@ -21,7 +21,6 @@ tools/loader/ld-stage1.so
 tools/loader/ldpreload-shim-reference.so
 tools/loader/libc-nop.so.6
 tools/loader/libc-slots.so.6
-tools/loader/libc-interpose.txt
 tools/loader/*.bin
 tools/loader/*.o
 binaries/
