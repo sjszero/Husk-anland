@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # The runtime is aarch64 Linux. `cargo check` for that target works from any
+  # host; only linking needs a cross linker, which the loader build takes from NDK.
+  TARGET: aarch64-unknown-linux-gnu
+
+jobs:
+  fmt:
+    name: cargo fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check --manifest-path runtime/Cargo.toml
+
+  check:
+    name: cargo check (aarch64-unknown-linux-gnu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: runtime
+      - run: rustup target add $TARGET
+      - run: >
+          cargo check --manifest-path runtime/Cargo.toml --target $TARGET
+          -p runtime-core -p nr-tools -p ldconfig -p path-shim
+
+  clippy:
+    name: cargo clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: runtime
+      - run: rustup target add $TARGET
+      # Warnings are allowed (the shim keeps several on purpose); errors are not.
+      - run: >
+          cargo clippy --manifest-path runtime/Cargo.toml --target $TARGET
+          -p runtime-core -p nr-tools
+
+  scripts:
+    name: shell scripts parse
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: sh -n every script
+        run: |
+          set -eu
+          fail=0
+          for f in $(git ls-files '*.sh'); do
+            sh -n "$f" || { echo "syntax error: $f"; fail=1; }
+          done
+          exit $fail
+
+  docs:
+    name: docs links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --manifest-path runtime/Cargo.toml -p husk-tools
+      - run: runtime/target/debug/husk-tools check-links
+
+  brand:
+    name: brand assets present
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: the README's logo and architecture figure exist
+        run: |
+          set -eu
+          test -f docs/assets/brand/husk-mark-hexagon-h-512.png
+          test -f docs/assets/brand/husk-mark-hexagon-h-1024.png
+          test -f docs/assets/architecture.svg
+
+  libc:
+    name: libc patch artifact asserts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --manifest-path runtime/Cargo.toml -p nr-tools
+      # The shipped libc is a built artifact, so its invariants are checked here:
+      # slot page complete (minus the declared refusals), clone3 gone, segments
+      # loadable on 4K/16K/64K pages. No device needed.
+      - run: >
+          runtime/target/debug/nr-tools libc-patch tools/loader/libc-nop.so.6 x
+          --table tools/loader/libc-interpose.txt --assert-only
