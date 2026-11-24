@@ -27,8 +27,8 @@ CACHE=${CACHE:-/tmp/nr-toolchain/deb}
 SKIP=${SKIP:-libc6}
 ADB=${ADB:-adb}
 SERIAL=${SERIAL:-}
-APP=${APP:-com.linuxhub.probe}
-GUEST_ROOT=${GUEST_ROOT:-files/nrfull/root}
+APP=${APP:-com.linuxhub.myth.husk}
+GUEST_ROOT=${GUEST_ROOT:-files/linux/distributions/ubuntu-24.04/rootfs}
 
 cargo build --release -q -p nr-tools --manifest-path "$ROOT/runtime/Cargo.toml"
 TOOLS=$ROOT/runtime/target/release/nr-tools

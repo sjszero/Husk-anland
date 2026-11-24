@@ -17,7 +17,7 @@ set -e
 cd "$(dirname "$0")"
 ROOT=$(cd ../.. && pwd)
 NDK=${NDK:?set NDK to your NDK toolchain bin dir, e.g. $ANDROID_HOME/ndk/<ver>/toolchains/llvm/prebuilt/<host>/bin}
-OUT=${OUT:-$ROOT/tools/probe-app/app/src/main/jniLibs/arm64-v8a}
+OUT=${OUT:-$ROOT/dist/embedded-loader}
 HOOK_CFLAGS=${HOOK_CFLAGS:-}
 SHIM_STRIP=${SHIM_STRIP:-symbols}
 # The base loader must come from the rootfs that will actually run: ld.so and

@@ -11,7 +11,6 @@
 | 构建期改写 | `tools/loader/`、`runtime/crates/nr-tools` | 入口桩、调用点 `nop`、把路径层嵌进 loader |
 | 产品壳 | `app/` | Android 应用：会话、PTY、终端渲染 |
 | 设备测试 | `tools/device-tests/` | `run-as` 下跑功能矩阵、越界测试、gcc/make 验收 |
-| 探针应用 | `tools/probe-app/` | 最小验证载体，不面向用户 |
 
 ## 2. 语言构成
 
@@ -19,13 +18,16 @@
 基准表格）、`husk-window-wait`（首个可见窗口计时）、`gl-probe`（ES3 真 workload / 窗口化 EGL）、
 `ipc-probe`（POSIX mqueue、SysV shm/sem/msg）。
 
+仓库里不再有 Java、C、Python 实现：设备测试原先要装一个只有 96 行 Activity 的探针 APK，
+用来把 `libld.so` 拉起来，现在这一步直接由 `run-as` 完成（guest 就是 App 同一个 uid 下的进程），
+`tools/device-tests/husk-exec.sh` 就是那个启动器。
+
 | 语言 | 规模 | 负责什么 | 为什么不是别的语言 |
 |---|---|---|---|
-| Rust | 67,572 行 / 72 个文件 | 运行时本体、全部构建与仓库工具、客舱探针、壳应用（PTY、GL 渲染、字体、输入、生命周期） | 单一实现，`no_std` 路径层零依赖，无 GC |
+| Rust | 68,279 行 / 73 个文件 | 运行时本体、全部构建与仓库工具、客舱探针、壳应用（PTY、GL 渲染、字体、输入、生命周期） | 单一实现，`no_std` 路径层零依赖，无 GC |
 | 汇编 | 318 行 / 2 个文件 | loader 入口桩与 `_dl_init` 钩子 | 这段代码必须在任何 Rust 运行时存在之前执行；稳定版 Rust 无法定义 naked function |
-| Shell | 2,871 行 / 54 个脚本 | 安装、会话启动、设备测试编排 | 被测对象本身就是 shell 与 coreutils，换掉等于换掉被测对象 |
-| Java | 96 行 / 1 个文件 | `tools/probe-app` 的验证 Activity（开发期跑探针用，不面向用户） | 仓库里唯一一门非 Rust 语言；它只是把一个可执行文件拉起来再收输出 |
-| Gradle kts | 53 行 / 6 个文件 | APK 打包 | Android 官方打包工具，不承载产品逻辑 |
+| Shell | 2,906 行 / 55 个脚本 | 安装、会话启动、设备测试编排 | 被测对象本身就是 shell 与 coreutils，换掉等于换掉被测对象 |
+| Gradle kts | 30 行 / 3 个文件 | APK 打包 | Android 官方打包工具，不承载产品逻辑 |
 
 壳应用没有 Activity 的 Java 类：APK 里声明的就是 `android.app.NativeActivity`，
 平台直接调用我们 `.so` 里的 `ANativeActivity_onCreate`，从这里往下全是 Rust。
