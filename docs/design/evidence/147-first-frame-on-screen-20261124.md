@@ -171,6 +171,7 @@ LH_LAYOUT monitors=1 stage_visible=false stage_size=2400x1080
 |---|---|---|
 | ~~僵尸堆积~~ **已修** | 修之前那个会话：uid 10265 的 142 个进程里 **105 个 Z**，GLib 报 `waitid(pid:10017, pidfd=11) failed: 无效的参数 (22)`。修之后同一套流程跑 100 s：37 个进程、**0 个 Z**、`waitid` 警告 0 条 | 见 §7.1 |
 | ~~`polkitd` 起不来~~ **已修** | 根因是 `Error switching to user polkitd: Error initializing groups: Operation not permitted`——glibc 的 `initgroups()` 在 libc 内部发 `setgroups`，GOT 改写看不见它（和 evidence 139 里 `su` 是同一条）。修：shim interpose `initgroups()` | 修后 `polkitd` 常驻并持有 `org.freedesktop.PolicyKit1`（`GetNameOwner` → `:1.31`），只剩 `Error getting login monitor: -2`（没有 logind，符合设计） |
+| polkit 现在会答话，但判我们"不可信" | `org.freedesktop.PolicyKit1.Error.NotAuthorized: Only trusted callers (e.g. uid 0 or an action owner) can use CheckAuthorization()...`；同一轮 colord 也报 `Could not determine UID for ':1.6'` | 根因同一件事：总线守护进程从 `SO_PEERCRED` 读到的是真实 uid 10265（`/etc/passwd` 里没有），而我们对外演的是 0。下一步要么在容器里把 `getsockopt(SO_PEERCRED)` 也按假身份改写，要么给 10265 一个账户条目——两条都要上机验，别只改一头 |
 | gvfs 点对点总线 | `用尽了所有可用的认证机制（已尝试：EXTERNAL）`，随后回退到会话总线 | 功能上能用（已回退），只是日志噪音 |
 | accessibility bus | `Couldn't register with accessibility bus` | at-spi 不可用 |
 | Lorie 的 FPS 计数 | 桌面在屏上，但 `LorieNative` 仍打 `0 frames in 5.0 seconds = 0.0 FPS` | 计数口径问题（`choreographer=302 redraw=302` 一直在涨），不是没画 |
