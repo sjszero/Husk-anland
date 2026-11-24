@@ -73,8 +73,9 @@ sh husk-session.sh files/linux/distributions/<发行版>/rootfs -- /usr/bin/true
 > [!NOTE]
 > 图形这一维也测了，但只有 Husk 这边有对象：桌面会话冷启动 8–9 s、X 根窗口 2400×1080
 > 非黑像素 100%、帧率 640×480 clear+swap 是 **131 fps**，而同一台机器上软件渲染（llvmpipe）
-> 是 300 fps —— **这一格对 Husk 不利，照写**：瓶颈是呈现路径上的那次 SHM 拷贝（DRI3 未通），
-> 不是 GPU 算力。proot 侧没有可比的桌面，凡是「不可比」的格子是真的没有对象，不是我们没测。
+> 是 300 fps —— **这一格对 Husk 不利，照写**：把窗口 swap 拆开量过，GPU 渲染只要 1.3 ms，
+> 其余是 GPU→CPU 回读再加进 X server 的拷贝（呈现约 24.8 ms/兆像素，DRI3 未通）。不是 GPU 算力。
+> proot 侧没有可比的桌面，凡是「不可比」的格子是真的没有对象，不是我们没测。
 > 完整条件、样本数与代价见 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)。
 
 ## 和容器、虚拟机的区别

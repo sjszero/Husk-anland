@@ -755,8 +755,114 @@ fn run_es3() -> i32 {
     }
 }
 
-/// Windowed EGL: real X11 window, 60 clear+swap frames, then a 1x1 readback.
-fn run_window() -> i32 {
+/// Offscreen EGL: a pbuffer of `width`x`height`, the same clear+swap loop as
+/// `window`, no X server in the path. Subtracting this from `window` at the same
+/// size is the presentation cost alone (the SHM handoff to the X server), which
+/// is the number that decides whether a zero-copy path is worth building.
+fn run_pbuf(width: u32, height: u32, frames: u32) -> i32 {
+    let Some(egl) = Egl::load() else {
+        say!("FAIL dlopen EGL");
+        return 1;
+    };
+    unsafe {
+        let display = (egl.get_platform_display)(
+            EGL_PLATFORM_SURFACELESS_MESA,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        );
+        if display.is_null() {
+            say!("FAIL eglGetPlatformDisplay(surfaceless)");
+            return 1;
+        }
+        let mut major = 0;
+        let mut minor = 0;
+        if (egl.initialize)(display, &mut major, &mut minor) == 0 {
+            say!("FAIL eglInitialize");
+            return 1;
+        }
+        say!("stage 3: eglInitialize {major}.{minor}");
+        (egl.bind_api)(EGL_OPENGL_ES_API);
+        let config_attrs = [
+            EGL_RENDERABLE_TYPE,
+            EGL_OPENGL_ES2_BIT,
+            EGL_RED_SIZE,
+            8,
+            EGL_GREEN_SIZE,
+            8,
+            EGL_BLUE_SIZE,
+            8,
+            EGL_ALPHA_SIZE,
+            8,
+            EGL_SURFACE_TYPE,
+            EGL_PBUFFER_BIT,
+            EGL_NONE,
+        ];
+        let mut config: Config = std::ptr::null_mut();
+        let mut count = 0;
+        if (egl.choose_config)(display, config_attrs.as_ptr(), &mut config, 1, &mut count) == 0
+            || count < 1
+        {
+            say!("FAIL eglChooseConfig n={count}");
+            return 1;
+        }
+        let surface_attrs = [EGL_WIDTH, width as i32, EGL_HEIGHT, height as i32, EGL_NONE];
+        let surface = (egl.create_pbuffer_surface)(display, config, surface_attrs.as_ptr());
+        if surface.is_null() {
+            say!("FAIL eglCreatePbufferSurface err={:#x}", (egl.get_error)());
+            return 1;
+        }
+        let ctx_attrs = [EGL_CONTEXT_MAJOR_VERSION, 2, EGL_NONE];
+        let context =
+            (egl.create_context)(display, config, std::ptr::null_mut(), ctx_attrs.as_ptr());
+        if context.is_null() {
+            say!("FAIL eglCreateContext err={:#x}", (egl.get_error)());
+            return 1;
+        }
+        if (egl.make_current)(display, surface, surface, context) == 0 {
+            say!("FAIL eglMakeCurrent err={:#x}", (egl.get_error)());
+            return 1;
+        }
+        let Some(gl) = Gl::load() else {
+            say!("FAIL dlopen GLESv2");
+            return 1;
+        };
+        say!("renderer={}", gl.string(GL_RENDERER));
+        (gl.viewport)(0, 0, width as c_int, height as c_int);
+        let swap_t0 = std::time::Instant::now();
+        for i in 0..frames {
+            let color = ((i % 2) as f32, ((i / 2) % 2) as f32, ((i / 4) % 2) as f32);
+            (gl.clear_color)(color.0, color.1, color.2, 1.0);
+            (gl.clear)(GL_COLOR_BUFFER_BIT);
+            // A pbuffer swap is a no-op: without a finish this loop only records
+            // Vulkan commands (measured 0.1 ms for 60 frames) instead of running
+            // them, and the number would mean nothing.
+            (gl.finish)();
+            if (egl.swap_buffers)(display, surface) == 0 {
+                say!(
+                    "FAIL eglSwapBuffers at frame {i} err={:#x}",
+                    (egl.get_error)()
+                );
+                return 1;
+            }
+        }
+        let dt = swap_t0.elapsed().as_secs_f64();
+        say!(
+            "stage 10: {frames} swaps OK ({:.1} ms, {:.1} fps) {}x{} pbuffer",
+            dt * 1000.0,
+            frames as f64 / dt,
+            width,
+            height
+        );
+    }
+    0
+}
+
+/// Windowed EGL: real X11 window at `width`x`height`, `frames` clear+swap
+/// frames, then a 1x1 readback. Defaults (640x480, 60) are the numbers the
+/// evidence files were taken with; other sizes are how the presentation cost
+/// gets separated from the GPU cost - a copy-bound path scales with pixels, a
+/// submission-bound one does not.
+fn run_window(width: u32, height: u32, frames: u32) -> i32 {
     let x11 = match Lib::open("libX11.so.6") {
         Some(l) => l,
         None => {
@@ -801,8 +907,8 @@ fn run_window() -> i32 {
             root,
             0,
             0,
-            640,
-            480,
+            width,
+            height,
             0,
             0,
             0,
@@ -891,9 +997,9 @@ fn run_window() -> i32 {
             return 1;
         };
         say!("renderer={}", gl.string(GL_RENDERER));
-        (gl.viewport)(0, 0, 640, 480);
+        (gl.viewport)(0, 0, width as c_int, height as c_int);
         let swap_t0 = std::time::Instant::now();
-        for i in 0..60 {
+        for i in 0..frames {
             let color = ((i % 2) as f32, ((i / 2) % 2) as f32, ((i / 4) % 2) as f32);
             (gl.clear_color)(color.0, color.1, color.2, 1.0);
             (gl.clear)(GL_COLOR_BUFFER_BIT);
@@ -913,9 +1019,11 @@ fn run_window() -> i32 {
         }
         let swap_dt = swap_t0.elapsed().as_secs_f64();
         say!(
-            "stage 10: 60 swaps OK ({:.1} ms, {:.1} fps)",
+            "stage 10: {frames} swaps OK ({:.1} ms, {:.1} fps) {}x{}",
             swap_dt * 1000.0,
-            60.0 / swap_dt
+            frames as f64 / swap_dt,
+            width,
+            height
         );
         (gl.clear_color)(0.0, 1.0, 0.0, 1.0);
         (gl.clear)(GL_COLOR_BUFFER_BIT);
@@ -1071,14 +1179,55 @@ fn run_root() -> i32 {
     }
 }
 
+/// `WxH`. Anything outside 1..=7680 is a typo, not a request.
+fn parse_size(s: &str) -> Option<(u32, u32)> {
+    let (w, h) = s.split_once('x')?;
+    let w: u32 = w.parse().ok()?;
+    let h: u32 = h.parse().ok()?;
+    if (1..=7680).contains(&w) && (1..=7680).contains(&h) {
+        Some((w, h))
+    } else {
+        None
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = match args.first().map(String::as_str) {
         Some("es3") => run_es3(),
-        Some("window") => run_window(),
+        Some("window") => {
+            let size = args.get(1).map(String::as_str).unwrap_or("640x480");
+            let frames = args
+                .get(2)
+                .and_then(|a| a.parse::<u32>().ok())
+                .filter(|n| (1..=100_000).contains(n))
+                .unwrap_or(60);
+            match parse_size(size) {
+                Some((w, h)) => run_window(w, h, frames),
+                None => {
+                    eprintln!("gl-probe window: bad size {size:?} (want WxH, e.g. 640x480)");
+                    2
+                }
+            }
+        }
+        Some("pbuf") => {
+            let size = args.get(1).map(String::as_str).unwrap_or("640x480");
+            let frames = args
+                .get(2)
+                .and_then(|a| a.parse::<u32>().ok())
+                .filter(|n| (1..=100_000).contains(n))
+                .unwrap_or(60);
+            match parse_size(size) {
+                Some((w, h)) => run_pbuf(w, h, frames),
+                None => {
+                    eprintln!("gl-probe pbuf: bad size {size:?} (want WxH, e.g. 640x480)");
+                    2
+                }
+            }
+        }
         Some("root") => run_root(),
         _ => {
-            eprintln!("usage: gl-probe <es3 | window | root [out.ppm]>");
+            eprintln!("usage: gl-probe <es3 | window [WxH [frames]] | pbuf [WxH [frames]] | root [out.ppm]>");
             2
         }
     };

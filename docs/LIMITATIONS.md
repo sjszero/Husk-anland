@@ -74,8 +74,17 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
    **GPU 渲染 → SHM 拷贝 → X 合成 → AHB 零拷贝 → 屏幕**，中间那一次拷贝没有消掉。
 3. **桌面合成器已经由 GPU 出帧（FACT），但 fps 在轻负载上不占优**：gnome-shell 46 跑在
    zink → PanVK 上，X 根窗口抓到完整桌面、非黑像素 100%（evidence 165/168）。而 640×480
-   clear+swap 的帧率是 zink 131 fps vs llvmpipe 300 fps —— 这个负载的瓶颈就是上面那次
-   SHM 拷贝，不是 GPU 算力（evidence 168）。重负载的 GPU/CPU 对比**未测**。
+   clear+swap 的帧率是 zink 131 fps vs llvmpipe 300 fps。**不是 GPU 算力不够**：2026-11-25
+   把窗口 swap 拆成「渲染」和「呈现」两段量了一遍——GPU 渲染在 160×120 到 1080×1080 之间
+   都只要 1.2–1.7 ms，而呈现这一段按窗口面积线性涨：zink 约 **24.8 ms/兆像素**（≈161 MB/s
+   的有效带宽），llvmpipe 约 11 ms/兆像素（evidence 174）。即 640×480 那 8.9 ms 里 GPU 只
+   占 1.3 ms，其余是 GPU→CPU 回读，再加挂进 X server 的那次拷贝。重负载的 GPU/CPU 对比
+   **未测**。
+   要消掉这一段只能走 DRI3/dma-buf 直传，而它在这台机上**不在 shim 能力范围内**：X server 是
+   应用进程里的 bionic Xorg（X.Org 21.1.99），`untrusted_app` 打不开 `/dev/dri`、
+   `/dev/dma_heap` 不存在、`/dev/ion` EACCES，所以「DRI3 有扩展但没有设备」，只能停在
+   `Could not get DRI3 device`。要么 shell 侧给服务器一条能 import dma-buf 的路，要么接受
+   这次拷贝（已实测代价见 evidence 174）。
 
 ## 8 · 分区很细：这一版不是「什么都跑得起来」
 
@@ -85,7 +94,7 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
 | 会话服务（polkit、at-spi、gvfs、RandR） | 可用 | evidence 151、152 |
 | GPU：Vulkan compute / 离屏 graphics | 可用 | evidence 156 |
 | GPU：GL/EGL 经 Zink 落到 GPU（默认上限 GLES 3.2，靠 override；真实应用未验） | 可用 | evidence 156、161、167 |
-| GPU：X11 窗口呈现（EGL window surface + swap） | 可用，呈现走 SHM 拷贝（DRI3 未通） | evidence 165 |
+| GPU：X11 窗口呈现（EGL window surface + swap） | 可用，呈现走回读+拷贝（DRI3 未通，代价 24.8 ms/MP） | evidence 165、174 |
 | GPU：桌面合成器（gnome-shell 46 on zink/PanVK） | 可用，出帧；轻负载 fps 不如 llvmpipe | evidence 165、168 |
 | 硬件视频解码（平台 MediaCodec，应用侧） | 有实测链路，未产品化 | evidence 80 |
 | guest 内 VA-API 全链（播放器直接用） | 部分 | evidence 81–87 |
