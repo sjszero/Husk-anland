@@ -26,6 +26,12 @@
 - **`execveat` 绕过 shim**（evidence 219）。折成一次 `execve`：先解析 `dirfd` + 相对路径，
   再走同一个钩子，loader 重入与 `#!` 改写都保留。`AT_EMPTY_PATH` 返回 `ENOSYS` 让调用方回退。
 
+- **三处并发竞态**（evidence 220，都会给出错误答案而不是变慢）：`PEER_CACHE` 的 24 字节
+  元组是三段 store，stat 路径上可能把一个进程的 uid/gid 安到另一个进程头上（改 seqlock，
+  有界自旋，拿不到锁就不缓存）；`FAKE_ID_READY` 先置位后写值，可能把身份报成 0
+  （改 Release/Acquire、先写值再发布）；`RAND_COUNTER` 非原子自增会让两个线程拿到同一个
+  临时文件名（改 `AtomicU64::fetch_add`）。
+
 ### 加
 
 - `tools/probe/symbol-gap-probe.c`：把没钩的符号逐个**试出后果**（判据是效果不是符号）。

@@ -11,7 +11,7 @@ mod gpuenv;
 mod plan;
 
 use core::panic::PanicInfo;
-use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU8, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use runtime_core as rc;
 
 type CChar = i8;
@@ -5340,7 +5340,11 @@ unsafe fn log_id(name: &[u8], v: i64) {
 /// NR_FAKE_UID / NR_FAKE_GID seed it for a launcher that starts as the user.
 static mut FAKE_UID: u32 = 0;
 static mut FAKE_GID: u32 = 0;
-static mut FAKE_ID_READY: u8 = 0;
+/// 「env 里的 NR_FAKE_UID/GID 已经读过了」的发布位。原来是 `static mut u8`，
+/// 而且**先置位再写值**：两个线程同时进 `fake_id()` 时，后进的那个会看到
+/// 「已就绪」却读到还没写的 0，于是把 root 身份报错（每个进程的第一批 stat
+/// 就打在这条路径上）。改成 Release/Acquire 发布、先写值后置位。
+static FAKE_ID_READY: AtomicU8 = AtomicU8::new(0);
 
 unsafe fn parse_dec(v: &[u8]) -> u32 {
     let mut n: u64 = 0;
@@ -5363,14 +5367,24 @@ unsafe fn parse_dec(v: &[u8]) -> u32 {
 }
 
 unsafe fn fake_id() -> (u32, u32) {
-    if FAKE_ID_READY == 0 {
-        FAKE_ID_READY = 1;
-        if let Some(v) = env_lookup(b"NR_FAKE_UID") {
-            FAKE_UID = parse_dec(v);
+    if FAKE_ID_READY.load(Ordering::Acquire) == 0 {
+        // 先算完、写完，再发布「就绪」；两个线程同时进来最多重复解析一次，
+        // 结果一样，但不会有人读到半截。
+        let u = match env_lookup(b"NR_FAKE_UID") {
+            Some(v) => Some(parse_dec(v)),
+            None => None,
+        };
+        let g = match env_lookup(b"NR_FAKE_GID") {
+            Some(v) => Some(parse_dec(v)),
+            None => None,
+        };
+        if let Some(v) = u {
+            FAKE_UID = v;
         }
-        if let Some(v) = env_lookup(b"NR_FAKE_GID") {
-            FAKE_GID = parse_dec(v);
+        if let Some(v) = g {
+            FAKE_GID = v;
         }
+        FAKE_ID_READY.store(1, Ordering::Release);
     }
     ident_sync(FAKE_UID, FAKE_GID);
     (FAKE_UID, FAKE_GID)
@@ -8405,7 +8419,10 @@ const O_EXCL: CInt = 0o200;
 
 const TMP_LETTERS: [u8; 62] = *b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
-static mut RAND_COUNTER: u64 = 0;
+/// 临时文件名的计数器。原来是 `static mut` + `+= 1`：两个线程同时进
+/// `next_random()` 会读到同一个值，产出一模一样的「随机」文件名（`O_EXCL`
+/// 会挡掉碰撞，但等于把一个能避免的失败留给调用方）。改成原子自增。
+static RAND_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 unsafe fn next_random() -> u32 {
     // Entropy comes from auxv AT_RANDOM (the kernel put it there at exec) mixed
@@ -8414,10 +8431,8 @@ unsafe fn next_random() -> u32 {
     // the process - that is what "Bad system call" was when gcc first created a
     // temp file through here. Names only have to be unpredictable enough that a
     // hostile local process cannot pre-create one, and O_EXCL covers the rest.
-    let mut s = boot::at_random()
-        ^ RAND_COUNTER.wrapping_mul(0x9E3779B97F4A7C15)
-        ^ (&RAND_COUNTER as *const u64 as u64);
-    RAND_COUNTER = RAND_COUNTER.wrapping_add(1);
+    let c = RAND_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let mut s = boot::at_random() ^ c.wrapping_mul(0x9E3779B97F4A7C15) ^ (c as *const u64 as u64);
     if s == 0 {
         // No AT_RANDOM in the auxv: fall back to clock + pid, as glibc does.
         let mut ts = [0u64; 2];
@@ -13769,25 +13784,76 @@ unsafe fn ident_from_registry(pid: CInt) -> Option<(u32, u32)> {
 /// guest without them reports the shim's own default, uid 0 - the same answer
 /// its getuid() gives.
 const PEER_CACHE_SLOTS: usize = 8;
+// 一条缓存项是 24 字节的元组，`PEER_CACHE[i] = (pid, uid, gid)` 在 aarch64 上
+// 是三条 store：pid、uid、gid 分开落地。多线程里 stat 一个属于**别的**进程的
+// 文件时，读者可能看到「pid 是新的、uid 还是上一条的」——那是把一个进程的
+// 身份安到另一个进程头上，属于会给出错误答案的那类竞态，不是性能问题。
+// 所以这里用 seqlock：写之前序号 +1（变奇数），写完再 +1；读者只在偶数时读、
+// 读完核一次序号。读多写少（只有首次见到某个 pid 才写），重试几乎不发生。
 static mut PEER_CACHE: [(CInt, u32, u32); PEER_CACHE_SLOTS] = [(0, 0, 0); PEER_CACHE_SLOTS];
 static mut PEER_CACHE_NEXT: usize = 0;
+static PEER_SEQ: AtomicUsize = AtomicUsize::new(0);
+static PEER_WRITE: AtomicU8 = AtomicU8::new(0);
+
+unsafe fn peer_cache_store(pid: CInt, uid: u32, gid: u32) {
+    // 有界自旋：拿不到就**不缓存**，让下一次重新算。缓存只是加速，为此把
+    // 进程卡在一个可能的死锁上（信号处理里重入同一条路径）不值得。
+    let mut spins = 0usize;
+    while PEER_WRITE
+        .compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        spins += 1;
+        if spins > 100_000 {
+            return;
+        }
+        core::hint::spin_loop();
+    }
+    PEER_SEQ.fetch_add(1, Ordering::AcqRel);
+    let slot = PEER_CACHE_NEXT % PEER_CACHE_SLOTS;
+    PEER_CACHE[slot] = (pid, uid, gid);
+    PEER_CACHE_NEXT = (PEER_CACHE_NEXT + 1) % PEER_CACHE_SLOTS;
+    PEER_SEQ.fetch_add(1, Ordering::AcqRel);
+    PEER_WRITE.store(0, Ordering::Release);
+}
+
+/// 命中返回 Some，未命中/读到半截返回 None（半截时重试）。
+unsafe fn peer_cache_find(pid: CInt) -> Option<(u32, u32)> {
+    let mut tries = 0usize;
+    while tries < 64 {
+        let s1 = PEER_SEQ.load(Ordering::Acquire);
+        if s1 & 1 == 0 {
+            let mut i = 0usize;
+            let mut hit: Option<(u32, u32)> = None;
+            while i < PEER_CACHE_SLOTS {
+                let e = PEER_CACHE[i];
+                if e.0 == pid {
+                    hit = Some((e.1, e.2));
+                    break;
+                }
+                i += 1;
+            }
+            if PEER_SEQ.load(Ordering::Acquire) == s1 {
+                return hit;
+            }
+        }
+        tries += 1;
+        core::hint::spin_loop();
+    }
+    None
+}
 
 /// None = not one of ours (do not touch its answers).
 unsafe fn peer_identity(pid: CInt) -> Option<(u32, u32)> {
     if pid <= 0 {
         return None;
     }
-    let mut i = 0usize;
-    while i < PEER_CACHE_SLOTS {
-        if PEER_CACHE[i].0 == pid {
-            return Some((PEER_CACHE[i].1, PEER_CACHE[i].2));
-        }
-        i += 1;
+    if let Some(id) = peer_cache_find(pid) {
+        return Some(id);
     }
     if let Some(id) = ident_from_registry(pid) {
         ident_note(b'R', pid, id.0 as i64, id.1 as i64);
-        PEER_CACHE[PEER_CACHE_NEXT] = (pid, id.0, id.1);
-        PEER_CACHE_NEXT = (PEER_CACHE_NEXT + 1) % PEER_CACHE_SLOTS;
+        peer_cache_store(pid, id.0, id.1);
         return Some(id);
     }
     let (guest, uid, gid) = match environ_identity(pid) {
@@ -13798,8 +13864,7 @@ unsafe fn peer_identity(pid: CInt) -> Option<(u32, u32)> {
         return None;
     }
     let id = (uid.unwrap_or(0), gid.unwrap_or(0));
-    PEER_CACHE[PEER_CACHE_NEXT] = (pid, id.0, id.1);
-    PEER_CACHE_NEXT = (PEER_CACHE_NEXT + 1) % PEER_CACHE_SLOTS;
+    peer_cache_store(pid, id.0, id.1);
     Some(id)
 }
 
