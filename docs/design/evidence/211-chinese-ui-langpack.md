@@ -61,3 +61,25 @@ LANG=C          → Usage: / Help Options: / Show help options / Show all help o
   `tools/langpack/README.md`）。
 - 界面语言由 `LANG` / `LANGUAGE` 决定，会话里已经是 `zh_CN.UTF-8`（evidence 210）；
   如果用户自己设成别的语言，语言包还在，只是不会被用到。
+
+## 6 · 全新目录安装（FACT，20:25–20:45）
+
+不覆盖现有树，用 0.0.10 的树包装到干净目录 `files/linux/fresh10/root`，两遍解包共约 20 分钟。
+安装日志尾部：
+
+```
+   wrote etc/profile.d/husk-locale.sh + etc/default/locale (zh_CN.UTF-8)
+   wrote root/.config/fcitx5/profile (keyboard + pinyin)
+   installed zh_CN lang pack (413 .mo files in usr/share/locale-langpack)
+   sonames ok
+== done ==
+  …/fresh10/husk -- usr/bin/bash -l -c 'id; head -1 /etc/os-release'
+rc=0
+```
+
+核对项：`usr/share/locale-langpack/zh_CN/LC_MESSAGES/` 下 413 个文件；`gnome-shell.mo`
+sha256 `110d79441fb20b7c…` 与包内逐字节一致；locale 文件、fcitx5 profile 落盘；
+`perl5.38.2`、`uncompress` 这类原本走绝对符号链接的路径在新树里是真实文件；`sonames ok`
+说明动态库按 soname 都能加载。安装器自检 `bash -l -c 'id; head -1 /etc/os-release'` 返回 `rc=0`。
+
+装完后在同一棵树上跑门禁 A：`PASS=36 FAIL=0`。

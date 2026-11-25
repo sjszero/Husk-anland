@@ -31,6 +31,7 @@
 | `dgettext("nautilus","Files")` | `Files` | 文件 |
 | `dgettext("gtk40","Cancel")` | `Cancel` | `Cancel`（该域没有这条 msgid，不是查找失败） |
 | `gnome-calculator --help` | `Usage: / Help Options: / Show help options` | `用法： / 帮助选项： / 显示帮助选项` |
+| 全新目录安装（0.0.10 树包） | `rc=0`，`locale-langpack/zh_CN/LC_MESSAGES/` 413 个 `.mo`，`gnome-shell.mo` 与包内逐字节一致，`sonames ok` | |
 
 ### 没做
 
