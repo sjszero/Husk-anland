@@ -9538,20 +9538,44 @@ unsafe fn dl_translate(
 /// guest's calls), calling the extern symbol from here would find *us* first and
 /// recurse forever, so the original is resolved once out of the link map with
 /// our own address skipped (see `nr_resolve_name_skip`).
-static mut REAL_DLMOPEN: usize = 0;
+static REAL_DLMOPEN: AtomicUsize = AtomicUsize::new(0);
+static REAL_DLMOPEN_LOCK: AtomicU8 = AtomicU8::new(0);
 type DlMopenFn = unsafe extern "C" fn(i64, *const CChar, CInt) -> *mut u8;
 
 unsafe fn real_dlmopen_addr() -> usize {
-    if REAL_DLMOPEN == 0 {
-        let m = crate::boot::nr_get_main_map();
-        REAL_DLMOPEN = crate::boot::nr_resolve_name_skip(
-            m,
-            b"dlmopen\0".as_ptr() as usize,
-            7,
-            dlmopen as usize,
-        );
+    let v = REAL_DLMOPEN.load(Ordering::Acquire);
+    if v != 0 {
+        return v;
     }
-    REAL_DLMOPEN
+    // 只允许一个线程去走链接映射。以前是裸 `if REAL_DLMOPEN == 0 { … }`：8 个线程
+    // 同时进 dlopen 时它们会一起遍历同一条 link_map（`nr_resolve_name_skip` 边走边
+    // 读每个对象的 l_name），而别的线程正在 dlclose 里摘链、unmap，于是拿到垃圾
+    // 指针或者解析失败。测到的两种后果都对得上：进程 SIGSEGV，以及 dlopen 返回
+    // NULL 且 dlerror() 为空（解析失败被这里当成 ENOSYS 报出去）。
+    if REAL_DLMOPEN_LOCK
+        .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        // 输的那几个等赢家发布，不去重复遍历。
+        let mut i = 0u32;
+        while i < 200_000 {
+            let v = REAL_DLMOPEN.load(Ordering::Acquire);
+            if v != 0 {
+                return v;
+            }
+            i += 1;
+            core::hint::spin_loop();
+        }
+        return 0;
+    }
+    let m = crate::boot::nr_get_main_map();
+    let a =
+        crate::boot::nr_resolve_name_skip(m, b"dlmopen\0".as_ptr() as usize, 7, dlmopen as usize);
+    if a != 0 {
+        REAL_DLMOPEN.store(a, Ordering::Release);
+    }
+    REAL_DLMOPEN_LOCK.store(0, Ordering::Release);
+    a
 }
 
 unsafe fn call_real_dlmopen(nsid: i64, file: *const CChar, mode: CInt) -> *mut u8 {
@@ -9564,8 +9588,119 @@ unsafe fn call_real_dlmopen(nsid: i64, file: *const CChar, mode: CInt) -> *mut u
     f(nsid, file, mode)
 }
 
+// ------------------------------------------------------------- dl 活动锁
+// `nr_repatch()` 会遍历整条 link_map 给新对象补 GOT。glibc 在 dlclose 里把引用
+// 归零的对象摘链、unmap，这一步和我们的遍历之间没有任何锁：一个线程在遍历，
+// 另一个线程把对象放了，遍历就读到已经释放的内存。实测（evidence 223）：8 线程
+// × 60 轮 dlopen/dlsym/dlclose，10 次里 2 次 SIGSEGV；把 repatch 关掉（
+// NR_NO_REPATCH=1）之后 12 次全过 —— 说明丢的是这一对，不是 glibc 自己。
+// 所以 dlopen/dlmopen/dlclose 三个入口用同一把进程内锁串起来，repatch 只在
+// 持锁期间跑。递归（构造函数里再 dlopen）用 owner tid + 深度计数放行，否则会
+// 等自己等到超时。
+static DL_ACT: AtomicU8 = AtomicU8::new(0);
+static DL_ACT_OWNER: AtomicI32 = AtomicI32::new(0);
+static mut DL_ACT_DEPTH: u32 = 0;
+
+/// 返回 true 表示这把锁是我们拿到的（含递归进入），调用方负责 `dl_act_unlock`。
+unsafe fn dl_act_lock() -> bool {
+    let tid = syscall4(SYS_GETTID, 0, 0, 0, 0) as i32;
+    if DL_ACT_OWNER.load(Ordering::Acquire) == tid && tid != 0 {
+        DL_ACT_DEPTH += 1;
+        return true;
+    }
+    let mut spin = 0u32;
+    while DL_ACT
+        .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        spin += 1;
+        // 等不到就照旧不持锁地跑：宁可保留原来的小概率竞态，也不把进程挂死。
+        if spin > 40_000_000 {
+            return false;
+        }
+        core::hint::spin_loop();
+    }
+    DL_ACT_OWNER.store(tid, Ordering::Release);
+    DL_ACT_DEPTH = 1;
+    true
+}
+
+unsafe fn dl_act_unlock() {
+    if DL_ACT_DEPTH > 1 {
+        DL_ACT_DEPTH -= 1;
+        return;
+    }
+    DL_ACT_DEPTH = 0;
+    DL_ACT_OWNER.store(0, Ordering::Release);
+    DL_ACT.store(0, Ordering::Release);
+}
+
+/// libc's own `dlclose`; same self-reference problem as `dlmopen`, so it is
+/// resolved out of the link map with our address skipped.
+static REAL_DLCLOSE: AtomicUsize = AtomicUsize::new(0);
+static REAL_DLCLOSE_LOCK: AtomicU8 = AtomicU8::new(0);
+type DlcloseFn = unsafe extern "C" fn(*mut u8) -> CInt;
+
+unsafe fn real_dlclose_addr() -> usize {
+    let v = REAL_DLCLOSE.load(Ordering::Acquire);
+    if v != 0 {
+        return v;
+    }
+    if REAL_DLCLOSE_LOCK
+        .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        let mut i = 0u32;
+        while i < 200_000 {
+            let v = REAL_DLCLOSE.load(Ordering::Acquire);
+            if v != 0 {
+                return v;
+            }
+            i += 1;
+            core::hint::spin_loop();
+        }
+        return 0;
+    }
+    let m = crate::boot::nr_get_main_map();
+    let a =
+        crate::boot::nr_resolve_name_skip(m, b"dlclose\0".as_ptr() as usize, 7, dlclose as usize);
+    if a != 0 {
+        REAL_DLCLOSE.store(a, Ordering::Release);
+    }
+    REAL_DLCLOSE_LOCK.store(0, Ordering::Release);
+    a
+}
+
+/// 钩 `dlclose` 不是为了翻路径（它没有路径参数），而是为了让「摘链接 / unmap」
+/// 与别的线程的 repatch 互斥。返回值、errno 原样从 libc 透传。
+#[no_mangle]
+pub unsafe extern "C" fn dlclose(h: *mut u8) -> CInt {
+    let owned = dl_act_lock();
+    let a = real_dlclose_addr();
+    let r = if a == 0 {
+        *__errno_location() = 38; // ENOSYS
+        -1
+    } else {
+        let f: DlcloseFn = core::mem::transmute(a);
+        f(h)
+    };
+    if owned {
+        dl_act_unlock();
+    }
+    r
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn dlopen(file: *const CChar, mode: CInt) -> *mut u8 {
+    let owned = dl_act_lock();
+    let r = dlopen_inner(file, mode);
+    if owned {
+        dl_act_unlock();
+    }
+    r
+}
+
+unsafe fn dlopen_inner(file: *const CChar, mode: CInt) -> *mut u8 {
     if file.is_null() {
         return loaded(call_real_dlmopen(LM_ID_BASE, file, mode));
     }
@@ -9590,6 +9725,15 @@ pub unsafe extern "C" fn dlopen(file: *const CChar, mode: CInt) -> *mut u8 {
 /// `dlopen` 正常（evidence 218）。命名空间语义原样交给 ld.so，我们只翻路径。
 #[no_mangle]
 pub unsafe extern "C" fn dlmopen(nsid: i64, file: *const CChar, mode: CInt) -> *mut u8 {
+    let owned = dl_act_lock();
+    let r = dlmopen_inner(nsid, file, mode);
+    if owned {
+        dl_act_unlock();
+    }
+    r
+}
+
+unsafe fn dlmopen_inner(nsid: i64, file: *const CChar, mode: CInt) -> *mut u8 {
     if file.is_null() {
         return loaded(call_real_dlmopen(nsid, file, mode));
     }

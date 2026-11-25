@@ -1634,7 +1634,13 @@ static mut INTERP: usize = 0;
 static mut INTERP_N: usize = 0;
 static mut REPATCH_SEEN: [u64; 1024] = [0; 1024];
 static mut REPATCH_SEEN_N: usize = 0;
-static mut REPATCH_LOCK: u8 = 0;
+// Check-then-set on a plain `static mut` let two threads into nr_repatch at the
+// same time: both walk REPATCH_SEEN/REPATCH_SEEN_N (a 1024-entry array plus a
+// counter, neither atomic) and both rewrite the same GOT slots, so a concurrent
+// `dlopen` pair could publish a half-appended seen list and patch an object
+// twice under the other thread's feet. A CAS makes the loser skip the pass,
+// which is what the pre-existing "busy -> return 0" branch already intended.
+static REPATCH_LOCK: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
 static mut REPATCH_CALLS: u32 = 0;
 
 unsafe fn repatch_seen(l_addr: u64) -> bool {
@@ -1669,10 +1675,17 @@ pub unsafe extern "C" fn nr_repatch() -> usize {
     if debug_var(b"NR_NO_REPATCH=1") {
         return 0;
     }
-    if REPATCH_LOCK != 0 {
+    if REPATCH_LOCK
+        .compare_exchange(
+            0,
+            1,
+            core::sync::atomic::Ordering::AcqRel,
+            core::sync::atomic::Ordering::Acquire,
+        )
+        .is_err()
+    {
         return 0;
     }
-    REPATCH_LOCK = 1;
     REPATCH_CALLS = REPATCH_CALLS.wrapping_add(1);
     let mut l = MAIN_MAP;
     let mut guard = 0;
@@ -1718,7 +1731,7 @@ pub unsafe extern "C" fn nr_repatch() -> usize {
     } else {
         0
     };
-    REPATCH_LOCK = 0;
+    REPATCH_LOCK.store(0, core::sync::atomic::Ordering::Release);
     if debug_on() {
         say(&[b"nr-repatch: call="]);
         say_hex(REPATCH_CALLS as usize);

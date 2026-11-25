@@ -50,6 +50,13 @@
   判断全部拿不到答案。现在读链接从 guest 视图回答：`cwd` → `/root`、`root` → `/`；
   `/proc/self/fd/N` 的目标也改写成 guest 路径（以前 `/proc/self/fd/1024` 直接暴露应用数据目录）。
 
+- **并发 `dlopen` 会把进程打死**（evidence 223）。`nr_repatch()` 在 `dlopen` 返回之后沿
+  link_map 补 GOT，此刻 glibc 的装载锁已经放开；别的线程的 `dlclose` 把对象摘链、unmap，
+  我们就走在已经释放的内存上。实测 8 线程 × 60 轮 dlopen/dlsym/dlclose，10 次里 2 次
+  SIGSEGV，关掉 repatch 后 12 次全过。修法：`dlopen`/`dlmopen`/`dlclose` 共用一把进程内锁
+  （`dlclose` 因此第一次被钩，`interposed` 195 → 196），repatch 只在持锁期间跑；
+  另外两处懒解析/互斥的 check-then-set 换成 CAS。修后 45 / 45 全过，门禁 A 不变。
+
 - **`inotify_add_watch` / `statfs` / `getxattr` 一族在路径解析失败时报 EPERM**（evidence 222 §3）。
   `xattr_pinned()` 失败时写 errno 并返回 `-1`，调用方再喂给 `ret_or_errno()`，后者把 `-1`
   当成 `-EPERM` 又覆盖一次 errno。后果是「文件不存在」被说成「没有权限」：
