@@ -110,6 +110,13 @@
   （evidence 227 §3 就是靠它定性的）。不设变量时只多一次 `env_lookup`。
 - `docs/design/evidence/227-mount-table-and-remount-20261125.md`：挂载表跨线程的实际结论
   （9 处访问点逐条列出 + 两个真洞 + remount 那条 + 回归数据）。
+- `docs/design/evidence/228-x11-presentation-20261126.md`：X11 呈现这条链的实测——
+  X server 是应用里的 bionic 进程（`/proc/<pid>/maps` 里是 bionic libc、没有 libld.so），
+  MIT-SHM 因内核没有 SysV IPC 而 `BadAccess`，客户端只能 `XPutImage`（2400×1080 上
+  18.9 ms/帧、7–9 ms/兆像素），应用侧全屏动画时只有 5–9 FPS 且
+  `0/0 present copies offloaded to GPU`。结论：除 DRI3 外当前布局没有更便宜的交付路径，
+  最便宜的下一步在应用侧（把回读后的 CPU 拷贝换成 GPU 上传），真正的零拷贝要把 X server
+  搬进 guest。
 - `docs/design/evidence/226-audit-inventory-0.0.13.md`：0.0.13 的审计索引——已确认并修掉的
   22 条（带证据编号）、记录在案的 7 条限制、9 项「核过不是缺陷」、以及还没审到的 5 个面
   各自卡在哪。

@@ -59,13 +59,18 @@
 
 | 面 | 卡在哪 | 需要什么 |
 |---|---|---|
-| X11 呈现与零拷贝 | 呈现那一次回读（2400×1080 上 30.27 ms/帧）已有结论，但「除了 DRI3 还有没有更便宜的交付路径」没审 | 能用的桌面（设备解锁、应用在前台） |
 | GPU 直通（剩余） | 懒初始化这一批已修；`DrmCtx` 内部字段布局、Mesa/ICD 在并发下的行为没审 | 能用的桌面 + `gl-probe` |
 | 输入栈 | evidence 95/148/180 已有行为记录，但并发（多客户端 / 触摸与指针混用）没审 | 能用的桌面 |
 | 音频 / VA-API 中转的**运行**验证 | 应用侧已改（H-19），但设备上跑的是 2.0 的包，这条桥没被拉起 | `make apk` 装一次，再跑 `tools/probe/audio-bridge-concurrency.py` |
 | 跨设备 | 16 KiB / Adreno / 其它 Android 版本只有 QEMU 或未验证 | 真机 |
 
-## 5 · 结论怎么用
+## 5 · 已审完的面
+
+| 面 | 结论 | 证据 |
+|---|---|---|
+| X11 呈现与零拷贝 | 除 DRI3 外**当前布局里没有更便宜的路径**：MIT-SHM 因 server 是 bionic + 内核无 SysV IPC 而 `BadAccess`；客户端只能 `XPutImage`（2400×1080 上 18.9 ms/帧）；应用侧 5–9 FPS 且 `0/0 present copies offloaded to GPU`。见 evidence 228 的三条路径与代价排序 | 228 |
+
+## 6 · 结论怎么用
 
 - H-xx 全部有复现与修后对照，能进 0.0.13 的 CHANGELOG。
 - L-xx 不修，但必须写在 LIMITATIONS 里，别让下一个人以为是漏掉的 bug。
