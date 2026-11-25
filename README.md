@@ -17,15 +17,15 @@
   <a href="CONTRIBUTING.md"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-0F766E?style=flat-square"></a>
 </p>
 
-Husk 是一个 Android 上的 **Linux 运行环境**，它属于容器与虚拟机之外的第三种做法：不建
-namespace、不跑虚拟机、不做 `ptrace`，而是让真实的 Linux 用户态（glibc、包管理器、编译器、
-shell、服务）作为普通 `untrusted_app` 进程直接跑在 Android 内核上。路径虚拟化在装载时做一次
-（改写每个对象的 GOT），之后程序自己的 `svc` 指令原样进内核——所以每条 syscall 的成本和原生
-应用一样，而沙箱允许的设备**可以直接开到硬件**。
+Husk 在 Android 上跑一个真实的 Linux 用户态：glibc、包管理器、编译器、shell 和服务都是普通
+`untrusted_app` 进程，直接使用 Android 内核的系统调用。路径改写只在装载时做一次（改每个对象的
+GOT），之后程序自己的 `svc` 指令原样进内核，每条 syscall 的成本与原生应用相同，沙箱放行的设备
+节点可以直开。
 
-运行时不绑定某一个发行版或某一台设备：装载器按 glibc 版本断言补丁点。我们完整验证时用的
-**参考发行版**是 Ubuntu 24.04（glibc 2.39），**参考设备**是一台 arm64 Android 手机
-（型号与内核写在 `docs/STATUS.md`，那只是实测条件，不是要求）。
+没有 namespace，没有虚拟机，也不跑 `ptrace`。
+
+运行时按 glibc 版本断言补丁点，不绑定某个发行版或某台设备。我们完整验证时用的是 Ubuntu 24.04
+（glibc 2.39）和一台 arm64 Android 手机；型号与内核写在 `docs/STATUS.md`，那只是实测条件。
 
 ## 能跑起来的前提
 
