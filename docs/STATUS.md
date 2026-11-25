@@ -166,7 +166,7 @@ sudo/PAM 一条按"不需要"结案：`husk-su` 已覆盖提权路径，PAM 的 
 | exec / PTY / 信号 / 生命周期 | 600 秒长稳、零僵尸、无重启风暴；旋转与 Surface 重建不重启会话 | 32 / 72 |
 | 页大小 | rootfs 2987 个 ELF + loader + 我们全部产物在 4K/16K/64K 静态体检全绿（含 `p_align % 页` 规则）；**真 16K 内核（RPi5 kernel）与真 64K 内核（Ubuntu `linux-image-6.8.0-31-generic-64k`）上我们的 loader 端到端全绿**：`cat /etc/os-release`、`/usr/bin` 计数、嵌套 exec、`/tmp` 写读、`check-elf` 727 个 ELF 三档 congruent；修掉三个真 Bug（段重叠、mprotect 对齐、xattr/readlink 返回裸 -errno）；**16K/64K 真机仍 UNKNOWN**（本机只有 4K） | 30, 122, 124, 125, 126 |
 | GPU | PanVK 列举 Mali-G77、compute、离屏 graphics、X11 窗口化 EGL 与桌面出帧；**`glxgears` 在 Bifrost 编译器稳定 SIGSEGV，长跑未通过** | 46 / 47 / 165 / 232 |
-| 设备族探测与降级 | `path-shim/src/plan.rs`：按节点定族（mali0 / kgsl-3d0 / renderD128 / 都没有），只有 Mali 才遮蔽 `/dev/dri`，有真节点则透传，其它家族拒绝并输出 `nr-plan: … reason=…`；`NR_FORCE_SOFTWARE_GPU` 实测降到 llvmpipe 且不崩。Adreno 与真 DRM 节点仍 UNKNOWN（无设备） | 127 |
+| 设备族探测与降级 | `path-shim/src/plan.rs`：按节点定族（mali0 / kgsl-3d0 / renderD128 / 都没有）。Mali 使用 kbase DRM 语义层；Adreno/KGSL 已实现 render-node → 真实 `/dev/kgsl-3d0` fd、`DRM_IOCTL_VERSION=kgsl`、fd 继承和 stat/statx/uevent；`gpu-probe adreno` 可在真机复验。当前 Mali 门禁 A 38/38、Vulkan/GL 探针通过，App 入口重启的 GNOME 由当前 loader 映射 `/dev/mali0`；但 **Adreno 真机与通用 DRM 真节点仍 UNKNOWN（无设备）** | 127、233 |
 | 外设族探测 | `gpu-probe periph`：传感器/GPS/USB/蓝牙/NFC/指纹/输入/i2c/spi 逐个节点实测，`EACCES`(13) 与 `ENOENT`(2) 分开记录；不造假节点、进程退出码 0。本机是否真有传感器仍 UNKNOWN（EACCES 藏住了） | 128 |
 | 用户身份与 2.0 swap | `NR_FAKE_UID/GID` + `setuid/setresuid/setreuid/getresuid` 跟随 + `getgroups` 只报主组：`id` 报 `uid=1000(hu1)`，`su` 这一步可以删；`tools/guest/husk-session.sh` 是 `prootCommand()` 的替代契约（`env -i` 必须带 `NR_ROOTFS/NR_LD`）。**`su`/PAM 仍报 `PAM_SYSTEM_ERR`（UNKNOWN，已绕开）** | 129 |
 | 显示 | AHB → dma-buf → SurfaceControl；3-buffer ring + 真实 SYNC_FD；10,000 帧 / 665 秒 | 53–59 / 73 |
@@ -232,8 +232,9 @@ Nautilus / gvfs / tracker。整条链路四个独立故障与修法见 evidence 
 1. **F：页大小已收口**——真 16K（RPi5 kernel）与真 64K（Ubuntu 64k 内核）内核上端到端全绿
    （evidence 125 / 126）；`ls -l` 多一行 stderr 的根因已修（xattr/readlink 裸 -errno）。
    剩 16K/64K **真机** UNKNOWN（本机只有 4 KiB），不是代码问题。
-2. **F：GPU 家族适配器**——本机只验了 Mali(kbase)。Adreno(kgsl + Turnip) 与通用 DRM
-   按 `docs/design/device-adapters.md` 的表结构补适配器，没设备的一律 UNKNOWN。
+2. **F：GPU 家族适配器**——Mali(kbase) 已在真机通过；Adreno(kgsl + Turnip) 的适配器代码
+   已实现，但没有 Adreno 真机，打开、Turnip 枚举、ioctl/mmap 与桌面仍一律 UNKNOWN（evidence 233）。
+   下一步是在 Adreno 设备运行 `gpu-probe adreno`；通用 DRM 真节点同样待验。
 3. **2.0 集成：运行时替换已完成**（evidence 140–145；proot 及其补丁已全部删除，
    `/sdcard` 共享存储已补回并在 App 域实测——B 段的已知缺口只剩"`/storage` 只暴露自卷"）。
 4. **G：首帧已出屏**（evidence 147）——GNOME 46 的完整桌面在 2.0 的树上跑起来了

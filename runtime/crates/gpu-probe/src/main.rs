@@ -19,6 +19,7 @@
 use core::ffi::{c_char, c_int, c_ulong, c_void};
 use std::fs::{File, OpenOptions};
 use std::io::Read;
+use std::os::unix::fs::MetadataExt;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
@@ -39,6 +40,10 @@ extern "C" {
     fn read(fd: c_int, buf: *mut core::ffi::c_void, count: usize) -> isize;
     fn recvmsg(fd: c_int, msg: *mut MsgHdr, flags: c_int) -> isize;
     fn close(fd: c_int) -> c_int;
+    fn dup(fd: c_int) -> c_int;
+    fn dlopen(filename: *const c_char, flags: c_int) -> *mut c_void;
+    fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+    fn dlclose(handle: *mut c_void) -> c_int;
 }
 
 const SOL_SOCKET: c_int = 1;
@@ -4197,11 +4202,249 @@ unsafe fn imp_socket(path: &str) {
     line("imp/socket", "DONE", format!("ack={}", ack as char));
 }
 
+// ------------------------------------------------------------ Adreno / KGSL
+
+const DRM_IOCTL_VERSION: c_ulong = 0xc040_6400;
+#[repr(C)]
+struct DrmVersion {
+    major: c_int,
+    minor: c_int,
+    patch: c_int,
+    name_len: usize,
+    name: *mut c_char,
+    date_len: usize,
+    date: *mut c_char,
+    desc_len: usize,
+    desc: *mut c_char,
+}
+
+fn drm_version(fd: c_int, label: &str) {
+    let mut name = [0 as c_char; 128];
+    let mut date = [0 as c_char; 32];
+    let mut desc = [0 as c_char; 256];
+    let mut v = DrmVersion {
+        major: 0,
+        minor: 0,
+        patch: 0,
+        name_len: name.len(),
+        name: name.as_mut_ptr(),
+        date_len: date.len(),
+        date: date.as_mut_ptr(),
+        desc_len: desc.len(),
+        desc: desc.as_mut_ptr(),
+    };
+    let e = ioctl_errno(
+        fd,
+        DRM_IOCTL_VERSION,
+        &mut v as *mut DrmVersion as *mut core::ffi::c_void,
+    );
+    if e != 0 {
+        line(label, "FAIL", format!("DRM_IOCTL_VERSION errno={e}"));
+        return;
+    }
+    let n = name.iter().position(|c| *c == 0).unwrap_or(name.len());
+    let got = String::from_utf8_lossy(unsafe {
+        std::slice::from_raw_parts(name.as_ptr() as *const u8, n)
+    });
+    line(
+        label,
+        if got == "kgsl" { "PASS" } else { "FAIL" },
+        format!("name={got} version={}.{}.{}", v.major, v.minor, v.patch),
+    );
+}
+
+/// Exercise the exported `drmGetNodeTypeFromFd` interposer through a real
+/// third-party caller. `libva-drm` calls that symbol through its PLT; if the
+/// loader failed to patch libva-drm's GOT, the stock libdrm implementation sees
+/// a memfd rather than a DRM node and returns NULL. On Mali this intentionally
+/// uses Husk's fake render node, so the result directly tests the interpose path
+/// without needing Adreno hardware.
+fn va_node() {
+    const RTLD_NOW: c_int = 2;
+    let render = match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/dri/renderD128")
+    {
+        Ok(f) => f,
+        Err(e) => {
+            line(
+                "va_node_open",
+                "FAIL",
+                format!(
+                    "/dev/dri/renderD128 errno={}",
+                    e.raw_os_error().unwrap_or(0)
+                ),
+            );
+            return;
+        }
+    };
+    let lib = unsafe { dlopen(b"libva-drm.so.2\0".as_ptr() as *const c_char, RTLD_NOW) };
+    if lib.is_null() {
+        line("va_node_dlopen", "FAIL", "libva-drm.so.2 did not load");
+        return;
+    }
+    let get_sym = unsafe { dlsym(lib, b"vaGetDisplayDRM\0".as_ptr() as *const c_char) };
+    let term_sym = unsafe { dlsym(lib, b"vaTerminate\0".as_ptr() as *const c_char) };
+    if get_sym.is_null() || term_sym.is_null() {
+        line(
+            "va_node_symbols",
+            "FAIL",
+            format!("vaGetDisplayDRM={get_sym:p} vaTerminate={term_sym:p}"),
+        );
+        unsafe {
+            dlclose(lib);
+        }
+        return;
+    }
+    let va_get: unsafe extern "C" fn(c_int) -> *mut c_void =
+        unsafe { core::mem::transmute(get_sym) };
+    let va_term: unsafe extern "C" fn(*mut c_void) -> c_int =
+        unsafe { core::mem::transmute(term_sym) };
+    let display = unsafe { va_get(render.as_raw_fd()) };
+    if display.is_null() {
+        line(
+            "va_node_type",
+            "FAIL",
+            "vaGetDisplayDRM=NULL; drmGetNodeTypeFromFd interpose did not reach libva-drm",
+        );
+    } else {
+        line(
+            "va_node_type",
+            "PASS",
+            "vaGetDisplayDRM returned a display for the guest render node",
+        );
+        unsafe {
+            va_term(display);
+        }
+    }
+    unsafe {
+        dlclose(lib);
+    }
+}
+
+/// Probe the Adreno adapter from *inside a Husk guest*.
+///
+/// This intentionally opens the guest-visible render node, not `/dev/kgsl-3d0`:
+/// the point is to prove the shim's `/dev/dri/renderD128` -> real KGSL fd path,
+/// then check that the descriptor is the same device and that libdrm-facing
+/// behaviour (`DRM_IOCTL_VERSION`, node type, dup inheritance) is correct.
+fn adreno() {
+    if !Path::new("/dev/kgsl-3d0").exists() {
+        line(
+            "adreno_kgsl",
+            "SKIP",
+            "/dev/kgsl-3d0 missing (not an Adreno/KGSL device)",
+        );
+        return;
+    }
+    let kgsl = match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/kgsl-3d0")
+    {
+        Ok(f) => f,
+        Err(e) => {
+            line(
+                "adreno_kgsl_open",
+                "FAIL",
+                format!("errno={}", e.raw_os_error().unwrap_or(0)),
+            );
+            return;
+        }
+    };
+    line(
+        "adreno_kgsl_open",
+        "PASS",
+        format!("/dev/kgsl-3d0 fd={}", kgsl.as_raw_fd()),
+    );
+    let render = match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/dri/renderD128")
+    {
+        Ok(f) => f,
+        Err(e) => {
+            line(
+                "adreno_render_open",
+                "FAIL",
+                format!("errno={}", e.raw_os_error().unwrap_or(0)),
+            );
+            return;
+        }
+    };
+    let fd = render.as_raw_fd();
+    line(
+        "adreno_render_open",
+        "PASS",
+        format!("/dev/dri/renderD128 fd={fd} (must be the KGSL fd)"),
+    );
+
+    match (kgsl.metadata(), render.metadata()) {
+        (Ok(a), Ok(b)) => line(
+            "adreno_same_rdev",
+            if a.dev() == b.dev() && a.rdev() == b.rdev() {
+                "PASS"
+            } else {
+                "FAIL"
+            },
+            format!(
+                "kgsl={}:{} render={}:{}",
+                a.dev(),
+                a.rdev(),
+                b.dev(),
+                b.rdev()
+            ),
+        ),
+        (a, b) => line(
+            "adreno_same_rdev",
+            "FAIL",
+            format!("metadata kgsl={a:?} render={b:?}"),
+        ),
+    }
+
+    drm_version(fd, "adreno_drm_version");
+    unsafe {
+        let dfd = dup(fd);
+        if dfd < 0 {
+            line("adreno_dup", "FAIL", format!("dup errno={}", errno()));
+        } else {
+            line("adreno_dup", "PASS", format!("fd={dfd}"));
+            drm_version(dfd, "adreno_dup_version");
+            close(dfd);
+        }
+    }
+
+    match std::fs::read_link(format!("/proc/self/fd/{fd}")) {
+        Ok(p) => line(
+            "adreno_proc_fd",
+            if p.to_string_lossy().contains("/dev/kgsl-3d0") {
+                "PASS"
+            } else {
+                "FAIL"
+            },
+            p.display().to_string(),
+        ),
+        Err(e) => line(
+            "adreno_proc_fd",
+            "FAIL",
+            format!("readlink errno={}", e.raw_os_error().unwrap_or(0)),
+        ),
+    }
+    line(
+        "adreno_verdict",
+        "DONE",
+        "guest render node must be a real KGSL fd; Turnip enumeration is a separate test",
+    );
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(|s| s.as_str()).unwrap_or("") {
         "nodes" => nodes(),
         "periph" => periph(),
+        "adreno" => adreno(),
+        "va-node" => va_node(),
         "kbase" => kbase(),
         "enc" => enc(),
         "nrscan" => nrscan(),
@@ -4275,7 +4518,7 @@ fn main() {
             one(major, minor)
         }
         "" => {
-            eprintln!("usage: gpu-probe nodes|kbase|enc|nrscan|ver|submit0|submit1|alloc1|query1|free1|stream1|one <major> <minor>");
+            eprintln!("usage: gpu-probe nodes|kbase|adreno|va-node|enc|nrscan|ver|submit0|submit1|alloc1|query1|free1|stream1|one <major> <minor>");
             std::process::exit(2);
         }
         other => {

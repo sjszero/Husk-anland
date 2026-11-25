@@ -96,6 +96,28 @@ unsafe fn parse(buf: &[u8]) {
         if line.is_empty() || line[0] == b'#' {
             continue;
         }
+        // The installer records which GPU family the file was generated for.
+        // A rootfs moved to a different device must not inherit the previous
+        // family's ICD/GL overrides; the login-shell script can still probe the
+        // new device dynamically. Files without the marker keep the old
+        // behaviour for compatibility with already-installed trees.
+        if let Some(family) = line.strip_prefix(b"@GPU_FAMILY=") {
+            let wanted = match crate::plan::family_from_name(family) {
+                Some(f) => f,
+                None => {
+                    SLOT_N = 0;
+                    return;
+                }
+            };
+            if wanted != crate::plan::gpu_family() {
+                SLOT_N = 0;
+                return;
+            }
+            continue;
+        }
+        if line[0] == b'@' {
+            continue;
+        }
         let mut mode = MODE_FILL;
         if line[0] == b'!' {
             mode = MODE_FORCE;

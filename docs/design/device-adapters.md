@@ -40,7 +40,7 @@
 | 家族 | 判据 | 用户态度路径 | 我们的适配器 |
 |---|---|---|---|
 | ARM Mali（kbase） | `/dev/mali0` 可打开；kbase UAPI 版本可从 `VERSION_CHECK` 取 | 上游 Mesa `panfrost`/`panvk`（kbase 后端），DRM 语义层翻译 | 已在本机跑通（evidence 46/47） |
-| Qualcomm Adreno（kgsl） | `/dev/kgsl-3d0` 存在；`/sys/class/kgsl/kgsl-3d0/*` | 上游 Mesa `freedreno`/`turnip`，走 kgsl 或 msm DRM | **未实现**：适配器接口同一套，命令字不同 |
+| Qualcomm Adreno（kgsl） | `/dev/kgsl-3d0` 存在；`/sys/class/kgsl/kgsl-3d0/*` | 上游 Mesa `freedreno`/`turnip`，走 kgsl 或 msm DRM | **代码已实现，真机 UNKNOWN**：guest render node 由真实 KGSL fd 承载；本仓库没有 Adreno 设备，尚未验证打开、Turnip 枚举、ioctl/mmap 或桌面（evidence 233） |
 | 通用 DRM 渲染节点 | `/dev/dri/renderD128` 可打开 | Mesa 原生 | 预留 |
 | PowerVR / 其它 | 有节点但无上游驱动 | 无 | 明确降级到软件渲染 |
 | 无可用节点 | — | `llvmpipe` | 代码内降级 + 日志说明原因 |
@@ -62,7 +62,7 @@
 |---|---|---|
 | `NR_FORCE_SOFTWARE_GPU`（测试钩子） | `software` | 拒绝 DRM 节点 |
 | `/dev/mali0` rw 可开 | `mali-kbase` | 假 `/dev/dri` + kbase 语义层（现有实现） |
-| `/dev/kgsl-3d0` rw 可开 | `adreno-kgsl` | 未实现适配器 → 拒绝 + 日志 |
+| `/dev/kgsl-3d0` rw 可开 | `adreno-kgsl` | 假 `/dev/dri/renderD128` → 真实 `/dev/kgsl-3d0` fd；`DRM_IOCTL_VERSION` 报 `kgsl`，其余 ioctl/mmap 直通（真机 UNKNOWN） |
 | `/dev/dri/renderD128` rw 可开 | `drm-node` | 透传真节点（不遮蔽） |
 | 都不可开 | `software` | 拒绝 + 日志（原因里带各节点 errno） |
 
@@ -73,7 +73,8 @@ nr-plan: drm node -> gpu=software reason=mali0=13 kgsl=2 dri=2 no gpu node opena
 ```
 
 注意：这张表管的是 Mesa 的 `dri2`/DRM 语义路径。PanVK 是**直接** open `/dev/mali0` 的，
-不经过它；Adreno 适配器将来也要自己开 `/dev/kgsl-3d0`，同样不经过它。
+不经过它；Adreno 适配器现在也在 guest 打开 `/dev/dri/renderD128` 时自己开真实
+`/dev/kgsl-3d0`，不经过 Mali 的假 DRM 上下文。KGSL 的 `k` ioctl 和 mmap 原样直通。
 
 ## 5. 显示 / 音频 / 相机 / 外设
 
@@ -108,7 +109,8 @@ struct DevicePlan {
 ## 7. 待补的设备侧验证（真机到手就做）
 
 - 16 KiB / 64 KiB 页**真机**：`nr-tools check-elf` + 起 bash（16K/64K 已在真内核的 QEMU 上全绿，evidence 125/126）。
-- Adreno 设备：读 kgsl UAPI 版本、最小 `KGSL_IOCTL` 探针、`turnip` 能否枚举，然后才写适配器。
+- Adreno 设备：运行 `gpu-probe adreno`，再验证 Turnip 枚举、KGSL ioctl/mmap 和桌面。适配器代码已落地，
+  但在真机跑通前只能标 UNKNOWN（evidence 233）。
 - 有真实 `/dev/dri/renderD128` 的机型：确认 `drm-node` 分支确实是透传（本机 app 域打不开）。
 - `/dev/dma_heap` 可用机型：零拷贝显示路径。
 - 内核 ≥ 5.10 的设备：`openat2`、`SECCOMP_RET_USER_NOTIF` 是否可用（可用就能省掉一层路径解析）。

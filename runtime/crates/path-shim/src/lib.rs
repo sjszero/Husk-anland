@@ -3834,23 +3834,36 @@ unsafe fn virt_synth(p: &[u8]) -> Option<usize> {
     // we just faked stats as a device nothing can attribute, and the client
     // silently goes to software (Chromium/Electron, GStreamer's VA plugin).
     // The same three lookups are what Portal fabricates for KGSL.
-    if plan::gpu_family() == plan::GPU_MALI {
-        let meta = mali_meta();
+    let gpu_family = plan::gpu_family();
+    if matches!(gpu_family, plan::GPU_MALI | plan::GPU_ADRENO) {
+        let meta = drm_vendor_meta();
         if p == b"/proc/bus/pci/devices" {
             // Android denies this file (EACCES, not ENOENT) and Chromium's GPU
-            // process treats "cannot enumerate PCI" as "no GPU". This device has
-            // no PCI bus, so an empty table is the truthful answer.
+            // process treats "cannot enumerate PCI" as "no GPU". These SoCs have
+            // no PCI GPU, so an empty table is the truthful answer.
             return Some(0);
         }
         if let Some((_, rdev)) = meta {
             let (maj, min) = dev_major_minor(rdev);
             if p.starts_with(b"/sys/dev/char/") && p.ends_with(b"/device/uevent") {
-                vt_put(&mut at, b"DRIVER=mali\nOF_NAME=mali\nOF_FULLNAME=/soc/mali");
-                vt_num(&mut at, maj as u64);
-                vt_put(
-                    &mut at,
-                    b"\nOF_COMPATIBLE_0=arm,mali-valhall\nOF_COMPATIBLE_N=1\n",
-                );
+                if gpu_family == plan::GPU_MALI {
+                    vt_put(&mut at, b"DRIVER=mali\nOF_NAME=mali\nOF_FULLNAME=/soc/mali");
+                    vt_num(&mut at, maj as u64);
+                    vt_put(
+                        &mut at,
+                        b"\nOF_COMPATIBLE_0=arm,mali-valhall\nOF_COMPATIBLE_N=1\n",
+                    );
+                } else {
+                    // libdrm's platform-bus parser uses OF_FULLNAME for the bus
+                    // id and the compatible list to identify the device. These
+                    // are the same facts Linux exposes for KGSL; the exact SoC
+                    // address is deliberately generic because no Adreno device
+                    // has been validated yet.
+                    vt_put(
+                        &mut at,
+                        b"DRIVER=kgsl\nOF_NAME=qcom,kgsl-3d0\nOF_FULLNAME=/soc/qcom,kgsl-3d0@3d00000\nOF_COMPATIBLE_0=qcom,kgsl-3d0\nOF_COMPATIBLE_N=1\n",
+                    );
+                }
                 return Some(at);
             }
             if p == b"/sys/class/drm/renderD128/uevent" {
@@ -3866,6 +3879,10 @@ unsafe fn virt_synth(p: &[u8]) -> Option<usize> {
                 vt_put(&mut at, b":");
                 vt_num(&mut at, min as u64);
                 vt_put(&mut at, b"\n");
+                return Some(at);
+            }
+            if p == b"/sys/class/drm/version" {
+                vt_put(&mut at, b"drm 1.1.0 20060810\n");
                 return Some(at);
             }
         }
@@ -4564,13 +4581,21 @@ unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt)
                 }
             }
             if is_drm_node(&gp[..n]) {
-                if let Some(api) = drm_api() {
-                    return drm_api_open(&api);
+                // The old preload bridge only knows the Mali kbase context.
+                // Never route a KGSL node through it: on Adreno the real KGSL
+                // fd itself is the interface, and kbase DRM_CTX would be wrong.
+                if plan::gpu_family() != plan::GPU_ADRENO {
+                    if let Some(api) = drm_api() {
+                        return drm_api_open(&api);
+                    }
                 }
                 if !drm_shim_off() {
                     match plan::gpu_family() {
                         // Our DRM semantics layer on top of the vendor kbase.
                         plan::GPU_MALI => return drm_fake_open(),
+                        // Adreno: present a render node backed by the real
+                        // /dev/kgsl-3d0. KGSL ioctls and mmap stay direct.
+                        plan::GPU_ADRENO => return adreno_open(flags),
                         // A render node that really opens: use it, never shadow it.
                         plan::GPU_DRM => {}
                         // No adapter for this family yet: say why in the log, then
@@ -4582,7 +4607,9 @@ unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt)
                     }
                 }
             }
-            if is_drm_dir(&gp[..n]) && plan::gpu_family() == plan::GPU_MALI {
+            if is_drm_dir(&gp[..n])
+                && matches!(plan::gpu_family(), plan::GPU_MALI | plan::GPU_ADRENO)
+            {
                 if let Some(d) = drm_dir_host() {
                     return ret_or_errno(syscall4(
                         SYS_OPENAT,
@@ -4645,11 +4672,14 @@ unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt)
         }
     }
     if is_drm_node(&buf[..bl]) {
-        if let Some(api) = drm_api() {
-            return drm_api_open(&api);
+        if plan::gpu_family() != plan::GPU_ADRENO {
+            if let Some(api) = drm_api() {
+                return drm_api_open(&api);
+            }
         }
         match plan::gpu_family() {
             plan::GPU_MALI => return drm_fake_open(),
+            plan::GPU_ADRENO => return adreno_open(flags),
             plan::GPU_DRM => {}
             _ => {
                 plan::log_plan_once(b"drm node");
@@ -4778,7 +4808,10 @@ unsafe fn stat_like(path: *const CChar, st: *mut u8, flags: CInt) -> CInt {
         if let Some(vn) = video_index(&gp[..n]) {
             return v4l2_stat(vn, st);
         }
-        if is_drm_node(&gp[..n]) && plan::gpu_family() == plan::GPU_MALI && drm_node_stat(st) {
+        if is_drm_node(&gp[..n])
+            && matches!(plan::gpu_family(), plan::GPU_MALI | plan::GPU_ADRENO)
+            && drm_node_stat(st)
+        {
             return 0;
         }
         if passthrough(&gp[..n]) {
@@ -7364,6 +7397,9 @@ pub unsafe extern "C" fn close(fd: CInt) -> CInt {
     if fd >= 0 && is_fake_fd(fd) {
         drm_forget(fd);
     }
+    if fd >= 0 && adreno_tracked(fd) {
+        adreno_forget(fd);
+    }
     alias_refresh(fd);
     ret_or_errno(syscall4(SYS_CLOSE, fd as usize, 0, 0, 0))
 }
@@ -7402,6 +7438,7 @@ pub unsafe extern "C" fn close_range(first: u32, last: u32, flags: CInt) -> CInt
                 }
             }
             drm_forget_range(first, last);
+            adreno_forget_range(first, last);
             return 0;
         }
     }
@@ -7414,6 +7451,7 @@ pub unsafe extern "C" fn close_range(first: u32, last: u32, flags: CInt) -> CInt
     ));
     if r == 0 {
         drm_forget_range(first, last);
+        adreno_forget_range(first, last);
     }
     r
 }
@@ -7426,6 +7464,7 @@ pub unsafe extern "C" fn dup(fd: CInt) -> CInt {
     let r = ret_or_errno(syscall4(SYS_DUP, fd as usize, 0, 0, 0));
     if r >= 0 {
         drm_inherit_fake(fd, r);
+        adreno_inherit(fd, r);
     }
     r
 }
@@ -7440,6 +7479,7 @@ pub unsafe extern "C" fn dup2(fd: CInt, newfd: CInt) -> CInt {
     let r = ret_or_errno(syscall4(SYS_DUP3, fd as usize, newfd as usize, 0, 0));
     if r >= 0 {
         drm_inherit_fake(fd, r);
+        adreno_inherit(fd, r);
     }
     r
 }
@@ -7455,6 +7495,7 @@ pub unsafe extern "C" fn dup3(fd: CInt, newfd: CInt, flags: CInt) -> CInt {
     ));
     if r >= 0 {
         drm_inherit_fake(fd, r);
+        adreno_inherit(fd, r);
     }
     r
 }
@@ -7608,7 +7649,9 @@ pub unsafe extern "C" fn statx(
             // statx, which does not go near newfstatat: without this branch the
             // fake render node "does not exist" for exactly the clients that
             // need it most.
-            if is_drm_node(&gp[..n]) && plan::gpu_family() == plan::GPU_MALI && drm_node_statx(buf)
+            if is_drm_node(&gp[..n])
+                && matches!(plan::gpu_family(), plan::GPU_MALI | plan::GPU_ADRENO)
+                && drm_node_statx(buf)
             {
                 return 0;
             }
@@ -11214,6 +11257,10 @@ const SYS_MMAP: usize = 222;
 static mut DRM_CTX: drm_shim::DrmCtx = drm_shim::DrmCtx::empty();
 static mut DRM_MALI_FD: CInt = -1;
 static mut FAKE_FDS: [CInt; 8] = [-1; 8];
+// Adreno render-node opens are backed by a *real* /dev/kgsl-3d0 fd. They are
+// deliberately kept apart from FAKE_FDS: `is_fake_fd` means "Mali memfd whose
+// DRM ioctls go through DrmCtx", which must never be true for KGSL.
+static mut ADRENO_FDS: [CInt; 16] = [-1; 16];
 // `DRM_CTX.dispatch()` 会改 BO 表（`bos` / `n_bos` / `next_handle`）。初始化有
 // once_begin 串行化，但**每个 ioctl 的 dispatch 没有**：两个线程同时 CREATE_BO
 // 会各读一次同一个 next_handle，拿到两个一样的 handle、后写的覆盖前一条
@@ -11322,12 +11369,17 @@ static mut MALI_RDEV: u64 = 0;
 static MALI_META_STATE: AtomicU8 = AtomicU8::new(0);
 static MALI_META_OWNER: AtomicI32 = AtomicI32::new(0);
 
-unsafe fn mali_meta() -> Option<(u64, u64)> {
-    if MALI_META_STATE.load(Ordering::Acquire) != 2 {
-        if !once_begin(&MALI_META_STATE, &MALI_META_OWNER) {
+static mut KGSL_DEV: u64 = 0;
+static mut KGSL_RDEV: u64 = 0;
+static KGSL_META_STATE: AtomicU8 = AtomicU8::new(0);
+static KGSL_META_OWNER: AtomicI32 = AtomicI32::new(0);
+
+unsafe fn node_meta(path: &[u8], state: &AtomicU8, owner: &AtomicI32) -> Option<(u64, u64)> {
+    if state.load(Ordering::Acquire) != 2 {
+        if !once_begin(state, owner) {
             // 别人正在做/做过了。没做好就如实返回 None，不编一组 0,0 出去
             // （0,0 会让客户端把假节点当成普通文件，直接退回软件渲染）。
-            if MALI_META_STATE.load(Ordering::Acquire) != 2 {
+            if state.load(Ordering::Acquire) != 2 {
                 return None;
             }
         } else {
@@ -11335,31 +11387,69 @@ unsafe fn mali_meta() -> Option<(u64, u64)> {
             let r = syscall4(
                 SYS_NEWFSTATAT,
                 AT_FDCWD as usize,
-                b"/dev/mali0\0".as_ptr() as usize,
+                path.as_ptr() as usize,
                 buf.as_mut_ptr() as usize,
                 0,
             );
             if r < 0 {
-                once_end(&MALI_META_STATE, false);
+                once_end(state, false);
                 return None;
             }
             // struct stat: st_dev at 0, st_rdev at 32 (aarch64 LP64)
-            MALI_DEV = core::ptr::read_unaligned(buf.as_ptr() as *const u64);
-            MALI_RDEV = core::ptr::read_unaligned(buf.as_ptr().add(32) as *const u64);
-            once_end(&MALI_META_STATE, true);
+            let dev = core::ptr::read_unaligned(buf.as_ptr() as *const u64);
+            let rdev = core::ptr::read_unaligned(buf.as_ptr().add(32) as *const u64);
+            // Store into the matching cache based on which state object the
+            // wrapper passed. Keeping the caches separate prevents a failed
+            // Mali probe from poisoning the KGSL numbers (and vice versa).
+            if core::ptr::eq(state, &MALI_META_STATE) {
+                MALI_DEV = dev;
+                MALI_RDEV = rdev;
+            } else {
+                KGSL_DEV = dev;
+                KGSL_RDEV = rdev;
+            }
+            once_end(state, true);
         }
     }
-    Some((MALI_DEV, MALI_RDEV))
+    if core::ptr::eq(state, &MALI_META_STATE) {
+        Some((MALI_DEV, MALI_RDEV))
+    } else {
+        Some((KGSL_DEV, KGSL_RDEV))
+    }
 }
 
-/// Write a `struct stat` that says "character device, 0666, kbase's numbers".
+unsafe fn mali_meta() -> Option<(u64, u64)> {
+    node_meta(b"/dev/mali0\0", &MALI_META_STATE, &MALI_META_OWNER)
+}
+
+unsafe fn kgsl_meta() -> Option<(u64, u64)> {
+    node_meta(b"/dev/kgsl-3d0\0", &KGSL_META_STATE, &KGSL_META_OWNER)
+}
+
+unsafe fn drm_vendor_meta() -> Option<(u64, u64)> {
+    match plan::gpu_family() {
+        plan::GPU_MALI => mali_meta(),
+        plan::GPU_ADRENO => kgsl_meta(),
+        _ => None,
+    }
+}
+
+unsafe fn drm_node_ino() -> u64 {
+    if plan::gpu_family() == plan::GPU_ADRENO {
+        0x4b47_0000_0001 // "KG"
+    } else {
+        0x4452_0000_0001 // "DR"
+    }
+}
+
+/// Write a `struct stat` that says "character device, 0666, vendor's numbers".
 unsafe fn drm_node_stat(st: *mut u8) -> bool {
-    let Some((dev, rdev)) = mali_meta() else {
+    let Some((dev, rdev)) = drm_vendor_meta() else {
         return false;
     };
     core::ptr::write_bytes(st, 0, 128);
     core::ptr::write_unaligned(st as *mut u64, dev);
-    core::ptr::write_unaligned(st.add(8) as *mut u64, 0x4452_0000_0001); // st_ino
+    core::ptr::write_unaligned(st.add(8) as *mut u64, drm_node_ino()); // st_ino
     core::ptr::write_unaligned(st.add(16) as *mut u32, 0o020666); // S_IFCHR | 0666
     core::ptr::write_unaligned(st.add(20) as *mut u32, 1); // st_nlink
     core::ptr::write_unaligned(st.add(32) as *mut u64, rdev);
@@ -11369,7 +11459,7 @@ unsafe fn drm_node_stat(st: *mut u8) -> bool {
 
 /// Same fake node, `struct statx` flavour (offsets per aarch64 uapi).
 unsafe fn drm_node_statx(buf: *mut u8) -> bool {
-    let Some((dev, rdev)) = mali_meta() else {
+    let Some((dev, rdev)) = drm_vendor_meta() else {
         return false;
     };
     let (rmaj, rmin) = dev_major_minor(rdev);
@@ -11379,7 +11469,7 @@ unsafe fn drm_node_statx(buf: *mut u8) -> bool {
     core::ptr::write_unaligned(buf.add(4) as *mut u32, 4096); // stx_blksize
     core::ptr::write_unaligned(buf.add(16) as *mut u32, 1); // stx_nlink
     core::ptr::write_unaligned(buf.add(28) as *mut u16, 0o020666); // stx_mode
-    core::ptr::write_unaligned(buf.add(32) as *mut u64, 0x4452_0000_0001); // stx_ino
+    core::ptr::write_unaligned(buf.add(32) as *mut u64, drm_node_ino()); // stx_ino
     core::ptr::write_unaligned(buf.add(128) as *mut u32, rmaj); // stx_rdev_major
     core::ptr::write_unaligned(buf.add(132) as *mut u32, rmin); // stx_rdev_minor
     core::ptr::write_unaligned(buf.add(136) as *mut u32, dmaj); // stx_dev_major
@@ -11573,6 +11663,300 @@ unsafe fn drm_inherit_fake(old: CInt, new: CInt) {
     fake_fds_unlock();
 }
 
+/// Adreno KGSL render-node tracking. The fd returned to the guest is the real
+/// `/dev/kgsl-3d0` descriptor, so close/dup/mmap semantics come from the kernel.
+/// This table exists only to keep dups accounted for; correctness still checks
+/// the live fd's `st_rdev` before answering a DRM version query, because a
+/// closed number may be recycled by an unrelated file.
+unsafe fn adreno_is_tracked_locked(fd: CInt) -> bool {
+    let mut i = 0;
+    while i < ADRENO_FDS.len() {
+        if ADRENO_FDS[i] == fd && fd >= 0 {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+unsafe fn adreno_register_locked(fd: CInt) -> bool {
+    if fd < 0 {
+        return false;
+    }
+    let mut empty = -1isize;
+    let mut i = 0;
+    while i < ADRENO_FDS.len() {
+        if ADRENO_FDS[i] == fd {
+            return true;
+        }
+        if ADRENO_FDS[i] < 0 && empty < 0 {
+            empty = i as isize;
+        }
+        i += 1;
+    }
+    if empty >= 0 {
+        ADRENO_FDS[empty as usize] = fd;
+        return true;
+    }
+    false
+}
+
+unsafe fn adreno_forget_locked(fd: CInt) {
+    let mut i = 0;
+    while i < ADRENO_FDS.len() {
+        if ADRENO_FDS[i] == fd && fd >= 0 {
+            ADRENO_FDS[i] = -1;
+            return;
+        }
+        i += 1;
+    }
+}
+
+unsafe fn adreno_tracked(fd: CInt) -> bool {
+    if fd < 0 {
+        return false;
+    }
+    fake_fds_lock();
+    let r = adreno_is_tracked_locked(fd);
+    fake_fds_unlock();
+    r
+}
+
+unsafe fn adreno_forget(fd: CInt) {
+    fake_fds_lock();
+    adreno_forget_locked(fd);
+    fake_fds_unlock();
+}
+
+unsafe fn adreno_forget_range(first: u32, last: u32) {
+    fake_fds_lock();
+    let mut i = 0;
+    while i < ADRENO_FDS.len() {
+        let f = ADRENO_FDS[i];
+        if f >= 0 && (f as u32) >= first && (f as u32) <= last {
+            ADRENO_FDS[i] = -1;
+        }
+        i += 1;
+    }
+    fake_fds_unlock();
+}
+
+unsafe fn adreno_register(fd: CInt) -> bool {
+    fake_fds_lock();
+    let r = adreno_register_locked(fd);
+    fake_fds_unlock();
+    r
+}
+
+/// Validate against the character device currently behind the descriptor.
+/// This also adopts a KGSL fd inherited from another process (Chromium's GPU
+/// process can receive the descriptor over a socket) without trusting its
+/// number blindly.
+unsafe fn adreno_is_device(fd: CInt) -> bool {
+    if fd < 0 {
+        return false;
+    }
+    let Some((_dev, rdev)) = kgsl_meta() else {
+        return false;
+    };
+    let mut st = [0u8; 128];
+    let r = syscall4(SYS_FSTAT, fd as usize, st.as_mut_ptr() as usize, 0, 0);
+    if r < 0 {
+        adreno_forget(fd);
+        return false;
+    }
+    let got = core::ptr::read_unaligned(st.as_ptr().add(32) as *const u64);
+    if got != rdev {
+        adreno_forget(fd);
+        return false;
+    }
+    let _ = adreno_register(fd);
+    true
+}
+
+unsafe fn adreno_inherit(old: CInt, new: CInt) {
+    if new < 0 || old < 0 {
+        return;
+    }
+    if adreno_is_device(old) {
+        let _ = adreno_register(new);
+    }
+}
+
+const DRM_IOCTL_VERSION: u64 = 0xc040_6400;
+const DRM_NODE_PRIMARY: CInt = 0;
+const DRM_NODE_RENDER: CInt = 2;
+
+unsafe fn copy_drm_field(dst: *mut u8, cap: u64, src: &[u8]) {
+    if dst.is_null() {
+        return;
+    }
+    let n = if cap < src.len() as u64 {
+        cap as usize
+    } else {
+        src.len()
+    };
+    let mut i = 0usize;
+    while i < n {
+        core::ptr::write_unaligned(dst.add(i), src[i]);
+        i += 1;
+    }
+}
+
+/// Fill `struct drm_version` on aarch64 LP64. The layout is interleaved:
+/// three ints, then (size_t len, char *value) for name/date/desc.
+unsafe fn adreno_fill_drm_version(arg: *mut u8) -> CInt {
+    if arg.is_null() {
+        return set_errno(14);
+    }
+    const NAME: &[u8] = b"kgsl\0";
+    const DATE: &[u8] = b"\0";
+    const DESC: &[u8] = b"KGSL-backed DRM render node (Husk)\0";
+    core::ptr::write_unaligned(arg as *mut i32, 1);
+    core::ptr::write_unaligned(arg.add(4) as *mut i32, 1);
+    core::ptr::write_unaligned(arg.add(8) as *mut i32, 0);
+
+    let name_len = core::ptr::read_unaligned(arg.add(16) as *const u64);
+    let name = core::ptr::read_unaligned(arg.add(24) as *const *mut u8);
+    let date_len = core::ptr::read_unaligned(arg.add(32) as *const u64);
+    let date = core::ptr::read_unaligned(arg.add(40) as *const *mut u8);
+    let desc_len = core::ptr::read_unaligned(arg.add(48) as *const u64);
+    let desc = core::ptr::read_unaligned(arg.add(56) as *const *mut u8);
+
+    copy_drm_field(name, name_len, NAME);
+    copy_drm_field(date, date_len, DATE);
+    copy_drm_field(desc, desc_len, DESC);
+    core::ptr::write_unaligned(arg.add(16) as *mut u64, NAME.len() as u64);
+    core::ptr::write_unaligned(arg.add(32) as *mut u64, DATE.len() as u64);
+    core::ptr::write_unaligned(arg.add(48) as *mut u64, DESC.len() as u64);
+    0
+}
+
+unsafe fn adreno_ioctl(fd: CInt, request: u64, arg: *mut u8) -> Option<CInt> {
+    if request != DRM_IOCTL_VERSION || !adreno_is_device(fd) {
+        return None;
+    }
+    Some(adreno_fill_drm_version(arg))
+}
+
+/// Open the guest's fake render node on the real KGSL device. The flag mask is
+/// intentionally small: O_RDWR is required by KGSL, while CLOEXEC/NONBLOCK
+/// preserve the caller's descriptor semantics. Other open flags are not
+/// meaningful for a character device and are not forwarded.
+unsafe fn adreno_open(flags: CInt) -> CInt {
+    let raw = syscall4(
+        SYS_OPENAT,
+        AT_FDCWD as usize,
+        b"/dev/kgsl-3d0\0".as_ptr() as usize,
+        (2 | (flags & (O_CLOEXEC | 0o4000))) as usize,
+        0,
+    );
+    if raw < 0 {
+        plan::log_plan_once(b"kgsl open");
+        return set_errno((-raw) as CInt);
+    }
+    let fd = raw as CInt;
+    if !adreno_register(fd) {
+        // Version/build queries still validate by st_rdev, so an exhausted
+        // bookkeeping table costs duplicate tracking, not GPU functionality.
+        dbg(&[b"nrshim kgsl: fd slots exhausted\n"]);
+    }
+    fd
+}
+
+fn append_decimal(out: &mut [u8], at: &mut usize, mut v: u32) {
+    let mut tmp = [0u8; 10];
+    let mut n = 0usize;
+    if v == 0 {
+        tmp[0] = b'0';
+        n = 1;
+    }
+    while v != 0 {
+        tmp[n] = b'0' + (v % 10) as u8;
+        v /= 10;
+        n += 1;
+    }
+    while n > 0 {
+        n -= 1;
+        if *at < out.len() {
+            out[*at] = tmp[n];
+            *at += 1;
+        }
+    }
+}
+
+/// Best-effort native-DRM fallback for the exported libdrm hook. The uevent of
+/// a DRM char device names it as `dri/cardN` or `dri/renderDN`; use that rather
+/// than guessing from the minor number (which differs across DRM families).
+unsafe fn drm_node_type_sysfs(fd: CInt) -> Option<CInt> {
+    let mut st = [0u8; 128];
+    if syscall4(SYS_FSTAT, fd as usize, st.as_mut_ptr() as usize, 0, 0) < 0 {
+        return None;
+    }
+    let rdev = core::ptr::read_unaligned(st.as_ptr().add(32) as *const u64);
+    let (maj, min) = dev_major_minor(rdev);
+    let mut path = [0u8; 128];
+    let prefix = b"/sys/dev/char/";
+    path[..prefix.len()].copy_from_slice(prefix);
+    let mut at = prefix.len();
+    append_decimal(&mut path, &mut at, maj);
+    path[at] = b':';
+    at += 1;
+    append_decimal(&mut path, &mut at, min);
+    let suffix = b"/uevent\0";
+    path[at..at + suffix.len()].copy_from_slice(suffix);
+    at += suffix.len();
+    let f = syscall4(SYS_OPENAT, AT_FDCWD as usize, path.as_ptr() as usize, 0, 0);
+    if f < 0 {
+        return None;
+    }
+    let mut buf = [0u8; 1024];
+    let n = syscall4(
+        SYS_READ,
+        f as usize,
+        buf.as_mut_ptr() as usize,
+        buf.len(),
+        0,
+    );
+    syscall4(SYS_CLOSE, f as usize, 0, 0, 0);
+    if n <= 0 {
+        return None;
+    }
+    let text = &buf[..n as usize];
+    if text
+        .split(|c| *c == b'\n')
+        .any(|line| line.starts_with(b"DEVNAME=dri/renderD"))
+    {
+        Some(DRM_NODE_RENDER)
+    } else if text
+        .split(|c| *c == b'\n')
+        .any(|line| line.starts_with(b"DEVNAME=dri/card"))
+    {
+        Some(DRM_NODE_PRIMARY)
+    } else {
+        None
+    }
+}
+
+/// libdrm decides whether `vaGetDisplayDRM` and similar callers may use a fd by
+/// asking for its node type. KGSL's minor is 0, so the stock sysfs lookup never
+/// finds `renderD128`; report RENDER for the real KGSL device and for Mali's
+/// kbase-backed fake node. Native DRM nodes still go through the uevent path.
+#[no_mangle]
+pub unsafe extern "C" fn drmGetNodeTypeFromFd(fd: CInt) -> CInt {
+    let family = plan::gpu_family();
+    if family == plan::GPU_MALI && is_fake_fd(fd) {
+        return DRM_NODE_RENDER;
+    }
+    if family == plan::GPU_ADRENO && adreno_is_device(fd) {
+        return DRM_NODE_RENDER;
+    }
+    if let Some(t) = drm_node_type_sysfs(fd) {
+        return t;
+    }
+    set_errno(19) // ENODEV
+}
+
 unsafe fn drm_lock() {
     while DRM_LOCK
         .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
@@ -11641,9 +12025,16 @@ pub unsafe extern "C" fn ioctl(fd: CInt, request: u64, arg: *mut u8) -> CInt {
         let r = v4l2_dispatch_ioctl(fd, request, arg);
         return if r < 0 { set_errno((-r) as CInt) } else { 0 };
     }
-    if let Some(api) = drm_api() {
-        if drm_api_is_fake(&api, fd) {
-            return drm_api_ioctl(&api, fd, request, arg);
+    if plan::gpu_family() == plan::GPU_ADRENO {
+        if let Some(r) = adreno_ioctl(fd, request, arg) {
+            return r;
+        }
+    }
+    if plan::gpu_family() != plan::GPU_ADRENO {
+        if let Some(api) = drm_api() {
+            if drm_api_is_fake(&api, fd) {
+                return drm_api_ioctl(&api, fd, request, arg);
+            }
         }
     }
     if is_fake_fd(fd) {
@@ -11688,9 +12079,11 @@ pub unsafe extern "C" fn mmap(
             None => set_errno_ptr(22, core::ptr::null_mut()) as *mut u8,
         };
     }
-    if let Some(api) = drm_api() {
-        if drm_api_is_fake(&api, fd) {
-            return drm_api_mmap(&api, addr, len, prot, flags, fd, off);
+    if plan::gpu_family() != plan::GPU_ADRENO {
+        if let Some(api) = drm_api() {
+            if drm_api_is_fake(&api, fd) {
+                return drm_api_mmap(&api, addr, len, prot, flags, fd, off);
+            }
         }
     }
     let r = if is_fake_fd(fd) && DRM_MALI_FD >= 0 {
@@ -11973,6 +12366,7 @@ pub unsafe extern "C" fn fcntl(fd: CInt, cmd: CInt, arg: usize) -> CInt {
     const F_DUPFD_CLOEXEC: CInt = 1030;
     if r >= 0 && (cmd == F_DUPFD || cmd == F_DUPFD_CLOEXEC) {
         drm_inherit_fake(fd, r as CInt);
+        adreno_inherit(fd, r as CInt);
     }
     if r >= 0 && v4l2_is_fake(fd) {
         if cmd == F_SETFL {

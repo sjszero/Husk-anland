@@ -1,25 +1,27 @@
 # /etc/profile.d/husk-gpu.sh - GPU 运行时默认值（由 Husk 安装器写入）
 #
-# 目的：**不需要给单个应用配置**。登录 shell 一起手就把 Vulkan ICD 与 GL 驱动指对，
-# 之后这个 shell 里启动的任何程序（GTK、Electron、python、游戏）都继承同一份配置。
-# 这和"每个应用单独装一套驱动"是两件事：驱动只部署一份，配置只写一次。
+# 目标：不需要给单个应用配置。登录 shell 一开始就把 Vulkan ICD 与 GL 驱动指对，
+# 之后这个 shell 里启动的程序共享同一份硬件接口；非登录进程由加载器读
+# /etc/husk/gpu-env，使用同一套决策。
 #
-# 为什么必须有环境变量、不能纯靠"文件放对就行"：
-#   * 同一个 rootfs 里装了上游 `mesa-vulkan-drivers` 的全套 ICD（asahi/broadcom/intel/
-#     radeon/freedreno/lvp/panfrost...），Vulkan loader 会挨个试；其中 `panfrost_icd.json`
-#     指向的是**没有 x11 平台**的库，会和我们的 ICD 抢设备。所以必须显式选。
-#   * 我们的 PanVK 只编了 Vulkan（`-Dgallium-drivers=`），没有 gallium panfrost，
-#     所以 GL 必须走 zink -> Vulkan。`MESA_LOADER_DRIVER_OVERRIDE=zink` 就是这个意思。
+# 这个脚本会按设备节点选择家族，不按机型名：
+#   Mali + kbase   -> PanVK（Vulkan）-> zink（GL）
+#   Adreno + KGSL  -> Turnip/freedreno；有原生 Gallium 驱动时走 kgsl，否则 zink
+#   真 DRM node    -> 不覆盖，交给发行版 Mesa
+#   无可用节点     -> 明确 llvmpipe
 #
-# 逃逸开关（任一即可回到软件渲染，用于 bisect 渲染问题或在没有 ICD 的树上跑）：
-#   HUSK_GPU=llvmpipe        或        NR_GPU_DEFAULT_OFF=1
-#
-# 已经自己 export 过同名变量的，这里一律不覆盖。
+# 逃逸开关：HUSK_GPU=llvmpipe，或 NR_GPU_DEFAULT_OFF 取真值（1/true/yes/on）。
+# NR_GPU_DEFAULT_OFF=0/false/no/off/空串不关闭。程序自己 export 的同名值优先。
 
-if [ "${HUSK_GPU:-zink}" = llvmpipe ] || [ -n "${NR_GPU_DEFAULT_OFF:-}" ]; then
-    # 只"不设置"是回不到软件的：我们的 ICD 就在 /usr/share/vulkan/icd.d 里，
-    # Vulkan loader 自己也会找到它（实测：只 export HUSK_GPU=llvmpipe，renderer 仍是
-    # zink Vulkan 1.3(Mali-G77 MC9)）。要真的走软件，必须把 GL 和 Vulkan 都钉死。
+_husk_gpu_off() {
+    [ "${HUSK_GPU:-}" = llvmpipe ] && return 0
+    case "${NR_GPU_DEFAULT_OFF:-}" in
+        ""|0|false|FALSE|False|no|NO|off|OFF) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+_husk_gpu_soft() {
     export LIBGL_ALWAYS_SOFTWARE=1
     export GALLIUM_DRIVER=llvmpipe
     export MESA_LOADER_DRIVER_OVERRIDE=swrast
@@ -27,30 +29,87 @@ if [ "${HUSK_GPU:-zink}" = llvmpipe ] || [ -n "${NR_GPU_DEFAULT_OFF:-}" ]; then
         export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
         export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json
     fi
+}
+
+if _husk_gpu_off; then
+    _husk_gpu_soft
+    unset -f _husk_gpu_off _husk_gpu_soft 2>/dev/null || true
     return 0 2>/dev/null || true
 fi
 
-if [ -z "${VK_ICD_FILENAMES:-}" ] && [ -z "${VK_DRIVER_FILES:-}" ]; then
-    for _husk_icd in /usr/share/vulkan/icd.d/husk_*.json; do
-        case "$_husk_icd" in *.bak*) continue ;; esac
-        if [ -r "$_husk_icd" ]; then
-            export VK_ICD_FILENAMES="$_husk_icd"
-            export VK_DRIVER_FILES="$_husk_icd"
-            break
-        fi
-    done
-    unset _husk_icd
+_husk_gpu_family=software
+if ( : <> /dev/mali0 ) 2>/dev/null; then
+    _husk_gpu_family=mali-kbase
+elif ( : <> /dev/kgsl-3d0 ) 2>/dev/null; then
+    _husk_gpu_family=adreno-kgsl
+elif ( : <> /dev/dri/renderD128 ) 2>/dev/null; then
+    _husk_gpu_family=drm-node
 fi
 
-[ -z "${MESA_LOADER_DRIVER_OVERRIDE:-}" ] && export MESA_LOADER_DRIVER_OVERRIDE=zink
-[ -z "${GALLIUM_DRIVER:-}" ] && export GALLIUM_DRIVER=zink
-# GLES 版本上限：这一版组合是 3.2（docs/LIMITATIONS.md）。写在这里是为了让
-# "桌面 + 里面的应用"看到同一个上限，而不是每个启动脚本各写一遍。
-[ -z "${MESA_GLES_VERSION_OVERRIDE:-}" ] && export MESA_GLES_VERSION_OVERRIDE=3.2
-# GTK4 的 GL 后端在这套 zink -> PanVK 上会画错（evidence 186）：窗口圆角/阴影、部分
-# 背景出现整块三角缺口，两帧逐字节一致，是可复现的绘制错误，不是撕裂。同一个程序换
-# llvmpipe 或 cairo 都是干净的，所以问题在 GTK 的 GL 绘制链路，不在 X 服务器、也不在
-# path-shim。这里只把 **GTK4 自己那层** 钉到 cairo；Vulkan/GL 一点没动，mpv、glmark2、
-# Electron 这类自己开 GL 的程序照旧吃 zink。
-# 想让 GTK 重新吃 GPU：GSK_RENDERER=ngl（或 =gl）覆盖即可，这一行也会让位。
-[ -z "${GSK_RENDERER:-}" ] && export GSK_RENDERER=cairo
+_husk_icd=
+case "$_husk_gpu_family" in
+    mali-kbase)
+        for _husk_c in /usr/share/vulkan/icd.d/husk_*.json; do
+            case "$_husk_c" in *.bak*) continue ;; esac
+            if [ -r "$_husk_c" ]; then _husk_icd=$_husk_c; break; fi
+        done
+        if [ -n "$_husk_icd" ]; then
+            [ -z "${VK_ICD_FILENAMES:-}" ] && export VK_ICD_FILENAMES=$_husk_icd
+            [ -z "${VK_DRIVER_FILES:-}" ] && export VK_DRIVER_FILES=$_husk_icd
+            [ -z "${MESA_LOADER_DRIVER_OVERRIDE:-}" ] && export MESA_LOADER_DRIVER_OVERRIDE=zink
+            [ -z "${GALLIUM_DRIVER:-}" ] && export GALLIUM_DRIVER=zink
+            # PanVK/zink 当前上限 3.2；真实应用上限仍未验证。
+            [ -z "${MESA_GLES_VERSION_OVERRIDE:-}" ] && export MESA_GLES_VERSION_OVERRIDE=3.2
+            # GTK4 的 GL 后端在 PanVK/zink 上有三角缺口，只把 GTK 自己钉到 cairo。
+            [ -z "${GSK_RENDERER:-}" ] && export GSK_RENDERER=cairo
+        else
+            _husk_gpu_family=software
+        fi
+        ;;
+    adreno-kgsl)
+        for _husk_c in \
+            /usr/share/vulkan/icd.d/freedreno_icd.aarch64.json \
+            /usr/share/vulkan/icd.d/freedreno_icd.json \
+            /usr/share/vulkan/icd.d/*freedreno*.json \
+            /usr/share/vulkan/icd.d/*turnip*.json
+        do
+            if [ -r "$_husk_c" ]; then _husk_icd=$_husk_c; break; fi
+        done
+        if [ -n "$_husk_icd" ]; then
+            [ -z "${VK_ICD_FILENAMES:-}" ] && export VK_ICD_FILENAMES=$_husk_icd
+            [ -z "${VK_DRIVER_FILES:-}" ] && export VK_DRIVER_FILES=$_husk_icd
+            [ -z "${TURNIP_KMD:-}" ] && export TURNIP_KMD=kgsl
+            [ -z "${FD_FORCE_KGSL:-}" ] && export FD_FORCE_KGSL=1
+            [ -z "${MESA_VK_WSI_PRESENT_MODE:-}" ] && export MESA_VK_WSI_PRESENT_MODE=mailbox
+            [ -z "${vblank_mode:-}" ] && export vblank_mode=0
+            _husk_native_gl=0
+            for _husk_d in /usr/lib/*/dri/kgsl_dri.so /usr/lib/*/dri/freedreno_dri.so; do
+                if [ -r "$_husk_d" ]; then _husk_native_gl=1; break; fi
+            done
+            if [ "$_husk_native_gl" = 1 ]; then
+                [ -z "${MESA_LOADER_DRIVER_OVERRIDE:-}" ] && export MESA_LOADER_DRIVER_OVERRIDE=kgsl
+                [ -z "${GALLIUM_DRIVER:-}" ] && export GALLIUM_DRIVER=freedreno
+            else
+                # 只有 Turnip ICD、没有原生 Gallium 时才走 zink；这是硬件路径，不是 llvmpipe。
+                [ -z "${MESA_LOADER_DRIVER_OVERRIDE:-}" ] && export MESA_LOADER_DRIVER_OVERRIDE=zink
+                [ -z "${GALLIUM_DRIVER:-}" ] && export GALLIUM_DRIVER=zink
+            fi
+            unset _husk_native_gl _husk_d
+        else
+            _husk_gpu_family=software
+        fi
+        ;;
+    drm-node)
+        # 真 DRM 节点由发行版 Mesa 自己枚举，不在这里硬塞 ICD。
+        ;;
+    *)
+        _husk_gpu_family=software
+        ;;
+esac
+
+if [ "$_husk_gpu_family" = software ]; then
+    _husk_gpu_soft
+fi
+
+unset _husk_c _husk_gpu_family _husk_icd
+unset -f _husk_gpu_off _husk_gpu_soft 2>/dev/null || true

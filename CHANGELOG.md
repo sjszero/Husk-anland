@@ -7,6 +7,17 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [Unreleased]
+
+### 增加
+
+- **Adreno/KGSL GPU 适配器代码**（evidence 233）。按 `/dev/kgsl-3d0` 选择 `adreno-kgsl`；
+  guest 的 `/dev/dri/renderD128` 由真实 KGSL fd 承载，`DRM_IOCTL_VERSION` 返回 `kgsl`，
+  KGSL 的其余 ioctl/mmap 直通；补了 dup/close/fcntl/close_range 记账、
+  stat/statx 设备号、`/sys/dev/char/.../uevent` 与 `drmGetNodeTypeFromFd`。
+  同时给 `/etc/husk/gpu-env` 增加 `@GPU_FAMILY`，防止把 Mali 的驱动配置注入 Adreno。
+  **没有 Adreno 真机，硬件路径仍是 UNKNOWN；Mali 回归门禁 A 38/38、Vulkan/GL 探针通过。**
+
 ## [0.0.13] - 2026-11-26
 
 > 主题：**全链路审计版**。这一版收掉路径兼容层、并发、挂载、loader、GPU/DRM、X11 呈现、

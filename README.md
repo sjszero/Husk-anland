@@ -155,9 +155,15 @@ DRI3 只能停在 `Could not get DRI3 device`。逐条数字与做法见
 一段零拷贝、输入走窗口层，传感器 / 定位 / USB / 蓝牙 / NFC 未做，指纹不做。没做到的写在
 [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md)。
 
+GPU 默认值按设备节点分族，而不是按机型名写死：Mali/kbase 走 PanVK + Zink，Adreno/KGSL
+把 guest 的 `/dev/dri/renderD128` 接成真实 `/dev/kgsl-3d0` fd，再交给 Turnip/freedreno。
+Mali 路径已在本机验证；Adreno 适配器代码已落地，但**没有 Adreno 真机证据，状态是 UNKNOWN**，
+不能写成已经支持（evidence 233）。
+
 图形默认值也属于接口的一部分：ICD、GL 驱动、GLES 上限写在 `/etc/husk/gpu-env` 里，由**加载器**
 在程序自己没设置时补，所以登录 shell、cron、桌面 fork 出来的进程、`env -i` 看到的是同一套
-渲染器；程序自己 `export` 的永远优先（evidence 182）。
+渲染器；程序自己 `export` 的永远优先（evidence 182）。文件首行的 `@GPU_FAMILY` 会阻止把
+Mali 的 ICD/驱动配置带到一个 Adreno rootfs 上；登录 shell 仍按当前设备节点重新探测。
 
 ## 特性
 

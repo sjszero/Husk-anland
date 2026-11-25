@@ -315,47 +315,87 @@ fi
 #        user unit、桌面 fork 出来的进程、`env -i`、`ssh host -- prog` 都读不到它，
 #        于是同一个 rootfs 里会出现"终端里的程序吃 GPU、别处的掉回 llvmpipe"。
 #        加载器只在这些变量"没人设置过"时补默认值，程序自己 export 的永远优先；
-#        逃逸开关仍然是 HUSK_GPU=llvmpipe / NR_GPU_DEFAULT_OFF=1。
+#        覆盖/屏蔽只用于清掉旧 2.0 会话硬塞的 swrast 默认值。
+#        文件第一行记录 GPU 家族；rootfs 被搬到别的 GPU 家族时，加载器不会注入
+#        错误家族的 ICD/驱动，登录 shell 仍会按当前设备节点重新探测。
 #        ICD 文件名随 Mesa 构建变，所以在这里解析一次写死，不在 Rust 里猜。
 mkdir -p "$DEST/etc/husk"
 : > "$DEST/etc/husk/gpu-env"
+_husk_gpu_family=software
+if ( : <> /dev/mali0 ) 2>/dev/null; then
+    _husk_gpu_family=mali-kbase
+elif ( : <> /dev/kgsl-3d0 ) 2>/dev/null; then
+    _husk_gpu_family=adreno-kgsl
+elif ( : <> /dev/dri/renderD128 ) 2>/dev/null; then
+    _husk_gpu_family=drm-node
+fi
 _husk_icd=
-for _c in "$DEST"/usr/share/vulkan/icd.d/husk_*.json; do
-    case "$_c" in *.bak*) continue ;; esac
-    [ -r "$_c" ] || continue
-    _husk_icd="/usr/share/vulkan/icd.d/${_c##*/}"
-    break
-done
-if [ -n "$_husk_icd" ]; then
-    {
+if [ "$_husk_gpu_family" = mali-kbase ]; then
+    for _c in "$DEST"/usr/share/vulkan/icd.d/husk_*.json; do
+        case "$_c" in *.bak*) continue ;; esac
+        [ -r "$_c" ] || continue
+        _husk_icd="/usr/share/vulkan/icd.d/${_c##*/}"
+        break
+    done
+elif [ "$_husk_gpu_family" = adreno-kgsl ]; then
+    for _c in \
+        "$DEST"/usr/share/vulkan/icd.d/freedreno_icd.aarch64.json \
+        "$DEST"/usr/share/vulkan/icd.d/freedreno_icd.json \
+        "$DEST"/usr/share/vulkan/icd.d/*freedreno*.json \
+        "$DEST"/usr/share/vulkan/icd.d/*turnip*.json
+    do
+        [ -r "$_c" ] || continue
+        _husk_icd="/usr/share/vulkan/icd.d/${_c##*/}"
+        break
+    done
+fi
+
+{
+    echo "@GPU_FAMILY=$_husk_gpu_family"
+    if [ "$_husk_gpu_family" = mali-kbase ] && [ -n "$_husk_icd" ]; then
         echo "VK_ICD_FILENAMES=$_husk_icd"
         echo "VK_DRIVER_FILES=$_husk_icd"
-        # 下面三行是"覆盖/屏蔽"档（`!` / `-` 前缀），不是填空。理由：LinuxHub 2.0 的
-        # 会话脚本自己会 export MESA_LOADER_DRIVER_OVERRIDE=swrast GALLIUM_DRIVER=llvmpipe
-        # LIBGL_ALWAYS_SOFTWARE=1 —— 那是 PRoot 时代的保守默认（Zink 在 PRoot 下采样
-        # 不到客户端 pixmap，窗口会整片不可见）。Husk 不经 PRoot，直接跑在 Android
-        # 内核上，evidence 187 §6 / 191 §3 实测整屏 zink 正常，所以这里覆盖掉它，
-        # 桌面 shell 才会真正吃到 GPU。填空档（下面的 MESA_GLES_VERSION_OVERRIDE /
-        # GSK_RENDERER）仍然让位给程序自己的设置。
+        # LinuxHub 2.0 的会话脚本会 export swrast/llvmpipe；Husk 原生路径已在
+        # evidence 187/191 证实整屏 zink 可用，所以覆盖这两个旧默认值。
         echo "!MESA_LOADER_DRIVER_OVERRIDE=zink"
         echo "!GALLIUM_DRIVER=zink"
-        # LIBGL_ALWAYS_SOFTWARE 比 GALLIUM_DRIVER 更优先，只覆盖 GL 档位不够，必须让它
-        # 对程序不可见。`-NAME` 就是这么一行。
+        # LIBGL_ALWAYS_SOFTWARE 比 GALLIUM_DRIVER 更优先，必须让它不可见。
         echo "-LIBGL_ALWAYS_SOFTWARE"
         echo "MESA_GLES_VERSION_OVERRIDE=3.2"
-        # GTK4 的 GL 后端在 zink/PanVK 上画错（evidence 186）：圆角/阴影和部分背景
-        # 出整块三角缺口。只影响 GTK 自己的绘制，Vulkan/GL 不动。
+        # GTK4 的 GL 后端在 zink/PanVK 上有可复现的三角缺口；只影响 GTK 自己。
         echo "GSK_RENDERER=cairo"
-    } > "$DEST/etc/husk/gpu-env"
-    chmod 644 "$DEST/etc/husk/gpu-env"
-    echo "   wrote etc/husk/gpu-env (loader-level defaults: $_husk_icd)"
+    elif [ "$_husk_gpu_family" = adreno-kgsl ] && [ -n "$_husk_icd" ]; then
+        echo "VK_ICD_FILENAMES=$_husk_icd"
+        echo "VK_DRIVER_FILES=$_husk_icd"
+        echo "TURNIP_KMD=kgsl"
+        echo "FD_FORCE_KGSL=1"
+        echo "MESA_VK_WSI_PRESENT_MODE=mailbox"
+        echo "vblank_mode=0"
+        echo "-LIBGL_ALWAYS_SOFTWARE"
+        _husk_native_gl=0
+        for _d in "$DEST"/usr/lib/*/dri/kgsl_dri.so "$DEST"/usr/lib/*/dri/freedreno_dri.so; do
+            if [ -r "$_d" ]; then _husk_native_gl=1; break; fi
+        done
+        if [ "$_husk_native_gl" = 1 ]; then
+            echo "!MESA_LOADER_DRIVER_OVERRIDE=kgsl"
+            echo "!GALLIUM_DRIVER=freedreno"
+        else
+            # 只有 Turnip ICD、没有原生 Gallium 时，GL 走 zink->Turnip。
+            echo "!MESA_LOADER_DRIVER_OVERRIDE=zink"
+            echo "!GALLIUM_DRIVER=zink"
+        fi
+        unset _husk_native_gl _d
+    fi
+} > "$DEST/etc/husk/gpu-env"
+chmod 644 "$DEST/etc/husk/gpu-env"
+if [ -n "$_husk_icd" ]; then
+    echo "   wrote etc/husk/gpu-env ($_husk_gpu_family, ICD: $_husk_icd)"
+elif [ "$_husk_gpu_family" = mali-kbase ] || [ "$_husk_gpu_family" = adreno-kgsl ]; then
+    echo "   no matching GPU ICD in the tree; etc/husk/gpu-env records $_husk_gpu_family only" >&2
 else
-    # No ICD in the tree: injecting GALLIUM_DRIVER=zink would point GL at a
-    # Vulkan loader with nothing to load. Leaving the file empty keeps the
-    # pre-existing behaviour (whatever Mesa defaults to) exactly as it was.
-    echo "   no husk_*.json ICD in the tree; etc/husk/gpu-env stays empty (loader injects nothing)" >&2
+    echo "   wrote etc/husk/gpu-env ($_husk_gpu_family; no driver override)"
 fi
-unset _c _husk_icd
+unset _c _d _husk_icd _husk_native_gl _husk_gpu_family
 
 # 2b-4. 外观默认值：gschema override。Ubuntu 的 Yaru 外观是 `ubuntu-settings` 用
 #       gschema override 钉出来的，这个 rootfs 里没有那个包（yaru 的主题文件都在），

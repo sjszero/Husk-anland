@@ -64,7 +64,7 @@ unsafe fn compute() -> u8 {
         return GPU_MALI;
     }
     if node_rw(b"/dev/kgsl-3d0", b"kgsl") {
-        push_reason(b"kgsl-3d0 rw ok, adapter not implemented");
+        push_reason(b"kgsl-3d0 rw ok");
         return GPU_ADRENO;
     }
     if node_rw(b"/dev/dri/renderD128", b"dri") {
@@ -98,12 +98,25 @@ pub unsafe fn gpu_reason() -> &'static [u8] {
     core::slice::from_raw_parts(REASON.as_ptr(), REASON_LEN)
 }
 
-fn family_name(f: u8) -> &'static [u8] {
+pub fn family_name(f: u8) -> &'static [u8] {
     match f {
         GPU_MALI => b"mali-kbase",
         GPU_ADRENO => b"adreno-kgsl",
         GPU_DRM => b"drm-node",
         _ => b"software",
+    }
+}
+
+/// Map the family marker written into `/etc/husk/gpu-env` back to its id.
+/// Unknown names are rejected instead of being treated as a wildcard: a
+/// config generated for another GPU family must not steer this process.
+pub fn family_from_name(name: &[u8]) -> Option<u8> {
+    match name {
+        b"mali-kbase" => Some(GPU_MALI),
+        b"adreno-kgsl" => Some(GPU_ADRENO),
+        b"drm-node" => Some(GPU_DRM),
+        b"software" => Some(GPU_SOFTWARE),
+        _ => None,
     }
 }
 

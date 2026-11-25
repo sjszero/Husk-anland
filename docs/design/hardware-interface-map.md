@@ -10,6 +10,10 @@
 | 设备类 | guest 看到的接口 | 接法 | 实测 | 证据 |
 |---|---|---|---|---|
 | GPU | Vulkan / EGL（`/dev/mali0` + kbase，PanVK 后端） | **直连**：guest 进程自己开设备节点，应用侧一行不参与 | `Mali-G77 MC9` 枚举、compute、离屏回读、Zink、X11 窗口呈现 | 156、165、167 |
+
+> **跨 SoC 代码状态**：GPU 按节点分族。Mali/kbase 的本机实测见上表；Adreno/KGSL 的
+> render-node → 真实 KGSL fd 适配器代码已落地（evidence 233），但本仓库没有 Adreno 真机，
+> 所以 Adreno 的打开、Vulkan 枚举、ioctl/mmap、Turnip 和桌面全部是 **UNKNOWN**，不能算通过。
 | 相机 | V4L2 `/dev/videoN` | **直连**：真节点 + 标准 ioctl | 取流 / 拍照 / 30 秒录像，硬件 H.264 编码 | 93 |
 | 音频 | PulseAudio（`module-pipe-sink` / `module-pipe-source`） | **中转**：Rust `audio-relay` → AAudio | 48 kHz 双声道 610 秒；反证：guest 里 `/dev/snd` 是 `Permission denied`，根本没有声卡节点 | 62 |
 | 视频解码 | VA-API（`vaGetDisplayDRM` / `vaCreateSurfaces`） | **中转**：Rust VA driver + `video-bridge` ↔ MediaCodec，AHB 交接 | H.264 1080p30 连续 600 秒，`dropped=0` | 80–87 |
@@ -56,7 +60,8 @@
 驱动只部署一份、配置只写一次，是这套接法的前提。默认值不放在 `/etc/profile.d`
 （那只对登录 shell 生效），而是由**加载器**在程序自己没设置时补：
 
-- 数据来自 `/etc/husk/gpu-env`（安装器写，ICD 文件名在安装时解析）；
+- 数据来自 `/etc/husk/gpu-env`（安装器写，ICD 文件名在安装时解析）；第一行 `@GPU_FAMILY=`
+  记录生成时的设备族，rootfs 搬到另一族设备时加载器不会注入错误家族的 ICD/驱动；
 - 程序自己 `export` 的永远优先；
 - 逃逸开关 `HUSK_GPU=llvmpipe` / `NR_GPU_DEFAULT_OFF=1`；
 - 实测（evidence 182）：`env -i` 起 `gl-probe es3` → `zink Vulkan 1.3(Mali-G77 MC9)`。
