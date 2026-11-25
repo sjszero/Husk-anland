@@ -201,8 +201,19 @@ slot 页定位不到，影响标 **UNKNOWN**：它的调用者是 libc 内部、
 3. 「mutter 没用 `XIGrabDevice`」不是原因——把 `XIGrabButton`/`XIGrabTouchBegin`
    全跳过（`HUSK_NOGRAB=1`）之后拖动**依然不动**（evidence 198）。
 
-**结论（JUDGMENT）**：坏在 mutter 的 grab op 这一步，位置在 X server 侧
+**再压一层之后（evidence 205，2026-11-25 17:30）**：抓取本身和核心 motion 投递都是好的——
+`XGrabPointer` 返回 `Success`，抓取期间两次 `XTestFakeMotionEvent` 全收到（`motion=2`）。
+坏的是 **XI2 事件路径**：这台 server 上 `XISelectEvents(root, XI_Motion)` 直接回
+`BadValue`，`XIQueryDevice(XIAllDevices)` 只返回键盘。mutter 46 的 X11 后端正是走 XI2 读指针，
+所以它自己的 grab op 期间永远收不到 motion；而 `alt+F7` 之后是**键盘**驱动的移动，绕开了 Pointer motion。
+
+**结论（JUDGMENT）**：坏在 XI2 的选择/枚举语义，位置在 X server 侧
 （`com.linuxhub.myth.husk:x11` 进程里的 Xorg），**不是 path-shim 能补的**。
+要修就修 XI2，不要去修抓取，也不要重做事件投递。
+
+**一条 UNKNOWN，别当成已知**：生产手指走的是应用侧创建的 `Lorie` 设备（evidence 198 的 6/7/8），
+和自动化的 XTEST pointer 不是同一条。若 XI2 只对合成设备坏、对真实设备好，那真手指拖窗**可能**
+是能用的——没验证过，需要人手上机拖一次才算数。
 要给 2.0 那侧复现，就三步：`xev` 开窗 → `xdotool windowactivate` →
 `xdotool keydown super; mousedown 1; mousemove +120+90; mousemove +240+160; mouseup 1; keyup super`
 → `xwininfo -id` 前后对比，坐标不变即为复现（脚本见 evidence 203 §4）。
