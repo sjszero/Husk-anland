@@ -169,7 +169,7 @@ socket 协议，数据在应用侧过一次。逐类理由见
 | 视频编码（VA-API encode） | 中转（未做） | 未做 | — |
 | 相机（V4L2 `/dev/videoN` + 平台编码） | 直连 | 有实测链路 | evidence 91–93 |
 | 音频（PulseAudio → `audio-relay` → AAudio） | 中转 | 可用，10 秒级，非长稳；guest 里 `/dev/snd` 打不开 | evidence 62 |
-| 输入注入（触摸/键盘） | 窗口层 | 能到应用；指针默认是 trackpad 语义，2.0 侧的 `touchMode` 默认值未在本仓库改 | evidence 148、180 |
+| 输入注入（触摸/键盘） | 窗口层 | 能到应用；指针默认是 trackpad 语义，2.0 侧的 `touchMode` 默认值未在本仓库改；**拖动窗口失效**（见 §10） | evidence 148、180、203 |
 | 传感器、GPS、USB、蓝牙、NFC | 未做 | 未开始：这几类既开不到节点，NDK 也没有对应平台 API | — |
 | 指纹 | 不做 | 认证必须绑定可见 Activity 的用户交互 | — |
 | 浏览器 | — | 随附 rootfs 无浏览器包，未跑过 | — |
@@ -186,3 +186,36 @@ libc 里有 5 个函数打不上入口补丁，钉在 `tools/loader/libc-interpo
 所以补包装函数没有收益，不构成路径逃逸。第五个在这个 libc 构建里**没有导出符号**，
 slot 页定位不到，影响标 **UNKNOWN**：它的调用者是 libc 内部、外层入口（`open`/`open64`/
 `openat`/`openat64`）都已接管，但这是论证，不是实测。
+
+## 10 · 窗口拖不动：缺陷在本机 X server 的 grab op，替代操作是 `alt+F7`
+
+**现象**（FACT，evidence 203，2026-11-25 17:04 复核）：`Super`+按住拖标题栏，
+窗口一格不动；`alt+F7` 再动指针，窗口跟着走（`236,188` → `186,120`）。
+连带「拖动时才有的对齐、吸附」也一起没有。
+
+**已排除的三条**（都实测过，别再往这三条上花时间）：
+
+1. 客户端请求路径——`_NET_WM_MOVERESIZE` 和 mutter 自己发起的搬窗**结果一样**，
+   所以不是客户端把请求发错了；
+2. X 层被动抓取——这台 X server 上 `XGrabButton` 永远拿不到（evidence 198）；
+3. 「mutter 没用 `XIGrabDevice`」不是原因——把 `XIGrabButton`/`XIGrabTouchBegin`
+   全跳过（`HUSK_NOGRAB=1`）之后拖动**依然不动**（evidence 198）。
+
+**结论（JUDGMENT）**：坏在 mutter 的 grab op 这一步，位置在 X server 侧
+（`com.linuxhub.myth.husk:x11` 进程里的 Xorg），**不是 path-shim 能补的**。
+要给 2.0 那侧复现，就三步：`xev` 开窗 → `xdotool windowactivate` →
+`xdotool keydown super; mousedown 1; mousemove +120+90; mousemove +240+160; mouseup 1; keyup super`
+→ `xwininfo -id` 前后对比，坐标不变即为复现（脚本见 evidence 203 §4）。
+
+**0.0.6 的处理**：列为已知缺陷，替代操作 `alt+F7`（键盘搬窗不经过 grab op，已验证可用）。
+0.0.7 再动，动之前要先确认改动落在 X server 侧、并且不碰应用代码。
+
+## 11 · 屏幕一灭，桌面「像死了一样」：那是 Android 冻结，不是崩
+
+`dumpsys power` 显示 `mWakefulness=Asleep` 时，应用转 cached，Android 的
+Cached Apps Freezer 会把它的全部线程 SIGSTOP；X server 住在应用进程里，于是
+**根窗口还在、但新连接一律卡住**。判据：`/proc/<x11 pid>/task/*/wchan` 全是 `get_signal`，
+而 `echo`/`id` 这类不碰 X 的 guest 命令秒回。唤醒（`input keyevent KEYCODE_WAKEUP`）
+或把应用切回前台即恢复，**不需要重启应用**（FACT，evidence 203）。
+
+所以：真机上「锁屏一会儿回来桌面卡住」先看这一条，别当崩溃查。

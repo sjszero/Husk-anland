@@ -7,6 +7,64 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.6] - 2026-11-25
+
+> 主题：**把"桌面会话"从一堆手搓命令收成一个入口，并把三件长期挂在"根因 UNKNOWN"上的事钉死。**
+> 0.0.5 说的是"硬件怎么接"，0.0.6 说的是"这个会话凭什么能稳定起来、以及它哪里还坏着"。
+> 这一版新增了**一条用户可见的边界**（应用被冻结时桌面会停摆），也把一个被当成 bug 的现象
+> 明确降级成已知限制。
+
+### 改
+
+- **新增 `husk-desktop.sh`（会话单一入口）**，安装器落盘（evidence 200、203）。
+  清残留进程 → 清 `gnome-shell-disable-extensions` / 陈旧 `bus` / `gvfsd` / `at-spi` →
+  起系统总线与会话总线 → 起 shell → 等 `_NET_SUPPORTING_WM_CHECK` → 自检 → 拉起壁纸看护。
+  实测输出 `CHECK wm=yes` / `CHECK ding=yes` / `CHECK gpu=zink`，`EXIT=0`，两次独立会话均可复现。
+  两条硬坑写死在注释里：**dbus 地址必须用 guest 侧路径**（宿主路径会二次加 rootfs 前缀，
+  main.js 直接抛异常）；**后台进程必须重定向 stdin/stdout/stderr**（否则调用方 `| tail` 挂住）。
+- **壁纸缺失/失效兜底**（evidence 199）：`husk-wallpaper-fit.sh` 在空 URI 时按
+  `husk-default.png` → 内置壁纸 → 任意 png/jpg 兜底，并复位 `primary-color`；
+  安装器此前只装 `husk-wallpaper-scale.js`、**从没装 `husk-wallpaper-fit.sh`**，
+  于是 `husk-session.sh` 的可执行判断永远为假——这一处一并补上。
+  验收：跨整会话重启的六个采样点逐字节一致。
+
+### 测过（数字）
+
+- **输入延迟**（evidence 201，3 轮 × 100 次，同进程 `XTestFake*` + `XSync` 往返）：
+  键盘中位 **1.04–1.21 ms**、按钮中位 **0.25–3.09 ms**，最小 0.14 ms ——
+  path-shim 与 X server 的请求通路**不是**瓶颈；尖峰 **8.3 / 30.3 ms** 正好是 120 Hz / 33 Hz
+  一帧，是被批量到下一个 grab/frame 之后投递，视为一拍延迟（INFERENCE，未做帧计时器对拍）。
+  限定：不含 `/dev/input` → X 这一段，也不含合成器 → 屏幕扫描，**不等于手指到画面的延迟**。
+- **拖动窗口**（evidence 203 复核）：`Super`+拖位移 **0**（`236,188` → `236,188`）；
+  `alt+F7` + 指针 motion 位移有效（→ `186,120`）。
+- **`/proc/self/mountinfo` 的 EPERM 定根因**（evidence 202）：虚拟 proc 文件全是 **memfd**
+  （`S_IFREG`、`dev 0:5`、`/memfd:husk-virt (deleted)`），而 libmount 的内核挂载监视只做
+  `epoll_ctl(ADD)`，**内核对普通文件一律 EPERM**。不是 mountinfo 独有，`/proc/uptime` 一样。
+
+### 已知问题（本版未修，已核实）
+
+- **窗口拖不动、连带对齐/吸附**（限制 §10）：坏在 mutter 的 grab op，位置在 X server 侧；
+  客户端请求、X 层被动抓取、「mutter 没用 `XIGrabDevice`」三条全部实测排除。
+  替代操作 `alt+F7`。给 2.0 侧的复现步骤在 evidence 203 §4。
+- **挂载变化不再有通知**（限制 §11 之外的另一条，evidence 202）：`GUnixMountMonitor` 拿不到
+  channel 后**既不挂 watch 也不退回轮询**（3 秒轮询只属于"找不到 mtab 路径"那条分支），
+  于是 `udisksd` / `gvfsd` / `nautilus` 都只在主动读时才看到最新挂载表。
+  修法三条已列（pipe 承载 / hook `epoll_ctl` / 不动），前两条各自的代价写在 evidence 202 §5，
+  本版选"不动"，因为它**不产生错误行为**，只产生噪音与延迟。
+- **Nautilus 的 `This app cannot work correctly if run as root`**：会话真 uid 就是 0，
+  假身份（`NR_FAKE_UID`）被 dbus 的 EXTERNAL 认证挡死（evidence 200）。要消只能改
+  gnome-shell 资源或预载层丢 `Notify`——都是动别人代码，0.0.6 不做。
+- **屏幕熄灭后桌面"像死了一样"**（限制 §11）：应用转 cached 被 Android Cached Apps Freezer
+  整体 SIGSTOP，X server 住在应用进程里，于是新连接一律卡住。判据是
+  `/proc/<x11 pid>/task/*/wchan` 全为 `get_signal` 且 `dumpsys power` 显示 `mWakefulness=Asleep`；
+  唤醒即恢复，**不是崩溃**。
+
+### 文档
+
+- [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md)：§8 输入一行补"拖动失效"；新增 §10（拖动缺陷与
+  `alt+F7` 替代、三条已排除路径、给 2.0 侧的三步复现）、§11（冻结判据与"别当崩溃查"）。
+- 新增 evidence 199 / 201 / 202 / 203；198 追加两次（XI2 设备树、mutter 不用 `XIGrabDevice`）。
+
 ## [0.0.5] - 2026-11-25
 
 > 主题：**说清楚「硬件到底怎么接」，并把图形默认值从登录脚本下沉到加载器。**
