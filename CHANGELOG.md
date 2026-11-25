@@ -39,6 +39,23 @@
 - **死挂载项跨会话累积，攒满 8 条后 `mount` 直接 `ENOSPC`**（evidence 221 §2）。
   `mount()` 之前清理后备目录已不存在的项并把结果落盘。
 
+- **会话 umask 是 0000**（evidence 222 §1）。Android 给 `run-as` 的 umask 就是 000，shim 不碰
+  它，于是 guest 里 `mkdir` 得到 0777、文件 0666：DING 拒绝从世界可写的 `~/Desktop` 启动桌面
+  文件，daemon 对 mode 的判断也跟着错。`husk-session.sh` 与 `husk-desktop.sh` 两个会话入口
+  统一 `umask 022`，实测 755 / 644。
+
+- **`readlink("/proc/self/cwd")`、`("/proc/self/root")` 返回 ENOENT**（evidence 222 §2）。
+  这两个魔术链接指向宿主命名空间，按路径解析过去会跳出 rootfs，所以 `passthrough()` 拒绝交给
+  内核——这个拒绝是对的，但被顺手用到了「读链接」上。`realpath` 类相对路径解析、「我在哪」
+  判断全部拿不到答案。现在读链接从 guest 视图回答：`cwd` → `/root`、`root` → `/`；
+  `/proc/self/fd/N` 的目标也改写成 guest 路径（以前 `/proc/self/fd/1024` 直接暴露应用数据目录）。
+
+- **`inotify_add_watch` / `statfs` / `getxattr` 一族在路径解析失败时报 EPERM**（evidence 222 §3）。
+  `xattr_pinned()` 失败时写 errno 并返回 `-1`，调用方再喂给 `ret_or_errno()`，后者把 `-1`
+  当成 `-EPERM` 又覆盖一次 errno。后果是「文件不存在」被说成「没有权限」：
+  `dbus-daemon` 起会话总线时打印 "Cannot setup inotify … Operation not permitted"，
+  任何把 EPERM 当致命错误的 watcher 会直接放弃。改成回 `-errno`，实测 EPERM → ENOENT。
+
 ### 加
 
 - `tools/probe/symbol-gap-probe.c`：把没钩的符号逐个**试出后果**（判据是效果不是符号）。

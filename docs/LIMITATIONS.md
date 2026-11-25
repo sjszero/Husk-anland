@@ -271,3 +271,22 @@ Cached Apps Freezer 会把它的全部线程 SIGSTOP；X server 住在应用进�
 mount，已经在跑的进程看不到——同一个路径在两个进程里指向两个目录，写进去的字节会「消失」
 （evidence 221 §1）。现在默认每次重读，实测代价 +0.5%（`find /usr` 23 万次路径解析）。
 关掉它是允许的，但等于接受上面那种静默写错位置。
+
+## 14 · 会话形态：umask 是入口定的，`/proc` 魔术链接只能读不能走（2026-11-25 实测）
+
+**umask 由会话入口设成 022，不跟 guest 的 `/etc/login.defs` 走。** Android 给应用的 umask
+是 0000，shim 不改它（那是进程属性，不经过任何被钩的 libc 函数）。要按发行版那套
+UMASK/USERGROUPS 规则算，就得在 shim 里重写 `open`/`mkdir`/`creat` 的 mode 参数——那等于
+在每个创建点上多一层推断，代价和风险都不划算。所以两个入口（`husk-session.sh`、
+`husk-desktop.sh`）统一 `umask 022`，需要别的值的程序自己调 `umask(2)`（会被正常执行）。
+evidence 222 §1。
+
+**`/proc/self/cwd` 和 `/proc/self/root` 可以读，不能拿来做路径前缀。** `readlink` 现在答的是
+guest 视图（`/root`、`/`），但 `open("/proc/self/cwd/x")`、`ls -l /proc/self/cwd` 仍然 ENOENT：
+这两个魔术链接解析出来是宿主路径，放行等于给了跳出 rootfs 的一条路。真正需要「当前目录的
+绝对路径」的代码应该用 `getcwd(3)`（已改写）。evidence 222 §2。
+
+**信号处置是从 Android 父进程继承的。** 实测 guest 侧 `SigIgn=0x2000000000`（一位 RT 信号被
+忽略）、`SigCgt=0x400004c8`，与同一台机器上 `adb shell` 直接 `cat /proc/self/status` 逐位相同
+——也就是说 loader 既不添也不清。会话不是 `login(1)` 起的，别指望信号表是干净的。
+evidence 222 §5。

@@ -27,6 +27,14 @@
 # working" (measured 2026-11-23, evidence 129).
 set -eu
 
+# Android hands the app a umask of 0000 (`adb shell umask` and `run-as ... umask`
+# both print 000), while a normal Linux login ends up at 022. The shim passes the
+# umask straight through, so without this line every directory a guest program
+# creates is 0777: DING refuses to launch desktop files from a world-writable
+# ~/Desktop, and daemons that compare a mode against 0700 see the wrong answer.
+# Set it once at the session entry so the whole tree inherits a normal umask.
+umask 022
+
 BASE=$(cd "$(dirname "$0")" && pwd)
 [ $# -gt 0 ] || { echo "usage: husk-session.sh <rootfs> [--user N] [--cwd D] -- prog [args]" >&2; exit 64; }
 ROOTFS=$(cd "$1" && pwd); shift

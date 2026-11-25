@@ -11,7 +11,9 @@ mod gpuenv;
 mod plan;
 
 use core::panic::PanicInfo;
-use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
+use core::sync::atomic::{
+    AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering,
+};
 use runtime_core as rc;
 
 type CChar = i8;
@@ -6911,6 +6913,87 @@ pub unsafe extern "C" fn utime(path: *const CChar, ub: *const i64) -> CInt {
     utimens_target(AT_FDCWD, path, t as *const u8, true, 0)
 }
 
+/// `/proc/self/fd/N`, `/proc/self/cwd` and `/proc/<pid>/exe` are answered by the
+/// host kernel, so their targets name *host* paths: a guest that readlinks an
+/// open descriptor sees `/data/user/0/<pkg>/files/linux/distributions/…/rootfs/root`
+/// instead of `/root`, and `readlink("/proc/self/fd/1024")` even names the
+/// runtime's private root descriptor. Anything that lands inside the rootfs is
+/// rewritten to its guest spelling (the result is always shorter, so it cannot
+/// overflow the caller's buffer); targets outside it -- `socket:[…]`, `/dev/null`,
+/// a genuine host path -- are returned untouched.
+/// `/proc/self/{cwd,root}` are the two procfs magic links that point into the
+/// *host* namespace, so `passthrough()` refuses to hand them to the kernel when
+/// resolving a path. Reading the link itself is a different question: a program
+/// that readlinks its own cwd only wants a string back, and ENOENT there breaks
+/// every `realpath()`-style relative resolution and every "where am I" test.
+/// So answer the target in the guest view instead: cwd -> the guest cwd,
+/// root -> "/". Anything that is not this process (or `self`/`thread-self`) is
+/// left to the normal path, which keeps refusing it.
+unsafe fn proc_magic_link(path: &[u8]) -> Option<u8> {
+    const PFX: &[u8] = b"/proc/";
+    if path.len() < PFX.len() + 4 || &path[..PFX.len()] != PFX {
+        return None;
+    }
+    let rest = &path[PFX.len()..];
+    let slash = match rest.iter().position(|&c| c == b'/') {
+        Some(i) => i,
+        None => return None,
+    };
+    let who = &rest[..slash];
+    let kind = match &rest[slash + 1..] {
+        b"cwd" => b'c',
+        b"root" => b'r',
+        _ => return None,
+    };
+    let mine = match who {
+        b"self" | b"thread-self" => true,
+        _ => {
+            if who.is_empty() {
+                return None;
+            }
+            let mut v = 0u64;
+            for &c in who {
+                if !c.is_ascii_digit() {
+                    return None;
+                }
+                v = v * 10 + (c - b'0') as u64;
+                if v > 1 << 22 {
+                    return None;
+                }
+            }
+            v == syscall4(SYS_GETPID, 0, 0, 0, 0) as u64
+        }
+    };
+    if mine {
+        Some(kind)
+    } else {
+        None
+    }
+}
+
+unsafe fn readlink_guestify(out: *mut CChar, n: Ssize) -> Ssize {
+    if n <= 0 {
+        return n;
+    }
+    let _ = rootfd();
+    let root = guest_root();
+    let l = n as usize;
+    if root.len() <= 1 || l < root.len() {
+        return n;
+    }
+    let b = out as *mut u8;
+    if core::slice::from_raw_parts(b, root.len()) != root {
+        return n;
+    }
+    if l == root.len() {
+        *b = b'/';
+        return 1;
+    }
+    let g = l - root.len();
+    core::ptr::copy(b.add(root.len()), b, g);
+    g as Ssize
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn readlinkat(
     dirfd: CInt,
@@ -6961,6 +7044,36 @@ pub unsafe extern "C" fn readlinkat(
             }
         }
     }
+    // `/proc/self/{cwd,root}`: answered here, never handed to the kernel as a
+    // path (see proc_magic_link).
+    {
+        let pb = bytes(path);
+        if let Some(kind) = proc_magic_link(pb) {
+            if len == 0 {
+                *__errno_location() = 22; // EINVAL, as readlink(2) says
+                return -1;
+            }
+            if kind == b'r' {
+                *(out as *mut u8) = b'/';
+                return 1;
+            }
+            let mut real = [0u8; PATH_MAX];
+            let n = syscall4(
+                SYS_READLINKAT,
+                AT_FDCWD as usize,
+                b"/proc/self/cwd\0".as_ptr() as usize,
+                real.as_mut_ptr() as usize,
+                PATH_MAX - 1,
+            );
+            let g = readlink_guestify(real.as_mut_ptr() as *mut CChar, n);
+            if g <= 0 {
+                return g;
+            }
+            let gl = (g as usize).min(len);
+            core::ptr::copy_nonoverlapping(real.as_ptr(), out as *mut u8, gl);
+            return gl as Ssize;
+        }
+    }
     let absolute = *path == b'/' as CChar;
     if verbose_on() {
         dbg(&[b"READLINKAT fd="]);
@@ -7001,13 +7114,14 @@ pub unsafe extern "C" fn readlinkat(
                 return r;
             }
             Ok(None) => {
-                return syscall4(
+                let r = syscall4(
                     SYS_READLINKAT,
                     dirfd as usize,
                     path as usize,
                     out as usize,
                     len,
-                )
+                );
+                return readlink_guestify(out, r);
             }
             Err(e) => return set_errno(e) as Ssize,
         }
@@ -7015,13 +7129,14 @@ pub unsafe extern "C" fn readlinkat(
     let n = match abs_guest(path, &mut gp) {
         Some(n) if rfd >= 0 && !passthrough(&gp[..n]) => n,
         Some(_) => {
-            return ssize_or_errno(syscall4(
+            let r = syscall4(
                 SYS_READLINKAT,
                 AT_FDCWD as usize,
                 gp.as_ptr() as usize,
                 out as usize,
                 len,
-            ))
+            );
+            return ssize_or_errno(readlink_guestify(out, r));
         }
         None => return set_errno(36) as Ssize,
     };
@@ -7038,7 +7153,7 @@ pub unsafe extern "C" fn readlinkat(
         len,
     );
     rc::close(parent);
-    ssize_or_errno(r)
+    ssize_or_errno(readlink_guestify(out, r))
 }
 
 #[no_mangle]
@@ -7755,10 +7870,15 @@ where
     }
     let fd = match target_fd(AT_FDCWD, path, true) {
         Ok(fd) => fd,
-        Err(e) => {
-            *__errno_location() = e;
-            return -1;
-        }
+        // Return the raw -errno, not -1 with errno set: every caller feeds this
+        // through ret_or_errno(), which turns any -1 into EPERM. Measured
+        // 2026-11-25: `inotify_add_watch("/root/.local/share/dbus-1/services")`
+        // on a *missing* directory answered EPERM instead of ENOENT, so
+        // dbus-daemon logged "Cannot setup inotify ... Operation not permitted"
+        // and any watcher that treats EPERM as fatal would give up instead of
+        // creating the directory. Same wrong errno reached setxattr, getxattr,
+        // listxattr, removexattr and statfs.
+        Err(e) => return -(e as Ssize),
     };
     let mut pb = [0u8; 32];
     let pp = fd_proc_path(fd, &mut pb);
@@ -9451,7 +9571,11 @@ pub unsafe extern "C" fn dlopen(file: *const CChar, mode: CInt) -> *mut u8 {
     }
     let mut real = [0u8; PATH_MAX];
     match dl_translate(file, &mut real) {
-        Ok(Some(_)) => loaded(call_real_dlmopen(LM_ID_BASE, real.as_ptr() as *const CChar, mode)),
+        Ok(Some(_)) => loaded(call_real_dlmopen(
+            LM_ID_BASE,
+            real.as_ptr() as *const CChar,
+            mode,
+        )),
         Ok(None) => loaded(call_real_dlmopen(LM_ID_BASE, file, mode)),
         Err(e) => {
             *__errno_location() = e;

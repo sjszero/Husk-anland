@@ -27,6 +27,11 @@
 # 所以会话仍以 root 身份跑，那条提示按"已知提示"处理，不用假身份绕。
 set -eu
 
+# Android 给应用的 umask 是 0000（`run-as ... umask` 打印 000），会话继承它之后
+# 每个新目录都是 0777。DING 拒绝从世界可写的 ~/Desktop 启动桌面文件，所以这里
+# 和 husk-session.sh 一样，在入口处统一设成普通登录会话的 022。
+umask 022
+
 BASE=$(cd "$(dirname "$0")" && pwd)
 [ $# -ge 1 ] || { echo "usage: husk-desktop.sh <rootfs> [--home DIR] [--wait SEC]" >&2; exit 64; }
 ROOTFS=$(cd "$1" && pwd); shift
