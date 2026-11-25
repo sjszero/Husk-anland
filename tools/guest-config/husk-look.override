@@ -22,3 +22,14 @@ clock-format='24h'
 
 [org.gnome.desktop.wm.preferences]
 button-layout='appmenu:minimize,maximize,close'
+
+# 背景/壁纸也归 ubuntu-settings 管：没有它，桌面停在 GNOME 原厂那张蓝紫"碎片"壁纸上
+# （`picture-uri=…/gnome/adwaita-l.jpg`，实测 evidence 186 §6）。这里钉到 Ubuntu 24.04
+# 自带的那张（`warty-final-ubuntu.png`），锁屏一起。颜色类键不动，交给 GNOME 默认。
+[org.gnome.desktop.background]
+picture-uri='file:///usr/share/backgrounds/warty-final-ubuntu.png'
+picture-uri-dark='file:///usr/share/backgrounds/warty-final-ubuntu.png'
+picture-options='zoom'
+
+[org.gnome.desktop.screensaver]
+picture-uri='file:///usr/share/backgrounds/warty-final-ubuntu.png'
