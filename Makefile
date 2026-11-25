@@ -108,8 +108,14 @@ apk:
 	mkdir -p $(JNI)
 	CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$(CC_ANDROID) \
 	CC_aarch64_linux_android=$(CC_ANDROID) AR_aarch64_linux_android=$(NDK)/llvm-ar \
-	  cargo build --release --manifest-path app-rs/Cargo.toml --target aarch64-linux-android
+	  cargo build --release --manifest-path app-rs/Cargo.toml --target aarch64-linux-android \
+	    --lib --bin husk-session-guard
 	cp app-rs/target/aarch64-linux-android/release/libhuskapp.so $(JNI)/
+	# Android only extracts/executes native libraries below jniLibs. Keep the
+	# guard's .so suffix so the package manager extracts it, even though it is a
+	# PIE executable rather than a shared library.
+	cp app-rs/target/aarch64-linux-android/release/husk-session-guard $(JNI)/libhuskguard.so
+	chmod 755 $(JNI)/libhuskguard.so
 	cd app && ./gradlew :app:assembleDebug
 	@ls -l $(JNI) app/app/build/outputs/apk/debug/*.apk
 

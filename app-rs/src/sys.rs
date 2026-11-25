@@ -11,6 +11,7 @@ extern "C" {
     pub fn unlockpt(fd: c_int) -> c_int;
     pub fn ptsname_r(fd: c_int, buf: *mut c_char, len: usize) -> c_int;
     pub fn fork() -> c_int;
+    pub fn pipe(fds: *mut c_int) -> c_int;
     pub fn getpid() -> c_int;
     pub fn setsid() -> c_int;
     pub fn open(path: *const c_char, flags: c_int, ...) -> c_int;

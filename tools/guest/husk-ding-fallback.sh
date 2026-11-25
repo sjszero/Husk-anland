@@ -33,7 +33,7 @@ DING_DIR=/usr/share/gnome-shell/extensions/ding@rastersoft.com/app
 g() {
     ( cd "$ROOTFS" && "$NR_LD" --library-path "$LIBS" usr/bin/env -i \
         HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-        NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" DISPLAY=:0 \
+        NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" NR_SESSION_ID="${NR_SESSION_ID:-}" DISPLAY=:0 \
         "$@" ) 2>/dev/null
 }
 
@@ -61,7 +61,7 @@ W=$1; H=$2
 ( cd "$ROOTFS" && "$NR_LD" --library-path "$LIBS" usr/bin/env -i \
     HOME=/root USER=root LOGNAME=root \
     PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-    NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" DISPLAY=:0 GDK_BACKEND=x11 \
+    NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" NR_SESSION_ID="${NR_SESSION_ID:-}" DISPLAY=:0 GDK_BACKEND=x11 \
     XDG_DATA_DIRS=/usr/local/share:/usr/share XDG_CONFIG_DIRS=/etc/xdg \
     XDG_CURRENT_DESKTOP=ubuntu:GNOME XDG_SESSION_DESKTOP=ubuntu XDG_SESSION_TYPE=x11 \
     GSETTINGS_SCHEMA_DIR=/usr/share/glib-2.0/schemas \

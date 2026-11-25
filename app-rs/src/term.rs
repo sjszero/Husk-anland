@@ -5,6 +5,7 @@ use crate::sys::*;
 use core::ffi::c_int;
 use std::collections::VecDeque;
 use std::ffi::{CStr, CString};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Filled block, drawn as the cursor.  Not a font glyph: the atlas gets it for
 /// free so the renderer has one draw path for everything on screen.
@@ -12,6 +13,23 @@ pub const BLOCK: u8 = 127;
 
 /// How many scrolled-off lines we keep for scrollback.
 const HISTORY: usize = 2000;
+
+/// Wire format sent once by the app to the session guard. The guard is started
+/// before the guest so there is no window in which App death leaves no reader
+/// for the lease; the leader id is filled in immediately after fork().
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct GuardArm {
+    magic: u32,
+    version: u32,
+    leader_pid: i32,
+    _reserved: u32,
+    leader_start_ticks: u64,
+}
+
+const GUARD_MAGIC: u32 = 0x4853_4b47; // "HSKG"
+const GUARD_VERSION: u32 = 1;
+static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
 
 /// Environment needed for a guest EGL/Vulkan program to reach the real GPU.
 ///
@@ -66,6 +84,14 @@ pub struct Term {
     /// "our group is still there" from "an unrelated process now owns this pid"
     /// before signalling -pid.
     pub start_ticks: u64,
+    /// Write end of the session lease. The guard sees EOF when the App process
+    /// dies, even for `am force-stop` where no Android callback is delivered.
+    guard_fd: i32,
+    guard_pid: i32,
+    /// Private marker inherited by every process in this guest session. The
+    /// guard uses it to find daemons that called setsid() and escaped the
+    /// session leader's process group.
+    session_id: String,
     history: VecDeque<Vec<u8>>,
     esc: u8,
     /// CSI with a private marker (`ESC [ ? ... h/l`): the alternate screen that
@@ -76,6 +102,123 @@ pub struct Term {
     params: Vec<u32>,
     cur: u32,
     has_cur: bool,
+}
+
+/// Start the tiny exec'd Rust guard that survives the App and owns the other
+/// end of the session lease. Only async-signal-safe calls happen after fork();
+/// every allocation and string is prepared first.
+fn spawn_guard(libdir: &str, rootfs: &str, session_id: &str) -> Option<(i32, i32)> {
+    let guard_path = format!("{libdir}/libhuskguard.so");
+    if !std::path::Path::new(&guard_path).exists() {
+        crate::log(&format!(
+            "session: guard missing at {guard_path}; refusing leak-prone session"
+        ));
+        return None;
+    }
+    let log_path = format!("{rootfs}/../session-guard.log");
+    let guard_c = CString::new(guard_path).ok()?;
+    let lease_fd_c = CString::new("3").ok()?;
+    let ready_fd_c = CString::new("4").ok()?;
+    let session_c = CString::new(session_id).ok()?;
+    let log_c = CString::new(log_path).ok()?;
+    let argv_s: Vec<CString> = vec![
+        CString::new("husk-session-guard").ok()?,
+        CString::new("--lease-fd").ok()?,
+        lease_fd_c,
+        CString::new("--ready-fd").ok()?,
+        ready_fd_c,
+        CString::new("--session-id").ok()?,
+        session_c,
+        CString::new("--log").ok()?,
+        log_c,
+    ];
+    let env_s: Vec<CString> = vec![
+        CString::new("PATH=/system/bin").ok()?,
+        CString::new("ANDROID_ROOT=/system").ok()?,
+        CString::new("ANDROID_DATA=/data").ok()?,
+    ];
+    let mut lease = [0 as c_int; 2];
+    let mut ready = [0 as c_int; 2];
+    if unsafe { pipe(lease.as_mut_ptr()) } != 0 {
+        crate::log("session: guard pipe() failed");
+        return None;
+    }
+    if unsafe { pipe(ready.as_mut_ptr()) } != 0 {
+        unsafe {
+            close(lease[0]);
+            close(lease[1]);
+        }
+        crate::log("session: guard ready pipe() failed");
+        return None;
+    }
+    let guard_pid = unsafe { fork() };
+    if guard_pid < 0 {
+        unsafe {
+            close(lease[0]);
+            close(lease[1]);
+            close(ready[0]);
+            close(ready[1]);
+        }
+        crate::log("session: guard fork() failed");
+        return None;
+    }
+    if guard_pid == 0 {
+        unsafe {
+            setsid();
+            close(ready[0]);
+            if lease[0] != 3 && dup2(lease[0], 3) < 0 {
+                _exit(127);
+            }
+            if ready[1] != 4 && dup2(ready[1], 4) < 0 {
+                _exit(127);
+            }
+            let mut fd = 0;
+            while fd < 1024 {
+                if fd != 3 && fd != 4 {
+                    close(fd);
+                }
+                fd += 1;
+            }
+            let mut argv: Vec<*const core::ffi::c_char> =
+                argv_s.iter().map(|c| c.as_ptr()).collect();
+            argv.push(core::ptr::null());
+            let mut envp: Vec<*const core::ffi::c_char> =
+                env_s.iter().map(|c| c.as_ptr()).collect();
+            envp.push(core::ptr::null());
+            execve(guard_c.as_ptr(), argv.as_ptr(), envp.as_ptr());
+            _exit(127);
+        }
+    }
+    unsafe {
+        close(lease[0]);
+        close(ready[1]);
+        fcntl(ready[0], F_SETFL, O_NONBLOCK);
+    }
+    let mut ready_byte = 0u8;
+    let mut is_ready = false;
+    for _ in 0..100 {
+        let n = unsafe { read(ready[0], &mut ready_byte as *mut u8 as *mut _, 1) };
+        if n == 1 && ready_byte == b'R' {
+            is_ready = true;
+            break;
+        }
+        if n == 0 {
+            break;
+        }
+        let errno = unsafe { *__errno() };
+        if errno != EAGAIN && errno != EINTR {
+            break;
+        }
+        unsafe { usleep(10_000) };
+    }
+    unsafe { close(ready[0]) };
+    if !is_ready {
+        unsafe { close(lease[1]) };
+        crate::log(&format!("session: guard pid={guard_pid} failed to exec"));
+        return None;
+    }
+    crate::log(&format!("session: guard pid={guard_pid} ready"));
+    Some((guard_pid, lease[1]))
 }
 
 impl Term {
@@ -92,6 +235,9 @@ impl Term {
             tee: -1,
             exit_text: String::new(),
             start_ticks: 0,
+            guard_fd: -1,
+            guard_pid: 0,
+            session_id: String::new(),
             history: VecDeque::with_capacity(HISTORY),
             esc: 0,
             private: false,
@@ -127,6 +273,12 @@ impl Term {
 
         provision_identity(rootfs);
 
+        let session_id = format!(
+            "husk-{}-{}",
+            unsafe { getpid() },
+            NEXT_SESSION.fetch_add(1, Ordering::Relaxed)
+        );
+
         // Everything the child needs is built before fork(): no allocation and no
         // logging between fork and execve.
         let slave = unsafe { CStr::from_ptr(name.as_ptr()) }.to_owned();
@@ -150,6 +302,7 @@ impl Term {
             "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin".to_string(),
             "LANG=C.UTF-8".to_string(),
             "USER=root".to_string(),
+            format!("NR_SESSION_ID={session_id}"),
             // diagnostics for the seccomp policy of the ROM under test
             "NR_SIGSYS=enosys".to_string(),
             format!("NR_LD={loader}"),
@@ -161,9 +314,24 @@ impl Term {
             .filter_map(|s| CString::new(s.as_str()).ok())
             .collect();
 
+        // The lease belongs to the App, not to the guest. Starting the guard
+        // before the guest closes the only bad ordering: App death after fork()
+        // but before a guard exists would again leave setsid() daemons behind.
+        let Some(native_libdir) = crate::native_lib_dir() else {
+            unsafe { close(mfd) };
+            return None;
+        };
+        let Some((guard_pid, guard_fd)) = spawn_guard(&native_libdir, rootfs, &session_id) else {
+            unsafe { close(mfd) };
+            return None;
+        };
+
         let pid = unsafe { fork() };
         if pid < 0 {
-            unsafe { close(mfd) };
+            unsafe {
+                close(guard_fd);
+                close(mfd);
+            }
             return None;
         }
         if pid == 0 {
@@ -172,6 +340,8 @@ impl Term {
             // write a fixed byte string straight to fd 2 instead of logging.
             const SETSID_FAILED: &[u8] = b"husk: setsid failed\n";
             unsafe {
+                // The parent and the guard keep their own lease descriptors.
+                close(guard_fd);
                 if setsid() < 0 {
                     write(2, SETSID_FAILED.as_ptr() as *const _, SETSID_FAILED.len());
                     _exit(126);
@@ -200,7 +370,7 @@ impl Term {
                 // fds open would hand the guest descriptors it can neither name
                 // nor close, and would keep surfaces alive past teardown.
                 let mut fd = 3;
-                while fd < 256 {
+                while fd < 1024 {
                     close(fd);
                     fd += 1;
                 }
@@ -218,6 +388,21 @@ impl Term {
         unsafe {
             fcntl(mfd, F_SETFL, O_NONBLOCK);
         }
+        let leader_start_ticks = start_ticks(pid);
+        let arm = GuardArm {
+            magic: GUARD_MAGIC,
+            version: GUARD_VERSION,
+            leader_pid: pid,
+            _reserved: 0,
+            leader_start_ticks,
+        };
+        let armed = unsafe {
+            write(
+                guard_fd,
+                &arm as *const GuardArm as *const _,
+                core::mem::size_of::<GuardArm>(),
+            )
+        } == core::mem::size_of::<GuardArm>() as isize;
         let tee = {
             let p = CString::new(format!("{rootfs}/../pty.log")).ok();
             match p {
@@ -225,13 +410,18 @@ impl Term {
                 None => -1,
             }
         };
-        crate::log(&format!("spawned pid={pid} fd={mfd} tee={tee}"));
+        crate::log(&format!(
+            "spawned pid={pid} fd={mfd} tee={tee} guard_pid={guard_pid} guard_fd={guard_fd} armed={armed}"
+        ));
         let mut t = Term::blank(cols, rows);
-        t.start_ticks = start_ticks(pid);
+        t.start_ticks = leader_start_ticks;
         t.fd = mfd;
         t.tee = tee;
         t.pid = pid;
         t.dead = false;
+        t.guard_fd = guard_fd;
+        t.guard_pid = guard_pid;
+        t.session_id = session_id;
         t.resize(cols, rows);
         Some(t)
     }
@@ -326,19 +516,31 @@ impl Term {
     /// the number is reused, and the looper then reports readiness for whatever
     /// took it, under this session's identity.
     pub fn close_master(&mut self) {
-        if self.fd < 0 {
+        if self.fd >= 0 {
+            let l = crate::LOOPER.load(core::sync::atomic::Ordering::SeqCst);
+            if !l.is_null() {
+                unsafe { ALooper_removeFd(l, self.fd) };
+            }
+            unsafe { close(self.fd) };
+            self.fd = -1;
+            if self.tee >= 0 {
+                unsafe { close(self.tee) };
+                self.tee = -1;
+            }
+        }
+        self.close_guard();
+    }
+
+    /// Closing the lease is the out-of-band teardown channel: the guard gets
+    /// EOF even when Android force-stops us before any callback. It then kills
+    /// every process carrying this session's private marker, including daemons
+    /// that escaped the leader's process group with setsid().
+    fn close_guard(&mut self) {
+        if self.guard_fd < 0 {
             return;
         }
-        let l = unsafe { crate::LOOPER.load(core::sync::atomic::Ordering::SeqCst) };
-        if !l.is_null() {
-            unsafe { ALooper_removeFd(l, self.fd) };
-        }
-        unsafe { close(self.fd) };
-        self.fd = -1;
-        if self.tee >= 0 {
-            unsafe { close(self.tee) };
-            self.tee = -1;
-        }
+        unsafe { close(self.guard_fd) };
+        self.guard_fd = -1;
     }
 
     pub fn history_len(&self) -> usize {
@@ -367,6 +569,7 @@ impl Term {
         crate::log(&format!("session pid={} ended: {text}", self.pid));
         self.exit_text = text.clone();
         self.dead = true;
+        self.close_guard();
         self.banner(&format!(
             "\r\n[husk] session ended: {text}\r\n[husk] tap to start again\r\n"
         ));

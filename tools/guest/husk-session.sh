@@ -148,6 +148,7 @@ if [ ! -S "$ROOTFS/run/dbus/system_bus_socket" ]; then
     rm -f "$ROOTFS/run/dbus/system_bus_socket" "$ROOTFS/run/dbus/pid" 2>/dev/null || true
     ( cd "$ROOTFS" && "$NR_LD" --library-path "$LIBS" usr/bin/env -i \
         HOME=/root PATH="$PATH_GUEST" NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" \
+        NR_SESSION_ID="${NR_SESSION_ID:-}" \
         /usr/bin/dbus-daemon \
         --config-file=/usr/local/share/linuxhub/linuxhub-system-bus.conf \
         --nofork --address=unix:path=/run/dbus/system_bus_socket \
@@ -188,7 +189,7 @@ esac
 exec "$NR_LD" --library-path "$LIBS" usr/bin/env -i -C "$CWD" \
     HOME="$home" USER="$USER_NAME" LOGNAME="$USER_NAME" SHELL="$shell" \
     PATH="$PATH_GUEST" LANG=C.UTF-8 TERM="${TERM:-xterm-256color}" COLORTERM=truecolor \
-    NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" \
+    NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" NR_SESSION_ID="${NR_SESSION_ID:-}" \
     DBUS_SYSTEM_BUS_ADDRESS="unix:path=/run/dbus/system_bus_socket" \
     NR_FAKE_UID="$uid" NR_FAKE_GID="$gid" \
     $gpu_env \

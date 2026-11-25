@@ -18,6 +18,12 @@
   同时给 `/etc/husk/gpu-env` 增加 `@GPU_FAMILY`，防止把 Mali 的驱动配置注入 Adreno。
   **没有 Adreno 真机，硬件路径仍是 UNKNOWN；Mali 回归门禁 A 38/38、Vulkan/GL 探针通过。**
 
+### 修复
+
+- App 壳增加独立 Rust 会话看门狗：App 进程单独死亡时通过 lease EOF 清理带
+  `NR_SESSION_ID` 的 guest 进程，包括已经 `setsid()` 脱离会话组的 daemon；同时修复
+  `Term`/`teardown` 的重复 close 路径。证据：evidence 234。
+
 ## [0.0.13] - 2026-11-26
 
 > 主题：**全链路审计版**。这一版收掉路径兼容层、并发、挂载、loader、GPU/DRM、X11 呈现、

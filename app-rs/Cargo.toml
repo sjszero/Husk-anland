@@ -7,6 +7,10 @@ edition = "2021"
 name = "huskapp"
 crate-type = ["cdylib"]
 
+[[bin]]
+name = "husk-session-guard"
+path = "src/bin/husk-session-guard.rs"
+
 [dependencies]
 video-protocol = { path = "../runtime/crates/video-protocol" }
 fontdue = { version = "0.9", default-features = false, features = ["std"] }

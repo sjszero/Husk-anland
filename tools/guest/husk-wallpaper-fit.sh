@@ -35,7 +35,7 @@ SCHEMA=org.gnome.desktop.background
 g() {
     ( cd "$ROOTFS" && "$NR_LD" --library-path "$LIBS" usr/bin/env -i \
         HOME="$HOME_G" PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-        NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" DISPLAY="${DISPLAY:-:0}" \
+        NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" NR_SESSION_ID="${NR_SESSION_ID:-}" DISPLAY="${DISPLAY:-:0}" \
         DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-}" \
         XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/runtime-husk}" \
         XDG_DATA_DIRS=/usr/local/share:/usr/share \

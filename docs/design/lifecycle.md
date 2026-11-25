@@ -114,6 +114,7 @@ Husk 是**用户层运行时**（和容器同一层），不是桌面。所以�
 |---|---|---|---|
 | D1 | 关停顺序：先挂断（关 master），再 SIGTERM，再 SIGKILL | `teardown` (lib.rs:172) + `escalate` (lib.rs:531) | 日志有 `teardown(...)` → `group gone after SIGHUP`（或 SIGTERM/SIGKILL 两级） |
 | D2 | teardown 同时挂在 onDestroy 与 PTY-close 两条路上 | `on_destroy` (lib.rs:385)、`Term::close_master` | `am force-stop` 后无残留 libld |
+| D2b | App 进程单独死亡时由独立 Rust 看门狗收 lease EOF，按 `NR_SESSION_ID` 清理脱离会话组的进程 | `husk-session-guard.rs`、`Term::spawn/close_guard` | 看门狗日志 `lease EOF`；独立 marker daemon 测试 `remaining=[]`（evidence 234） |
 | D3 | 进程退出前 APP 置空并 teardown | `run()` 收尾 (lib.rs:584 之后) | `loop exit` 后日志有 `teardown(loop exit)` |
 
 ### E. 观测与退出信息
@@ -164,9 +165,9 @@ Husk 是**用户层运行时**（和容器同一层），不是桌面。所以�
 | # | 缺口 | 影响 | 计划 |
 |---|---|---|---|
 | G1 | ~~旋转未实测~~ | 已关闭：`cmd window user-rotation lock` + `stty size` 双向验证（T9） | 已完成 |
-| G2 | 未验证"系统 LMK 直接杀进程"路径（只验了 `force-stop`） | D2 的第二种入口假设 | 用 `am kill` / 长时间后台压内存 |
+| G2 | 仍未强制验证真实 LMK；看门狗的 EOF 和 marker 清理已用独立 lease 测试，但 LMK 选择哪一层进程仍是 UNKNOWN | D2b | 用真实内存压力/系统 LMK 复测 |
 | G3 | `onLowMemory` / `onSaveInstanceState` / `onStop` / `onContentRectChanged` 已实现，但**无法用 adb 触发**（NativeActivity 不转发 onTrimMemory，`am send-trim-memory` 到不了 onLowMemory） | 内存压力下的降级动作只经过编译，未上机 | 真实内存压力测试，或用 `setprop` + 大分配在测试构建里强制调用 |
-| G4 | `escalate` 用 `kill(-pid, 0)` 判活，pgid 复用无防御 | 极端情况下误杀新进程组 | 记录会话启动时间/命令，判活时先核对 `/proc/<pid>/stat` 起点 |
+| G4 | ~~`escalate` 用 `kill(-pid, 0)` 判活，pgid 复用无防御~~ | 已关闭：`Term::start_ticks` 记录 `/proc/<pid>/stat` field 22，`group_alive` 先核对起点再发信号 | 已完成 |
 | G5 | 没有 fd/线程泄漏的长时统计 | 长时间使用后可能累积 | 在 `session:` 日志里加 fd 计数（`/proc/self/fd`） |
 | G6 | 大输出量下的 PTY 背压未测 | C2 只测了"空闲后台"，没测"输出狂刷时切后台" | soak 增加 `yes` 类高频输出阶段 |
 | G7 | 10 分钟长稳尚未在本版代码上跑完 | A1/A2/C2 的合并验收 | 本轮已启动（`files/rootfs/tmp/soak2.sh`，每 30s `sync`），跑完写 evidence 32 |
@@ -190,3 +191,4 @@ Husk 是**用户层运行时**（和容器同一层），不是桌面。所以�
 | 2026-11-22 21:20 前 | 会话随进程存活；唯一 reaper + subreaper；点击才重启；Surface 解耦 |
 | 2026-11-22 21:44 | teardown/escalate/close_master 上线；BACK 结束 Activity；onCreate 重置状态；修 match 通配 bug |
 | 2026-11-23 | 增加 `WINDOW_ALIVE` 与焦点门，禁止息屏/失焦/窗口回调间隙创建或复用 EGL window surface；修复 `eglCreateWindowSurface` destroyed-mutex abort |
+| 2026-11-26 | 增加独立 Rust 会话看门狗、`NR_SESSION_ID` 清理路径；统一 `Term` 的 PTY/lease 双关闭修复（evidence 234） |

@@ -234,31 +234,21 @@ impl App {
     /// then do we escalate in the background. Doing it the other way round (KILL
     /// first) loses whatever the shell wanted to do on the way out.
     fn teardown(&mut self, why: &str) {
-        let Some(t) = self.term.take() else {
+        let Some(mut t) = self.term.take() else {
             log(&format!("session: teardown({why}) no session"));
             return;
         };
         let pid = t.pid;
-        let fd = t.fd;
         log(&format!(
             "session: teardown({why}) pid={pid} dead={} exit=\"{}\" fds={}",
             t.dead,
             t.exit_text,
             fd_count()
         ));
-        if fd >= 0 {
-            let l = LOOPER.load(Ordering::SeqCst);
-            if !l.is_null() {
-                // L7: never close a fd that is still registered with the looper --
-                // the number gets reused and the looper then hands us the new fd's
-                // readiness under the old identity.
-                unsafe { ALooper_removeFd(l, fd) };
-            }
-            unsafe { close(fd) };
-            if t.tee >= 0 {
-                unsafe { close(t.tee) };
-            }
-        }
+        // Term owns both descriptors. Going through close_master() removes the
+        // looper registration once and marks the fds closed, so Drop cannot
+        // double-close a number that another thread may already have reused.
+        t.close_master();
         if !t.dead && pid > 0 {
             let ticks = t.start_ticks;
             std::thread::spawn(move || escalate(pid, ticks));
@@ -292,16 +282,9 @@ impl App {
                     rows,
                     fd_count()
                 ));
-                if let Some(old) = self.term.take() {
-                    if old.fd >= 0 {
-                        // L7: deregister first, then close.
-                        let l = LOOPER.load(Ordering::SeqCst);
-                        if !l.is_null() {
-                            unsafe { ALooper_removeFd(l, old.fd) };
-                        }
-                        unsafe { close(old.fd) };
-                    }
-                }
+                // Drop is the single close path: it deregisters from the looper,
+                // closes the PTY/tee and releases the session guard lease.
+                drop(self.term.take());
                 let fd = t.fd;
                 self.term = Some(t);
                 let l = LOOPER.load(Ordering::Relaxed);
@@ -403,7 +386,7 @@ fn session_state() -> &'static str {
     }
 }
 
-fn native_lib_dir() -> Option<String> {
+pub(crate) fn native_lib_dir() -> Option<String> {
     let addr = native_lib_dir as *const c_void;
     let mut info = DlInfo {
         dli_fname: core::ptr::null(),
