@@ -22,6 +22,13 @@
   实测输出 `CHECK wm=yes` / `CHECK ding=yes` / `CHECK gpu=zink`，`EXIT=0`，两次独立会话均可复现。
   两条硬坑写死在注释里：**dbus 地址必须用 guest 侧路径**（宿主路径会二次加 rootfs 前缀，
   main.js 直接抛异常）；**后台进程必须重定向 stdin/stdout/stderr**（否则调用方 `| tail` 挂住）。
+- **发布包补齐运行时要用的脚本**：`make dist` 以前只把 `install-husk.sh` / `husk-session.sh`
+  打进 tarball，`husk-desktop.sh`、`husk-ding-fallback.sh`、`husk-wallpaper-fit.sh`、
+  `guest/husk-wallpaper-scale.js`、`guest-config/pulse-client-no-shm.conf` 全都不在里面。
+  后果是"从 Release 的 tarball 装出来的树"和"开发机上的树"不是同一棵树：DING 兜底永远为假、
+  壁纸不做预缩放、pulse 客户端静默丢掉 `enable-shm=no`（就是那个"装了 pulse 却没声音"）。
+  现在五个文件都进包，并加了逐条 `tar tzf | grep -qx` 断言——少一个就构建失败，不再靠人记。
+  安装器也补上把 `husk-ding-fallback.sh` / `husk-wallpaper-fit.sh` 放到 `husk-session.sh` 同级。
 - **壁纸缺失/失效兜底**（evidence 199）：`husk-wallpaper-fit.sh` 在空 URI 时按
   `husk-default.png` → 内置壁纸 → 任意 png/jpg 兜底，并复位 `primary-color`；
   安装器此前只装 `husk-wallpaper-scale.js`、**从没装 `husk-wallpaper-fit.sh`**，
