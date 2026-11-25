@@ -85,6 +85,9 @@
 
 ### 加
 
+- `docs/design/evidence/226-audit-inventory-0.0.13.md`：0.0.13 的审计索引——已确认并修掉的
+  19 条（带证据编号）、记录在案的 7 条限制、8 项「核过不是缺陷」、以及还没审到的 5 个面
+  各自卡在哪。
 - `tools/probe/audio-bridge-concurrency.py`：音频桥的 head-of-line blocking 判据
   （idle 客户端 + 第二个客户端 PING），evidence 225 §3。
 - `tools/probe/symbol-gap-probe.c`：把没钩的符号逐个**试出后果**（判据是效果不是符号）。
