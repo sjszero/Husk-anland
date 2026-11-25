@@ -79,3 +79,29 @@ grab op 的位移计算也就能拿到坐标。为此写了 `tmp/nograb.c`（hoo
   `t4.sh`、`t5.sh`、`superdrag.sh`；会话变体 `sess-nograb.sh`、`xe-plain-p.sh`（后者就是
   `xe-plain.sh` 多一个 `--preload`，用来验证加载器行为，不是发布脚本）。
 - 桌面状态未改：没有动壁纸、主题、`gsettings`。
+
+## 7 · 追加：客户端级的"按住拖"是正常的（FACT）
+
+既然要判断是服务器丢事件还是 mutter 不用事件，就看一个普通客户端按住拖动能不能收到 motion。
+用 RemoteDesktop 注入在 `xev` 窗口上做一次"按下 → 两次移动 → 松开"：
+
+```
+MotionNotify=3  ButtonPress=1  ButtonRelease=1
+MotionNotify event, serial 35, synthetic NO, window 0x1800001
+ButtonPress  event, serial 35, synthetic NO, window 0x1800001
+MotionNotify event, serial 35, synthetic NO, window 0x1800001
+```
+
+（同一轮还有 `getmouselocation` 的落点变化可对照。）
+
+⇒ **按住按钮期间的 motion，服务器是照常投递给客户端窗口的**。所以"按住拖动"这件事在
+协议层没有坏，坏的是 mutter 的 grab op 那一条：它既没拿到、也没用上 motion
+（本节 + 第 2 点 `Super`+拖同样不动）。归因从"服务器丢事件"收窄到 **mutter 的指针 grab op**，
+而要把它变成空操作，卡在我们加载器 `--preload` 的作用域上（第 4 点）。
+
+后续两件事，按这个顺序：
+
+1. 给加载器 `--preload` 补上全局符号作用域（我们自己的代码，1–2 小时量级），再跑一次
+   `nograb` 实验：若拖窗立刻能动，则拖窗在 0.0.6 就能修在运行时层。
+2. 若加载器修好后仍然不动，则问题在 mutter 的 X11 grab op 与新设备拓扑的组合上，
+   0.0.6 按"缺陷 + `alt+F7` 替代操作"发布，并给 2.0 侧一份 X server 侧的复现步骤。
