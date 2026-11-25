@@ -47,3 +47,10 @@ fi
 # GLES 版本上限：这一版组合是 3.2（docs/LIMITATIONS.md）。写在这里是为了让
 # "桌面 + 里面的应用"看到同一个上限，而不是每个启动脚本各写一遍。
 [ -z "${MESA_GLES_VERSION_OVERRIDE:-}" ] && export MESA_GLES_VERSION_OVERRIDE=3.2
+# GTK4 的 GL 后端在这套 zink -> PanVK 上会画错（evidence 186）：窗口圆角/阴影、部分
+# 背景出现整块三角缺口，两帧逐字节一致，是可复现的绘制错误，不是撕裂。同一个程序换
+# llvmpipe 或 cairo 都是干净的，所以问题在 GTK 的 GL 绘制链路，不在 X 服务器、也不在
+# path-shim。这里只把 **GTK4 自己那层** 钉到 cairo；Vulkan/GL 一点没动，mpv、glmark2、
+# Electron 这类自己开 GL 的程序照旧吃 zink。
+# 想让 GTK 重新吃 GPU：GSK_RENDERER=ngl（或 =gl）覆盖即可，这一行也会让位。
+[ -z "${GSK_RENDERER:-}" ] && export GSK_RENDERER=cairo

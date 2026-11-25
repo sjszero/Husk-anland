@@ -247,6 +247,9 @@ if [ -n "$_husk_icd" ]; then
         echo "MESA_LOADER_DRIVER_OVERRIDE=zink"
         echo "GALLIUM_DRIVER=zink"
         echo "MESA_GLES_VERSION_OVERRIDE=3.2"
+        # GTK4 的 GL 后端在 zink/PanVK 上画错（evidence 186）：圆角/阴影和部分背景
+        # 出整块三角缺口。只影响 GTK 自己的绘制，Vulkan/GL 不动。
+        echo "GSK_RENDERER=cairo"
     } > "$DEST/etc/husk/gpu-env"
     chmod 644 "$DEST/etc/husk/gpu-env"
     echo "   wrote etc/husk/gpu-env (loader-level defaults: $_husk_icd)"

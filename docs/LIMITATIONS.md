@@ -66,6 +66,13 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
    **2026-11-25 已补真实客户端**：GTK 4.14 的 `gnome-text-editor`（`GSK_RENDERER=ngl`）
    在 zink/PanVK 的 X11 上开窗、画出完整界面，X 根窗口抓图 28 565 种颜色、不是黑窗口
    （evidence 176）；`gnome-control-center`（GTK 4 + libadwaita）的侧栏与状态页也完整出画。
+   **2026-11-25 更正，并已给修法**（evidence 186/187）：`GSK_RENDERER=ngl` 下 GTK4 的窗口
+   其实不是"完整出画"——CSD 的**圆角裁剪层**在 zink/PanVK 上算错，窗口里会出现直边三角/菱形
+   缺口（关掉 `box-shadow` 只减 15%，`border-radius: 0` 能去掉其中 84%；逐帧一致；`llvmpipe`
+   与 `cairo` 都不复现）。所以默认值改成 **`GSK_RENDERER=cairo`**：安装器同时写进
+   `/etc/profile.d/husk-gpu.sh` 与 `/etc/husk/gpu-env`，后者由加载器在程序没设过时注入
+   （实测缺口像素 10 850 → 9）。代价是 GTK4 的界面绘制改吃 CPU，Vulkan/GL 不受影响；
+   `GSK_RENDERER=ngl` 可切回 GPU 并复现缺口。根因（PanVK 的模板/裁剪路径）**UNKNOWN**。
    **反例是文件管理器**：`nautilus` 46 能开窗、能枚举目录（日志逐条打出 `/etc/*`），但内容区
    整块空白、连列头都不出现；`GSK_RENDERER=cairo` 与 `ngl` 一样、`list-view` 与 `icon-view`
    一样，**同一份 rootfs 换 proot 起也照样空白**，同一会话里最小 `GtkColumnView` 程序却正常
