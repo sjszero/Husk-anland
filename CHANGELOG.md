@@ -345,6 +345,7 @@
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
 [未发布]: https://github.com/xishanp/Husk/compare/v0.0.3...HEAD
+[0.0.6]: https://github.com/xishanp/Husk/releases/tag/v0.0.6
 [0.0.5]: https://github.com/xishanp/Husk/releases/tag/v0.0.5
 [0.0.4]: https://github.com/xishanp/Husk/releases/tag/v0.0.4
 [0.0.3]: https://github.com/xishanp/Husk/releases/tag/v0.0.3
