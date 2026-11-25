@@ -9,8 +9,9 @@
 
 ## [未发布]
 
-> 主题：**0.0.13 全链路审计进行中**。这一批收的是「路径兼容层」这条链：两个真缺口、
-> 一个假的 `/proc/self/exe`、六个老二进制入口，并把覆盖账写成常设门禁可以对照的表。
+> 主题：**0.0.13 全链路审计进行中**。这一批收的是「路径兼容层 + 挂载表」这条链：两个真缺口、
+> 一个假的 `/proc/self/exe`、六个老二进制入口，挂载表的读写两个洞与 `remount,ro` 那条，
+> 并把覆盖账写成常设门禁可以对照的表。
 
 ### 修
 
@@ -83,10 +84,34 @@
   代码已改、`cargo check --target aarch64-linux-android` 通过；运行未验证——设备上装的还是
   2.0 那个包，这条桥在当前布局下没被拉起来。
 
+- **挂载表读缓冲是共享的 `static mut`**（evidence 227 §2.1）。`mnt_read_file()` 的
+  `BUF` 是静态的、读在锁外：两个线程同时进来会往同一块内存里写。读的是同一个文件时看不出来，
+  但表文件在两次读之间被改小（另一个线程刚 `umount` 并落盘）之后，`n` 更大的那次会把上一版
+  的尾巴一起解析，得到一条已经不存在的挂载——路径解析到错的地方。改成栈缓冲（`MaybeUninit`），
+  只把「解析 + 发布」留在锁里。试过"连读也进锁"，4 线程路径解析 9.08 → 21.59 µs/op（2.4 倍），
+  否决；栈缓冲单线程 ±1%、4 线程在噪声内。
+
+- **挂载表落盘不是原子的**（evidence 227 §2.2）。`mnt_save()` 用 `O_TRUNC` 直写，而读的一方
+  每次路径解析都读它：能读到 0 字节（当作没读到、保留旧表，无害）或者**半张表**（刚挂上的
+  东西在这次解析里不存在，路径掉回 rootfs 里的原目录）。改成写 `mounts.tmp` 再 `rename()`
+  原子替换，临时文件建不出来时退回老写法。
+
+- **`mount -o remount,ro <tgt>` 在 guest 里一直失败**（evidence 227 §3）。
+  `mount(8)` 报 `mount: <tgt>: mount point not mounted or bad option`，但同样参数从 C 里直接调
+  却成功。加 `NR_MNT_DEBUG=1` 打出原始参数后看清：util-linux 会先自己规范化 target（打开目录、
+  `readlink(/proc/self/fd/N)`），而模拟出来的 bind 在路径层是同一个 inode 的两个名字，于是它把
+  bind 的**源**当成 target 交过来（实测 `tgt=/mnt/src flags=33`）。修法两条：匹配时同时认 `src`，
+  以及去掉尾部 `/`（内核接受 `remount /mnt/b/`，原来直接 EINVAL）。修后 `remount,ro` → rc=0、
+  写入 `EROFS`，`remount,rw` 恢复可写，tmpfs 与尾部斜杠同样成立。
+
 ### 加
 
+- `NR_MNT_DEBUG=1`：把每次 `mount(2)` 的原始 `src`/`tgt`/`type`/`flags` 打到 stderr
+  （evidence 227 §3 就是靠它定性的）。不设变量时只多一次 `env_lookup`。
+- `docs/design/evidence/227-mount-table-and-remount-20261125.md`：挂载表跨线程的实际结论
+  （9 处访问点逐条列出 + 两个真洞 + remount 那条 + 回归数据）。
 - `docs/design/evidence/226-audit-inventory-0.0.13.md`：0.0.13 的审计索引——已确认并修掉的
-  19 条（带证据编号）、记录在案的 7 条限制、8 项「核过不是缺陷」、以及还没审到的 5 个面
+  22 条（带证据编号）、记录在案的 7 条限制、9 项「核过不是缺陷」、以及还没审到的 5 个面
   各自卡在哪。
 - `tools/probe/audio-bridge-concurrency.py`：音频桥的 head-of-line blocking 判据
   （idle 客户端 + 第二个客户端 PING），evidence 225 §3。

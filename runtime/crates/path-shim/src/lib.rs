@@ -79,6 +79,8 @@ const MNT_P: usize = 128;
 // a *different* mount.
 const MNT_SAVE_MAX: usize = 4096;
 const MNT_FILE: &[u8] = b"/run/husk/mounts\0";
+// 写侧先写这个再 rename() 覆盖 MNT_FILE。见 mnt_save_atomic()。
+const MNT_FILE_TMP: &[u8] = b"/run/husk/mounts.tmp\0";
 const MNT_DIR: &[u8] = b"/run/husk\0";
 const MS_RDONLY: usize = 1;
 const MS_REMOUNT: usize = 32;
@@ -2021,18 +2023,19 @@ unsafe fn mnt_real_path(gp: &[u8], out: &mut [u8; PATH_MAX]) -> Option<usize> {
     r
 }
 
-unsafe fn mnt_open_table(flags: CInt, mode: CInt) -> CInt {
+/// Real host path of one of the table files, raw calls only (no table lookup,
+/// so it is safe under MNT_LOCK).
+unsafe fn mnt_table_real(which: &[u8], out: &mut [u8; PATH_MAX]) -> Option<usize> {
     let mut gp = [0u8; PATH_MAX];
-    let n = match abs_guest_raw(MNT_FILE.as_ptr() as *const CChar, &mut gp) {
-        Some(n) => n,
-        None => return -1,
-    };
+    let n = abs_guest_raw(which.as_ptr() as *const CChar, &mut gp)?;
     let mut real = [0u8; PATH_MAX];
-    let rn = match mnt_real_path(&gp[..n], &mut real) {
-        Some(rn) => rn,
-        None => return -1,
-    };
-    real[rn] = 0;
+    let rn = mnt_real_path(&gp[..n], &mut real)?;
+    out[..rn].copy_from_slice(&real[..rn]);
+    out[rn] = 0;
+    Some(rn)
+}
+
+unsafe fn mnt_open_at_real(real: &[u8; PATH_MAX], flags: CInt, mode: CInt) -> CInt {
     ret_or_errno(syscall4(
         SYS_OPENAT,
         AT_FDCWD as usize,
@@ -2040,6 +2043,22 @@ unsafe fn mnt_open_table(flags: CInt, mode: CInt) -> CInt {
         flags as usize,
         mode as usize,
     ))
+}
+
+unsafe fn mnt_open_table(flags: CInt, mode: CInt) -> CInt {
+    let mut real = [0u8; PATH_MAX];
+    if mnt_table_real(MNT_FILE, &mut real).is_none() {
+        return -1;
+    }
+    mnt_open_at_real(&real, flags, mode)
+}
+
+unsafe fn mnt_open_tmp_table(flags: CInt, mode: CInt) -> CInt {
+    let mut real = [0u8; PATH_MAX];
+    if mnt_table_real(MNT_FILE_TMP, &mut real).is_none() {
+        return -1;
+    }
+    mnt_open_at_real(&real, flags, mode)
 }
 
 unsafe fn mnt_mkdir_dir() {
@@ -2082,27 +2101,36 @@ unsafe fn mnt_pad(out: &mut [u8], at: &mut usize, s: &[u8]) -> bool {
 
 /// One-shot read of /run/husk/mounts. Never re-enters: the file is opened with
 /// mnt_open_table(), which does not consult the table.
+///
+/// 读缓冲是**栈上**的，不是 static。原来是 `static mut BUF`：两个线程同时进来
+/// 会往同一块内存里写。读的是同一个文件，内容一致时谁都看不出来；但表文件在
+/// 两次读之间被改小（另一个线程刚 umount 并 mnt_save 完）之后，先读的那次 `n`
+/// 更大，尾部还留着上一版的内容，于是解析出一条**已经不存在**的挂载——刚
+/// umount 的路径又回来一次，或者反过来。
+///
+/// 为什么不是「整段持锁」：试过，读也要在锁里，4 线程 `stat()` 从 9.08 µs/op
+/// 掉到 21.59 µs/op（2.4 倍），因为每次路径解析都要 open+read+close 一次。栈
+/// 缓冲只多一个 4 KiB 帧（这个函数本来就在 8–20 KiB 的帧里），并发行为不变。
 unsafe fn mnt_read_file() {
     let fd = mnt_open_table(0, 0);
     if fd < 0 {
         return;
     }
-    static mut BUF: [u8; 4096] = [0; 4096];
-    let n = syscall4(
-        SYS_READ,
-        fd as usize,
-        core::ptr::addr_of_mut!(BUF) as usize,
-        BUF.len(),
-        0,
-    );
+    // MaybeUninit：`[0u8; 4096]` 每次路径解析都要 memset 4 KiB，实测单线程
+    // 慢 2–4%。读多少就只读多少，`n` 之外的字节永远不被读。
+    const CAP: usize = 4096;
+    let mut storage = core::mem::MaybeUninit::<[u8; CAP]>::uninit();
+    let base = storage.as_mut_ptr() as *mut u8;
+    let n = syscall4(SYS_READ, fd as usize, base as usize, CAP, 0);
     syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
     if n <= 0 {
         return;
     }
-    let buf = core::slice::from_raw_parts(core::ptr::addr_of!(BUF) as *const u8, n as usize);
-    let mut i = 0usize;
+    let nn = (n as usize).min(CAP);
+    let buf = core::slice::from_raw_parts(base as *const u8, nn);
     mnt_lock();
     MNT_N = 0;
+    let mut i = 0usize;
     while i < buf.len() && MNT_N < MNT_MAX {
         let mut e = i;
         while e < buf.len() && buf[e] != b'\n' {
@@ -2230,6 +2258,53 @@ unsafe fn mnt_purge_dead() {
     mnt_unlock();
 }
 
+/// `NR_MNT_DEBUG=1` 时把每次 mount/umount 的原始参数打到 stderr。
+///
+/// 为什么要这个：util-linux 的 `mount -o remount,ro <tgt>` 会在进 syscall 之前
+/// 自己把参数改形（它先查表、可能换成 source、可能加 `MS_BIND`），失败时只回一句
+/// 「mount point not mounted or bad option」。没有这一行日志，"到底是 shim 没匹配
+/// 上还是 libmount 传了别的路径"就只能猜（evidence 227 §3）。
+unsafe fn mnt_dbg(
+    tag: &[u8],
+    source: *const CChar,
+    target: *const CChar,
+    fstype: *const CChar,
+    flags: usize,
+) {
+    if env_lookup(b"NR_MNT_DEBUG").is_none() {
+        return;
+    }
+    let mut line = [0u8; 768];
+    let mut n = 0usize;
+    let mut put = |line: &mut [u8; 768], at: &mut usize, s: &[u8]| {
+        for &c in s {
+            if *at + 2 < line.len() {
+                line[*at] = c;
+                *at += 1;
+            }
+        }
+    };
+    put(&mut line, &mut n, tag);
+    for (name, p) in [
+        (b" src=".as_ref(), source),
+        (b" tgt=".as_ref(), target),
+        (b" type=".as_ref(), fstype),
+    ] {
+        put(&mut line, &mut n, name);
+        if p.is_null() {
+            put(&mut line, &mut n, b"(null)");
+        } else {
+            put(&mut line, &mut n, bytes(p));
+        }
+    }
+    put(&mut line, &mut n, b" flags=");
+    let mut a = [0u8; 24];
+    let dn = put_i64(&mut a, 0, flags as i64);
+    put(&mut line, &mut n, &a[..dn]);
+    put(&mut line, &mut n, b"\n");
+    syscall4(SYS_WRITE, 2, line.as_ptr() as usize, n, 0);
+}
+
 unsafe fn mnt_ensure() {
     if mnt_refresh_on() {
         mnt_read_file();
@@ -2287,12 +2362,51 @@ unsafe fn mnt_save() {
         i += 1;
     }
     mnt_mkdir_dir();
+    if mnt_save_atomic(&out[..at]) {
+        return;
+    }
+    // 临时文件建不出来（只读 rootfs、配额满）时退回老写法：短暂的不完整表
+    // 比彻底不落盘好，下一次写入还会再试。
     let fd = mnt_open_table(0o1 | 0o100 | 0o1000, 0o644);
     if fd < 0 {
         return;
     }
     syscall4(SYS_WRITE, fd as usize, out.as_ptr() as usize, at, 0);
     syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+}
+
+/// Write the table to `mounts.tmp`, then rename() it over `mounts`.
+///
+/// 原来是 `open(O_TRUNC)` + `write` 直接盖章：读的一方（`mnt_read_file`，每次
+/// 路径解析都读一次）可能正好读到 truncate 之后、write 之前，于是拿到 0 字节
+/// 或者半张表——0 字节会被当成"没读到"保留旧表，半张表就是**刚挂上的东西在
+/// 这一次解析里不存在**，路径掉回 rootfs 里的原目录。rename() 在同一个目录里
+/// 是原子的，读的一方只会看到完整的新表或完整的旧表。
+unsafe fn mnt_save_atomic(buf: &[u8]) -> bool {
+    let fd = mnt_open_tmp_table(0o1 | 0o100 | 0o1000, 0o644);
+    if fd < 0 {
+        return false;
+    }
+    let w = syscall4(SYS_WRITE, fd as usize, buf.as_ptr() as usize, buf.len(), 0);
+    let c = syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+    if w as isize != buf.len() as isize || c != 0 {
+        return false;
+    }
+    let mut from = [0u8; PATH_MAX];
+    let mut to = [0u8; PATH_MAX];
+    if mnt_table_real(MNT_FILE_TMP, &mut from).is_none() {
+        return false;
+    }
+    if mnt_table_real(MNT_FILE, &mut to).is_none() {
+        return false;
+    }
+    syscall4(
+        SYS_RENAMEAT,
+        AT_FDCWD as usize,
+        from.as_ptr() as usize,
+        AT_FDCWD as usize,
+        to.as_ptr() as usize,
+    ) == 0
 }
 
 /// Delete a guest directory tree. Used only for a tmpfs store the table itself
@@ -2515,6 +2629,7 @@ pub unsafe extern "C" fn mount(
     flags: usize,
     _data: *const core::ffi::c_void,
 ) -> CInt {
+    mnt_dbg(b"mount", source, target, fstype, flags);
     let rfd = rootfd();
     if rfd < 0 {
         return set_errno(1);
@@ -2556,12 +2671,28 @@ pub unsafe extern "C" fn mount(
     syscall4(SYS_CLOSE, tfd as usize, 0, 0, 0);
     mnt_ensure();
     if flags & MS_REMOUNT != 0 {
+        // 尾部 '/' 要去掉：内核接受 `remount /mnt/b/`，这里不规范化就匹配不上
+        // （实测：`mount -o remount,ro /mnt/b/` 直接 EINVAL）。
+        let mut kn = n;
+        while kn > 1 && gp[kn - 1] == b'/' {
+            kn -= 1;
+        }
         mnt_lock();
         let mut i = 0usize;
         while i < MNT_N {
             let e = &mut MNT[i];
             let tl = e.tlen as usize;
-            if tl == n && &e.tgt[..tl] == &gp[..n] {
+            let sl = e.slen as usize;
+            // 为什么同时匹配 src：util-linux 的 `mount -o remount,ro <tgt>` 先
+            // 自己规范化 target——打开目录、再 readlink(/proc/self/fd/N)。模拟出来
+            // 的 bind 在路径层是"同一个 inode 的两个名字"，readlink 拿到的是**源**
+            // 目录，于是它把 `/mnt/src` 当 target 交给 mount(2)（实测 evidence 227
+            // §5：`mount -o remount,ro /mnt/b` 到 shim 时是 tgt=/mnt/src,
+            // flags=33）。只认 tgt 的话这条命令永远 EINVAL，而同一组参数直接
+            // 从 C 里调用却成功——差了整整一层 util-linux。
+            if (tl == kn && &e.tgt[..tl] == &gp[..kn])
+                || (sl > 0 && sl == kn && &e.src[..sl] == &gp[..kn])
+            {
                 e.ro = if flags & MS_RDONLY != 0 { 1 } else { 0 };
                 mnt_save();
                 mnt_unlock();
