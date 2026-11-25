@@ -124,7 +124,12 @@ fi
 #    folder is missing -- "Error when getting information for file /root/Desktop:
 #    No such file or directory" -- and with DING gone there is no wallpaper and
 #    no icons, only the solid primary-color. Creating it is free and idempotent.
+#    DING also refuses to let you launch anything when the folder is world
+#    writable ("Desktop is writable by others - will not allow launching any
+#    desktop files"), which is what `mkdir` under umask 0 produces -- so the mode
+#    is set explicitly instead of inherited.
 mkdir -p "$ROOTFS$home/Desktop" 2>/dev/null || true
+chmod 755 "$ROOTFS$home/Desktop" 2>/dev/null || true
 
 # 2. System bus. gnome-shell aborts during init when accountsservice cannot be
 #    reached: "Couldn't connect to system bus ... Execution of main.js threw
@@ -156,6 +161,18 @@ esac
 
 # -C is a *guest* chdir: env runs inside the path layer, so "/home/hu1" is
 # resolved against the rootfs. A host-side `cd` here would leave the guest.
+# Desktop icons + wallpaper fallback. gnome-shell's own DING launch hands over an
+# empty -P (evidence 191 §4), so DING dies on `Gtk.CssProviderError: ... /stylesheet.css`
+# and the desktop loses BOTH the icons and the wallpaper (DING draws the wallpaper).
+# The watcher only steps in when no "Desktop Icons" window shows up, so it is a
+# no-op on a healthy session.
+case "${1:-}" in
+    */gnome-shell)
+        [ -x "$BASE/husk-ding-fallback.sh" ] && \
+            { "$BASE/husk-ding-fallback.sh" "$ROOTFS" "$NR_LD" >/dev/null 2>&1 & } || true
+        ;;
+esac
+
 exec "$NR_LD" --library-path "$LIBS" usr/bin/env -i -C "$CWD" \
     HOME="$home" USER="$USER_NAME" LOGNAME="$USER_NAME" SHELL="$shell" \
     PATH="$PATH_GUEST" LANG=C.UTF-8 TERM="${TERM:-xterm-256color}" COLORTERM=truecolor \

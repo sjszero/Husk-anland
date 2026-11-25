@@ -33,3 +33,11 @@ picture-options='zoom'
 
 [org.gnome.desktop.screensaver]
 picture-uri='file:///usr/share/backgrounds/warty-final-ubuntu.png'
+
+# 新窗口位置。mutter 默认是"级联摆放"，它会记住上一扇窗的位置再往右下错开，
+# 而这个会话里没有面板 strut / 没有真实工作区边界可用，错开几次就把窗口摆到屏幕
+# 外面去（实测 482x610+120+520：底边 1130 > 1080，还有一次 822x642+120+-21，标题栏
+# 在屏幕上方）。钉成"居中"之后新窗口一律落在屏内（实测 482x610+992+271）。
+# 这是窗口摆放，不是主题；放在这里是因为安装器只写这一份 override。
+[org.gnome.mutter]
+center-new-windows=true

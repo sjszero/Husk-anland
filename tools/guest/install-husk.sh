@@ -293,6 +293,18 @@ elif [ -f "$LOOK" ]; then
     echo "   no Yaru theme / Ubuntu font / glib-compile-schemas in this tree; look defaults skipped" >&2
 fi
 
+# 2b-5. PulseAudio 客户端关掉 SHM。guest 里的 pulse 客户端与服务器走 memfd 共享内存
+#       握手时会被服务器断连（"Received SHM frame on a socket where SHM is disabled"），
+#       结果就是"装了 pulseaudio 但没有一个程序能出声"。关掉 SHM 走纯 socket 即可，
+#       实测 evidence 193。放在 client.conf.d 里是因为 Debian/Ubuntu 的 pulse 会读这个目录。
+PULSECONF="$HERE/guest-config/pulse-client-no-shm.conf"
+if [ -f "$PULSECONF" ] && [ -d "$DEST/usr/lib/pulse-16.1+dfsg1" ]; then
+    mkdir -p "$DEST/etc/pulse/client.conf.d"
+    cp "$PULSECONF" "$DEST/etc/pulse/client.conf.d/99-husk-no-shm.conf"
+    chmod 644 "$DEST/etc/pulse/client.conf.d/99-husk-no-shm.conf"
+    echo "   wrote etc/pulse/client.conf.d/99-husk-no-shm.conf (enable-shm=no)"
+fi
+
 # 2b-3. log directories apt and dpkg expect. The release tarball drops var/log
 #       (session logs of the verifying device); without these, every install
 #       prints `E: Directory '/var/log/apt/' missing` and apt still exits with an
