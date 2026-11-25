@@ -7,6 +7,31 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [未发布]
+
+> 主题：**0.0.13 全链路审计进行中**。这一批收的是「路径兼容层」这条链：两个真缺口、
+> 一个假的 `/proc/self/exe`、六个老二进制入口，并把覆盖账写成常设门禁可以对照的表。
+
+### 修
+
+- **`/proc/self/exe` 一直报宿主 loader**（evidence 217）。根因两条：第一个进程根本不经过
+  `execve` 钩子；而且 `exec` 会把上一份进程内存整个换掉，只在钩子里写这条路本身不成立。
+  改成 boot 阶段从 `/proc/self/cmdline` 取回程序、折回 guest 路径、用 seqlock 发布。
+  实测：`/data/user/0/…/libld.so` → `/usr/bin/readlink`；20 线程 × 200 次并发读 0/4000 撕裂。
+- **`__xstat` / `__lxstat` / `__fxstatat`（含 64 位变体）在 guest 里 `ENOENT`**（evidence 218）。
+  老二进制（glibc < 2.33 链接）走的正是这组版本化入口，实测补钩子后 `rc=0`。
+- **`dlmopen` 打不开 guest 里的 `.so`**（evidence 219）。补钩子时踩到自指：一旦导出
+  `dlmopen`，`dlopen` 内部的调用会解析到自己身上无限递归，改为从 link map 里
+  「跳过自身地址」取 libc 那一份。
+- **`execveat` 绕过 shim**（evidence 219）。折成一次 `execve`：先解析 `dirfd` + 相对路径，
+  再走同一个钩子，loader 重入与 `#!` 改写都保留。`AT_EMPTY_PATH` 返回 `ENOSYS` 让调用方回退。
+
+### 加
+
+- `tools/probe/symbol-gap-probe.c`：把没钩的符号逐个**试出后果**（判据是效果不是符号）。
+- `docs/design/compat-layer.md`：三层拦截、覆盖账（98 / 111）、与 ptrace 型的代价对比、未闭合项。
+- 门禁 A 里 `/proc/self/exe` 的旧断言写的是**坏行为**，换成三条正向断言；现 38 项。
+
 ## [0.0.12] - 2026-11-25
 
 > 主题：**`scandirat` 补上，覆盖度探针进门禁**。0.0.11 里唯一没修通的那条漏网符号

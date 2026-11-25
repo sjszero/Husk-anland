@@ -1582,6 +1582,33 @@ pub unsafe extern "C" fn nr_resolve_name(main_map: usize, name: usize, len: usiz
     resolve(main_map, name, len) as usize
 }
 
+/// 同 `nr_resolve_name`，但**跳过等于 `skip` 的那个地址**。
+///
+/// 用来找「shim 自己也导出了同名符号」时的原版实现：一旦我们导出 `dlmopen`，
+/// 链上第一个命中的就是我们自己，直接调就是无限递归。跳过自己的地址，
+/// 拿到的是 libc 里那一份（evidence 219）。
+#[no_mangle]
+pub unsafe extern "C" fn nr_resolve_name_skip(
+    main_map: usize,
+    name: usize,
+    len: usize,
+    skip: usize,
+) -> usize {
+    let mut l = main_map;
+    let mut guard = 0;
+    while l != 0 && guard < 4096 {
+        let l_addr = rd8(l + L_ADDR);
+        let l_ld = rd8(l + L_LD) as usize;
+        let a = find_sym(l_addr, l_ld, name, len);
+        if a != 0 && a as usize != skip {
+            return a as usize;
+        }
+        l = rd8(l + L_NEXT) as usize;
+        guard += 1;
+    }
+    0
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn nr_set_main_map(m: usize) {
     MAIN_MAP = m;

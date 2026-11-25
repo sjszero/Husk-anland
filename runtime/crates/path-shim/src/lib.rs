@@ -24,7 +24,8 @@ extern "C" {
     fn __errno_location() -> *mut CInt;
     fn fdopendir(fd: CInt) -> *mut u8;
     fn fdopen(fd: CInt, mode: *const CChar) -> *mut u8;
-    fn dlmopen(nsid: i64, file: *const CChar, mode: CInt) -> *mut u8;
+    // dlmopen 不再从这里声明：shim 自己导出了同名钩子，外部调用会解析到自己身上。
+    // 原版地址由 `real_dlmopen_addr()` 从 link map 里按「跳过自己的地址」取。
     fn fork() -> CInt;
     fn posix_spawnattr_getflags(attr: *const u8, flags: *mut i16) -> CInt;
     fn posix_spawnattr_getpgroup(attr: *const u8, pgroup: *mut CInt) -> CInt;
@@ -8161,6 +8162,52 @@ pub unsafe extern "C" fn execve(
     ret_or_errno(r)
 }
 
+/// `execveat(2)`：内核和 seccomp 都不拦它，而它**不经过** `execve` 钩子——
+/// 路径原样交给宿主内核，实测 `execveat(AT_FDCWD, "/usr/bin/true", …)` 得到
+/// `ENOENT`（evidence 218）。glibc 的 `posix_spawn` 与部分运行时（Go、Rust 的
+/// 某些版本、busybox applet）会用它。
+///
+/// 实现方式是折成一次 `execve`：先把 `dirfd` + 相对路径解析成 guest 绝对路径，
+/// 再交给同一个钩子，于是 loader 重入、`#!` 解释器改写、库路径修正一次全齐。
+/// `AT_EMPTY_PATH`（执行一个已打开的 fd）表达不成路径，直接 `ENOSYS` 让调用方
+/// 回退，不假装支持。
+#[no_mangle]
+pub unsafe extern "C" fn execveat(
+    dirfd: CInt,
+    path: *const CChar,
+    argv: *const *const CChar,
+    envp: *const *const CChar,
+    flags: CInt,
+) -> CInt {
+    const AT_EMPTY_PATH_: CInt = 0x1000;
+    if path.is_null() {
+        return set_errno(14);
+    }
+    if flags & AT_EMPTY_PATH_ != 0 && *path == 0 {
+        return set_errno(38); // ENOSYS
+    }
+    let mut gp = [0u8; PATH_MAX];
+    let n = if *path == b'/' as CChar || dirfd == AT_FDCWD {
+        match abs_guest(path, &mut gp) {
+            Some(n) => n,
+            None => return set_errno(36),
+        }
+    } else {
+        match resolve_dirfd_rel(dirfd, bytes(path), &mut gp) {
+            Ok(Some(n)) => n,
+            Ok(None) => return set_errno(2),
+            Err(e) => return set_errno(e),
+        }
+    };
+    if n >= PATH_MAX - 1 {
+        return set_errno(36);
+    }
+    let mut z = [0u8; PATH_MAX];
+    z[..n].copy_from_slice(&gp[..n]);
+    z[n] = 0;
+    execve(z.as_ptr() as *const CChar, argv, envp)
+}
+
 const DEFAULT_LIBRARY_DIRS: &[&[u8]] = &[
     b"lib/aarch64-linux-gnu",
     b"usr/lib/aarch64-linux-gnu",
@@ -9185,44 +9232,108 @@ unsafe fn loaded(h: *mut u8) -> *mut u8 {
     h
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn dlopen(file: *const CChar, mode: CInt) -> *mut u8 {
-    if file.is_null() {
-        return loaded(dlmopen(LM_ID_BASE, file, mode));
-    }
+/// 把 dlopen/dlmopen 的文件参数翻成「rootfs 里的真路径」。
+///
+/// - `Ok(Some(n))` 翻译好了，`out[..n]` 是带 NUL 的真路径；
+/// - `Ok(None)` 是裸 soname（`libfoo.so.1`），那是一次**搜索**不是路径，交给 ld.so；
+/// - `Err(errno)` 翻译失败。
+unsafe fn dl_translate(
+    file: *const CChar,
+    out: &mut [u8; PATH_MAX],
+) -> Result<Option<usize>, CInt> {
     let f = bytes(file);
-    // A bare soname is a search, not a path: leave that to the loader.
     if !f.contains(&b'/') {
-        return loaded(dlmopen(LM_ID_BASE, file, mode));
+        return Ok(None);
     }
     let rfd = rootfd();
     let mut gp = [0u8; PATH_MAX];
     let n = match abs_guest(file, &mut gp) {
         Some(n) => n,
-        None => return core::ptr::null_mut(),
+        None => return Err(36), // ENAMETOOLONG
     };
-    let mut real = [0u8; PATH_MAX];
     if rfd < 0 || under_root(&gp[..n]) {
-        real[..n].copy_from_slice(&gp[..n]);
-        real[n] = 0;
-        return loaded(dlmopen(LM_ID_BASE, real.as_ptr() as *const CChar, mode));
+        out[..n].copy_from_slice(&gp[..n]);
+        out[n] = 0;
+        return Ok(Some(n));
     }
     let mut name = [0u8; 256];
     let parent = match rc::resolve_parent_follow(rfd, &gp[..n], &mut name) {
         Ok(fd) => fd,
-        Err(e) => {
-            *__errno_location() = e;
-            return core::ptr::null_mut();
-        }
+        Err(e) => return Err(e),
     };
     let nl = name.iter().position(|c| *c == 0).unwrap_or(0);
-    let r = real_path(parent, &name[..nl], &mut real);
+    let r = real_path(parent, &name[..nl], out);
     rc::close(parent);
-    if r.is_none() {
-        *__errno_location() = ENOENT;
+    match r {
+        Some(n) => Ok(Some(n)),
+        None => Err(ENOENT),
+    }
+}
+
+/// libc's own `dlmopen`. Once the shim exports `dlmopen` (needed to hook the
+/// guest's calls), calling the extern symbol from here would find *us* first and
+/// recurse forever, so the original is resolved once out of the link map with
+/// our own address skipped (see `nr_resolve_name_skip`).
+static mut REAL_DLMOPEN: usize = 0;
+type DlMopenFn = unsafe extern "C" fn(i64, *const CChar, CInt) -> *mut u8;
+
+unsafe fn real_dlmopen_addr() -> usize {
+    if REAL_DLMOPEN == 0 {
+        let m = crate::boot::nr_get_main_map();
+        REAL_DLMOPEN = crate::boot::nr_resolve_name_skip(
+            m,
+            b"dlmopen\0".as_ptr() as usize,
+            7,
+            dlmopen as usize,
+        );
+    }
+    REAL_DLMOPEN
+}
+
+unsafe fn call_real_dlmopen(nsid: i64, file: *const CChar, mode: CInt) -> *mut u8 {
+    let a = real_dlmopen_addr();
+    if a == 0 {
+        *__errno_location() = 38; // ENOSYS: 解析不到原版，宁可报错也不假装成功
         return core::ptr::null_mut();
     }
-    loaded(dlmopen(LM_ID_BASE, real.as_ptr() as *const CChar, mode))
+    let f: DlMopenFn = core::mem::transmute(a);
+    f(nsid, file, mode)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn dlopen(file: *const CChar, mode: CInt) -> *mut u8 {
+    if file.is_null() {
+        return loaded(call_real_dlmopen(LM_ID_BASE, file, mode));
+    }
+    let mut real = [0u8; PATH_MAX];
+    match dl_translate(file, &mut real) {
+        Ok(Some(_)) => loaded(call_real_dlmopen(LM_ID_BASE, real.as_ptr() as *const CChar, mode)),
+        Ok(None) => loaded(call_real_dlmopen(LM_ID_BASE, file, mode)),
+        Err(e) => {
+            *__errno_location() = e;
+            core::ptr::null_mut()
+        }
+    }
+}
+
+/// `dlmopen()` 与 `dlopen()` 的差别只是多一个命名空间号。以前只有 `dlopen` 被钩，
+/// 所以程序直接调 `dlmopen` 时 ld.so 自己按宿主路径 open：实测
+/// `cannot open shared object file: No such file or directory`，而同一路径
+/// `dlopen` 正常（evidence 218）。命名空间语义原样交给 ld.so，我们只翻路径。
+#[no_mangle]
+pub unsafe extern "C" fn dlmopen(nsid: i64, file: *const CChar, mode: CInt) -> *mut u8 {
+    if file.is_null() {
+        return loaded(call_real_dlmopen(nsid, file, mode));
+    }
+    let mut real = [0u8; PATH_MAX];
+    match dl_translate(file, &mut real) {
+        Ok(Some(_)) => loaded(call_real_dlmopen(nsid, real.as_ptr() as *const CChar, mode)),
+        Ok(None) => loaded(call_real_dlmopen(nsid, file, mode)),
+        Err(e) => {
+            *__errno_location() = e;
+            core::ptr::null_mut()
+        }
+    }
 }
 
 // --------------------------------------------------------- sigaction guard

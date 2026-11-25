@@ -22,22 +22,23 @@
 
 ```
 $ sh tools/dev/hook-coverage.sh
-need=96+15 hooks=195
+need=98+13 hooks=198
 ```
 
 需要路径翻译的符号共 **111**（`tools/dev/path-symbols.txt`，按 glibc 2.39 导出表整理），
-path-shim 导出 **195** 个，其中覆盖 **96（86.5%）**。未覆盖 15 个，逐个实测的结论：
+path-shim 导出 **198** 个，其中覆盖 **98（88%）**。未覆盖 13 个，逐个实测的结论：
 
 | 类别 | 个数 | 符号 | 为什么不算缺口 |
 |---|---:|---|---|
 | 实测通 | 11 | `remove` `freopen` `freopen64` `pathconf` `truncate64` `shm_open` `sem_open` `chroot` `umount` `swapon` `swapoff` | 前 7 个 glibc 内部转调了已改写的入口；后 4 个是权限层本来就不给（EPERM/EINVAL） |
-| 真缺口 | 2 | `dlmopen` `execveat` | ld.so 自己 open / 绕过 execve 钩子，见 §3 |
 | 不是符号 | 1 | `faccessat2` | 只有系统调用号，glibc 走 `faccessat` 回退 |
 | 未测 | 1 | `fanotify_mark` | 需要先 `fanotify_init`，而这需要 CAP_SYS_ADMIN；**UNKNOWN** |
+| 真缺口 | 0 | — | `dlmopen` 与 `execveat` 已在 0.0.13 收口（evidence 219） |
 
-**0.0.11–0.0.12 期间补上的**：`inotify_add_watch`（GIO 文件监视原来静默失效）、`utime`、
-`__openat_nocancel`/`__openat64_nocancel`、`scandirat`（自己实现扫描体），
-以及本次的 `__xstat` 家族 6 个（老二进制走的就是这些）。
+**0.0.11–0.0.13 期间补上的**：`inotify_add_watch`（GIO 文件监视原来静默失效）、`utime`、
+`__openat_nocancel`/`__openat64_nocancel`、`scandirat`（自己实现扫描体）、
+`__xstat` 家族 6 个（老二进制走的就是这些）、`dlmopen`（钩子会撞自己，原版地址从
+link map 里跳过自身地址取）、`execveat`（折成一次 `execve`）。
 
 这张表之外还有一类**不是符号**的翻译面，覆盖度不体现在 111 里：
 `/proc` 虚拟文件（`/proc/self/exe`、`/proc/mounts`、`/proc/sysvipc/*`）、`/dev/shm`、
@@ -71,7 +72,8 @@ path-shim 导出 **195** 个，其中覆盖 **96（86.5%）**。未覆盖 15 个
    本机 4.19 上 `mprotect` 回 `r-x` 被拒（execmod），所以只能在**构建期**做，
    运行时改代码页这条路是死的。现状：`NR_BODY_PATCH=1` 在本机上 `sig=11` 崩，
    默认关闭——也就是说**这一层现在是 0 覆盖**，不是"部分覆盖"。
-2. **两个真缺口**：`dlmopen`、`execveat`。都在 0.0.13 里。
+2. ~~两个真缺口：`dlmopen`、`execveat`~~ —— 0.0.13 已收（evidence 219）。现在没有
+   已知的「符号层真缺口」，剩下的 13 个都是实测无后果或权限层不可达。
 3. **并发**：`lib.rs` 里 `static mut` 63 处、`Atomic` 21 处。已经给 `/proc/self/exe`
    的发布通道加了 seqlock（evidence 217），其余共享状态还没逐个过。
 4. **普查负载偏窄**：`coverage-sweep` 现在跑的是 4 条命令行负载（`ls`/`find`/`python3`/`apt`），

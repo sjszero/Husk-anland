@@ -22,6 +22,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -71,13 +72,41 @@ int main(void) {
   errno = 0; sem_t *sm = sem_open("/husk-gap", O_CREAT, 0600, 1); e = errno;
   rep("sem_open", sm ? 0 : -1, e);
 
-  /* 真缺口：ld.so 自己 open 的 dlmopen；绕过 execve 钩子的 execveat */
+  /* 曾经的真缺口之一：ld.so 自己 open 的 dlmopen */
   errno = 0; void *h = dlmopen(LM_ID_BASE, "/usr/lib/aarch64-linux-gnu/libm.so.6", RTLD_NOW); e = errno;
   rep("dlmopen", h ? 0 : -1, e);
-  errno = 0;
-  long ex = syscall(SYS_execveat, AT_FDCWD, "/usr/bin/true",
-                    (char *[]){"/usr/bin/true", NULL}, (char *[]){NULL}, 0);
-  e = errno; rep("execveat(/usr/bin/true)", ex, e);
+
+  /* 另一个：execveat。必须**按符号调用**（走 GOT），用 syscall(SYS_execveat)
+     是 raw syscall，本来就绕过整个 shim，测不到钩子。成功时进程被替换，
+     所以放子进程里跑，用退出码读数。 */
+  {
+    char *av[] = {"/usr/bin/true", NULL};
+    char *ev[] = {NULL};
+    pid_t pid = fork();
+    if (pid == 0) {
+      execveat(AT_FDCWD, "/usr/bin/true", av, ev, 0);
+      _exit(97); /* 回到这里说明 exec 失败 */
+    }
+    int st = 0;
+    if (pid > 0) { waitpid(pid, &st, 0); }
+    printf("%-26s child exit=%d%s\n", "execveat(/usr/bin/true)",
+           WIFEXITED(st) ? WEXITSTATUS(st) : -1,
+           (WIFEXITED(st) && WEXITSTATUS(st) == 0) ? "  (exec 成功)" : "  (没跑起来)");
+  }
+
+  /* 对照：raw syscall 版本，永远绕过 shim —— 这是设计边界，不是 bug */
+  {
+    pid_t pid = fork();
+    if (pid == 0) {
+      syscall(SYS_execveat, AT_FDCWD, "/usr/bin/true",
+              (char *[]){"/usr/bin/true", NULL}, (char *[]){NULL}, 0);
+      _exit(97);
+    }
+    int st = 0;
+    if (pid > 0) { waitpid(pid, &st, 0); }
+    printf("%-26s child exit=%d  (raw syscall，设计边界)\n", "syscall(SYS_execveat)",
+           WIFEXITED(st) ? WEXITSTATUS(st) : -1);
+  }
 
   /* 权限本来就不给的那几个：跟钩不钩无关，结论只会是 EPERM */
   errno = 0; r = chroot("/"); e = errno; rep("chroot(/)", r, e);
