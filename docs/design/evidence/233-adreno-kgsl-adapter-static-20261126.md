@@ -87,6 +87,23 @@ vk|device|PASS|VkResult=0
 vk|buffer|PASS|created/bound/mapped size=4096 type=2 readback=0x4855534b
 ```
 
+2026-11-26 01:56 CST 又在**最终 loader** `95313975…` 上单独复跑了一次完整
+`vulkan-probe`，避免上面那组输出来自更早的二进制：
+
+```text
+loader sha256 9531397561f0075185be810b98cb161d3a8f62205a5c34b3a5afff826a6e6a67
+vk|physical|PASS|count=1 name=Mali-G77 MC9
+vk|device|PASS|VkResult=0
+vk|buffer|PASS|created/bound/mapped size=4096 type=2 readback=0x4855534b
+vk|compute|PASS|readback=0x4855534b
+vk|graphics|PASS|pixel=0xff0000ff expected=0xff0000ff
+vk|teardown|PASS|device/instance/loader released
+```
+
+同一轮仍出现 `KBASE_IOCTL_MEM_EXEC_INIT failed: EPERM` 和
+`VK_ANDROID_external_memory_android_hardware_buffer` 缺失；因此这次通过证明的是
+PanVK 枚举、buffer、compute、离屏 graphics 和回读，不证明 Android AHB WSI 已接通。
+
 GL：
 
 ```text
