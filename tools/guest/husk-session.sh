@@ -117,6 +117,34 @@ if [ -r "$ROOTFS/$icd" ] && [ "${HUSK_GPU:-zink}" != llvmpipe ]; then
     gpu_env="$gpu_env MESA_LOADER_DRIVER_OVERRIDE=zink GALLIUM_DRIVER=zink"
 fi
 
+# Two things every desktop session needs and that nothing else creates.
+# (evidence 191: both were hit one after the other while restarting a session for real)
+#
+# 1. ~/Desktop. DING (the desktop-icons process) refuses to start when the
+#    folder is missing -- "Error when getting information for file /root/Desktop:
+#    No such file or directory" -- and with DING gone there is no wallpaper and
+#    no icons, only the solid primary-color. Creating it is free and idempotent.
+mkdir -p "$ROOTFS$home/Desktop" 2>/dev/null || true
+
+# 2. System bus. gnome-shell aborts during init when accountsservice cannot be
+#    reached: "Couldn't connect to system bus ... Execution of main.js threw
+#    exception". The tree carries the config; start it only when the socket is
+#    gone, and point the child at it either way.
+if [ ! -S "$ROOTFS/run/dbus/system_bus_socket" ]; then
+    mkdir -p "$ROOTFS/run/dbus" 2>/dev/null || true
+    rm -f "$ROOTFS/run/dbus/system_bus_socket" "$ROOTFS/run/dbus/pid" 2>/dev/null || true
+    ( cd "$ROOTFS" && "$NR_LD" --library-path "$LIBS" usr/bin/env -i \
+        HOME=/root PATH="$PATH_GUEST" NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" \
+        /usr/bin/dbus-daemon \
+        --config-file=/usr/local/share/linuxhub/linuxhub-system-bus.conf \
+        --nofork --address=unix:path=/run/dbus/system_bus_socket \
+        >"$ROOTFS/tmp/husk-sysbus.log" 2>&1 & ) || true
+    i=0
+    while [ $i -lt 30 ] && [ ! -S "$ROOTFS/run/dbus/system_bus_socket" ]; do
+        sleep 0.2; i=$((i+1))
+    done
+fi
+
 cd "$ROOTFS"
 # env is started by the loader with a relative path; everything after it is a
 # normal exec (absolute guest paths are fine there).
@@ -132,6 +160,7 @@ exec "$NR_LD" --library-path "$LIBS" usr/bin/env -i -C "$CWD" \
     HOME="$home" USER="$USER_NAME" LOGNAME="$USER_NAME" SHELL="$shell" \
     PATH="$PATH_GUEST" LANG=C.UTF-8 TERM="${TERM:-xterm-256color}" COLORTERM=truecolor \
     NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" \
+    DBUS_SYSTEM_BUS_ADDRESS="unix:path=/run/dbus/system_bus_socket" \
     NR_FAKE_UID="$uid" NR_FAKE_GID="$gid" \
     $gpu_env \
     $force_gpu \
