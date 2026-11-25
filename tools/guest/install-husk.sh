@@ -225,6 +225,39 @@ else
     echo "            etc/profile.d/husk-gpu.sh is NOT installed (no GPU defaults)." >&2
 fi
 
+# 2b-2c. 同一份默认值也给加载器。`/etc/profile.d` 只对登录 shell 生效；cron、systemd
+#        user unit、桌面 fork 出来的进程、`env -i`、`ssh host -- prog` 都读不到它，
+#        于是同一个 rootfs 里会出现"终端里的程序吃 GPU、别处的掉回 llvmpipe"。
+#        加载器只在这些变量"没人设置过"时补默认值，程序自己 export 的永远优先；
+#        逃逸开关仍然是 HUSK_GPU=llvmpipe / NR_GPU_DEFAULT_OFF=1。
+#        ICD 文件名随 Mesa 构建变，所以在这里解析一次写死，不在 Rust 里猜。
+mkdir -p "$DEST/etc/husk"
+: > "$DEST/etc/husk/gpu-env"
+_husk_icd=
+for _c in "$DEST"/usr/share/vulkan/icd.d/husk_*.json; do
+    case "$_c" in *.bak*) continue ;; esac
+    [ -r "$_c" ] || continue
+    _husk_icd="/usr/share/vulkan/icd.d/${_c##*/}"
+    break
+done
+if [ -n "$_husk_icd" ]; then
+    {
+        echo "VK_ICD_FILENAMES=$_husk_icd"
+        echo "VK_DRIVER_FILES=$_husk_icd"
+        echo "MESA_LOADER_DRIVER_OVERRIDE=zink"
+        echo "GALLIUM_DRIVER=zink"
+        echo "MESA_GLES_VERSION_OVERRIDE=3.2"
+    } > "$DEST/etc/husk/gpu-env"
+    chmod 644 "$DEST/etc/husk/gpu-env"
+    echo "   wrote etc/husk/gpu-env (loader-level defaults: $_husk_icd)"
+else
+    # No ICD in the tree: injecting GALLIUM_DRIVER=zink would point GL at a
+    # Vulkan loader with nothing to load. Leaving the file empty keeps the
+    # pre-existing behaviour (whatever Mesa defaults to) exactly as it was.
+    echo "   no husk_*.json ICD in the tree; etc/husk/gpu-env stays empty (loader injects nothing)" >&2
+fi
+unset _c _husk_icd
+
 # 2b-3. log directories apt and dpkg expect. The release tarball drops var/log
 #       (session logs of the verifying device); without these, every install
 #       prints `E: Directory '/var/log/apt/' missing` and apt still exits with an

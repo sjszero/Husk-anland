@@ -7,6 +7,37 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.5] - 2026-11-25
+
+> 主题：**说清楚「硬件到底怎么接」，并把图形默认值从登录脚本下沉到加载器。**
+> 0.0.4 把代价钉死了，0.0.5 把「谁在什么地方吃到 GPU」这件事从"登录 shell 才算"改成
+> "经加载器起来就算"，同时把接口口径收成一根轴。
+
+### 改
+
+- **图形默认值下沉到加载器**（evidence 182）。`getenv` / `secure_getenv` / `__secure_getenv`
+  由 path-shim 提供，值来自安装器写的 `/etc/husk/gpu-env`；查询顺序是**先 `environ`，
+  查不到才用默认值**。于是登录 shell、cron、systemd user unit、桌面 fork 出来的进程、
+  `env -i` 看到的是同一套渲染器：`env -i` 起 `gl-probe es3`
+  → `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`（改动前是 `llvmpipe`），两者都 PASS。
+  - 程序自己 `export` 的变量永远优先（只覆盖一个变量时其余仍取默认值，实测过）；
+  - `HUSK_GPU=llvmpipe` / `NR_GPU_DEFAULT_OFF=1` 一条都不注入；
+  - `secure_getenv` 尊重 `AT_SECURE`；
+  - 树里没有 `husk_*.json` 时 `/etc/husk/gpu-env` 保持空文件，行为与改动前完全一致；
+  - 门禁 A：**PASS=36 FAIL=0**。
+
+### 文档
+
+- 新增 [`docs/design/hardware-interface-map.md`](docs/design/hardware-interface-map.md)：每类硬件
+  一根轴——直连（GPU、相机）/ 中转（音频、视频）/ 未做，并附 2026-11-25 在应用域实测的节点布局
+  （`/dev/mali0` = `10,33` `0666`、`/dev/video0` = `81,0`、`/dev/dri` 只有 `card0`、
+  `renderD128` 不存在、`/dev/snd` 打不开）。
+- [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md)：§8 表加「接法」列；§7 补两件实测——
+  呈现那次拷贝是**架构共性而非本机带宽**（guest 内 `memmove` 10.05 GiB/s，2400×1080 一帧
+  值拷贝下限 1.0 ms，对实测回读 30.27 ms/帧），以及「三条可选路线各自落在哪一层」。
+- README：硬件接口按「直连 2 类 / 中转 2 类 / 显示零拷贝 / 输入窗口层 / 未做 5 类、指纹不做」
+  重写，并明确「全部直连」和无限定的「零拷贝」都是不能说的话。
+
 ## [0.0.4] - 2026-11-25
 
 > 主题：**把「GPU 到底快多少」和「哪里确实还坏着」用数字钉死**。0.0.3 说的是「桌面由 GPU 出帧」，
@@ -231,6 +262,7 @@
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
 [未发布]: https://github.com/xishanp/Husk/compare/v0.0.3...HEAD
+[0.0.5]: https://github.com/xishanp/Husk/releases/tag/v0.0.5
 [0.0.4]: https://github.com/xishanp/Husk/releases/tag/v0.0.4
 [0.0.3]: https://github.com/xishanp/Husk/releases/tag/v0.0.3
 [0.0.2]: https://github.com/xishanp/Husk/releases/tag/v0.0.2

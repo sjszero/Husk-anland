@@ -52,8 +52,12 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
    出帧（X 根窗口 `2400x1080`、非黑像素 100%）。mutter 启动时的 MIT-SHM `BadAccess` 已定位
    并绕开：guest 没有 SysV IPC，X server 在 guest 外，`ShmAttach` 必然失败，所以 guest 侧
    如实报告"不支持 MIT-SHM"。
-   **默认值不再依赖会话脚本**：`/etc/profile.d/husk-gpu.sh`（安装器写入，evidence 167），
-   进 guest 再开程序也吃得到 GPU，`HUSK_GPU=llvmpipe` 一键退回软件。
+   **默认值不再依赖会话脚本，也不再依赖登录 shell**：安装器写 `/etc/husk/gpu-env`，由 loader
+   在程序自己没设置时补（走 `getenv`/`secure_getenv` 符号，不是 syscall 拦截），所以 cron、
+   桌面 fork 出来的进程、`env -i` 看到的是同一套渲染器——`env -i` 起 `gl-probe es3` 报
+   `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`，门禁 A 36/36（evidence 182）。
+   `/etc/profile.d/husk-gpu.sh` 仍然写入（evidence 167），`HUSK_GPU=llvmpipe` /
+   `NR_GPU_DEFAULT_OFF=1` 一键退回软件；程序自己 export 的变量永远优先。
    假 DRM 节点的 `dup`/`dup2`/`dup3`/`fcntl(F_DUPFD)`/`fcntl64` 记账与 `close` 注销也已修
    （evidence 166：旧 loader 下 dup 出来是 memfd `rdev=0:0`，新 loader 是 `10:33`）。
    八维里第 1/5/6 维已有数字（evidence 168）：会话冷启动 8/8/9 s、设置首帧 4462 ms vs
@@ -74,8 +78,10 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
    GPU **23.84 ms/帧（41.9 fps）对软件 266.73 ms/帧（3.7 fps），快 11.2×**；清屏+呈现是
    **19.9 vs 49.7 fps**，差在每帧把 GPU 表面回读交给 X server——2400×1080 上**回读 30.27 ms**，
    呈现按面积线性涨（zink 24.8 ms/兆像素、llvmpipe 11）。DRI3 通不了的原因在 **X server 侧**：
-   应用内 bionic Xorg 21.1.99 是 `untrusted_app`，打不开 `/dev/dri`、没有 `/dev/dma_heap`、
-   `/dev/ion` EACCES → 只能停在 `Could not get DRI3 device`，**不是 path-shim 能补的**。
+   应用内 bionic Xorg 21.1.99 是 `untrusted_app`：`/dev/dri` 下只有 `card0`
+   （`system:system` `0660`）、**没有 `renderD128`**，`/dev/dma_heap` 不存在，GPU 实际走厂商节点
+   `/dev/mali0`（`10,33`，`0666`）→ 只能停在 `Could not get DRI3 device`，
+   **不是 path-shim 能补的**。
    真实客户端：`gnome-text-editor`（GTK 4.14 ngl）与 `gnome-control-center`（GTK 4 + Adwaita）
    完整出画，键盘 XTEST 敲进去标题与正文都更新（evidence 176/180）；**`nautilus` 46 内容区空白**
    ——能开窗、能枚举，但 `cairo`/`ngl`、`list`/`icon`、**proot 也同样空白**，根因 UNKNOWN

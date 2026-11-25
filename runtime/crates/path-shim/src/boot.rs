@@ -714,6 +714,13 @@ unsafe fn auxv_val(envp: usize, tag: u64) -> u64 {
     0
 }
 
+/// AT_SECURE：setuid/setgid 起动为 1。`secure_getenv` 必须尊重它，否则一套
+/// "看环境决定行为"的默认值会被带进本不该看环境的进程里。
+pub unsafe fn at_secure() -> bool {
+    let env = if ENVP != 0 { ENVP } else { envp() };
+    auxv_val(env, 23) != 0
+}
+
 unsafe fn read_at_random(envp: usize) -> u64 {
     let mut p = auxv_ptr(envp);
     if p == 0 {

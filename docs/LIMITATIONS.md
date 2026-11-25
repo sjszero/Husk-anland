@@ -137,23 +137,30 @@ shim 管。
 
 ## 8 · 分区很细：这一版不是「什么都跑得起来」
 
-| 能力 | 状态 | 证据 |
-|---|---|---|
-| 命令行用户态（bash、coreutils、apt、dpkg、gcc、make、python3+numpy、git） | 可用 | evidence 154、155 |
-| 会话服务（polkit、at-spi、gvfs、RandR） | 可用 | evidence 151、152 |
-| 文件管理器（Nautilus 46） | 能开窗、能枚举；**内容区空白**（cairo/ngl、list/icon 都一样，proot 同样空白） | evidence 178 |
-| GPU：Vulkan compute / 离屏 graphics | 可用 | evidence 156 |
-| GPU：GL/EGL 经 Zink 落到 GPU（默认上限 GLES 3.2，靠 override；真实应用未验） | 可用 | evidence 156、161、167 |
-| GPU：X11 窗口呈现（EGL window surface + swap） | 可用，呈现走回读+拷贝（DRI3 未通，代价 24.8 ms/MP） | evidence 165、174 |
-| GL 整块读回（`glReadPixels` W×H） | **坏**：目的行距恒 16 字节；逐行/逐像素读正确 | evidence 179 |
-| GPU：桌面合成器（gnome-shell 46 on zink/PanVK） | 可用，出帧；轻负载 fps 不如 llvmpipe | evidence 165、168 |
-| 硬件视频解码（平台 MediaCodec，应用侧） | 有实测链路，未产品化 | evidence 80 |
-| guest 内 VA-API 全链（播放器直接用） | 部分 | evidence 81–87 |
-| 相机（V4L2 前端 + 平台编码） | 有实测链路 | evidence 91–93 |
-| 音频（PulseAudio → AAudio） | 可用，10 秒级，非长稳 | evidence 62 |
-| 传感器、GPS、USB、蓝牙、NFC、指纹 | 未开始（按定位不做：这类节点由机主自己穿透） | — |
-| 输入注入（触摸/键盘） | 能到应用（evidence 148）；指针默认是 trackpad 语义，2.0 侧的 `touchMode` 默认值未在本仓库改 | evidence 148 |
-| 浏览器 | 随附 rootfs 无浏览器包，未跑过 | — |
+接法只有一根轴：**直连**＝guest 进程自己开设备节点，应用侧一行不参与；**中转**＝一条明确的
+socket 协议，数据在应用侧过一次。逐类理由见
+[`docs/design/hardware-interface-map.md`](design/hardware-interface-map.md)。
+
+| 能力 | 接法 | 状态 | 证据 |
+|---|---|---|---|
+| 命令行用户态（bash、coreutils、apt、dpkg、gcc、make、python3+numpy、git） | — | 可用 | evidence 154、155 |
+| 会话服务（polkit、at-spi、gvfs、RandR） | — | 可用 | evidence 151、152 |
+| 文件管理器（Nautilus 46） | — | 能开窗、能枚举；**内容区空白**（cairo/ngl、list/icon 都一样，proot 同样空白） | evidence 178 |
+| GPU：Vulkan compute / 离屏 graphics（`/dev/mali0` + kbase） | 直连 | 可用 | evidence 156 |
+| GPU：GL/EGL 经 Zink 落到 GPU（默认上限 GLES 3.2，靠 override；真实应用未验） | 直连 | 可用；默认值由加载器注入，非登录执行也吃得到 | evidence 156、161、167、182 |
+| GPU：X11 窗口呈现（EGL window surface + swap） | 直连（呈现这一跳不是） | 可用，呈现走回读+拷贝（DRI3 未通，代价 24.8 ms/MP） | evidence 165、174 |
+| GL 整块读回（`glReadPixels` W×H） | — | **坏**：目的行距恒 16 字节；逐行/逐像素读正确 | evidence 179 |
+| GPU：桌面合成器（gnome-shell 46 on zink/PanVK） | 直连 | 可用，出帧；轻负载 fps 不如 llvmpipe | evidence 165、168 |
+| 显示上屏（dma-buf → AHB → `SurfaceControl`） | 应用侧，零拷贝 | 可用（10 000 帧 ring） | evidence 59 |
+| 硬件视频解码（平台 MediaCodec，应用侧） | 中转 | 有实测链路，未产品化 | evidence 80 |
+| guest 内 VA-API 全链（播放器直接用） | 中转 | 部分 | evidence 81–87 |
+| 视频编码（VA-API encode） | 中转（未做） | 未做 | — |
+| 相机（V4L2 `/dev/videoN` + 平台编码） | 直连 | 有实测链路 | evidence 91–93 |
+| 音频（PulseAudio → `audio-relay` → AAudio） | 中转 | 可用，10 秒级，非长稳；guest 里 `/dev/snd` 打不开 | evidence 62 |
+| 输入注入（触摸/键盘） | 窗口层 | 能到应用；指针默认是 trackpad 语义，2.0 侧的 `touchMode` 默认值未在本仓库改 | evidence 148、180 |
+| 传感器、GPS、USB、蓝牙、NFC | 未做 | 未开始：这几类既开不到节点，NDK 也没有对应平台 API | — |
+| 指纹 | 不做 | 认证必须绑定可见 Activity 的用户交互 | — |
+| 浏览器 | — | 随附 rootfs 无浏览器包，未跑过 | — |
 
 「有实测链路」不等于「产品可用」：这四类都还是「跑通过一次」的程度，稳定性与错误路径没做完。
 

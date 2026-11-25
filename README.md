@@ -126,23 +126,37 @@ DRI3 只能停在 `Could not get DRI3 device`。逐条数字与做法见
 应用内的硬件后端提供接口，边界写在
 [`docs/design/husk-backend-interface.md`](docs/design/husk-backend-interface.md)。
 
+接法只有一根轴，不要混着说：
+
+- **直连**——guest 进程自己开设备节点，应用侧一行代码都不参与（GPU、相机）；
+- **中转**——一条明确的 socket 协议，数据在应用侧过一次（音频、视频）。
+
+逐类的节点实测、理由，以及「能说什么、不能说什么」，写在
+[`docs/design/hardware-interface-map.md`](docs/design/hardware-interface-map.md)。
+
 > [!IMPORTANT]
 > 表里写的是**验证到什么程度**，不是「功能已完成」。GPU 只到「能开、能算」，没到「能上线」：
 > 窗口呈现（WSI）已经通了，但客户端的帧是经 SHM 拷贝进 X server 的，dmabuf 直传还没接
 > （`docs/LIMITATIONS.md` §7）。相机、视频、
 > 音频都是「有一条能跑的链路」，不是产品级的稳定性承诺。
 
-| 能力 | 用户态里的路径 | 实测 |
-|---|---|---|
-| GPU | 直开 `/dev/mali0`，kbase 后端的 PanVK | 枚举到 `Mali-G77 MC9`、compute 与离屏 graphics 回读通过；GL renderer `zink Vulkan 1.3(Mali-G77 MC9)`（evidence 156）。**X11 窗口呈现已通**（`stage 7→10`、60 swap，evidence 165），GNOME 桌面在 zink/PanVK 上出帧、X 根窗口非黑像素 100%（evidence 165/168）；默认值写在 `/etc/profile.d/husk-gpu.sh`，进 guest 再开程序也吃得到（evidence 167）。上限 GLES 3.2（靠 `MESA_GLES_VERSION_OVERRIDE`，真实应用未验），呈现仍是 SHM 拷贝 |
-| 显示 | `AHardwareBuffer` → dma-buf → `SurfaceControl`，零拷贝 | 3-buffer ring + 真实 `SYNC_FD`：submitted=10 000 / completed=10 000（evidence 59） |
-| 视频解码 | MediaCodec `c2.mtk.avc.decoder` + AHB 三平面 | H.264 1080p30 连续 600 秒，`dropped=0`（evidence 80） |
-| 相机 | V4L2 `/dev/videoN`（前端为 Camera2 + `AImageReader`） | 拍照 JPEG + 30 秒录制，硬件 H.264 编码（evidence 93） |
-| 音频 | PulseAudio → Rust relay → AAudio | 48 kHz 双声道连续会话通过（evidence 62，10 秒级，不是长稳） |
-| 输入 | 触摸事件注入到用户态的窗口系统 | 触摸 → JNI → XI2，点哪落哪（evidence 148） |
+| 能力 | 接法 | 用户态里的路径 | 实测 |
+|---|---|---|---|
+| GPU | 直连 | 直开 `/dev/mali0`，kbase 后端的 PanVK | 枚举到 `Mali-G77 MC9`、compute 与离屏 graphics 回读通过；GL renderer `zink Vulkan 1.3(Mali-G77 MC9)`（evidence 156）。**X11 窗口呈现已通**（`stage 7→10`、60 swap，evidence 165），GNOME 桌面在 zink/PanVK 上出帧、X 根窗口非黑像素 100%（evidence 165/168）；默认值由加载器从 `/etc/husk/gpu-env` 注入，登录/非登录执行都吃得到（evidence 167、182）。上限 GLES 3.2（靠 `MESA_GLES_VERSION_OVERRIDE`，真实应用未验），呈现仍是 SHM 拷贝 |
+| 显示 | 应用侧，零拷贝 | `AHardwareBuffer` → dma-buf → `SurfaceControl` | 3-buffer ring + 真实 `SYNC_FD`：submitted=10 000 / completed=10 000（evidence 59） |
+| 视频解码 | 中转 | MediaCodec `c2.mtk.avc.decoder` + AHB 三平面 | H.264 1080p30 连续 600 秒，`dropped=0`（evidence 80） |
+| 相机 | 直连 | V4L2 `/dev/videoN`（前端为 Camera2 + `AImageReader`） | 拍照 JPEG + 30 秒录制，硬件 H.264 编码（evidence 93） |
+| 音频 | 中转 | PulseAudio → Rust relay → AAudio | 48 kHz 双声道连续会话通过（evidence 62，10 秒级，不是长稳） |
+| 输入 | 窗口层 | 触摸事件注入到用户态的窗口系统 | 触摸 → JNI → XI2，点哪落哪（evidence 148） |
 
 这张表的口径：**能直开的不经翻译，必须经应用身份的走一条明确的 socket 协议**，两边都不是
-软件模拟出来的假设备。没做到的写在 [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md)。
+软件模拟出来的假设备。按这一版实测：直连 2 类（GPU、相机），中转 2 类（音频、视频），显示那
+一段零拷贝、输入走窗口层，传感器 / 定位 / USB / 蓝牙 / NFC 未做，指纹不做。没做到的写在
+[`docs/LIMITATIONS.md`](docs/LIMITATIONS.md)。
+
+图形默认值也属于接口的一部分：ICD、GL 驱动、GLES 上限写在 `/etc/husk/gpu-env` 里，由**加载器**
+在程序自己没设置时补，所以登录 shell、cron、桌面 fork 出来的进程、`env -i` 看到的是同一套
+渲染器；程序自己 `export` 的永远优先（evidence 182）。
 
 ## 特性
 
@@ -155,6 +169,8 @@ DRI3 只能停在 `Could not get DRI3 device`。逐条数字与做法见
 - **会话服务齐全。** polkit 授权、at-spi 无障碍总线、gvfs、RandR 都能在用户态里直接用
   （evidence 151、152）。
 - **不需要任何特权。** 跑在普通应用沙箱里，机器可以是原厂状态。
+- **图形默认值在加载器里，不在登录脚本里。** 非登录执行（cron、systemd user unit、桌面 fork
+  出来的进程、`env -i`）也不会掉回软件渲染；程序自己设的变量永远优先（evidence 182）。
 - **对比可以自己重跑。** `tools/bench/` 一条命令把同一份 rootfs 交给三个运行器，
   原始日志在仓库里。
 
@@ -270,6 +286,7 @@ docs/design/evidence/  文档里每个数字背后的设备原始输出
 | [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) | 对比、机制、代价 |
 | [`docs/RUNNING.md`](docs/RUNNING.md) | 怎么装怎么跑，含 rootfs 准备三步 |
 | [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) | 每个运行器能跑什么 |
+| [`docs/design/hardware-interface-map.md`](docs/design/hardware-interface-map.md) | 每类硬件怎么接：直连 / 中转 / 未做 |
 | [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) | 什么不工作，为什么 |
 | [`docs/STATUS.md`](docs/STATUS.md) | 目标机上的当前状态 |
 | [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md) | 1.0 之前的工程日记 |

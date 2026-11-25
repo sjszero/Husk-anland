@@ -7,6 +7,7 @@
 #![no_std]
 
 mod boot;
+mod gpuenv;
 mod plan;
 
 use core::panic::PanicInfo;
@@ -215,6 +216,47 @@ unsafe fn c_strlen(p: *const CChar) -> usize {
         n += 1;
     }
     n
+}
+
+// ---------------------------------------------------------------- getenv ---
+//
+// Mesa 的 `os_get_option`、Vulkan loader 的 ICD 选择、以及一大票库都靠 `getenv`
+// 决定用哪个驱动。登录 shell 有 `/etc/profile.d` 兜着，非登录执行（cron、systemd
+// user unit、桌面 fork 出来的进程、`env -i`、`ssh host -- prog`）没有，同一个 rootfs
+// 里就出现两套渲染器。这里把"没设置时用什么"下沉到加载器：**程序自己 export 的
+// 永远优先**，只有查不到时才落到 `/etc/husk/gpu-env`。
+//
+// 这是 getenv，不是 syscall 拦截：值仍然通过正常的 libc 语义交出去，程序看到的就是
+// 自己的环境。
+#[no_mangle]
+pub unsafe extern "C" fn getenv(name: *const CChar) -> *mut CChar {
+    if name.is_null() {
+        return core::ptr::null_mut();
+    }
+    let n = bytes(name);
+    // POSIX: a name containing '=' is not a variable name.
+    if n.is_empty() || n.contains(&b'=') {
+        return core::ptr::null_mut();
+    }
+    if let Some(v) = env_lookup(n) {
+        return v.as_ptr() as *mut CChar;
+    }
+    gpuenv::default_value(n)
+}
+
+/// glibc 语义：setuid 起动时一律不返回（`AT_SECURE`）。
+#[no_mangle]
+pub unsafe extern "C" fn secure_getenv(name: *const CChar) -> *mut CChar {
+    if boot::at_secure() {
+        return core::ptr::null_mut();
+    }
+    getenv(name)
+}
+
+/// 旧名字，glibc 2.39 还留着兼容符号，一些老程序仍然直接引用。
+#[no_mangle]
+pub unsafe extern "C" fn __secure_getenv(name: *const CChar) -> *mut CChar {
+    secure_getenv(name)
 }
 
 unsafe fn bytes(p: *const CChar) -> &'static [u8] {
