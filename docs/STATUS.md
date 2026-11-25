@@ -70,6 +70,18 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
    开/关 GNOME 概览各换一帧 —— 不是静态位图。
    未做：DRI3 零拷贝（`Could not get DRI3 device` 仍在）、
    2.0 侧 `GpuRuntimeEnvironment.gnomeSessionShell()` 仍硬钉 swrast。
+   **0.0.4 补的数字**（evidence 174/176/178/179/180/181）：着色器密集负载在 2400×1080 上
+   GPU **23.84 ms/帧（41.9 fps）对软件 266.73 ms/帧（3.7 fps），快 11.2×**；清屏+呈现是
+   **19.9 vs 49.7 fps**，差在每帧把 GPU 表面回读交给 X server——2400×1080 上**回读 30.27 ms**，
+   呈现按面积线性涨（zink 24.8 ms/兆像素、llvmpipe 11）。DRI3 通不了的原因在 **X server 侧**：
+   应用内 bionic Xorg 21.1.99 是 `untrusted_app`，打不开 `/dev/dri`、没有 `/dev/dma_heap`、
+   `/dev/ion` EACCES → 只能停在 `Could not get DRI3 device`，**不是 path-shim 能补的**。
+   真实客户端：`gnome-text-editor`（GTK 4.14 ngl）与 `gnome-control-center`（GTK 4 + Adwaita）
+   完整出画，键盘 XTEST 敲进去标题与正文都更新（evidence 176/180）；**`nautilus` 46 内容区空白**
+   ——能开窗、能枚举，但 `cairo`/`ngl`、`list`/`icon`、**proot 也同样空白**，根因 UNKNOWN
+   （evidence 178）。整块 `glReadPixels` 目的行距**恒为 16 字节**、每行只有前 4 个像素落地；
+   **逐行 `W×1` 与逐像素 `1×1` 读 100% 正确**，这是绕法（evidence 179）。
+   `KBASE_IOCTL_MEM_EXEC_INIT` 每轮 EPERM：FACT + INFERENCE（只挡 CPU 可执行映射）+ UNKNOWN（内核为何拒）。
 5. 交付形态：**已落地**（`tools/guest/install-husk.sh`，evidence 130）——本地 tarball 一条命令装完 +
    生成启动器，唯一支持的目标是**本应用的私有目录**（`run-as .../files/...`），端到端实测通过。
    **Termux 不是交付形态，也不承诺可用**：guest 树需要的二进制与库 Termux 的 `$PREFIX` 不提供，
