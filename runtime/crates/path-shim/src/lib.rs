@@ -238,6 +238,13 @@ pub unsafe extern "C" fn getenv(name: *const CChar) -> *mut CChar {
     if n.is_empty() || n.contains(&b'=') {
         return core::ptr::null_mut();
     }
+    // 覆盖/屏蔽规则优先于程序自己的环境：这是"设了也照这个"的那一档，只用于
+    // 我们自己写进 /etc/husk/gpu-env 的变量。填空规则永远让位给程序。
+    match gpuenv::forced(n) {
+        gpuenv::Forced::Value(p) => return p,
+        gpuenv::Forced::Hide => return core::ptr::null_mut(),
+        gpuenv::Forced::None => {}
+    }
     if let Some(v) = env_lookup(n) {
         return v.as_ptr() as *mut CChar;
     }

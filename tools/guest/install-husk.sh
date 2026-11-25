@@ -244,8 +244,18 @@ if [ -n "$_husk_icd" ]; then
     {
         echo "VK_ICD_FILENAMES=$_husk_icd"
         echo "VK_DRIVER_FILES=$_husk_icd"
-        echo "MESA_LOADER_DRIVER_OVERRIDE=zink"
-        echo "GALLIUM_DRIVER=zink"
+        # 下面三行是"覆盖/屏蔽"档（`!` / `-` 前缀），不是填空。理由：LinuxHub 2.0 的
+        # 会话脚本自己会 export MESA_LOADER_DRIVER_OVERRIDE=swrast GALLIUM_DRIVER=llvmpipe
+        # LIBGL_ALWAYS_SOFTWARE=1 —— 那是 PRoot 时代的保守默认（Zink 在 PRoot 下采样
+        # 不到客户端 pixmap，窗口会整片不可见）。Husk 不经 PRoot，直接跑在 Android
+        # 内核上，evidence 187 §6 / 191 §3 实测整屏 zink 正常，所以这里覆盖掉它，
+        # 桌面 shell 才会真正吃到 GPU。填空档（下面的 MESA_GLES_VERSION_OVERRIDE /
+        # GSK_RENDERER）仍然让位给程序自己的设置。
+        echo "!MESA_LOADER_DRIVER_OVERRIDE=zink"
+        echo "!GALLIUM_DRIVER=zink"
+        # LIBGL_ALWAYS_SOFTWARE 比 GALLIUM_DRIVER 更优先，只覆盖 GL 档位不够，必须让它
+        # 对程序不可见。`-NAME` 就是这么一行。
+        echo "-LIBGL_ALWAYS_SOFTWARE"
         echo "MESA_GLES_VERSION_OVERRIDE=3.2"
         # GTK4 的 GL 后端在 zink/PanVK 上画错（evidence 186）：圆角/阴影和部分背景
         # 出整块三角缺口。只影响 GTK 自己的绘制，Vulkan/GL 不动。

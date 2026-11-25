@@ -11,7 +11,10 @@
 // 三条规矩：
 //   1. 程序自己设置过的变量永远优先——先查 environ，查不到才落到这里；
 //   2. `HUSK_GPU=llvmpipe` 或 `NR_GPU_DEFAULT_OFF=1` 时一条都不注入（bisect 用）；
-//   3. 文件不存在 = 一条都不注入，行为与没有这个特性时完全一致。
+//   3. 行前缀决定语义：`NAME=VALUE` 只在程序没设时生效（填空）；
+//      `!NAME=VALUE` 无条件生效（覆盖）；`-NAME` 让这一个变量对程序不可见（屏蔽）。
+//      覆盖/屏蔽只用于我们自己控制的、明确知道后果的变量，见 install-husk.sh 的注释；
+//   4. 文件不存在 = 一条都不注入，行为与没有这个特性时完全一致。
 
 use core::sync::atomic::{AtomicI32, AtomicU8, Ordering};
 
@@ -23,12 +26,18 @@ const READ_MAX: usize = 4096;
 const SYS_READ: usize = 63;
 const SYS_GETTID: usize = 178;
 
+// 0 = 填空（程序自己设过就让位），1 = 覆盖（无条件生效），2 = 屏蔽（让 getenv 返回 NULL）
+const MODE_FILL: u8 = 0;
+const MODE_FORCE: u8 = 1;
+const MODE_HIDE: u8 = 2;
+
 #[derive(Clone, Copy)]
 struct Slot {
     name: [u8; NAME_MAX],
     nlen: u16,
     value: [u8; VALUE_MAX],
     vlen: u16,
+    mode: u8,
 }
 
 static mut SLOTS: [Slot; MAX_ENTRIES] = [Slot {
@@ -36,6 +45,7 @@ static mut SLOTS: [Slot; MAX_ENTRIES] = [Slot {
     nlen: 0,
     value: [0; VALUE_MAX],
     vlen: 0,
+    mode: MODE_FILL,
 }; MAX_ENTRIES];
 static mut SLOT_N: usize = 0;
 
@@ -85,6 +95,25 @@ unsafe fn parse(buf: &[u8]) {
         if line.is_empty() || line[0] == b'#' {
             continue;
         }
+        let mut mode = MODE_FILL;
+        if line[0] == b'!' {
+            mode = MODE_FORCE;
+            line = &line[1..];
+        }
+        if let Some(rest) = line.strip_prefix(b"-") {
+            // `-NAME`：这个变量对程序不可见（例如宿主/上层脚本硬塞的 LIBGL_ALWAYS_SOFTWARE）
+            if rest.is_empty() || rest.len() >= NAME_MAX || rest.contains(&b' ') {
+                continue;
+            }
+            let s = &mut SLOTS[SLOT_N];
+            s.name[..rest.len()].copy_from_slice(rest);
+            s.nlen = rest.len() as u16;
+            s.value[0] = 0;
+            s.vlen = 0;
+            s.mode = MODE_HIDE;
+            SLOT_N += 1;
+            continue;
+        }
         let Some(eq) = line.iter().position(|c| *c == b'=') else {
             continue;
         };
@@ -98,6 +127,7 @@ unsafe fn parse(buf: &[u8]) {
         s.value[..value.len()].copy_from_slice(value);
         s.value[value.len()] = 0;
         s.vlen = value.len() as u16;
+        s.mode = mode;
         SLOT_N += 1;
     }
 }
@@ -162,12 +192,41 @@ pub unsafe fn default_value(name: &[u8]) -> *mut crate::CChar {
     while i < SLOT_N {
         let s = &SLOTS[i];
         let nl = s.nlen as usize;
-        if nl == name.len() && &s.name[..nl] == name {
+        if s.mode == MODE_FILL && nl == name.len() && &s.name[..nl] == name {
             return s.value.as_ptr() as *mut crate::CChar;
         }
         i += 1;
     }
     core::ptr::null_mut()
+}
+
+/// 覆盖/屏蔽查询的结果。
+pub enum Forced {
+    /// 无条件用这个值（`!NAME=VALUE`）
+    Value(*mut crate::CChar),
+    /// 这个变量对程序不可见（`-NAME`）
+    Hide,
+    /// 没有覆盖/屏蔽规则
+    None,
+}
+
+/// 查覆盖与屏蔽规则。与 `default_value` 分开：一个管"没设时用什么"，一个管"设了也照这个"。
+pub unsafe fn forced(name: &[u8]) -> Forced {
+    ensure();
+    let mut i = 0usize;
+    while i < SLOT_N {
+        let s = &SLOTS[i];
+        let nl = s.nlen as usize;
+        if s.mode != MODE_FILL && nl == name.len() && &s.name[..nl] == name {
+            return if s.mode == MODE_FORCE {
+                Forced::Value(s.value.as_ptr() as *mut crate::CChar)
+            } else {
+                Forced::Hide
+            };
+        }
+        i += 1;
+    }
+    Forced::None
 }
 
 /// 有没有可用的默认值（只用于诊断输出，不做判断依据）。
