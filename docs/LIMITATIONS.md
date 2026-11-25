@@ -66,6 +66,13 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
 `Mali-G77 MC9` 并通过 compute/graphics，`gl-probe es3` 报 `RESULT PASS`。这只修正驱动定位，
 不改变下面的 SHM 呈现限制，也不能写成 `glxgears` 已经长跑通过。
 
+**2026-11-26 loader 级默认值（FACT，evidence 242）**：App 现在只在 `/dev/mali0` 真实可打开
+且 PanVK 驱动存在时生成 guest `/etc/husk/gpu-env`；经 Husk loader 启动的进程即使 `env -i`，
+也会从该文件得到 canonical ICD、EGL vendor、Zink 和 GLES 3.2 默认值。真机无 GPU 变量的
+`env -i` 下 `gl-probe es3` 仍报 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))` 并
+`RESULT PASS`；显式 `HUSK_GPU=llvmpipe` 正确回退。这只说明默认值层级和设备门控，不改变
+窗口呈现/长跑限制。
+
 **还差的三件事**：
 
 1. **API 上限默认只有 GLES 2.0 / GL 2.1**。这是 Mesa 的 zink 报出来的上限，**不是**设备能力

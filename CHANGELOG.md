@@ -7,6 +7,34 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.17] - 2026-11-26
+
+> 主题：**GPU 默认值从 App 初始 shell 下沉到 loader，`env -i` 也拿到 Mali 硬件渲染器**。
+> 这一版只移动默认值所在层并增加 Mali 设备门控；不改变 X11 呈现和 GPU 长跑边界。
+> 原始输出见 evidence 242。
+
+### 修复
+
+- **loader 级 GPU 默认值**（evidence 242）。App 在 `/dev/mali0` 真实可打开且 PanVK 驱动存在时，
+  自动生成 guest `/etc/husk/gpu-env`，把 canonical ICD、EGL vendor、Zink、GLES 3.2 和
+  GTK 默认值放到加载器读取的位置。经 Husk loader 启动的进程即使使用 `env -i`，也会得到同一套
+  默认值。
+- **增加 Mali 设备门控**（evidence 242）。App 不再仅因 rootfs 中存在 PanVK 文件就注入 Mali
+  环境；只有 `/dev/mali0` 以读写方式可打开时才走该路径，避免把 Adreno/其他 GPU 强行改成
+  Mali 配置。
+- **配置修复不覆盖已正确的自定义内容**（evidence 242）。已有 `@GPU_FAMILY=mali-kbase` 和
+  canonical ICD 的 `gpu-env` 保留；缺失、旧宿主路径或旧 glob manifest 才会被原子重写。
+- **真机验证**（evidence 242）。删除 `etc/husk/gpu-env` 和 canonical ICD 后冷启动，两份文件
+  自动重建；无 GPU 变量的 `env -i` 下 `gl-probe es3` 仍报
+  `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))` 并 `RESULT PASS`；
+  `HUSK_GPU=llvmpipe` 时正确回退到 `llvmpipe`。
+
+### 边界
+
+- X11 窗口内容进入 X server 仍是 SHM 回读加拷贝，不是端到端零拷贝。
+- `glxgears` 的 PanVK/Bifrost 编译器崩溃没有在本次重测为已修。
+- Adreno/KGSL 和通用 DRM 的 loader 默认值仍没有对应真机证据，状态为 UNKNOWN。
+
 ## [0.0.16] - 2026-11-26
 
 > 主题：**修正 PanVK ICD 的宿主路径污染，GPU 默认路径在真机不再 SIGSEGV**。0.0.15 的
@@ -822,7 +850,8 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.16...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.17...HEAD
+[0.0.17]: https://github.com/xishanp/Husk/releases/tag/v0.0.17
 [0.0.16]: https://github.com/xishanp/Husk/releases/tag/v0.0.16
 [0.0.15]: https://github.com/xishanp/Husk/releases/tag/v0.0.15
 [0.0.14]: https://github.com/xishanp/Husk/releases/tag/v0.0.14

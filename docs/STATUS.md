@@ -27,6 +27,14 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 **仓库布局**：`runtime/crates/{path-shim,nr-tools,runtime-core}`（Rust）、`tools/loader/*.S`（裸汇编，仅入口与 hook）、
 `tools/device-tests/*.sh`、`docs/design/`（设计 + `evidence/` 原始记录）。
 
+**0.0.17 GPU 默认值下沉到 loader 版**：App 只在 `/dev/mali0` 真实可打开且 PanVK 驱动存在时，
+自动生成 guest `/etc/husk/gpu-env` 和 canonical ICD；这样经 Husk loader 启动的进程即使
+`env -i`、完全没有 GPU 变量，也会由 loader 注入 Mali/Zink/GLES 3.2 默认值。删除两份配置后
+冷启动可自动重建；`env -i` 的 `gl-probe es3` 报
+`zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`、`RESULT PASS`，加 `HUSK_GPU=llvmpipe` 则正确
+回退到 llvmpipe（evidence 242）。同时增加 Mali 设备门控，避免仅凭 rootfs 文件就把其他 GPU
+家族改成 Mali 配置。
+
 **0.0.16 PanVK ICD 路径修正版**：0.0.15 在独立验证树上看到的 `vulkan-probe` /
 `gl-probe` SIGSEGV，根因确认是 ICD JSON 的 `library_path` 使用了宿主 `/data/data/...`
 路径，不是 PanVK 驱动版本旧。App、安装器、登录 shell 和 session 脚本现在统一使用自动生成的
@@ -183,7 +191,7 @@ sudo/PAM 一条按"不需要"结案：`husk-su` 已覆盖提权路径，PAM 的 
 | loader + path-shim | 零 ptrace，路径一次改写完成；dlopen 进来的库也覆盖 | 27 / 100 |
 | exec / PTY / 信号 / 生命周期 | 600 秒长稳、零僵尸、无重启风暴；旋转与 Surface 重建不重启会话 | 32 / 72 |
 | 页大小 | rootfs 2987 个 ELF + loader + 我们全部产物在 4K/16K/64K 静态体检全绿（含 `p_align % 页` 规则）；**真 16K 内核（RPi5 kernel）与真 64K 内核（Ubuntu `linux-image-6.8.0-31-generic-64k`）上我们的 loader 端到端全绿**：`cat /etc/os-release`、`/usr/bin` 计数、嵌套 exec、`/tmp` 写读、`check-elf` 727 个 ELF 三档 congruent；修掉三个真 Bug（段重叠、mprotect 对齐、xattr/readlink 返回裸 -errno）；**16K/64K 真机仍 UNKNOWN**（本机只有 4K） | 30, 122, 124, 125, 126 |
-| GPU | PanVK 列举 Mali-G77、compute、离屏 graphics、X11 窗口化 EGL 与桌面出帧；canonical guest ICD 修复后 `vulkan-probe` 与 `gl-probe es3` 在独立验证树通过；**`glxgears` 在 Bifrost 编译器稳定 SIGSEGV，长跑未通过** | 46 / 47 / 165 / 232 / 241 |
+| GPU | PanVK 列举 Mali-G77、compute、离屏 graphics、X11 窗口化 EGL 与桌面出帧；canonical guest ICD 和 loader 级 GPU 默认值已在真机验证，`env -i` 仍走 zink/PanVK；**`glxgears` 在 Bifrost 编译器稳定 SIGSEGV，长跑未通过** | 46 / 47 / 165 / 232 / 241 / 242 |
 | 设备族探测与降级 | `path-shim/src/plan.rs`：按节点定族（mali0 / kgsl-3d0 / renderD128 / 都没有）。Mali 使用 kbase DRM 语义层；Adreno/KGSL 已实现 render-node → 真实 `/dev/kgsl-3d0` fd、`DRM_IOCTL_VERSION=kgsl`、fd 继承和 stat/statx/uevent；`gpu-probe adreno` 可在真机复验。当前 Mali 门禁 A 38/38、Vulkan/GL 探针通过，App 入口重启的 GNOME 由当前 loader 映射 `/dev/mali0`；但 **Adreno 真机与通用 DRM 真节点仍 UNKNOWN（无设备）** | 127、233 |
 | 外设族探测 | `gpu-probe periph`：传感器/GPS/USB/蓝牙/NFC/指纹/输入/i2c/spi 逐个节点实测，`EACCES`(13) 与 `ENOENT`(2) 分开记录；不造假节点、进程退出码 0。本机是否真有传感器仍 UNKNOWN（EACCES 藏住了） | 128 |
 | 用户身份与 2.0 swap | `NR_FAKE_UID/GID` + `setuid/setresuid/setreuid/getresuid` 跟随 + `getgroups` 只报主组：`id` 报 `uid=1000(hu1)`，`su` 这一步可以删；`tools/guest/husk-session.sh` 是 `prootCommand()` 的替代契约（`env -i` 必须带 `NR_ROOTFS/NR_LD`）。**`su`/PAM 仍报 `PAM_SYSTEM_ERR`（UNKNOWN，已绕开）** | 129 |
