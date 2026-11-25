@@ -157,7 +157,7 @@ socket 协议，数据在应用侧过一次。逐类理由见
 |---|---|---|---|
 | 命令行用户态（bash、coreutils、apt、dpkg、gcc、make、python3+numpy、git） | — | 可用 | evidence 154、155 |
 | 会话服务（polkit、at-spi、gvfs、RandR） | — | 可用 | evidence 151、152 |
-| 文件管理器（Nautilus 46） | — | 能开窗、能枚举；**内容区空白**（cairo/ngl、list/icon 都一样，proot 同样空白） | evidence 178 |
+| 文件管理器（Nautilus 46） | — | 能开窗、能枚举、**能渲染**（内容区不空白，evidence 207）；首次出窗约 15 秒；旧会话残留实例会让 `--new-window` 不出窗，单一入口已清 | evidence 178、207 |
 | GPU：Vulkan compute / 离屏 graphics（`/dev/mali0` + kbase） | 直连 | 可用 | evidence 156 |
 | GPU：GL/EGL 经 Zink 落到 GPU（默认上限 GLES 3.2，靠 override；真实应用未验） | 直连 | 可用；默认值由加载器注入，非登录执行也吃得到 | evidence 156、161、167、182 |
 | GPU：X11 窗口呈现（EGL window surface + swap） | 直连（呈现这一跳不是） | 可用，呈现走回读+拷贝（DRI3 未通，代价 24.8 ms/MP） | evidence 165、174 |
