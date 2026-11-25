@@ -331,12 +331,58 @@ elif ( : <> /dev/dri/renderD128 ) 2>/dev/null; then
 fi
 _husk_icd=
 if [ "$_husk_gpu_family" = mali-kbase ]; then
-    for _c in "$DEST"/usr/share/vulkan/icd.d/husk_*.json; do
-        case "$_c" in *.bak*) continue ;; esac
-        [ -r "$_c" ] || continue
-        _husk_icd="/usr/share/vulkan/icd.d/${_c##*/}"
-        break
+    # Do not select a shipping ICD by glob order. Some PanVK manifests in the
+    # tree contain host absolute /data/data/... library_path values; the shim
+    # translates those as guest paths and the Vulkan loader then dereferences a
+    # null library. Generate one canonical manifest with a guest path, and only
+    # advertise it when its driver really exists.
+    _husk_driver=
+    for _drv in \
+        usr/lib/aarch64-linux-gnu/libvulkan_panfrost_frist370_execva.so \
+        usr/lib/aarch64-linux-gnu/libvulkan_panfrost_frist370.so \
+        usr/lib/aarch64-linux-gnu/libvulkan_panfrost_x11.so \
+        usr/lib/aarch64-linux-gnu/libvulkan_panfrost_g77.so \
+        usr/lib/aarch64-linux-gnu/libvulkan_panfrost.so
+    do
+        if [ -r "$DEST/$_drv" ]; then
+            _husk_driver=$_drv
+            break
+        fi
     done
+    if [ -n "$_husk_driver" ]; then
+        _husk_api=1.0.0
+        for _src in \
+            "$DEST"/usr/share/vulkan/icd.d/husk_panvk_frist370_execva.json \
+            "$DEST"/usr/share/vulkan/icd.d/husk_panvk_frist370.json \
+            "$DEST"/usr/share/vulkan/icd.d/husk_panvk_x11.json \
+            "$DEST"/usr/share/vulkan/icd.d/husk_panvk_g77.json \
+            "$DEST"/usr/share/vulkan/icd.d/husk_panvk.json
+        do
+            [ -r "$_src" ] || continue
+            _candidate=$(sed -n 's/.*"api_version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$_src" | head -n 1)
+            case "$_candidate" in
+                ""|*[!0-9.]*) ;;
+                *) _husk_api=$_candidate; break ;;
+            esac
+        done
+        mkdir -p "$DEST/usr/share/vulkan/icd.d"
+        {
+            echo '{'
+            echo '  "ICD": {'
+            echo "    \"api_version\": \"$_husk_api\","
+            echo '    "library_arch": "64",'
+            echo "    \"library_path\": \"/$_husk_driver\""
+            echo '  },'
+            echo '  "file_format_version": "1.0.1"'
+            echo '}'
+        } > "$DEST/usr/share/vulkan/icd.d/husk_panvk_guest.json"
+        chmod 644 "$DEST/usr/share/vulkan/icd.d/husk_panvk_guest.json"
+        _husk_icd=/usr/share/vulkan/icd.d/husk_panvk_guest.json
+        echo "   wrote usr/share/vulkan/icd.d/husk_panvk_guest.json (guest-relative: /$_husk_driver)"
+    else
+        echo "   no PanVK driver in the tree; refusing to select a manifest without its driver" >&2
+    fi
+    unset _husk_driver _husk_api _src _candidate _drv
 elif [ "$_husk_gpu_family" = adreno-kgsl ]; then
     for _c in \
         "$DEST"/usr/share/vulkan/icd.d/freedreno_icd.aarch64.json \

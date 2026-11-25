@@ -7,6 +7,35 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.16] - 2026-11-26
+
+> 主题：**修正 PanVK ICD 的宿主路径污染，GPU 默认路径在真机不再 SIGSEGV**。0.0.15 的
+> “独立树 PanVK 旧、探针崩溃”是现象描述，不是根因；本版用同一驱动的 A/B 复核更正。
+> 原始输出见 evidence 241。
+
+### 修复
+
+- **PanVK ICD 改用 guest 相对 `library_path`**（evidence 241）。App 不再把现有
+  `husk_*.json` 的宿主绝对路径直接交给 Vulkan loader；驱动存在时生成 canonical
+  `usr/share/vulkan/icd.d/husk_panvk_guest.json`，内容固定指向 guest 里的
+  `/usr/lib/aarch64-linux-gnu/libvulkan_panfrost_frist370_execva.so`。驱动不存在时不设置
+  Vulkan 变量，避免“manifest 存在、驱动缺失”的假硬件路径。
+- **安装器和登录/session 脚本统一 canonical manifest**（evidence 241）。
+  `install-husk.sh` 不再按 glob 顺序选第一个 ICD；`/etc/profile.d/husk-gpu.sh`、
+  `husk-session.sh` 和设备 GNOME 测试脚本都使用同一份 guest 相对 manifest。
+- **真机无手工环境变量验证**（evidence 241）。冷启动 `com.linuxhub.husk` 后，初始 guest
+  shell 的 `/proc/<pid>/environ` 指向 canonical manifest；`vulkan-probe` 枚举
+  `Mali-G77 MC9`，compute/graphics 通过；`gl-probe es3` 报
+  `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))` 且 `RESULT PASS`。
+
+### 更正
+
+- 0.0.15 的独立树 SIGSEGV 被更正为 **ICD `library_path` 使用宿主 `/data/data/...` 路径**
+  导致的驱动定位失败，不是“驱动版本旧”。证据 240 保留原发布时现象，并已追加证据 241 的
+  后记，不静默改写历史结论。
+- **仍然不能写**：X11 窗口呈现是端到端零拷贝；`glxgears` 的 PanVK/Bifrost 编译器崩溃已修；
+  所有 GPU 家族均已验证。本次只修 ICD 路径，不改 SHM 呈现、不扩大设备适配边界。
+
 ## [0.0.15] - 2026-11-26
 
 > 主题：**相机进入默认路径，接口口径按源码和真机行为纠正**。这一版不新增“所有硬件都直连”
@@ -793,7 +822,8 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.15...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.16...HEAD
+[0.0.16]: https://github.com/xishanp/Husk/releases/tag/v0.0.16
 [0.0.15]: https://github.com/xishanp/Husk/releases/tag/v0.0.15
 [0.0.14]: https://github.com/xishanp/Husk/releases/tag/v0.0.14
 [0.0.7]: https://github.com/xishanp/Husk/releases/tag/v0.0.7

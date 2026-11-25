@@ -19,7 +19,7 @@ mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus
 export MESA_LOADER_DRIVER_OVERRIDE=zink GALLIUM_DRIVER=zink PANVK_KBASE_DVFS=none
-export VK_ICD_FILENAMES=$R/usr/share/vulkan/icd.d/husk_panvk_frist370_execva.json
+export VK_ICD_FILENAMES=$R/usr/share/vulkan/icd.d/husk_panvk_guest.json
 export VK_DRIVER_FILES=$VK_ICD_FILENAMES
 export __EGL_VENDOR_LIBRARY_FILENAMES=$R/usr/share/glvnd/egl_vendor.d/50_mesa.json
 export XKB_CONFIG_ROOT=$R/usr/share/X11/xkb

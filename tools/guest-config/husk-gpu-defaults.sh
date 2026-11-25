@@ -49,10 +49,12 @@ fi
 _husk_icd=
 case "$_husk_gpu_family" in
     mali-kbase)
-        for _husk_c in /usr/share/vulkan/icd.d/husk_*.json; do
-            case "$_husk_c" in *.bak*) continue ;; esac
-            if [ -r "$_husk_c" ]; then _husk_icd=$_husk_c; break; fi
-        done
+        # The installer creates this manifest with a guest-relative
+        # library_path. Never fall back to arbitrary husk_*.json files: some of
+        # them contain host /data/data/... paths and crash the Vulkan loader.
+        if [ -r /usr/share/vulkan/icd.d/husk_panvk_guest.json ]; then
+            _husk_icd=/usr/share/vulkan/icd.d/husk_panvk_guest.json
+        fi
         if [ -n "$_husk_icd" ]; then
             [ -z "${VK_ICD_FILENAMES:-}" ] && export VK_ICD_FILENAMES=$_husk_icd
             [ -z "${VK_DRIVER_FILES:-}" ] && export VK_DRIVER_FILES=$_husk_icd

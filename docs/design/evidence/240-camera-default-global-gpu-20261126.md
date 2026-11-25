@@ -130,3 +130,16 @@ evidence 91/240 的源码和设备行为都表明：
 - UNKNOWN：独立测试树的 PanVK 版本为何与 evidence 232 不同、何时更新；相机全黑是否仅为
   物理遮挡；真实应用在 GLES 3.2 下的稳定性。
 - 不能写：相机是真节点直连、GPU 在独立树已通过、相机本轮视觉验收通过。
+
+## 8 · 后记：PanVK 崩溃结论已由 evidence 241 更正
+
+本节保留发布当时看到的原始现象，不改写历史输出。2026-11-26 02:43 的 A/B 复核确认：§5 的
+SIGSEGV 主因不是“独立树 PanVK 比集成树旧”，而是该树里的 ICD JSON 把
+`library_path` 写成了宿主 `/data/data/...` 路径。同一份驱动改用 guest 路径
+`/usr/lib/aarch64-linux-gnu/libvulkan_panfrost_frist370_execva.so` 后，
+`vulkan-probe` 枚举到 `Mali-G77 MC9`，compute/graphics 通过；`gl-probe es3` 得到
+`zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))` 且 `RESULT PASS`。完整原始输出和修复边界见
+[evidence 241](241-panvk-icd-path-fix-20261126.md)。
+
+这条更正只影响 ICD 定位与 0.0.15 的 GPU 崩溃说明；X11 SHM 呈现代价和集成树 `glxgears`
+的 PanVK/Bifrost 编译器崩溃仍是独立问题，不能据此写成已经解决。

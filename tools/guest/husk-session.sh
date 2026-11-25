@@ -119,7 +119,7 @@ fi
 # which is what you want while bisecting a rendering bug or on a tree without the
 # ICD. The API ceiling of that combination is GLES 2.0 for now (LIMITATIONS 7).
 gpu_env=
-icd=usr/share/vulkan/icd.d/husk_panvk_frist370_execva.json
+icd=usr/share/vulkan/icd.d/husk_panvk_guest.json
 if [ -r "$ROOTFS/$icd" ] && [ "${HUSK_GPU:-zink}" != llvmpipe ]; then
     gpu_env="VK_ICD_FILENAMES=/$icd VK_DRIVER_FILES=/$icd"
     gpu_env="$gpu_env MESA_LOADER_DRIVER_OVERRIDE=zink GALLIUM_DRIVER=zink"

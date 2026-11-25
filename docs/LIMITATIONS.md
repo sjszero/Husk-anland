@@ -57,6 +57,15 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
 都能跑并回读 GPU 写入的值；开 Zink 后 EGL/GL 的 renderer 是
 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`，不开就是 `llvmpipe`。
 
+**2026-11-26 ICD 路径修正（FACT，evidence 241）**：0.0.15 在独立验证树上看到的
+`vulkan-probe` / `gl-probe` SIGSEGV，不是“PanVK 驱动旧”导致的。根因是 ICD JSON 的
+`library_path` 写成宿主 `/data/data/...`；路径 shim 会把它当 guest 路径再翻译，Vulkan loader
+于是拿到空驱动。App 现在生成 canonical guest 相对 manifest
+`/usr/share/vulkan/icd.d/husk_panvk_guest.json`，安装器、登录 shell、会话脚本使用同一路径；
+同一驱动的 A/B 结果是：旧 manifest `rc=139`，新 manifest 下 `vulkan-probe` 枚举
+`Mali-G77 MC9` 并通过 compute/graphics，`gl-probe es3` 报 `RESULT PASS`。这只修正驱动定位，
+不改变下面的 SHM 呈现限制，也不能写成 `glxgears` 已经长跑通过。
+
 **还差的三件事**：
 
 1. **API 上限默认只有 GLES 2.0 / GL 2.1**。这是 Mesa 的 zink 报出来的上限，**不是**设备能力
