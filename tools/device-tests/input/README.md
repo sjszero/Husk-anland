@@ -43,3 +43,22 @@ echo -n > rootfs/tmp/xigrab.log
 
 ⇒ 抓取、事件投递都成立，问题在 mutter 收到 motion 之后没有作用到窗口上（或者按
 deviceid / sourceid 过滤掉了）。下一步是把 XI 事件的 `deviceid/sourceid` 打出来对一遍。
+
+## 追加（2026-11-25 16:00，见 evidence 197）
+
+两个新探针，都是"rootfs 里没有 X11 头、按 64 位 ABI 手写原型"的写法：
+
+- `grabstatus.c` —— 只问一句"现在指针被我抓得到吗"。`XIGrabDevice(dev=2, root)`
+  返回 0=抓得到、1=AlreadyGrabbed。拖拽期间连采两次都是 1，说明 mutter 确实抓了。
+- `grabrecv.c` —— 抓下来之后数 `XI_Motion`。**当前版本不作数**：它在 `XISelectEvents`
+  之后才 grab，空闲态也读到 `grab-status=1`，与 `grabstatus` 的空闲态 0 矛盾，需要改成
+  先 grab 再 select 才能回答"motion 丢在哪一侧"。
+
+同一轮还确认了两条独立的输入缺陷（FACT）：
+
+- `NotifyPointerMotionRelative(dx, dy)` 只有 `dx` 生效，且作用在 **y** 轴上：`m:100:0`
+  → `y+100`，`m:0:100` → 不动。走 RemoteDesktop 这条路指针只能上下动。
+- `NotifyPointerMotionAbsolute(x, y)` 调用不报错，但指针完全不动。
+
+窗口能动的唯一已验证路径是 `alt+F7` + 指针 motion（`120,150 → 689,425`），所以拖窗的
+替代实现是"吞掉标题栏按下 → 注入 alt+F7 → 喂 motion → Return"，见 evidence 197 第 8 节。

@@ -356,13 +356,16 @@ const SC_STREAM_IFACE: &str = "org.gnome.Mutter.ScreenCast.Stream";
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        eprintln!("usage: husk-rd <selftest|inject <kind> <a> <b>|rd <socket> [--count N]>");
+        eprintln!(
+            "usage: husk-rd <selftest|inject <kind> <a> <b>|seq <op>...|sc|rd <socket> [--count N]>"
+        );
         std::process::exit(2);
     }
     let gio = Gio::load();
     match args[1].as_str() {
         "selftest" => selftest(&gio),
         "inject" => inject(&gio, &args[2..]),
+        "seq" => seq(&gio, &args[2..]),
         "probe" => probe(&gio),
         "sc" => screencast(&gio, &args[2..]),
         "rd" => bridge(&gio, &args[2..]),
@@ -391,6 +394,141 @@ fn selftest(gio: &Gio) {
         Err(e) => println!("husk-rd|rd|create-failed|{e}"),
     }
     unsafe { (gio.obj_unref)(bus) };
+}
+
+/// Run a whole gesture inside **one** RemoteDesktop session, so that the pointer
+/// stays grabbed across events. One-shot `inject` cannot do this: every process
+/// start/exit creates and destroys its own session, and mutter drops the
+/// `org.gnome.Mutter.RemoteDesktop` name once the last session goes away, so the
+/// second call in a row fails with ServiceUnknown.
+///
+/// ops: `b0`/`b1` left button up/down, `m:<dx>:<dy>` relative motion,
+///      `p:<x>:<y>` absolute motion (what a real touchscreen reports),
+///      `s:<ms>` sleep, `k:<evdev-code>:<0|1>` key, `a:<dx>:<dy>` axis.
+fn seq(gio: &Gio, a: &[String]) {
+    if a.is_empty() {
+        eprintln!("usage: husk-rd seq <b0|b1|m:dx:dy|s:ms|k:code:down|a:dx:dy>...");
+        std::process::exit(2);
+    }
+    let bus = gio.bus();
+    let r = match gio.call(bus, RD, RD_PATH, RD_IFACE, "CreateSession", &[]) {
+        Ok(r) => r,
+        Err(e) => {
+            println!("husk-rd|seq|create-failed|{e}");
+            return;
+        }
+    };
+    let path = gio.reply_path(r).unwrap_or_default();
+    unsafe { (gio.v_unref)(r) };
+    if let Err(e) = gio.call(bus, RD, &path, RD_SESSION_IFACE, "Start", &[]) {
+        println!("husk-rd|seq|start-failed|{e}");
+        return;
+    }
+    println!("husk-rd|seq|session={path}");
+    for op in a {
+        let parts: Vec<i64> = op
+            .split(':')
+            .map(|x| x.parse::<i64>().unwrap_or(0))
+            .collect();
+        if op == "b0" || op == "b1" {
+            let down = op == "b1";
+            if let Err(e) = gio.call(
+                bus,
+                RD,
+                &path,
+                RD_SESSION_IFACE,
+                "NotifyPointerButton",
+                &[unsafe { (gio.v_new_int32)(0x110) }, unsafe {
+                    (gio.v_new_bool)(down as i32)
+                }],
+            ) {
+                println!("husk-rd|seq|{op}|failed|{e}");
+                return;
+            }
+            println!("husk-rd|seq|{op}|ok");
+        } else if op.starts_with("m:") {
+            let (dx, dy) = (
+                *parts.get(0).unwrap_or(&0) as f64,
+                *parts.get(1).unwrap_or(&0) as f64,
+            );
+            if let Err(e) = gio.call(
+                bus,
+                RD,
+                &path,
+                RD_SESSION_IFACE,
+                "NotifyPointerMotionRelative",
+                &[unsafe { (gio.v_new_double)(dx) }, unsafe {
+                    (gio.v_new_double)(dy)
+                }],
+            ) {
+                println!("husk-rd|seq|{op}|failed|{e}");
+                return;
+            }
+        } else if op.starts_with("p:") {
+            // absolute pointer position, in the same space xdotool reports
+            let (ax, ay) = (
+                *parts.get(0).unwrap_or(&0) as f64,
+                *parts.get(1).unwrap_or(&0) as f64,
+            );
+            if let Err(e) = gio.call(
+                bus,
+                RD,
+                &path,
+                RD_SESSION_IFACE,
+                "NotifyPointerMotionAbsolute",
+                &[unsafe { (gio.v_new_double)(ax) }, unsafe {
+                    (gio.v_new_double)(ay)
+                }],
+            ) {
+                println!("husk-rd|seq|{op}|failed|{e}");
+                return;
+            }
+        } else if op.starts_with("s:") {
+            let ms = *parts.get(0).unwrap_or(&0) as u64;
+            std::thread::sleep(std::time::Duration::from_millis(ms));
+        } else if op.starts_with("k:") {
+            let code = *parts.get(0).unwrap_or(&0) as u32;
+            let down = *parts.get(1).unwrap_or(&0) != 0;
+            if let Err(e) = gio.call(
+                bus,
+                RD,
+                &path,
+                RD_SESSION_IFACE,
+                "NotifyKeyboardKeycode",
+                &[unsafe { (gio.v_new_uint32)(code) }, unsafe {
+                    (gio.v_new_bool)(down as i32)
+                }],
+            ) {
+                println!("husk-rd|seq|{op}|failed|{e}");
+                return;
+            }
+            println!("husk-rd|seq|{op}|ok");
+        } else if op.starts_with("a:") {
+            let (dx, dy) = (
+                *parts.get(0).unwrap_or(&0) as u32,
+                *parts.get(1).unwrap_or(&0) as i32,
+            );
+            if let Err(e) = gio.call(
+                bus,
+                RD,
+                &path,
+                RD_SESSION_IFACE,
+                "NotifyPointerAxisDiscrete",
+                &[unsafe { (gio.v_new_uint32)(dx) }, unsafe {
+                    (gio.v_new_int32)(dy)
+                }],
+            ) {
+                println!("husk-rd|seq|{op}|failed|{e}");
+                return;
+            }
+        } else {
+            println!("husk-rd|seq|unknown-op|{op}");
+            return;
+        }
+    }
+    let _ = gio.call(bus, RD, &path, RD_SESSION_IFACE, "Stop", &[]);
+    unsafe { (gio.obj_unref)(bus) };
+    println!("husk-rd|seq|done");
 }
 
 fn inject(gio: &Gio, a: &[String]) {
