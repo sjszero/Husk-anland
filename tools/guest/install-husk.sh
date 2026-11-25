@@ -225,6 +225,18 @@ else
     echo "            etc/profile.d/husk-gpu.sh is NOT installed (no GPU defaults)." >&2
 fi
 
+# 2b-2b-2. 壁纸预缩放脚本（evidence 195）：放进 rootfs，会话起来后由
+#         husk-session.sh 的看护进程调用。没有它壁纸上会缺一块（zink 右侧三角 32% 亮度）。
+if [ -f "$HERE/guest/husk-wallpaper-scale.js" ]; then
+    mkdir -p "$DEST/usr/local/share/linuxhub"
+    cp "$HERE/guest/husk-wallpaper-scale.js" "$DEST/usr/local/share/linuxhub/husk-wallpaper-scale.js"
+    chmod 644 "$DEST/usr/local/share/linuxhub/husk-wallpaper-scale.js"
+    echo "   wrote usr/local/share/linuxhub/husk-wallpaper-scale.js (wallpaper pre-scale)"
+else
+    echo "   WARNING: no guest/husk-wallpaper-scale.js next to the installer;" >&2
+    echo "            the wallpaper stays un-fitted (zink: right-side wedge at 32% brightness)." >&2
+fi
+
 # 2b-2c. 同一份默认值也给加载器。`/etc/profile.d` 只对登录 shell 生效；cron、systemd
 #        user unit、桌面 fork 出来的进程、`env -i`、`ssh host -- prog` 都读不到它，
 #        于是同一个 rootfs 里会出现"终端里的程序吃 GPU、别处的掉回 llvmpipe"。

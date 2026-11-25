@@ -170,6 +170,10 @@ case "${1:-}" in
     */gnome-shell)
         [ -x "$BASE/husk-ding-fallback.sh" ] && \
             { "$BASE/husk-ding-fallback.sh" "$ROOTFS" "$NR_LD" >/dev/null 2>&1 & } || true
+        # 壁纸先缩到屏幕尺寸：不缩放就不会踩到 zink/PanVK 那条"右侧三角只剩 32% 亮度"
+        # 的路（evidence 195）。纯色底不动，失败静默。
+        [ -x "$BASE/husk-wallpaper-fit.sh" ] && \
+            { "$BASE/husk-wallpaper-fit.sh" "$ROOTFS" "$NR_LD" "$home" >/dev/null 2>&1 & } || true
         ;;
 esac
 
