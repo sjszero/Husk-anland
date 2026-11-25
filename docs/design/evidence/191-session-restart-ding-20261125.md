@@ -85,3 +85,20 @@ Gtk.CssProviderError: <broken file>:1:0Failed to import: Error opening file /sty
    里有没有同名 extension），必要时在会话脚本里改 `XDG_DATA_DIRS`/extension 目录，让 shell 走磁盘副本。
 2. 会话脚本固化：系统总线 + `DBUS_SYSTEM_BUS_ADDRESS` + zink + `~/Desktop` 四件套。
 3. 三条都绿了再抓"干净重启"的整屏图，作为 0.0.6 的 `桌面会话正常` 证据。
+
+## 7 · 补记（同一轮稍后，重要更正）
+
+§5 里"壁纸和桌面图标没有"是那一刻的状态，不是常态。**手工按正确 `-P` 起一个 DING 之后，
+桌面就完整了**：整屏 Ubuntu 壁纸（王冠）、Home/Trash 图标、dash、顶栏全在，`xwininfo` 里
+`Desktop Icons 1` 是 `2400x1080+0+0`，进程存活。见 `191-desktop-with-manual-ding.png`。
+
+同时确认了两件事：
+
+- shell 自己那条 DING 启动链**一直在失败**（会话日志里累计 36 条 `Launching DING process`），
+  现在画面上的 DING 是手工拉起来的那个（X 客户端基址 `0xa0…`，不是 shell 起的 `0xc0…`）。
+- 所以 **0.0.6 可以先用运行时层兜住**：会话脚本自己按上面的命令行把 DING 起来（带正确 `-P`），
+  不必等 shell 那条路修好；壁纸和桌面图标随即可用。真正修根因（`getCurrentExtension().path`
+  为空）仍然要做，但不再是发布阻塞项。
+
+**状态更正**：只要会话脚本补上这一步，"桌面会话正常"里"有壁纸、有图标"这条就成立；
+剩下的外观问题只有那条"以 root 跑会话"的提示（§190 §4）。
