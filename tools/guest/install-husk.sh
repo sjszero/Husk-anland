@@ -236,6 +236,16 @@ else
     echo "   WARNING: no guest/husk-wallpaper-scale.js next to the installer;" >&2
     echo "            the wallpaper stays un-fitted (zink: right-side wedge at 32% brightness)." >&2
 fi
+# 看护脚本本身也必须装上：husk-session.sh 只会调用 $BASE/husk-wallpaper-fit.sh，
+# 之前只装了 .js，于是"拟合"这一步在真实安装里从来没跑过（壁纸要么不缩放、要么整张缺失）。
+if [ -f "$HERE/guest/husk-wallpaper-fit.sh" ]; then
+    cp "$HERE/guest/husk-wallpaper-fit.sh" "$DEST/usr/local/share/linuxhub/husk-wallpaper-fit.sh"
+    chmod 755 "$DEST/usr/local/share/linuxhub/husk-wallpaper-fit.sh"
+    echo "   wrote usr/local/share/linuxhub/husk-wallpaper-fit.sh (wallpaper fit + 兜底)"
+else
+    echo "   WARNING: no guest/husk-wallpaper-fit.sh next to the installer;" >&2
+    echo "            the pre-scaled wallpaper will never be generated." >&2
+fi
 
 # 2b-2c. 同一份默认值也给加载器。`/etc/profile.d` 只对登录 shell 生效；cron、systemd
 #        user unit、桌面 fork 出来的进程、`env -i`、`ssh host -- prog` 都读不到它，

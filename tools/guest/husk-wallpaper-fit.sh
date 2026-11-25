@@ -56,12 +56,30 @@ set -- ${GEO:-}
 W=${1:-}; H=${2:-}
 [ -n "$W" ] && [ -n "$H" ] || exit 0
 
-# 3. 当前壁纸
+# 3. 当前壁纸。空 URI、不是 file://、或者指向的文件不在，都算"壁纸坏了"，兜底到一张
+#    随发行版装进来的图（2026-11-25 实测发现 picture-uri 被留成空串、primary-color 被
+#    留成 #00ff00 时，桌面就是一片黑/荧光绿，用户看到的是"桌面背景老是变样"）。
 URI=$(g usr/bin/gsettings get $SCHEMA picture-uri | tr -d "'" | head -1)
+need_default=0
 case "${URI:-}" in
-    file://*) ;;
-    *) exit 0 ;;
+    file://*) [ -f "$ROOTFS${URI#file://}" ] || need_default=1 ;;
+    *) need_default=1 ;;
 esac
+if [ "$need_default" = 1 ]; then
+    DEF=
+    for cand in usr/share/backgrounds/husk-default.png \
+                usr/share/backgrounds/Clouds_by_Tibor_Mokanszki.jpg \
+                usr/share/backgrounds/*.png \
+                usr/share/backgrounds/*.jpg; do
+        [ -f "$ROOTFS/$cand" ] && { DEF=/$cand; break; }
+    done
+    [ -n "$DEF" ] || exit 0
+    g usr/bin/gsettings set $SCHEMA picture-uri "file://$DEF" || exit 0
+    g usr/bin/gsettings set $SCHEMA picture-uri-dark "file://$DEF" >/dev/null 2>&1 || true
+    g usr/bin/gsettings set $SCHEMA primary-color '#023c88' >/dev/null 2>&1 || true
+    URI="file://$DEF"
+    echo "husk-wallpaper-fit: 壁纸缺失或失效，兜底 -> $DEF" >&2
+fi
 SRC=${URI#file://}
 
 CACHE="$HOME_G/.cache/husk"
@@ -69,7 +87,7 @@ OUT="$CACHE/wallpaper-${W}x${H}.png"
 
 # 4. 缓存比源图新就直接复用，否则重算
 g usr/bin/mkdir -p "$CACHE" || exit 0
-if [ -s "$ROOTFS$OUT" ] && [ "$ROOTFS$OUT" -nt "$ROOTFS$SRC" ] 2>/dev/null; then
+if [ -s "$ROOTFS$OUT" ] && [ "$ROOTFS$OUT" -nt "$ROOTFS$SRC" ]; then
     :
 else
     g usr/bin/gjs "$SCALE_JS" "$SRC" "$OUT" "$W" "$H"
