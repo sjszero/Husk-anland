@@ -7,9 +7,11 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
-## [未发布]
+## [0.0.4] - 2026-11-25
 
-> 0.0.3 发布之后补做的实测与工具改动，按计划进 **0.0.4**（版本号等发布时再动）。
+> 主题：**把「GPU 到底快多少」和「哪里确实还坏着」用数字钉死**。0.0.3 说的是「桌面由 GPU 出帧」，
+> 0.0.4 说的是「哪类负载快多少倍、呈现那一段贵在哪、哪些真实客户端画不出来、以及为什么」。
+> 这一版没有新增能力面，全部是测量、定位与工具。
 
 ### 测过
 
@@ -24,9 +26,6 @@
   （evidence 174）。
 - **关屏 150 秒再唤醒，会话没死**：同一 pid、线程 33 不变、fd 41→40、内存 +4 kB，唤醒后
   X 根窗口仍 100% 非黑（evidence 173）。注意：全程 USB 供电 + adb 在线，**不是**深睡/Doze。
-
-### 测过（追加）
-
 - **真实 GTK4 客户端跑通**：GTK 4.14 的 `gnome-text-editor`（`GSK_RENDERER=ngl`）在 zink/PanVK 的
   X11 上开窗并画出完整界面，X 根窗口 2400×1080 抓图 28 565 种颜色、非黑；同时记录
   `KBASE_IOCTL_MEM_EXEC_INIT` 被拒（EPERM）但渲染正常，原因未查清（evidence 176）。
@@ -50,6 +49,9 @@
 
 ### 改进
 
+- **CI 入仓**（`.github/workflows/ci.yml`）：`fmt` / `cargo check` / `clippy` / shell 语法 /
+  文档链接 / 版本一致性，另有一个 libc 作业——从锁定的 `libc6 2.39-0ubuntu8.12` arm64 包重建
+  `libc.so.6` 并校验 sha256 `69ceef37…`，所以「补丁版 libc 与包里的那份是否一致」不再靠人手比对。
 - `gl-probe` 新增 `readback [WxH]`：把每像素唯一色的纹理挂到 FBO 上整块读回，用值本身反解
   「这块数据原本是哪一格」，并把「整块 / 逐行 / 逐列 / 单点」四种读法一次报全。这是查
   `glReadPixels` 缺陷的探针，也是 evidence 179 的取证工具。
@@ -229,6 +231,7 @@
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
 [未发布]: https://github.com/xishanp/Husk/compare/v0.0.3...HEAD
+[0.0.4]: https://github.com/xishanp/Husk/releases/tag/v0.0.4
 [0.0.3]: https://github.com/xishanp/Husk/releases/tag/v0.0.3
 [0.0.2]: https://github.com/xishanp/Husk/releases/tag/v0.0.2
 [0.0.1]: https://github.com/xishanp/Husk/releases/tag/v0.0.1
