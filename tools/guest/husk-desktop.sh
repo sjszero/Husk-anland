@@ -189,10 +189,16 @@ echo "CHECK ding=$ding"
 echo "CHECK gpu=$gpu"
 echo "CHECK shell_log=$SHELL_LOG"
 
-# 壁纸：装好的看护脚本会把当前壁纸缩到屏幕尺寸（并修复空/失效的 picture-uri）
-if [ -x "$BASE/husk-wallpaper-fit.sh" ]; then
+# 壁纸：装好的看护脚本会把当前壁纸缩到屏幕尺寸（并修复空/失效的 picture-uri）。
+# 它可能和本脚本同级（开发机），也可能在 rootfs 里（安装后的位置），两个都找。
+FIT=
+for cand in "$BASE/husk-wallpaper-fit.sh" "$ROOTFS/usr/local/share/linuxhub/husk-wallpaper-fit.sh"; do
+    [ -x "$cand" ] && { FIT=$cand; break; }
+done
+FIT=${FIT:-}
+if [ -n "$FIT" ]; then
     DISPLAY="$DISPLAY" XDG_RUNTIME_DIR="$RT_G" DBUS_SESSION_BUS_ADDRESS="unix:path=$SESSBUS_G" \
-        "$BASE/husk-wallpaper-fit.sh" "$ROOTFS" "$NR_LD" "$HOME_G" >/dev/null 2>&1 &
+        "$FIT" "$ROOTFS" "$NR_LD" "$HOME_G" >/dev/null 2>&1 &
 fi
 
 [ "$wm" = yes ] || { say "会话没起来：$SHELL_LOG"; exit 71; }
