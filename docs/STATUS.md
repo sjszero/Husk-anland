@@ -91,12 +91,12 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 
 | # | 问题 | 状态 | 实测 | 记录 |
 |---|---|---|---|---|
-| A1 | polkit 调用者可信层 | ✅ | `pkcheck ... power-off --process <gnome-shell>` rc=0；`GetConnectionCredentials` 报 uid=1000 | evidence 151 |
-| A2 | at-spi 无障碍总线 | ✅ | 连上 at-spi 总线并 `ListNames`（同因：EXTERNAL 身份） | evidence 151 |
-| A3 | 会话总线/终端 gvfs | ✅ | `dbus-send --session ListNames` 正常；`gio mount -l` 不再报 proxy 错 | evidence 152 |
-| A4 | xrandr scaling 告警 | ✅ | `xrandr --version` 报 RandR 1.2；`grep -c "Impossible to set scaling"` = 0 | evidence 152 |
-| A5 | 触控默认模式 | ✅ | 默认模式 2 点左上角开出 GNOME 概览（点哪落哪）；模式 3 同 | evidence 152 |
-| A6 | `nr-sigsys.log` 噪声 | ✅ | 单次会话 246 行（此前单会话 4499 行） | evidence 152 |
+| A1 | polkit 调用者可信层 | 闭合 | `pkcheck ... power-off --process <gnome-shell>` rc=0；`GetConnectionCredentials` 报 uid=1000 | evidence 151 |
+| A2 | at-spi 无障碍总线 | 闭合 | 连上 at-spi 总线并 `ListNames`（同因：EXTERNAL 身份） | evidence 151 |
+| A3 | 会话总线/终端 gvfs | 闭合 | `dbus-send --session ListNames` 正常；`gio mount -l` 不再报 proxy 错 | evidence 152 |
+| A4 | xrandr scaling 告警 | 闭合 | `xrandr --version` 报 RandR 1.2；`grep -c "Impossible to set scaling"` = 0 | evidence 152 |
+| A5 | 触控默认模式 | 闭合 | 默认模式 2 点左上角开出 GNOME 概览（点哪落哪）；模式 3 同 | evidence 152 |
+| A6 | `nr-sigsys.log` 噪声 | 闭合 | 单次会话 246 行（此前单会话 4499 行） | evidence 152 |
 
 门禁 A：`tools/device-tests/14-gate-a-acceptance.sh` **36 PASS / 0 FAIL**（桌面会话运行中）。
 sudo/PAM 一条按"不需要"结案：`husk-su` 已覆盖提权路径，PAM 的 `ENOTSOCK`/audit netlink 不再出现在
@@ -108,7 +108,7 @@ sudo/PAM 一条按"不需要"结案：`husk-su` 已覆盖提权路径，PAM 的 
 |---|---|
 | `make -j4`（200 目标） | **可用**：`MAKE_RC=0`，3 509 ms。原来 shim 的 `execve` 用栈上 64 槽数组拼 argv，collect2 的第 64 个以后被静默丢掉，`ld` 报 `hidden symbol '__TMC_END__' isn't defined` —— 改成 `argv_len`/`argv_alloc` 堆分配（loader rev 23） |
 | rootfs 绝对符号链接 | 552 个，宿主机加载器按 **host 根** 解析链接目标 → 逃出 guest。`husk-symlinks --root <rootfs> --apply` 改写 551 条为相对路径后，`numpy 1.26.4`、`libblas.so.3`、`liblapack.so.3` 按 soname 全部可用 |
-| ⚠️ `adb shell` 的 guest stdout | 是 socket。`make` 往它写完，同一会话后续写入全部 `EACCES`；**proot 下完全一样**，不是 shim 行为。基准因此统一 `make -s -j4 >/dev/null 2>&1` |
+| 注意 `adb shell` 的 guest stdout | 是 socket。`make` 往它写完，同一会话后续写入全部 `EACCES`；**proot 下完全一样**，不是 shim 行为。基准因此统一 `make -s -j4 >/dev/null 2>&1` |
 
 ## apt / libc：装包可用，但 libc6 升级会拆掉运行时（2026-11-24，evidence 154）
 
@@ -116,7 +116,7 @@ sudo/PAM 一条按"不需要"结案：`husk-su` 已覆盖提权路径，PAM 的 
 |---|---|
 | `apt install` | **可用**（815 → 882 包，27 秒）。两个前置修好了：`statvfs/statvfs64` 进 shim（`apt` 的剩余空间检查原来问的是 host 路径）、`/sbin/ldconfig.real` 换成 `husk-ldconfig`（静态 ldconfig 看不见 guest） |
 | `dpkg --configure -a` | rc=0（`husk-ldconfig` 写 `/etc/ld.so.cache`，950 条 / 6 个目录） |
-| ⚠️ `apt upgrade` 升 libc6 | **会覆盖运行时打过补丁的 libc**，之后 `getent shadow` 返回空、`sudo` 的用户查询失败、桌面起不来（`/bin/sh: 1: Cannot fork`）。修法：`make libc-patch` 重新打补丁（Rust 化，带断言；evidence 170） |
+| 注意 `apt upgrade` 升 libc6 | **会覆盖运行时打过补丁的 libc**，之后 `getent shadow` 返回空、`sudo` 的用户查询失败、桌面起不来（`/bin/sh: 1: Cannot fork`）。修法：`make libc-patch` 重新打补丁（Rust 化，带断言；evidence 170） |
 | 判据 | `python3 -c 'import os;print(os.statvfs("/").f_blocks)'` = 28 292 600（不是 194 478）；`getent shadow husk` 非空 |
 
 **参考笔记不进仓库**：`$REPO-notes/prior-art/`（必读 `references.md`）。
@@ -243,7 +243,7 @@ Nautilus / gvfs / tracker。整条链路四个独立故障与修法见 evidence 
 
 ## 已知环境细节（踩过的坑，别再踩）
 
-- loader 只接受**相对**程序路径（`usr/bin/bash` ✓，`/usr/bin/bash` ✗）。
+- loader 只接受**相对**程序路径（`usr/bin/bash` 可以，`/usr/bin/bash` 不行）。
 - **启动契约**：`NR_ROOTFS=<rootfs 绝对路径>` 与 `NR_LD=<我们的 loader 绝对路径>` 两个变量必须同时设。
   少 `NR_ROOTFS` → 父进程完全不改写（症状 `command not found`）；少 `NR_LD` → exec 出来的
   子进程回落到 rootfs 里的原厂 glibc loader，shim 不在里面（症状：父进程路径对、子进程读宿主路径）。
