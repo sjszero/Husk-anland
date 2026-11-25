@@ -72,6 +72,11 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
    全程 USB 供电 + adb 在线。
    **重绘也是实测的**（evidence 171）：同一会话四帧指纹，空载两帧逐字节相同，
    开/关 GNOME 概览各换一帧 —— 不是静态位图。
+   **未验的一层（2026-11-25 用户实测发现）**：以上全是像素级检查，**没有**验会话形态——
+   主题/样式是否加载、窗口能否拖动与对齐。主题文件在树里是齐的（`/usr/share/themes/Adwaita…`、
+   `gnome-shell-theme.gresource` 710 151 B、`yaru-theme-gnome-shell` 已装），所以更像会话侧
+   （session mode / dconf / gsd xsettings）没生效，根因 UNKNOWN；窗口拖动问题与输入默认
+   trackpad 语义（`touchMode` 在 2.0 侧）相关，未测。
    未做：DRI3 零拷贝（`Could not get DRI3 device` 仍在）、
    2.0 侧 `GpuRuntimeEnvironment.gnomeSessionShell()` 仍硬钉 swrast。
    **0.0.4 补的数字**（evidence 174/176/178/179/180/181）：着色器密集负载在 2400×1080 上

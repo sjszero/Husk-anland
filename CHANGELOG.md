@@ -26,6 +26,19 @@
   - 树里没有 `husk_*.json` 时 `/etc/husk/gpu-env` 保持空文件，行为与改动前完全一致；
   - 门禁 A：**PASS=36 FAIL=0**。
 
+### 已知问题（本版未修，已核实）
+
+- **桌面会话形态没验过**：本仓库的验收只到「X 根窗口非黑像素 100%」「帧有变化」
+  「GTK 客户端出画」「键盘能敲进去」，**没有**验「这是不是一个带主题的正常会话」。
+  实测这台机器上主题文件是齐的（`/usr/share/themes/{Adwaita,Adwaita-dark,…}`、
+  `gnome-shell-theme.gresource` 710 151 B、`gnome-shell-common` / `yaru-theme-gnome-shell` /
+  `gnome-themes-extra` 都是 `install ok installed`），所以「主题丢了」不是缺包，更像会话侧
+  （session mode / dconf / gnome-settings-daemon 的 xsettings）没把主题用起来——**根因 UNKNOWN**，
+  要开着会话抓 `gnome-shell` 日志才能定。
+- **窗口拖不动、位置不对齐**：输入默认是 trackpad 语义（2.0 侧 `touchMode` 默认值不在本仓库），
+  触摸拖动在 mutter 里不是「按住标题栏拖窗口」。现有证据只证明「点哪落哪」（evidence 148、180），
+  **拖动 / 对齐 / 吸附没有测过**。
+
 ### 文档
 
 - 新增 [`docs/design/hardware-interface-map.md`](docs/design/hardware-interface-map.md)：每类硬件
