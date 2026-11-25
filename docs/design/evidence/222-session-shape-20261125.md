@@ -127,10 +127,14 @@ dbus-daemon: Cannot setup inotify for '/root/.local/share/dbus-1/services';
 
 这台设备的 X server 在应用进程里。测试到一半它不再应答：`xdpyinfo`、`xprop` 从「立刻返回」
 变成「挂住直到超时」，同一时刻 `dumpsys activity top` 显示前台是 launcher 而不是本应用，
-`/tmp/.X11-unix` 也不存在了。`husk-desktop.sh` 的 `gnome-shell` 那条启动日志停在
-"Running GNOME Shell (using mutter 46.2) as a X11 window and compositing manager" 之后再无输出，
-进程消失。换句话说：**这一轮桌面起不来的原因是显示服务不在，而不是 shim**；要判桌面，
-得先把应用拉到前台、屏幕亮着再跑一遍。
+`/tmp/.X11-unix` 也不存在了。23:21 直接截屏看屏幕（FACT）：**设备处于锁屏**，停在
+「仅限紧急呼叫 / 23:21」那一屏。也就是说应用被系统收到后台、它的 X server 跟着停止服务，
+`husk-desktop.sh` 的 `gnome-shell` 于是停在
+"Running GNOME Shell (using mutter 46.2) as a X11 window and compositing manager" 之后没有下文
+（同一份日志里 DING 扩展还起过：`DING: GNOME nautilus 46.4`，说明 shell 本身是起来了的）。
+
+结论：**这一轮桌面起不来的原因是设备锁屏 → 应用退后台 → 显示服务不在，不是 shim**。
+要判桌面，得先解锁、把应用拉到前台再跑一遍；这一点写在这里，别当成「看起来没问题」。
 
 ## 5 · 会话形态的其余观测（本轮只记不改）
 
