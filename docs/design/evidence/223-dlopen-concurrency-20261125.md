@@ -100,3 +100,23 @@ runs=15 failed=0   × 3          → 45 / 45 全过
   也没有构造出复现。
 - 锁是自旋锁，持锁期间会调 libc 的 dlopen（可能做 IO）。拿不到锁的那 40M 次自旋在
   慢设备上是一段可见的忙等；实测 15 轮 × 60 次 dlopen 的探针里没有触发过。
+
+## 7 · 同一条面上的另一半：boot 侧的静态量分类
+
+这一面（loader / GOT 改写）除了锁，还要回答一个问题：`boot.rs` 里那十几个 `static mut`
+到底会不会在**多线程开始之后**被写。逐个查了写点（FACT，读代码）：
+
+| 静态量 | 写点 | 结论 |
+|---|---|---|
+| `PAGE` / `KERNEL_PAGE` | `nr_boot` 里 mprotect 前后（596/607/790） | 只在 boot 期写 |
+| `BOOTED` / `ENVP` / `LOADER_BASE` | `nr_boot`（759/781/782） | 只在 boot 期写 |
+| `MAIN_MAP` | `nr_boot` 780 + `nr_set_main_map` 1613 | `nr_set_main_map` **没有调用者**（只有 nr-tools 的符号表里提到），实际只在 boot 期写 |
+| `MAIN_PHDR` / `MAIN_PHNUM` / `AT_RANDOM_WORDS` / `EXECFN` | `nr_boot`（784–794） | 只在 boot 期写；`exec` 会重建整个进程，不会和别的线程并行 |
+| `LIBC_BASE` / `INTERP` / `INTERP_N` | boot 期（851/852/1371） | 只在 boot 期写 |
+| `REPATCH_SEEN` / `REPATCH_SEEN_N` / `REPATCH_CALLS` | 运行期，`nr_repatch` 内 | 已在 §3 里加了 CAS 锁 |
+
+`nr_boot` 本身跑在 `_dl_init` 钩子里，那一刻进程只有一个线程；`exec` 之后进程是从单线程
+重开。所以这一组不需要原子化，需要原子化的是「运行期还会被写」的那几个 —— 也就是上面
+最后一行加 `REAL_DLMOPEN` / `DL_ACT_DEPTH`。
+
+`nr_set_main_map` 是个没人调用的导出（留着不咬人，删掉会动 nr-tools 的符号表，本轮不动）。
