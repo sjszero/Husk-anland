@@ -127,6 +127,7 @@ gate-a:
 		LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/14-gate-a-acceptance.sh
 	sh tools/probe/run-coverage-probe.sh "$${DEV}" "$${ROOTFS:-}" "$${LD:-}"
+	sh tools/probe/coverage-sweep.sh "$${DEV}"
 
 docs: tools
 	$(HUSK_TOOLS) check-links
