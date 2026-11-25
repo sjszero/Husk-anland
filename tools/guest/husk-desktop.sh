@@ -44,8 +44,18 @@ NR_LD=${NR_LD:-$(dirname "$ROOTFS")/libld.so}
 [ -x "$NR_LD" ] || { echo "husk-desktop: loader not executable: $NR_LD" >&2; exit 69; }
 DISPLAY=${DISPLAY:-:0}
 RT=${XDG_RUNTIME_DIR:-$ROOTFS/tmp/xdg-husk}
+# 同一个路径有两个身份：宿主看到的（$RT）和 guest 看到的（$RT_G）。dbus 的地址、
+# XDG_RUNTIME_DIR 必须用 guest 那一份 —— 用宿主绝对路径写进 unix:path= 时，
+# 路径层会再加一次 rootfs 前缀，于是连不上（实测报 "Could not connect:
+# No such file or directory"，main.js 直接抛异常退出）。
+case "$RT" in
+    "$ROOTFS"/*) RT_G=/${RT#"$ROOTFS"/} ;;
+    *)           RT_G=$RT ;;
+esac
 SYSBUS=$ROOTFS/run/dbus/system_bus_socket
+SYSBUS_G=/run/dbus/system_bus_socket
 SESSBUS=$RT/bus
+SESSBUS_G=$RT_G/bus
 STATE=$(dirname "$ROOTFS")/.husk-install-state
 LIBS="$ROOTFS/lib/aarch64-linux-gnu:$ROOTFS/usr/lib/aarch64-linux-gnu"
 [ -d "$ROOTFS/usr/lib/aarch64-linux-gnu/mutter-14" ] && LIBS="$LIBS:$ROOTFS/usr/lib/aarch64-linux-gnu/mutter-14"
@@ -59,20 +69,22 @@ g() {
     ( cd "$ROOTFS" && env -u XDG_CACHE_HOME -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_STATE_HOME \
         HOME="$HOME_G" PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
         NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" NR_LIBRARY_PATH="$LIBS" \
-        DISPLAY="$DISPLAY" XDG_RUNTIME_DIR="$RT" \
-        DBUS_SESSION_BUS_ADDRESS="unix:path=$SESSBUS" \
-        DBUS_SYSTEM_BUS_ADDRESS="unix:path=$SYSBUS" \
+        DISPLAY="$DISPLAY" XDG_RUNTIME_DIR="$RT_G" \
+        DBUS_SESSION_BUS_ADDRESS="unix:path=$SESSBUS_G" \
+        DBUS_SYSTEM_BUS_ADDRESS="unix:path=$SYSBUS_G" \
         "$NR_LD" --library-path "$LIBS" "$@" ) 2>/dev/null
 }
 # 同上，但要后台常驻、日志进文件
 g_bg() {
     logf=$1; shift
-    ( cd "$ROOTFS" && nohup env -u XDG_CACHE_HOME -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_STATE_HOME \
+    ( cd "$ROOTFS" || exit 1
+      exec 0</dev/null 1>/dev/null 2>/dev/null
+      nohup env -u XDG_CACHE_HOME -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_STATE_HOME \
         HOME="$HOME_G" PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
         NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" NR_LIBRARY_PATH="$LIBS" \
-        DISPLAY="$DISPLAY" XDG_RUNTIME_DIR="$RT" \
-        DBUS_SESSION_BUS_ADDRESS="unix:path=$SESSBUS" \
-        DBUS_SYSTEM_BUS_ADDRESS="unix:path=$SYSBUS" \
+        DISPLAY="$DISPLAY" XDG_RUNTIME_DIR="$RT_G" \
+        DBUS_SESSION_BUS_ADDRESS="unix:path=$SESSBUS_G" \
+        DBUS_SYSTEM_BUS_ADDRESS="unix:path=$SYSBUS_G" \
         "$NR_LD" --library-path "$LIBS" "$@" > "$logf" 2>&1 & )
 }
 
@@ -124,12 +136,15 @@ SHELL_LOG=$ROOTFS/tmp/husk-shell.log
 : > "$SHELL_LOG" 2>/dev/null || true
 (
     cd "$ROOTFS" || exit 1
+    exec 0</dev/null 1>/dev/null 2>/dev/null
     nohup env -u XDG_CACHE_HOME -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_STATE_HOME \
         HOME="$HOME_G" PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
         NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" NR_LIBRARY_PATH="$LIBS" \
-        DISPLAY="$DISPLAY" XDG_RUNTIME_DIR="$RT" \
-        DBUS_SESSION_BUS_ADDRESS="unix:path=$SESSBUS" \
-        DBUS_SYSTEM_BUS_ADDRESS="unix:path=$SYSBUS" \
+        DISPLAY="$DISPLAY" XDG_RUNTIME_DIR="$RT_G" \
+        DBUS_SESSION_BUS_ADDRESS="unix:path=$SESSBUS_G" \
+        DBUS_SYSTEM_BUS_ADDRESS="unix:path=$SYSBUS_G" \
+        LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu:/usr/lib \
+        G_RESOURCE_OVERLAYS=/org/gnome/shell=/usr/local/share/linuxhub/gnome-shell-overlay/org/gnome/shell \
         XDG_CURRENT_DESKTOP=ubuntu:GNOME XDG_SESSION_DESKTOP=ubuntu \
         XDG_SESSION_TYPE=x11 DESKTOP_SESSION=ubuntu \
         GNOME_SHELL_SESSION_MODE=linuxhub-ubuntu-min \
@@ -154,10 +169,19 @@ done
 wm=no
 g usr/bin/xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null | grep -q 'window id' && wm=yes
 ding=no
-g usr/bin/xwininfo -root -children 2>/dev/null | grep -q 'Desktop Icons' && ding=yes
+i=0
+while [ $i -lt 15 ]; do
+    if g usr/bin/xwininfo -root -children 2>/dev/null | grep -q 'Desktop Icons'; then ding=yes; break; fi
+    sleep 1; i=$((i+1))
+done
+# GPU 这一项只看证据，不猜：llvmpipe 会话的日志里会有 llvmpipe/swrast，zink+PanVK 的
+# 会话里会出现 PanVK/FristOneRR 的告警。rootfs 里没有 gl-probe（那是开发机上的探针），
+# 所以这里读日志而不是跑探针。
 gpu=unknown
-if g usr/bin/gl-probe --query 2>/dev/null | grep -qi zink; then gpu=zink
-elif g usr/bin/gl-probe --query 2>/dev/null | grep -qi llvmpipe; then gpu=llvmpipe
+if [ -f "$ROOTFS/tmp/husk-shell.log" ]; then
+    if grep -qiE 'llvmpipe|swrast' "$ROOTFS/tmp/husk-shell.log"; then gpu=llvmpipe
+    elif grep -qiE 'panvk|FristOneRR|zink' "$ROOTFS/tmp/husk-shell.log"; then gpu=zink
+    fi
 fi
 
 echo "CHECK wm=$wm"
@@ -167,7 +191,7 @@ echo "CHECK shell_log=$SHELL_LOG"
 
 # 壁纸：装好的看护脚本会把当前壁纸缩到屏幕尺寸（并修复空/失效的 picture-uri）
 if [ -x "$BASE/husk-wallpaper-fit.sh" ]; then
-    DISPLAY="$DISPLAY" XDG_RUNTIME_DIR="$RT" DBUS_SESSION_BUS_ADDRESS="unix:path=$SESSBUS" \
+    DISPLAY="$DISPLAY" XDG_RUNTIME_DIR="$RT_G" DBUS_SESSION_BUS_ADDRESS="unix:path=$SESSBUS_G" \
         "$BASE/husk-wallpaper-fit.sh" "$ROOTFS" "$NR_LD" "$HOME_G" >/dev/null 2>&1 &
 fi
 
