@@ -33,7 +33,8 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 （evidence 219，覆盖 **90 → 98 / 111**，符号层没有已知真缺口了）。还没收的：
 libc 体内跳板（L2 目前是 0 覆盖，不是部分覆盖），并发审计的剩余项
 （第一批已修 `PEER_CACHE` 元组撕裂、`FAKE_ID_READY` 发布顺序、`RAND_COUNTER` 自增，
-evidence 220；`ALIAS_*` 等 7 处仍是 UNKNOWN），以及 X11 呈现 / GPU / 音频 / 输入栈的审计。
+evidence 220；`ALIAS_*` 等 7 处仍是 UNKNOWN），挂载表那条链（默认重读挂载表、
+清理死挂载项，evidence 221），以及 X11 呈现 / GPU / 音频 / 输入栈的审计。
 机制账与未闭合项见 `docs/design/compat-layer.md`。
 
 **当前开口（按优先级）**：

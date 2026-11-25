@@ -2092,7 +2092,98 @@ unsafe fn mnt_read_file() {
 /// does not hold MNT_LOCK while reading (mnt_read_file takes it only to
 /// publish), and a re-entrant call from that same thread returns instead of
 /// spinning on itself.
+/// 每次用到挂载表都重读 `/run/husk/mounts`（`NR_MNT_REFRESH=0` 可关掉）。
+///
+/// 挂载表是跨进程共享的一个文件，但代码里原来是**每进程读一次**就缓存：
+/// 另一个进程刚做的 mount，已经在跑的进程看不到，于是同一个路径在两个进程里
+/// 指向两个不同的目录。实测 evidence 221：`mount -t tmpfs none /mnt/q` 之后，
+/// bash 自己的重定向写进了 rootfs 里的原目录（挂载视图里看不见），而它 fork 的
+/// `touch` 写进了挂载目录——`ls` 只显示后者，写进去的字节就这么"消失"了。
+/// 这不是慢，是**静默写错地方**。
+///
+/// 代价实测：`find /usr -name '*.so*'`（约 23 万次路径解析）948 ms → 952 ms，
+/// +0.5%，在噪声内。所以默认打开。
+static MNT_REFRESH: AtomicU8 = AtomicU8::new(2);
+
+unsafe fn mnt_refresh_on() -> bool {
+    let v = MNT_REFRESH.load(Ordering::Relaxed);
+    if v != 2 {
+        return v == 1;
+    }
+    let on = match env_lookup(b"NR_MNT_REFRESH") {
+        Some(v) => v != b"0",
+        None => true,
+    };
+    MNT_REFRESH.store(if on { 1 } else { 0 }, Ordering::Release);
+    on
+}
+
+/// 丢掉「后备目录已经不存在」的挂载项。
+///
+/// tmpfs 的后备目录在 rootfs 里，进程退出不会清理；挂载表又是文件，于是上一次
+/// 会话的挂载项会跟着下一次会话一起被读进来。攒到 `MNT_MAX`（8）之后 `mount`
+/// 直接 `ENOSPC`，`/proc/mounts` 也会显示一堆早就不存在的挂载点（实测
+/// evidence 221 §3）。这里只在 `mount` 之前清一次，不在路径解析的热路径上。
+unsafe fn mnt_purge_dead() {
+    mnt_lock();
+    let mut i = 0usize;
+    while i < MNT_N {
+        let sl = MNT[i].slen as usize;
+        let mut dead = false;
+        if sl > 0 && sl < MNT_P {
+            // 判活只用裸系统调用，**不能**经过任何钩子：`real_path` 会走
+            // readlinkat → mnt_ensure → 重新读表，把自己刚清掉的条目又读回来。
+            let rfd = rootfd();
+            if rfd >= 0 {
+                let mut rel = [0u8; MNT_P];
+                let mut rn = 0usize;
+                let mut k = 0usize;
+                while k < sl {
+                    // 去掉开头的一个 '/'：相对 rootfd 打开
+                    if !(k == 0 && MNT[i].src[0] == b'/') {
+                        rel[rn] = MNT[i].src[k];
+                        rn += 1;
+                    }
+                    k += 1;
+                }
+                rel[rn] = 0;
+                let fd = syscall4(
+                    SYS_OPENAT,
+                    rfd as usize,
+                    rel.as_ptr() as usize,
+                    0o10000000 | 0o200000, // O_PATH | O_DIRECTORY
+                    0,
+                );
+                if fd < 0 {
+                    dead = true;
+                } else {
+                    rc::close(fd as CInt);
+                }
+            }
+        }
+        if dead {
+            let mut k = i;
+            while k + 1 < MNT_N {
+                MNT[k] = MNT[k + 1];
+                k += 1;
+            }
+            MNT_N -= 1;
+            continue;
+        }
+        i += 1;
+    }
+    // 清理结果要**落盘**：默认开着挂载表刷新，解析路径时会重读这个文件，
+    // 不写回去的话刚删掉的死条目下一次读又回来了（实测：purge 8→0 之后
+    // 仍报 ENOSPC，因为过程中 mnt_ensure 又把文件读了一遍）。
+    mnt_save();
+    mnt_unlock();
+}
+
 unsafe fn mnt_ensure() {
+    if mnt_refresh_on() {
+        mnt_read_file();
+        return;
+    }
     loop {
         match MNT_STATE.load(Ordering::Acquire) {
             2 => return,
@@ -2456,6 +2547,7 @@ pub unsafe extern "C" fn mount(
     }
     // Refuse before the tmpfs store is created: a full table must not leave a
     // directory nobody will ever delete. Re-checked under the lock below.
+    mnt_purge_dead();
     mnt_lock();
     let full = MNT_N >= MNT_MAX;
     mnt_unlock();
@@ -2483,9 +2575,12 @@ pub unsafe extern "C" fn mount(
         // One store per mount, named from this thread and a counter - never
         // from the table index, which umount2 reuses. Naming it after the index
         // is what let a brand-new tmpfs show the files of a dead one.
-        static mut TMPFS_SEQ: u64 = 0;
-        TMPFS_SEQ += 1;
-        let uniq = ((syscall4(SYS_GETTID, 0, 0, 0, 0) as u64) << 20) | (TMPFS_SEQ & 0xF_FFFF);
+        // 计数器必须原子：两个线程同时挂 tmpfs 时会拿到同一个号，
+        // 于是两个挂载点共用一个目录——正是注释里说的「新 tmpfs 看到死掉的
+        // tmpfs 的文件」。线程号只占低位的一半，撞号是真会发生的。
+        static TMPFS_SEQ: AtomicU64 = AtomicU64::new(0);
+        let seq = TMPFS_SEQ.fetch_add(1, Ordering::Relaxed);
+        let uniq = ((syscall4(SYS_GETTID, 0, 0, 0, 0) as u64) << 20) | (seq & 0xF_FFFF);
         let mut d = [0u8; 24];
         let dn = put_i64(&mut d, 0, uniq as i64);
         let mut j = 0usize;
@@ -3864,7 +3959,7 @@ unsafe fn virt_open(p: &[u8], flags: CInt) -> Option<CInt> {
 // links, so the fallback is a byte copy plus the source mode. It is not a link -
 // link count and shared inode are lost - and it is reported once per process so
 // nobody mistakes it for the real thing.
-static mut LINK_COPY_NOTICED: u32 = 0;
+static LINK_COPY_NOTICED: AtomicBool = AtomicBool::new(false);
 
 unsafe fn copy_file(ffd: CInt, from: *const CChar, tfd: CInt, to: *const CChar) -> Ssize {
     const O_WRONLY: CInt = 0o1;
@@ -3905,8 +4000,7 @@ unsafe fn copy_file(ffd: CInt, from: *const CChar, tfd: CInt, to: *const CChar) 
         if n == 0 {
             rc::close(src);
             rc::close(dst);
-            if LINK_COPY_NOTICED == 0 {
-                LINK_COPY_NOTICED = 1;
+            if !LINK_COPY_NOTICED.swap(true, Ordering::Relaxed) {
                 dbg(&[b"nrshim: hard link emulated by copy (kernel denies link in app data)\n"]);
             }
             alias_register(tfd, id_dev, id_ino, to);
@@ -3948,7 +4042,14 @@ const ALIAS_PATH_MAX: usize = 512;
 static mut ALIAS_DEV: [u64; ALIAS_MAX] = [0; ALIAS_MAX];
 static mut ALIAS_INO: [u64; ALIAS_MAX] = [0; ALIAS_MAX];
 static mut ALIAS_PATH: [[u8; ALIAS_PATH_MAX]; ALIAS_MAX] = [[0; ALIAS_PATH_MAX]; ALIAS_MAX];
-static ALIAS_MASK: AtomicU32 = AtomicU32::new(0);
+/// 「槽位被占用」的位图。领槽用 CAS 抢位——先扫后写的做法会让两个线程同时
+/// 认为同一个槽是空的，后写的那个直接覆盖掉别人的记录，把一条活着的别名
+/// 指向错误的路径（`alias_refresh` 会照着它去覆盖文件内容，属于会损坏数据的
+/// 那类竞态）。
+static ALIAS_USED: AtomicU32 = AtomicU32::new(0);
+/// 「槽位内容已发布」的位图：生产者写完 DEV/INO/PATH 之后才 release 置位，
+/// 消费者只认这一张。否则读者可能看到「位已置、路径还没写」的半条记录。
+static ALIAS_READY: AtomicU32 = AtomicU32::new(0);
 
 /// A read-only descriptor for the inode behind `fd`, via /proc/self/fd. The
 /// literal path is passed straight to the kernel, so no guest path resolution
@@ -4060,15 +4161,36 @@ unsafe fn alias_register(dirfd: CInt, dev: u64, ino: u64, dst: *const CChar) {
     core::ptr::copy_nonoverlapping(dst as *const u8, path.as_mut_ptr().add(n), m);
     n += m;
     path[n] = 0;
-    let mask = ALIAS_MASK.load(Ordering::Relaxed);
     let mut slot = usize::MAX;
-    let mut i = 0usize;
-    while i < ALIAS_MAX {
-        if mask & (1u32 << i) == 0 {
-            slot = i;
+    let mut guard = 0usize;
+    while guard < 64 {
+        let cur = ALIAS_USED.load(Ordering::Acquire);
+        let mut free = usize::MAX;
+        let mut i = 0usize;
+        while i < ALIAS_MAX {
+            if cur & (1u32 << i) == 0 {
+                free = i;
+                break;
+            }
+            i += 1;
+        }
+        if free == usize::MAX {
+            return;
+        }
+        if ALIAS_USED
+            .compare_exchange(
+                cur,
+                cur | (1u32 << free),
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+        {
+            slot = free;
             break;
         }
-        i += 1;
+        guard += 1;
+        core::hint::spin_loop();
     }
     if slot == usize::MAX {
         return;
@@ -4077,13 +4199,13 @@ unsafe fn alias_register(dirfd: CInt, dev: u64, ino: u64, dst: *const CChar) {
     ALIAS_INO[slot] = ino;
     core::ptr::copy_nonoverlapping(path.as_ptr(), ALIAS_PATH[slot].as_mut_ptr(), n);
     ALIAS_PATH[slot][n] = 0;
-    ALIAS_MASK.fetch_or(1u32 << slot, Ordering::Relaxed);
+    ALIAS_READY.fetch_or(1u32 << slot, Ordering::Release);
 }
 
 /// Re-copy an emulated link's target from the still-open source fd. Called from
 /// close(), i.e. when the writer is finished with its own descriptor.
 unsafe fn alias_refresh(fd: CInt) {
-    if ALIAS_MASK.load(Ordering::Relaxed) == 0 || fd < 0 {
+    if ALIAS_READY.load(Ordering::Acquire) == 0 || fd < 0 {
         return;
     }
     let mut st = [0u8; 128];
@@ -4098,7 +4220,7 @@ unsafe fn alias_refresh(fd: CInt) {
     let mut i = 0usize;
     while i < ALIAS_MAX {
         let bit = 1u32 << i;
-        if ALIAS_MASK.load(Ordering::Relaxed) & bit != 0
+        if ALIAS_READY.load(Ordering::Acquire) & bit != 0
             && ALIAS_DEV[i] == dev
             && ALIAS_INO[i] == ino
         {
@@ -4107,6 +4229,13 @@ unsafe fn alias_refresh(fd: CInt) {
             // succeeds, otherwise a failed refresh would empty a good copy.
             let rfd = proc_fd_read(fd);
             if rfd < 0 {
+                i += 1;
+                continue; // 留着，下次 close() 再来
+            }
+            // 抢到 READY 位的那一个消费者负责刷新，其余直接跳过——否则两个
+            // 线程会同时对同一个目标文件 O_TRUNC 再各写一遍。
+            if ALIAS_READY.fetch_and(!bit, Ordering::AcqRel) & bit == 0 {
+                rc::close(rfd as CInt);
                 i += 1;
                 continue;
             }
@@ -4152,7 +4281,7 @@ unsafe fn alias_refresh(fd: CInt) {
                 rc::close(dst);
             }
             rc::close(rfd);
-            ALIAS_MASK.fetch_and(!bit, Ordering::Relaxed);
+            ALIAS_USED.fetch_and(!bit, Ordering::Release);
         }
         i += 1;
     }

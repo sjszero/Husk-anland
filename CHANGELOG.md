@@ -32,6 +32,13 @@
   （改 Release/Acquire、先写值再发布）；`RAND_COUNTER` 非原子自增会让两个线程拿到同一个
   临时文件名（改 `AtomicU64::fetch_add`）。
 
+- **挂载表每进程只读一次，导致同一个路径在两个进程里指向两个目录**（evidence 221）。
+  `mount -t tmpfs none /mnt/q` 之后，bash 的重定向写进 rootfs 里的原目录、它 fork 的
+  `touch` 写进挂载目录，`ls` 只看得见后者——写进去的字节就这么消失了。现在默认每次
+  用到挂载表都重读（`NR_MNT_REFRESH=0` 可关），代价实测 +0.5%。
+- **死挂载项跨会话累积，攒满 8 条后 `mount` 直接 `ENOSPC`**（evidence 221 §2）。
+  `mount()` 之前清理后备目录已不存在的项并把结果落盘。
+
 ### 加
 
 - `tools/probe/symbol-gap-probe.c`：把没钩的符号逐个**试出后果**（判据是效果不是符号）。
