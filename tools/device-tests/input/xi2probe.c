@@ -104,7 +104,7 @@ int main(int argc, char **argv) {
   }
   printf("RESULT mode=%s core_motion=%d core_button=%d xi_motion=%d xi_button=%d xi_other=%d\n",
          mode, core_motion, core_btn, xi_motion, xi_btn, xi_other);
-  if (do_grab) XUngrabDevice(d, 2, 0);
+  if (do_grab && !getenv("NO_UNGRAB")) XUngrabDevice(d, 2, 0);
   XSync(d, 0);
   return 0;
 }

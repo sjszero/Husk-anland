@@ -49,7 +49,9 @@ make dist      # dist/husk-arm64.tar.gz + dist/SHA256SUMS
 ```
 
 包里有：`libld.so`、`libc.so.6`、`husk-ldconfig`、`husk-usermgr`、`husk-su`、
-`install-husk.sh`、`husk-session.sh`、`VERSION`。
+`install-husk.sh`、`husk-session.sh`、`husk-desktop.sh`、`husk-ding-fallback.sh`、
+`husk-wallpaper-fit.sh`、`guest/husk-wallpaper-scale.js`、`guest-config/`、`VERSION`。
+少一个文件构建就会失败（`make dist` 里有逐条 `tar tzf | grep -qx` 断言）。
 
 ## 4 · 装到设备
 
@@ -73,6 +75,10 @@ sh install-husk.sh --rootfs linux-rootfs.tar --dest ./root --loader ./libld.so
 ./husk --version                      # 打印 VERSION 里的版本号
 ./husk run ubuntu -c 'id; head -1 /etc/os-release'
 ./husk                                # 交互式 bash
+
+# 起一个可用的图形会话（唯一入口：清残留 → 双总线 → 起 shell → 自检 → 输入预热）
+./husk-desktop.sh root
+# 期望四行：CHECK wm=yes / CHECK ding=yes / CHECK gpu=zink / CHECK input=primed
 ```
 
 验收清单（全部返回 0，且输出来自 rootfs 自己）：
