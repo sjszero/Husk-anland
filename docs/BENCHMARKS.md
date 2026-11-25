@@ -101,7 +101,7 @@ tools/bench/compare.py docs/design/evidence/bench-*-il.log
 - **能有数字，是因为运行器外面有了一个 X server**：Husk 这边的 X server 是 App 进程里的
   Lorie（`:0`），proot 侧没有对应的桌面，所以 proot 列里凡是"不可比/未测"的格子，
   是真的没有对象，不是没去测。
-- **帧率那一行对 Husk 不利，照写**：640×480 只有 `glClear` + swap，瓶颈是呈现路径上的
+- **帧率那一行对 Husk 不利，照实记录**：640×480 只有 `glClear` + swap，瓶颈是呈现路径上的
   SHM 拷贝（DRI3 未通），zink 还多一层 Vulkan 翻译，所以 CPU（llvmpipe）反而更快。
   这一行说明的是呈现链路的天花板，**不能**拿来说"GPU 没有用"；重负载（着色器/纹理密集）
   的 GPU vs CPU 对比**未测**。

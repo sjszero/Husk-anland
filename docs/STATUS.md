@@ -62,7 +62,7 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
    （evidence 166：旧 loader 下 dup 出来是 memfd `rdev=0:0`，新 loader 是 `10:33`）。
    八维里第 1/5/6 维已有数字（evidence 168）：会话冷启动 8/8/9 s、设置首帧 4462 ms vs
    proot 5353 ms、xterm 110 vs 153 ms、回车到 guest 进程读到 41 ms；
-   640×480 clear+swap 是 **zink 131 fps vs llvmpipe 300 fps**（这个负载 CPU 更快，照写，
+   640×480 clear+swap 是 **zink 131 fps vs llvmpipe 300 fps**（这个负载 CPU 更快，照实记录，
    瓶颈是 SHM 拷贝不是 GPU），重负载对比未测。
    **30 分钟空载长稳已跑完**（evidence 169）：PSS 137.3 → 139.9 MB（前 60 秒启动分配，
    之后 29 分钟只涨 11 KB），线程 33 / fd 41 恒定、僵尸 0、同一 pid，结束后 X 根窗口仍

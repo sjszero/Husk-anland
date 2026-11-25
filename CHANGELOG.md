@@ -480,7 +480,7 @@
 - `docs/BENCHMARKS.md` 补上第 5 维（桌面与图形）与第 6 维（交互延迟）的数字，并把
   「图形不进表」那段替换成这些数字能说明什么、不能说明什么（evidence 168）。
 - `docs/LIMITATIONS.md` §7 更新：WSI 已经通了但呈现是 SHM 拷贝；桌面由 GPU 出帧，
-  但轻负载 fps 不如 llvmpipe（照写）。
+  但轻负载 fps 不如 llvmpipe（照实记录）。
 
 ## [0.0.2] - 2026-11-24
 

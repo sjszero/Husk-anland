@@ -83,7 +83,7 @@ reinstall checks skipped`——树包按设计排除了 `var/cache/apt/archives`
   `husk-arm64.tar.gz` `43092123…`、`husk-rootfs-ubuntu-24.04.tar.gz` `ab949009…`
   ——所以「上传后的资产 = 本地验过的字节」是平台侧的证据，不是我这边口头保证。
 
-## 没做的事（照写）
+## 没做的事（照实记录）
 
 - 没有从 GitHub 把 1.30 GB 的资产**下回来**再校验一遍（上传 digest 已由平台侧给出，
   但没有端到端重下一次）；

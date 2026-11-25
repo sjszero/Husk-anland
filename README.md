@@ -68,12 +68,12 @@ sh husk-session.sh files/linux/distributions/<发行版>/rootfs -- /usr/bin/true
 | 打开「设置」到首个窗口（桌面） | 4 462 ms | 5 353 ms | 1.2× |
 
 前两行是路径与 syscall 密集的活，要付 proot 每条 syscall 的 `ptrace` 往返；第三行是大块写，
-不经过被翻译的路径，所以打平——表里照写，不藏。
+不经过被翻译的路径，所以两者持平。
 
 > [!NOTE]
 > 图形这一维也测了，但只有 Husk 这边有对象：桌面会话冷启动 8–9 s、X 根窗口 2400×1080
 > 非黑像素 100%、帧率 640×480 clear+swap 是 **131 fps**，而同一台机器上软件渲染（llvmpipe）
-> 是 300 fps —— **这一格对 Husk 不利，照写**：把窗口 swap 拆开量过，GPU 渲染只要 1.3 ms，
+> 是 300 fps。这一格 Husk 落后：把窗口 swap 拆开量过，GPU 渲染只要 1.3 ms，
 > 其余是 GPU→CPU 回读再加进 X server 的拷贝（呈现约 24.8 ms/兆像素，DRI3 未通）。不是 GPU 算力。
 > proot 侧没有可比的桌面，凡是「不可比」的格子是真的没有对象，不是我们没测。
 > 完整条件、样本数与代价见 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)。
@@ -86,7 +86,7 @@ sh husk-session.sh files/linux/distributions/<发行版>/rootfs -- /usr/bin/true
 |---|---:|---:|---:|
 | 着色器型：每像素 48 次 `sin`，2 遍，2400×1080 | 23.8 ms/帧（41.9 fps） | 266.7 ms/帧（3.7 fps） | **GPU 快 11.2×** |
 | 同上，1280×720 | 14.9 ms/帧（67.1 fps） | 101.9 ms/帧（9.8 fps） | **GPU 快 6.8×** |
-| 清屏 + 窗口呈现，2400×1080 | 50.2 ms/帧（19.9 fps） | 20.1 ms/帧（49.7 fps） | 软件快 2.5×，照写 |
+| 清屏 + 窗口呈现，2400×1080 | 50.2 ms/帧（19.9 fps） | 20.1 ms/帧（49.7 fps） | 软件快 2.5×，照实记录 |
 
 第三行的原因是可拆的（2400×1080，ms/帧）：
 

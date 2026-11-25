@@ -33,7 +33,7 @@
   入口**；补它们等于给一个只做 `cmp` + `b` 的 24 字节壳子再套一层，收益为零。
 - 因此 `.expected` 里保留它们的意义变成「记录 glibc 这版长这样」，而不是「覆盖缺口」。
 
-## 剩下一条（UNKNOWN，照写）
+## 剩下一条（UNKNOWN）
 
 `__openat64_nocancel` 在这个构建里没有导出符号，slot 页无从定位（工具报的是
 「not exported by this libc (stripped .symtab)」）。它属于 glibc 内部「不可取消」的打开路径，

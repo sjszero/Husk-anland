@@ -14,7 +14,7 @@ proot-distro** 放在一起跑完八维度基准，用实测差距说明「零 p
 
 - 不 root、不解 Bootloader、不开硬件虚拟化、零 ptrace；shim 只 interpose libc 符号。
 - 能 Rust 就 Rust；第三方代码不入库；绝不读写 `com.linuxhub.myth`。
-- 结论只认实测：FACT / INFERENCE / UNKNOWN 分开标注，未测不写 PASS，**对 Husk 不利的数字照写**。
+- 结论只认实测：FACT / INFERENCE / UNKNOWN 分开标注，未测不写 PASS，**实测数据全部照实记录**。
 - 每次正式改动提交并推送 GitHub。
 - 唯一目标机：RMX3357（MT6893 / Mali-G77 / Android 13 / kernel 4.19.191 / 4 KiB / arm64），
   运行域 `untrusted_app`。单机结论不外推成平台结论。
