@@ -1,0 +1,24 @@
+# Husk 外观默认值 —— 由安装器写进 /usr/share/glib-2.0/schemas/99-husk-look.gschema.override
+#
+# 为什么必须有这一份：Ubuntu 的外观不是"装上 yaru-theme-* 就自动生效"，是
+# `ubuntu-settings` 这个包用 gschema override 把 gtk-theme / icon-theme / 字体 /
+# 光标/ 配色钉到 Yaru 上。这个 rootfs 里 ubuntu-settings 没装（yaru 的主题文件都在），
+# 于是所有 GTK 程序拿到的是 GNOME 原厂默认：Adwaita + Cantarell —— 看着就像"主题全丢了"，
+# 而 gnome-shell 自己因为 session mode 里写了 stylesheet 反而是有 Yaru 的，所以才出现
+# "外壳是 Ubuntu、窗口是白板"这种夹生状态。
+#
+# 这些只是**默认值**：用户/程序自己 set 过的键永远优先（gschema override 的语义）。
+# 想整体回到原厂 GNOME：删掉这个文件再 glib-compile-schemas。
+
+[org.gnome.desktop.interface]
+gtk-theme='Yaru'
+icon-theme='Yaru'
+cursor-theme='Yaru'
+font-name='Ubuntu 11'
+document-font-name='Ubuntu 11'
+monospace-font-name='Ubuntu Mono 13'
+color-scheme='prefer-light'
+clock-format='24h'
+
+[org.gnome.desktop.wm.preferences]
+button-layout='appmenu:minimize,maximize,close'

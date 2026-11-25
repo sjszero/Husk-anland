@@ -258,6 +258,38 @@ else
 fi
 unset _c _husk_icd
 
+# 2b-4. 外观默认值：gschema override。Ubuntu 的 Yaru 外观是 `ubuntu-settings` 用
+#       gschema override 钉出来的，这个 rootfs 里没有那个包（yaru 的主题文件都在），
+#       于是 GTK 程序全是 Adwaita + Cantarell —— 外壳有 Yaru、窗口是白板，就是用户看到的
+#       "主题全丢了"。这里补一份同义的最小 override，并重新编译 schema。
+#       只写默认值：用户/程序 set 过的键优先。
+LOOK="$HERE/guest-config/husk-look.override"
+if [ -f "$LOOK" ] && [ -d "$DEST/usr/share/themes/Yaru" ] &&
+   [ -d "$DEST/usr/share/fonts/truetype/ubuntu" ] && [ -x "$DEST/usr/bin/glib-compile-schemas" ]; then
+    mkdir -p "$DEST/usr/share/glib-2.0/schemas"
+    cp "$LOOK" "$DEST/usr/share/glib-2.0/schemas/99-husk-look.gschema.override"
+    chmod 644 "$DEST/usr/share/glib-2.0/schemas/99-husk-look.gschema.override"
+    # No `| sed` on the compile itself: a pipeline returns the *last* command's
+    # status, which is how a failed unpack once reported success (evidence review
+    # 2026-11-24, BUG-01). Log to a file, test the real exit code, then indent.
+    _looklog="$OUT/.husk-look.log"
+    if ( cd "$DEST" && NR_ROOTFS=$DEST NR_LD=$LOADER "$LOADER" --library-path "$LIBS" usr/bin/env -i \
+            PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+            NR_ROOTFS=$DEST NR_LD=$LOADER usr/bin/glib-compile-schemas /usr/share/glib-2.0/schemas ) \
+            > "$_looklog" 2>&1
+    then
+        sed 's/^/   /' "$_looklog"
+        echo "   wrote usr/share/glib-2.0/schemas/99-husk-look.gschema.override (Yaru / Ubuntu 11)"
+    else
+        sed 's/^/   /' "$_looklog"
+        echo "   WARNING: glib-compile-schemas failed (rc=$?); override written but NOT compiled," >&2
+        echo "            so GTK programs keep Adwaita defaults." >&2
+    fi
+    rm -f "$_looklog"
+elif [ -f "$LOOK" ]; then
+    echo "   no Yaru theme / Ubuntu font / glib-compile-schemas in this tree; look defaults skipped" >&2
+fi
+
 # 2b-3. log directories apt and dpkg expect. The release tarball drops var/log
 #       (session logs of the verifying device); without these, every install
 #       prints `E: Directory '/var/log/apt/' missing` and apt still exits with an

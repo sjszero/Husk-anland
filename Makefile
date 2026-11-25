@@ -155,7 +155,7 @@ dist:
 	cp tools/loader/libc-nop.so.6 dist/libc.so.6   # the artifact `make libc-patch` refreshed
 	cp tools/guest/install-husk.sh tools/guest/husk-session.sh dist/
 	@mkdir -p dist/guest-config
-	cp tools/guest-config/husk-gpu-defaults.sh dist/guest-config/
+	cp tools/guest-config/husk-gpu-defaults.sh tools/guest-config/husk-look.override dist/guest-config/
 	cp VERSION dist/VERSION
 	tar czf dist/husk-arm64.tar.gz -C dist \
 	    libld.so libc.so.6 husk-ldconfig husk-usermgr husk-su husk-symlinks \
@@ -165,6 +165,10 @@ dist:
 # with no GPU defaults and no error. Asserted on the tarball, not on dist/.
 	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/husk-gpu-defaults.sh' || \
 	    { echo "dist: bundle is missing guest-config/husk-gpu-defaults.sh" >&2; exit 1; }
+# Same failure mode for the look defaults: a bundle without them installs a tree where
+# the shell is Yaru and every app window is Adwaita, and nothing says why.
+	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/husk-look.override' || \
+	    { echo "dist: bundle is missing guest-config/husk-look.override" >&2; exit 1; }
 	@rm -f dist/libld.so dist/libc.so.6 dist/husk-ldconfig dist/husk-usermgr \
 	    dist/husk-su dist/husk-symlinks dist/install-husk.sh dist/husk-session.sh dist/VERSION
 	@rm -rf dist/guest-config
