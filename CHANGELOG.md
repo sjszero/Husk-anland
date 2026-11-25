@@ -38,6 +38,7 @@
 | 会话自检 | `CHECK wm=yes / ding=yes / gpu=zink / input=primed / im=fcitx5` |
 | 输入法 | 有焦点窗口 `ctrl+space`：`fcitx5-remote` 0 → 2，`-n` = `pinyin` |
 | 端到端 | `gnome-text-editor` 打 `nihao`+空格 → 文件字节 `e4 bd a0 e5 a5 bd`（`你好`），`ctrl+s` 落盘 |
+| 全新目录安装（0.0.9 树包） | `rc=0`，安装器自检 `husk -- bash -l -c 'id; head -1 /etc/os-release'` 通过；三处新写入都在：`etc/profile.d/husk-locale.sh` 724 B、`etc/default/locale` = `LANG=zh_CN.UTF-8`、`root/.config/fcitx5/profile` 533 B（`DefaultIM=pinyin`），`etc/profile.d/husk-gpu.sh` 照旧 3418 B |
 
 ### 没做
 

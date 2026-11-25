@@ -63,3 +63,23 @@ run-as 起的进程、桌面 fork 出来的程序、`env -i` 都读不到——�
 ```sh
 sh $F/imtest.sh    # 起编辑器 → 给焦点 → ctrl+space → type nihao → 空格 → ctrl+s → od 文件
 ```
+
+## 7 · 全新目录安装（FACT）
+
+用 0.0.9 的树包在**空目录**装一遍（`install-husk.sh --rootfs <0.0.4 时代的 1 297 284 273 字节那份
+rootfs> --dest fresh09/root`），`rc=0`，安装器自己那步
+`husk -- usr/bin/bash -l -c 'id; head -1 /etc/os-release'` 也过了。三处新写入都在：
+
+```
+   wrote etc/profile.d/husk-gpu.sh (GPU defaults, escape: HUSK_GPU=llvmpipe)
+   wrote etc/profile.d/husk-locale.sh + etc/default/locale (zh_CN.UTF-8)
+   wrote root/.config/fcitx5/profile (keyboard + pinyin)
+```
+
+核对落盘内容：`etc/profile.d/husk-locale.sh` 724 B（与树包里那份逐字节相同）、
+`etc/default/locale` = `LANG=zh_CN.UTF-8` / `LANGUAGE=zh_CN:zh`、
+`root/.config/fcitx5/profile` 533 B（`DefaultIM=pinyin`，`keyboard-us` + `pinyin` 两项）、
+`etc/profile.d/husk-gpu.sh` 3418 B 照旧写入——0.0.5 的那条没有被新加的步骤挤掉。
+
+耗时可参考：这台机上这棵树两次解包（pass 1 直接解、pass 2 经 path-shim 重解）合计约 20 分钟，
+不是卡住。
