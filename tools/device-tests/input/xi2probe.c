@@ -55,6 +55,9 @@ int main(int argc, char **argv) {
   XSelectInput(d, w, 4 | 8);              /* ButtonPress|ButtonRelease, core */
   XMapWindow(d, w);
   XSync(d, 0);
+  /* 先让窗口真的 viewable：XIGrabDevice 在 NotViewable 上直接返回 3，测出来的
+     是"窗口没画完"而不是"抓取拿不到"。 */
+  usleep(400000);
   printf("win=0x%lx mode=%s\n", (unsigned long)w, mode);
   fflush(stdout);
 
@@ -66,9 +69,12 @@ int main(int argc, char **argv) {
   XSync(d, 0);
 
   if (do_grab) {
-    int gr = XIGrabDevice(d, 2 /* Virtual core pointer */, w, 0, 0,
+    /* 抓在 root 上：mutter 的搬窗 grab 也是 root 级的，窗口级抓取要额外处理
+       viewable 时序，跟要测的东西无关。 */
+    Window win = getenv("GRAB_ON_WINDOW") ? w : root;
+    int gr = XIGrabDevice(d, 2 /* Virtual core pointer */, win, 0, 0,
                           1 /* GrabModeAsync */, 1, 0 /* owner_events false */, &sel);
-    printf("XIGrabDevice ret=%d\n", gr);
+    printf("XIGrabDevice ret=%d (0=Success 1=AlreadyGrabbed 3=NotViewable)\n", gr);
     XSync(d, 0);
   }
   fflush(stdout);

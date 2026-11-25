@@ -201,15 +201,15 @@ slot 页定位不到，影响标 **UNKNOWN**：它的调用者是 libc 内部、
 3. 「mutter 没用 `XIGrabDevice`」不是原因——把 `XIGrabButton`/`XIGrabTouchBegin`
    全跳过（`HUSK_NOGRAB=1`）之后拖动**依然不动**（evidence 198）。
 
-**再压一层之后（evidence 205，2026-11-25 17:30）**：抓取本身和核心 motion 投递都是好的——
-`XGrabPointer` 返回 `Success`，抓取期间两次 `XTestFakeMotionEvent` 全收到（`motion=2`）。
-坏的是 **XI2 事件路径**：这台 server 上 `XISelectEvents(root, XI_Motion)` 直接回
-`BadValue`，`XIQueryDevice(XIAllDevices)` 只返回键盘。mutter 46 的 X11 后端正是走 XI2 读指针，
-所以它自己的 grab op 期间永远收不到 motion；而 `alt+F7` 之后是**键盘**驱动的移动，绕开了 Pointer motion。
+**再压一层之后（evidence 205，2026-11-25 18:05）**：事件投递这一侧**都是好的**——
+核心抓取（窗口级与 root 级）在抓取期间收到全部 XTEST motion；`XISelectEvents` 返回 0，
+XI2 的 motion/button 也都真的送到客户端。坏的是 **`XIGrabDevice` 之后的事件路径**：
+探针抓取成功（`ret=0`）但收到第一个事件就 SIGSEGV，而同样的探针不抓取时跑满 12 秒正常退出。
 
-**结论（JUDGMENT）**：坏在 XI2 的选择/枚举语义，位置在 X server 侧
-（`com.linuxhub.myth.husk:x11` 进程里的 Xorg），**不是 path-shim 能补的**。
-要修就修 XI2，不要去修抓取，也不要重做事件投递。
+**结论（JUDGMENT）**：缺口收窄到 mutter 的指针 grab op（它走的正是 `XIGrabDevice` + XI2），
+但"崩在 Xlib / 服务端 / 我们的 shim"三层还没分开，**未定案**。
+要分开只有一步：把 grab 后的协议交互退化成最小重现（只收 button / 只收 motion / 逐档改 mask 长度），
+看哪一档开始崩。这是 0.0.7 第一项。
 
 **一条 UNKNOWN，别当成已知**：生产手指走的是应用侧创建的 `Lorie` 设备（evidence 198 的 6/7/8），
 和自动化的 XTEST pointer 不是同一条。若 XI2 只对合成设备坏、对真实设备好，那真手指拖窗**可能**
