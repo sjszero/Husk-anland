@@ -1,7 +1,7 @@
 # 183 · 0.0.5 发布产物端到端：发布包装出来的树 + 发布包 loader
 
-日期：2026-11-25 11:45–12:15（CST）。设备 RMX3357（MT6939 更正为 MT6893 / Mali-G77 MC9 /
-Android 13 / 4 KiB 页），应用 `com.linuxhub.myth.husk`。全部在设备上的新目录 `files/linux/e2e050`
+日期：2026-11-25 11:45–12:15（CST）。设备 RMX3357（MT6893 / Mali-G77 MC9 / Android 13 /
+4 KiB 页），应用 `com.linuxhub.myth.husk`。全部在设备上的新目录 `files/linux/e2e050`
 里做，装完没有留在发布树里。
 
 ## 1 · 产物
