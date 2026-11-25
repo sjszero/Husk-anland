@@ -1954,6 +1954,38 @@ unsafe fn rd4u(p: *const u8) -> u32 {
 }
 
 static mut VTEXT: [u8; 4096] = [0; 4096];
+// VTEXT is shared by every synthetic proc/sys file in this process. It used to
+// be filled and copied to the returned memfd without a lock, so two threads
+// opening different files at the same time could each return the *other* file's
+// bytes. A 16-thread probe reproduced about 35,000 mixed files out of 64,000 opens.
+// Serialize only the buffer build + memfd copy; ordinary path resolution does
+// not take this lock. The owner tid lets a signal-handler re-entry fail with
+// EAGAIN instead of deadlocking on itself.
+static VIRT_BUSY: AtomicBool = AtomicBool::new(false);
+static VIRT_OWNER: AtomicI32 = AtomicI32::new(0);
+
+unsafe fn virt_lock() -> bool {
+    let tid = syscall4(SYS_GETTID, 0, 0, 0, 0) as i32;
+    if VIRT_BUSY.load(Ordering::Acquire) && VIRT_OWNER.load(Ordering::Acquire) == tid {
+        return false;
+    }
+    while VIRT_BUSY
+        .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        if VIRT_OWNER.load(Ordering::Acquire) == tid {
+            return false;
+        }
+        core::hint::spin_loop();
+    }
+    VIRT_OWNER.store(tid, Ordering::Release);
+    true
+}
+
+unsafe fn virt_unlock() {
+    VIRT_OWNER.store(0, Ordering::Release);
+    VIRT_BUSY.store(false, Ordering::Release);
+}
 
 unsafe fn vt_put(at: &mut usize, s: &[u8]) {
     let room = VTEXT.len() - *at;
@@ -4107,6 +4139,9 @@ unsafe fn vt_oct(at: &mut usize, v: u32) {
 
 /// Serve a file the namespace owns but the kernel cannot give us.
 unsafe fn virt_open(p: &[u8], flags: CInt) -> Option<CInt> {
+    if !virt_lock() {
+        return Some(set_errno(11)); // EAGAIN: re-entered from this thread
+    }
     let n = if p == b"/proc/mounts" || p == b"/proc/self/mounts" {
         virt_mount_text(false)
     } else if p == b"/proc/mountinfo" || p == b"/proc/self/mountinfo" {
@@ -4116,16 +4151,21 @@ unsafe fn virt_open(p: &[u8], flags: CInt) -> Option<CInt> {
         // through to the normal resolution, writable or not.
         match virt_synth(p) {
             Some(n) => n,
-            None => return None,
+            None => {
+                virt_unlock();
+                return None;
+            }
         }
     };
     if flags & O_ACCMODE_BITS != 0 {
         // Everything above is a read-only view; nothing can write it back.
+        virt_unlock();
         return Some(set_errno(13));
     }
     static VNAME: [u8; 10] = *b"husk-virt\0";
     let fd = syscall4(SYS_MEMFD_CREATE, VNAME.as_ptr() as usize, 0usize, 0, 0);
     if fd < 0 {
+        virt_unlock();
         return Some(set_errno(5));
     }
     let fd = fd as CInt;
@@ -4143,11 +4183,13 @@ unsafe fn virt_open(p: &[u8], flags: CInt) -> Option<CInt> {
         );
         if w <= 0 {
             rc::close(fd);
+            virt_unlock();
             return Some(set_errno(5));
         }
         off += w as usize;
     }
     syscall4(SYS_LSEEK, fd as usize, 0, 0, 0);
+    virt_unlock();
     Some(fd)
 }
 
@@ -5654,18 +5696,18 @@ pub unsafe extern "C" fn unlinkat(dirfd: CInt, path: *const CChar, flags: CInt) 
 // setuid() still fails, capabilities stay at 0. Files keep the real owner
 // (u0_a302) on disk; only what the process is *told* changes. Off unless
 // NR_FAKE_ROOT is set, so the default runtime stays truthful.
-static mut FAKE_ROOT: u8 = 2;
+static FAKE_ROOT: AtomicU8 = AtomicU8::new(2);
 
 unsafe fn fake_root_on() -> bool {
-    if FAKE_ROOT == 2 {
+    if FAKE_ROOT.load(Ordering::Acquire) == 2 {
         // On by default: inside a Linux runtime you are root, and the host user
         // that really owns the files is an implementation detail - the same
         // fiction a user namespace gives a container. NR_FAKE_ROOT=0 asks for
         // the truthful answer instead.
         let off = matches!(env_lookup(b"NR_FAKE_ROOT"), Some(v) if v == b"0" || v == b"off" || v == b"no");
-        FAKE_ROOT = if off { 0 } else { 1 };
+        FAKE_ROOT.store(if off { 0 } else { 1 }, Ordering::Release);
     }
-    FAKE_ROOT == 1
+    FAKE_ROOT.load(Ordering::Acquire) == 1
 }
 
 unsafe fn log_id(name: &[u8], v: i64) {
@@ -5682,8 +5724,7 @@ unsafe fn log_id(name: &[u8], v: i64) {
 /// only way to get a user session is proot's fake `su` - which is exactly the
 /// proot-only patch we want to delete. So the fiction follows the calls, and
 /// NR_FAKE_UID / NR_FAKE_GID seed it for a launcher that starts as the user.
-static mut FAKE_UID: u32 = 0;
-static mut FAKE_GID: u32 = 0;
+static FAKE_ID: AtomicU64 = AtomicU64::new(0);
 /// 「env 里的 NR_FAKE_UID/GID 已经读过了」的发布位。原来是 `static mut u8`，
 /// 而且**先置位再写值**：两个线程同时进 `fake_id()` 时，后进的那个会看到
 /// 「已就绪」却读到还没写的 0，于是把 root 身份报错（每个进程的第一批 stat
@@ -5710,6 +5751,36 @@ unsafe fn parse_dec(v: &[u8]) -> u32 {
     }
 }
 
+#[inline]
+fn pack_fake_id(uid: u32, gid: u32) -> u64 {
+    ((gid as u64) << 32) | uid as u64
+}
+
+#[inline]
+fn unpack_fake_id(v: u64) -> (u32, u32) {
+    (v as u32, (v >> 32) as u32)
+}
+
+/// Publish a uid/gid change as one atomic value. `setuid()` and `setgid()` are
+/// process-wide in the kernel, but guest libraries can still call them from
+/// different threads; two separate `static mut u32`s made the pair observer-visible
+/// half old and half new, and were a data race even when both writers stored the
+/// same value.
+unsafe fn fake_id_update(uid: Option<u32>, gid: Option<u32>) -> (u32, u32) {
+    let mut cur = FAKE_ID.load(Ordering::Acquire);
+    loop {
+        let (old_uid, old_gid) = unpack_fake_id(cur);
+        let next = pack_fake_id(uid.unwrap_or(old_uid), gid.unwrap_or(old_gid));
+        match FAKE_ID.compare_exchange_weak(cur, next, Ordering::AcqRel, Ordering::Acquire) {
+            Ok(_) => break,
+            Err(observed) => cur = observed,
+        }
+    }
+    let now = unpack_fake_id(FAKE_ID.load(Ordering::Acquire));
+    ident_sync(now.0, now.1);
+    now
+}
+
 unsafe fn fake_id() -> (u32, u32) {
     if FAKE_ID_READY.load(Ordering::Acquire) == 0 {
         // 先算完、写完，再发布「就绪」；两个线程同时进来最多重复解析一次，
@@ -5722,16 +5793,16 @@ unsafe fn fake_id() -> (u32, u32) {
             Some(v) => Some(parse_dec(v)),
             None => None,
         };
-        if let Some(v) = u {
-            FAKE_UID = v;
-        }
-        if let Some(v) = g {
-            FAKE_GID = v;
-        }
+        let (uid, gid) = unpack_fake_id(FAKE_ID.load(Ordering::Acquire));
+        FAKE_ID.store(
+            pack_fake_id(u.unwrap_or(uid), g.unwrap_or(gid)),
+            Ordering::Release,
+        );
         FAKE_ID_READY.store(1, Ordering::Release);
     }
-    ident_sync(FAKE_UID, FAKE_GID);
-    (FAKE_UID, FAKE_GID)
+    let id = unpack_fake_id(FAKE_ID.load(Ordering::Acquire));
+    ident_sync(id.0, id.1);
+    id
 }
 
 #[no_mangle]
@@ -6511,7 +6582,7 @@ pub unsafe extern "C" fn setuid(_uid: u32) -> CInt {
     log_id(b"setuid", _uid as i64);
     if fake_root_on() {
         fake_id();
-        FAKE_UID = _uid;
+        fake_id_update(Some(_uid), None);
         return 0;
     }
     ret_or_errno(syscall4(SYS_SETUID, _uid as usize, 0, 0, 0))
@@ -6522,7 +6593,7 @@ pub unsafe extern "C" fn seteuid(_uid: u32) -> CInt {
     log_id(b"seteuid", _uid as i64);
     if fake_root_on() {
         fake_id();
-        FAKE_UID = _uid;
+        fake_id_update(Some(_uid), None);
         return 0;
     }
     ret_or_errno(syscall4(
@@ -6539,7 +6610,7 @@ pub unsafe extern "C" fn setgid(_gid: u32) -> CInt {
     log_id(b"setgid", _gid as i64);
     if fake_root_on() {
         fake_id();
-        FAKE_GID = _gid;
+        fake_id_update(None, Some(_gid));
         return 0;
     }
     ret_or_errno(syscall4(SYS_SETGID, _gid as usize, 0, 0, 0))
@@ -6550,7 +6621,7 @@ pub unsafe extern "C" fn setegid(_gid: u32) -> CInt {
     log_id(b"setegid", _gid as i64);
     if fake_root_on() {
         fake_id();
-        FAKE_GID = _gid;
+        fake_id_update(None, Some(_gid));
         return 0;
     }
     ret_or_errno(syscall4(
@@ -6603,7 +6674,7 @@ pub unsafe extern "C" fn setresuid(_r: u32, _e: u32, _s: u32) -> CInt {
             _s
         };
         if v != u32::MAX {
-            FAKE_UID = v;
+            fake_id_update(Some(v), None);
         }
         return 0;
     }
@@ -6620,15 +6691,15 @@ pub unsafe extern "C" fn setresuid(_r: u32, _e: u32, _s: u32) -> CInt {
 pub unsafe extern "C" fn setreuid(_r: u32, _e: u32) -> CInt {
     log_id(b"setreuid", _r as i64);
     if fake_root_on() {
-        fake_id();
+        let current = fake_id();
         let v = if _r != u32::MAX {
             _r
         } else if _e != u32::MAX {
             _e
         } else {
-            FAKE_UID
+            current.0
         };
-        FAKE_UID = v;
+        fake_id_update(Some(v), None);
         return 0;
     }
     ret_or_errno(syscall4(SYS_SETREUID, _r as usize, _e as usize, 0, 0))
@@ -6638,15 +6709,15 @@ pub unsafe extern "C" fn setreuid(_r: u32, _e: u32) -> CInt {
 pub unsafe extern "C" fn setregid(_r: u32, _e: u32) -> CInt {
     log_id(b"setregid", _r as i64);
     if fake_root_on() {
-        fake_id();
+        let current = fake_id();
         let v = if _r != u32::MAX {
             _r
         } else if _e != u32::MAX {
             _e
         } else {
-            FAKE_GID
+            current.1
         };
-        FAKE_GID = v;
+        fake_id_update(None, Some(v));
         return 0;
     }
     ret_or_errno(syscall4(SYS_SETREGID, _r as usize, _e as usize, 0, 0))
@@ -6713,7 +6784,7 @@ pub unsafe extern "C" fn setresgid(_r: u32, _e: u32, _s: u32) -> CInt {
             _s
         };
         if v != u32::MAX {
-            FAKE_GID = v;
+            fake_id_update(None, Some(v));
         }
         return 0;
     }
@@ -14620,14 +14691,25 @@ fn parse_u32_dec(v: &[u8]) -> Option<u32> {
 /// socket-credential authentication fail). Written only for the first few pids
 /// a process sees, so a busy session cannot fill the disk, and used to tell
 /// "we rewrote this credential" apart from "we gave up" in the field.
-static mut IDENT_NOTES: u32 = 0;
+static IDENT_NOTES: AtomicU32 = AtomicU32::new(0);
 const IDENT_NOTE_LIMIT: u32 = 4096;
 
 unsafe fn ident_note(tag: u8, pid: CInt, a: i64, b: i64) {
-    if IDENT_NOTES >= IDENT_NOTE_LIMIT {
-        return;
+    let mut notes = IDENT_NOTES.load(Ordering::Acquire);
+    loop {
+        if notes >= IDENT_NOTE_LIMIT {
+            return;
+        }
+        match IDENT_NOTES.compare_exchange_weak(
+            notes,
+            notes + 1,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => break,
+            Err(observed) => notes = observed,
+        }
     }
-    IDENT_NOTES += 1;
     let root = guest_root();
     let suf = b"/tmp/nr-ident.log";
     if root.is_empty() || root.len() + suf.len() + 1 >= PATH_MAX {
@@ -14703,8 +14785,8 @@ unsafe fn ident_note(tag: u8, pid: CInt, a: i64, b: i64) {
 //
 // A process publishes on the first call that reports its identity; receivers
 // read that first and fall back to environ for the not-yet-published window.
-static mut IDENT_PUB_UID: u32 = u32::MAX;
-static mut IDENT_PUB_GID: u32 = u32::MAX;
+static IDENT_PUB: AtomicU64 = AtomicU64::new(u64::MAX);
+static IDENT_PUB_LOCK: AtomicBool = AtomicBool::new(false);
 
 unsafe fn ident_path(pid: CInt, out: &mut [u8; 512], dir_only: bool) -> Option<usize> {
     let root = guest_root();
@@ -14795,12 +14877,18 @@ unsafe fn ident_publish(uid: u32, gid: u32) {
 /// Publish only when the reported identity changed (a launcher seeds it once,
 /// `su` changes it mid-life).
 unsafe fn ident_sync(uid: u32, gid: u32) {
-    if uid == IDENT_PUB_UID && gid == IDENT_PUB_GID {
-        return;
+    let packed = pack_fake_id(uid, gid);
+    while IDENT_PUB_LOCK
+        .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        core::hint::spin_loop();
     }
-    ident_publish(uid, gid);
-    IDENT_PUB_UID = uid;
-    IDENT_PUB_GID = gid;
+    if IDENT_PUB.load(Ordering::Acquire) != packed {
+        ident_publish(uid, gid);
+        IDENT_PUB.store(packed, Ordering::Release);
+    }
+    IDENT_PUB_LOCK.store(false, Ordering::Release);
 }
 
 unsafe fn ident_from_registry(pid: CInt) -> Option<(u32, u32)> {

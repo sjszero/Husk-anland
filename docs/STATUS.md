@@ -27,14 +27,15 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 **仓库布局**：`runtime/crates/{path-shim,nr-tools,runtime-core}`（Rust）、`tools/loader/*.S`（裸汇编，仅入口与 hook）、
 `tools/device-tests/*.sh`、`docs/design/`（设计 + `evidence/` 原始记录）。
 
-**0.0.13 全链路审计版**：路径兼容、并发、挂载、loader、GPU/DRM、X11 呈现、音频桥和输入栈
-共记录 **24 条已修缺陷（H-01…H-24）**，逐条有真机或静态证据，索引见
+**0.0.14 发布前补审版**：在 0.0.13 全链路审计基础上，补修合成 VFS 并发、虚构身份状态、
+APK 版本元数据和 NDK 构建入口，共记录 **28 条已修缺陷（H-01…H-28）**。
+逐条有真机或静态证据，索引见
 `docs/design/evidence/226-audit-inventory-0.0.13.md`。`/proc/self/exe` 改报 guest 路径；
 `__xstat` 家族补 6 个入口；`dlmopen`/`execveat` 两个真缺口收掉（覆盖 90 → 98 / 111）；
 挂载表重读、死项清理和 `remount,ro` 修复；音频桥并发、播放和采集协议真机通过；X11 输入
 全屏和双客户端各 5/5 命中。门禁 A 为 **38/38**。
 
-**未闭合、不得写成通过**：libc 体内跳板（L2）仍是 0 覆盖；`ALIAS_*` 等 7 处仍是 UNKNOWN；
+**未闭合、不得写成通过**：libc 体内跳板（L2）仍是 0 覆盖；
 `adb input swipe` 到 XI2 的事件路径 UNKNOWN；GPU 的 `glxgears` 在 PanVK/Bifrost 编译器
 `emit_cf_list.isra.0+0x120` 稳定 SIGSEGV（evidence 232），所以不能宣称 GPU 长跑通过。
 跨设备仍只有 Mali-G77 / Android 13 / 4 KiB 真机证据。机制账见 `docs/design/compat-layer.md`，

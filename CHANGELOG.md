@@ -7,7 +7,11 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
-## [Unreleased]
+## [0.0.14] - 2026-11-26
+
+> 主题：**发布前补审**。0.0.13 发布后又对并发、会话生命周期、APK 元数据和构建入口做了一轮
+> 实证审计；这一版只收已经复现或由构建链路直接证实的缺陷。没有设备验证的适配仍按 UNKNOWN 记录。
+> 最终构建、安装和真机回归结果见 evidence 239。
 
 ### 增加
 
@@ -23,6 +27,18 @@
 - App 壳增加独立 Rust 会话看门狗：App 进程单独死亡时通过 lease EOF 清理带
   `NR_SESSION_ID` 的 guest 进程，包括已经 `setsid()` 脱离会话组的 daemon；同时修复
   `Term`/`teardown` 的重复 close 路径。证据：evidence 234。
+- **合成 `/proc`/sys 文件会被并发线程串内容**（evidence 235）。`/proc/mounts`、
+  `/proc/self/status`、`/proc/sysvipc/shm` 和 `/proc/uptime` 共用一个无锁的 4 KiB
+  `VTEXT`；16 线程 × 4000 轮实测 64,000 次里 35,348 次返回了另一个文件的内容，
+  例如 `/proc/mounts` 读到 `Name:\t…`。现在只锁住内容生成到 memfd 写完的窗口，
+  同一线程重入返回 `EAGAIN` 而不是自锁；修后 64,000/64,000 通过。
+- 虚构身份的共享状态改为原子发布（evidence 236）：`FAKE_ROOT`、`FAKE_UID/GID`、
+  `IDENT_PUB_UID/GID` 和 `IDENT_NOTES` 不再用无保护的 `static mut` 跨线程读写；
+  `getuid/setuid/getgid/setgid/getresuid/getresgid` 真机功能探针通过。
+- APK 的 `versionName/versionCode` 改为从仓库根目录 `VERSION` 读取（evidence 237）。
+  修前 debug APK 硬编码 `0.1 / 1`，和 Release 的 `0.0.13` 不一致。
+- 构建入口接受 NDK 的 `<prebuilt>` 与 `<prebuilt>/bin` 两种写法（evidence 238）。
+  修前文档里的 `NDK=<prebuilt>/bin make apk` 会在 loader 阶段找不到 `clang`。
 
 ## [0.0.13] - 2026-11-26
 
@@ -745,7 +761,8 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.3...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.14...HEAD
+[0.0.14]: https://github.com/xishanp/Husk/releases/tag/v0.0.14
 [0.0.7]: https://github.com/xishanp/Husk/releases/tag/v0.0.7
 [0.0.6]: https://github.com/xishanp/Husk/releases/tag/v0.0.6
 [0.0.5]: https://github.com/xishanp/Husk/releases/tag/v0.0.5

@@ -17,6 +17,15 @@ set -e
 cd "$(dirname "$0")"
 ROOT=$(cd ../.. && pwd)
 NDK=${NDK:?set NDK to your NDK toolchain bin dir, e.g. $ANDROID_HOME/ndk/<ver>/toolchains/llvm/prebuilt/<host>/bin}
+# Accept both the prebuilt host directory and its bin/ child. `make apk` needs
+# the host directory for the target-prefixed C compiler, while this script and
+# `make loader` need bin/clang; normalizing here keeps one NDK value valid for
+# every entry point.
+case "$NDK" in
+    */bin) ;;
+    *) NDK=$NDK/bin ;;
+esac
+[ -x "$NDK/clang" ] || { echo "$0: no clang at $NDK/clang" >&2; exit 1; }
 # The APK packages the loader from jniLibs, so that is where a plain build puts
 # it. It is a build output and is not tracked (see .gitignore).
 OUT=${OUT:-$ROOT/app/app/src/main/jniLibs/arm64-v8a}

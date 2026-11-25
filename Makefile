@@ -16,7 +16,7 @@ MANIFEST    := runtime/Cargo.toml
 PROFILE_DIR := runtime/target/$(TARGET)/release
 HUSK_TOOLS  := runtime/target/debug/husk-tools
 
-.PHONY: all check lint test tools nr-tools loader apk bench gate-a docs dist clean version-check \
+.PHONY: all check lint test tools nr-tools loader apk bench gate-a virt-race docs dist clean version-check \
         libc-patch libc-verify
 
 all: lint check version-check
@@ -100,14 +100,15 @@ loader:
 # (jniLibs/libld.so) and the App's own .so (jniLibs/libhuskapp.so). Both are
 # build outputs and neither is tracked, so a clean clone builds them here.
 JNI := app/app/src/main/jniLibs/arm64-v8a
-CC_ANDROID := $(NDK)/aarch64-linux-android24-clang
+NDK_BIN := $(if $(filter %/bin,$(NDK)),$(NDK),$(NDK)/bin)
+CC_ANDROID := $(NDK_BIN)/aarch64-linux-android24-clang
 
 apk:
 	@test -n "$$NDK" || { echo "set NDK=<ndk>/bin (needs clang, llvm-objcopy, llvm-ar)" >&2; exit 1; }
 	@$(MAKE) --no-print-directory loader
 	mkdir -p $(JNI)
 	CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$(CC_ANDROID) \
-	CC_aarch64_linux_android=$(CC_ANDROID) AR_aarch64_linux_android=$(NDK)/llvm-ar \
+	CC_aarch64_linux_android=$(CC_ANDROID) AR_aarch64_linux_android=$(NDK_BIN)/llvm-ar \
 	  cargo build --release --manifest-path app-rs/Cargo.toml --target aarch64-linux-android \
 	    --lib --bin husk-session-guard
 	cp app-rs/target/aarch64-linux-android/release/libhuskapp.so $(JNI)/
@@ -134,6 +135,12 @@ gate-a:
 		sh tools/device-tests/14-gate-a-acceptance.sh
 	sh tools/probe/run-coverage-probe.sh "$${DEV}" "$${ROOTFS:-}" "$${LD:-}"
 	sh tools/probe/coverage-sweep.sh "$${DEV}"
+
+virt-race:
+	@test -n "$${DEV:-}" || { echo "set DEV=<serial> and the device paths" >&2; exit 1; }
+	sh tools/device-tests/run-virt-concurrency-probe.sh \
+		"$${DEV}" "$${PKG:-com.linuxhub.myth.husk}" \
+		"$${ROOTFS:?set ROOTFS}" "$${LD:?set LD}" "$${ROUNDS:-4000}"
 
 docs: tools
 	$(HUSK_TOOLS) check-links

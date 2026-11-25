@@ -30,6 +30,10 @@
 | H-22 | 挂载 | `mount -o remount,ro <tgt>`（util-linux）一直 EINVAL：它把 bind 的**源**当 target 交过来；尾部斜杠也匹配不上 | 227 §3 |
 | H-23 | GPU/DRM | BO 只建不释放：`GEM_CLOSE` 没实现、`KBASE_MEM_FREE` 从没被调用，第 64 个 `CREATE_BO` 起一律 ENOMEM | 229 §2 |
 | H-24 | GPU/DRM | `DRM_CTX.dispatch()` 无锁：并发 `CREATE_BO` 拿到重复 handle、覆盖 BO 表 | 229 §3 |
+| H-25 | 合成 VFS | `/proc/mounts`、`/proc/self/status`、`/proc/sysvipc/shm`、`/proc/uptime` 共用一个无锁 `VTEXT`；16 线程 × 4000 轮中 35,348/64,000 次读到另一个文件的内容 | 235 |
+| H-26 | 身份状态 | `FAKE_UID/GID`、`IDENT_PUB_UID/GID`、`IDENT_NOTES` 用无保护 `static mut`；并发读写构成数据竞争，身份对可能半新半旧 | 236 |
+| H-27 | 发布工程 | APK `versionName=0.1`、`versionCode=1` 与仓库 `0.0.13` 脱节；改为直接读取 `VERSION` | 237 |
+| H-28 | 构建入口 | `make apk` 要求 NDK 指向 `<prebuilt>`，loader 却要求 `<prebuilt>/bin`；并发探针脚本也会拼出 `bin/bin/clang`。同一条 NDK 设置无法跨入口使用 | 238 |
 
 ## 2 · 记录在案、不修或不完全修的（L）
 

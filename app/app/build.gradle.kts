@@ -1,4 +1,6 @@
 plugins { id("com.android.application") }
+val huskVersion = rootProject.file("../VERSION").readText().trim()
+val huskVersionCode = huskVersion.split('.').fold(0) { value, part -> value * 100 + part.toInt() }
 android {
     namespace = "com.linuxhub.husk"
     compileSdk = 36
@@ -6,8 +8,8 @@ android {
         applicationId = "com.linuxhub.husk"
         minSdk = 24
         targetSdk = 33
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = huskVersionCode
+        versionName = huskVersion
     }
     packaging {
         jniLibs {
