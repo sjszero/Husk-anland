@@ -98,8 +98,11 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
    占 1.3 ms，其余是 GPU→CPU 回读，再加挂进 X server 的那次拷贝。重负载的 GPU/CPU 对比
    **未测**。
    要消掉这一段只能走 DRI3/dma-buf 直传，而它在这台机上**不在 shim 能力范围内**：X server 是
-   应用进程里的 bionic Xorg（X.Org 21.1.99），`untrusted_app` 打不开 `/dev/dri`、
-   `/dev/dma_heap` 不存在、`/dev/ion` EACCES，所以「DRI3 有扩展但没有设备」，只能停在
+   应用进程里的 bionic Xorg（X.Org 21.1.99）。2026-11-25 在应用域（`u:r:runas_app`）里把节点
+   布局查清了：`/dev/dri` 下**只有 `card0`（226,0，`system:system` `0660`）**，**没有
+   `renderD128`**；`/dev/dma_heap` 不存在；GPU 实际走厂商节点 `/dev/mali0`（`10,33`，
+   `0666`，所以 PanVK 能直连）。也就是说这台机不是「权限不够」，而是**根本没有 DRI3 要的那个
+   render 节点**。所以「DRI3 有扩展但没有设备」，只能停在
    `Could not get DRI3 device`。要么 shell 侧给服务器一条能 import dma-buf 的路，要么接受
    这次拷贝（已实测代价见 evidence 174）。
    **这次拷贝是架构共性，不是这台机慢**（分开标）：来源是「X server 跑在 Android 应用进程里、

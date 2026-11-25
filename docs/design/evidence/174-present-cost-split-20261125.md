@@ -173,6 +173,24 @@ memmove 10.05 GiB/s  1.043 ms per 10 MiB
 所以「换台更快的手机」修不好这件事，能修的是**把共享内存这条路接上**（DRI3/dma-buf，
 需要 shell 侧配合，见上文）。
 
+### 设备节点布局（2026-11-25 在应用域实测，比上一版更准）
+
+`adb shell run-as com.linuxhub.myth.husk`（域 `u:r:runas_app:s0`）里看到：
+
+| 节点 | 结果 |
+|---|---|
+| `/dev/dri/card0` | 存在，`crw-rw---- system system 226,0`（`0660`，应用打不开） |
+| `/dev/dri/renderD128` | **不存在** |
+| `/dev/dma_heap` | 不存在 |
+| `/dev/ion` | 存在，`crw-rw-rw- system graphics 10,60` |
+| `/dev/mali0` | 存在，`crw-rw-rw- root root 10,33`，`head -c0` 打开返回 0（可开） |
+| `/dev/kgsl-3d0` | 不存在（那是高通的节点） |
+
+所以这台 Mali 机上 DRI3 缺的不是权限，是**没有 Mesa/Xorg 认的 render 节点**；GPU 能力是通过
+厂商节点 `mali0` 给的（这就是 PanVK 直连的来路）。**INFERENCE（未实测）**：把 `/dev/dri/renderD128`
+合成到 `mali0` 也未必能出 DRI3——DRI3 还要 DRM 的 version/prime 语义，厂商节点不保证提供。
+要证伪或证实得写一个探针去对 `mali0` 发 `DRM_IOCTL_VERSION`，没做。
+
 ### 这一段是共性还是本机
 
 - **FACT**：本机应用进程是 `untrusted_app`，`open("/dev/dri/renderD128")` → `EPERM`，
