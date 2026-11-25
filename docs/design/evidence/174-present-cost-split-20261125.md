@@ -151,3 +151,35 @@ SHM 拷贝」。这句话是**推断**，没做过拆分：窗口 swap 里同时
   像素回读之后才是真数。
 - 只有清屏的 `pbuf` 对 GPU 是最不利的负载（工作量为零、每条命令的开销占满），不能拿它当
   "GPU 加速效果"的代表。
+
+## 附：这是「手机慢」还是「路径没共享内存」（同日补测）
+
+一个自然的反驳是「你们这台机内存带宽不行，所以拷贝才 30 ms」。所以把「拷贝」和「带宽」
+分开量：guest 里用 `ctypes.memmove` 做纯内存对拷，10 MiB × 30 次
+（脚本设备侧 `files/linux/memcp.sh`，走 `NR_ROOTFS=... husk/libld.so --library-path ... usr/bin/python3`）：
+
+```text
+memmove 10.05 GiB/s  1.043 ms per 10 MiB
+```
+
+按这个带宽，2400×1080 一帧（2.592 兆像素 × 4 B = 10.37 MB）纯值拷贝下限约 **1.0 ms**，
+而上面实测的 GPU→CPU 回读是 **30.27 ms/帧**。也就是：
+
+| 解释 | 能解释多少 |
+|---|---:|
+| 内存带宽不够 | **3.4%** |
+| 其余（路径上没有共享内存：CPU↔内核往返、tiled→线性转换、evidence 179 的 pitch 错位 16 B/行） | 96.6% |
+
+所以「换台更快的手机」修不好这件事，能修的是**把共享内存这条路接上**（DRI3/dma-buf，
+需要 shell 侧配合，见上文）。
+
+### 这一段是共性还是本机
+
+- **FACT**：本机应用进程是 `untrusted_app`，`open("/dev/dri/renderD128")` → `EPERM`，
+  `/dev/dri/card0` 是 shim 合成的 `10,33`，`/dev/dma_heap` 不存在、`/dev/ion` EACCES。
+- **INFERENCE**：任何把 X server 关在 Android 应用进程里的方案（Termux:X11、Xvfb 系、
+  proot 里的桌面栈）都受同一条约束——DRI3 的前提是 server 自己能拿到 render node 并 import
+  dma-buf，这在 `untrusted_app` 下要么靠同 uid、要么靠跨进程传 fd 的通路。差别只在谁把这
+  条路打通了。
+- **UNKNOWN**：别人在各自实机上到底走通没有、省掉多少，我们没有在他们的机器上量过，
+  不替他们宣布。本仓库只写我们量到的数。

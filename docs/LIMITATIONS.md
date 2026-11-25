@@ -102,6 +102,13 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
    `/dev/dma_heap` 不存在、`/dev/ion` EACCES，所以「DRI3 有扩展但没有设备」，只能停在
    `Could not get DRI3 device`。要么 shell 侧给服务器一条能 import dma-buf 的路，要么接受
    这次拷贝（已实测代价见 evidence 174）。
+   **这次拷贝是架构共性，不是这台机慢**（分开标）：来源是「X server 跑在 Android 应用进程里、
+   拿不到 render node」。**FACT**：本机 `untrusted_app` 打开 `/dev/dri/renderD128` 直接
+   `EPERM`，`card0` 是 shim 合成的 `10,33`；**FACT**：guest 内纯 `memmove` 实测 10.05 GiB/s
+   （10 MiB 一次 1.043 ms），2400×1080 一帧 10.37 MB 值拷贝下限约 1.0 ms，而实测回读是
+   30.27 ms/帧，带宽只能解释 3.4%；**INFERENCE**：凡是不 root、把 X server 关在应用进程里的
+   方案（Termux:X11、Xvfb 系）都受同一条 `untrusted_app` 约束，区别只在各自有没有把 DRI3
+   /dma-buf 直传打通；别人在各自实机上到底省没省掉这一次，**我们没量，UNKNOWN**。
 
 ## 8 · 分区很细：这一版不是「什么都跑得起来」
 
