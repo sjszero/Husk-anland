@@ -187,6 +187,25 @@ fi
 echo "CHECK wm=$wm"
 echo "CHECK ding=$ding"
 echo "CHECK gpu=$gpu"
+
+# 5b. 输入预热（evidence 206）。会话起来之后的**第一次**指针 grab op 不会搬窗：
+#     mutter 日志里 "grab op 1281 ... successful" → "Computing edges to resist-movement
+#     or snap-to" → "Ending grab op"，位置一格没动；紧接着的第二次拖动就正常了。
+#     用一次空点击 + 一次 8 px 的空拖动把这一次消耗掉，用户第一次拖窗口就是好的。
+#     选点在屏幕中下部（远离左侧 dock 和 DING 的图标列），失败不影响会话。
+input=no
+dims=$(g usr/bin/xdpyinfo 2>/dev/null | awk '/dimensions:/ {print $2; exit}')
+W=${dims%x*}; H=${dims#*x}
+case "$W$H" in ''|*[!0-9]*) W=800; H=600 ;; esac
+PX=$(( W / 2 )); PY=$(( H / 4 * 3 ))
+if g usr/bin/xdotool mousemove "$PX" "$PY" >/dev/null 2>&1; then
+    g usr/bin/xdotool click 1 >/dev/null 2>&1 || true
+    g usr/bin/xdotool mousedown 1 >/dev/null 2>&1 || true
+    g usr/bin/xdotool mousemove "$((PX + 8))" "$((PY + 8))" >/dev/null 2>&1 || true
+    g usr/bin/xdotool mouseup 1 >/dev/null 2>&1 || true
+    input=primed
+fi
+echo "CHECK input=$input"
 echo "CHECK shell_log=$SHELL_LOG"
 
 # 壁纸：装好的看护脚本会把当前壁纸缩到屏幕尺寸（并修复空/失效的 picture-uri）。

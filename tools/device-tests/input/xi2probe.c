@@ -64,7 +64,9 @@ int main(int argc, char **argv) {
   unsigned char m[4] = {0};
   m[0] |= (1 << XI_Motion) | (1 << XI_ButtonPress) | (1 << XI_ButtonRelease);
   XIEventMask sel = { 1 /* XIAllMasterDevices */, 4, m };
-  int rc = XISelectEvents(d, w, &sel, 1);
+  /* SELECT_ON_ROOT=1：事件选在 root 上。mutter 的 grab op 就是这么选的——
+     先选 root 再抓设备；只在窗口上选会漏掉"抓取期间事件投给谁"这一层。 */
+  int rc = XISelectEvents(d, getenv("SELECT_ON_ROOT") ? root : w, &sel, 1);
   printf("XISelectEvents rc=%d\n", rc);
   XSync(d, 0);
 
