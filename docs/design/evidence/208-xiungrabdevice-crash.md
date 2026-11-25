@@ -1,5 +1,10 @@
 # 208 · `XIUngrabDevice` 之后客户端 SIGSEGV（跳过它就好），责任未定
 
+> **更正（evidence 209，2026-11-25 19:45）**：崩的不是 `XIUngrabDevice`。那个探针调的是
+> XInput-1 的 `XUngrabDevice(Display*, XDevice*, Time)`，却按 `(Display*, int, Time)` 声明并
+> 传了整数 2，libXi 把它当指针解引用，所以必崩。改成 `XIUngrabDevice` 后同一条命令 `rc=0`。
+> 本文 §1 的「崩点在 XIUngrabDevice」与 §2 的三种可能全部作废，结论见 evidence 209。
+
 日期：2026-11-25 17:44–17:52（CST）。设备 RMX3357，`:0`，0.0.7 会话。
 
 ## 1 · 二分结果（FACT）

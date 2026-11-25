@@ -31,7 +31,9 @@ extern int XPending(Display *);
 extern int XNextEvent(Display *, void *);
 extern int XISelectEvents(Display *, Window, XIEventMask *, int);
 extern int XIGrabDevice(Display *, int, Window, Time, XID, int, int, int, XIEventMask *);
-extern int XUngrabDevice(Display *, int, Time);
+/* XI2 的解除抓取叫 XIUngrabDevice（3 个参数）；核心协议的 XUngrabDevice 只有 2 个参数，
+   以前这里写成 3 个参数去调核心函数，抓到的那次 segv 就是它（evidence 209）。 */
+extern int XIUngrabDevice(Display *, int, Time);
 extern int XGetEventData(Display *, XCookie *);
 extern void XFreeEventData(Display *, XCookie *);
 
@@ -104,7 +106,7 @@ int main(int argc, char **argv) {
   }
   printf("RESULT mode=%s core_motion=%d core_button=%d xi_motion=%d xi_button=%d xi_other=%d\n",
          mode, core_motion, core_btn, xi_motion, xi_btn, xi_other);
-  if (do_grab && !getenv("NO_UNGRAB")) XUngrabDevice(d, 2, 0);
+  if (do_grab && !getenv("NO_UNGRAB")) XIUngrabDevice(d, 2, 0);
   XSync(d, 0);
   return 0;
 }

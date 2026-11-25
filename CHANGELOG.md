@@ -7,6 +7,44 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.8] - 2026-11-25
+
+> 主题：**把 0.0.7 留下来的那条 SIGSEGV 悬案结掉。** 结论是崩的并不是 `XIUngrabDevice`：探针调
+> 的是 XInput-1 的 `XUngrabDevice(Display*, XDevice*, Time)`，却按 `(Display*, int, Time)` 声明
+> 并传了整数，libXi 把整数当指针解引用。运行时代码没有改动，这一版只修测试工具、把错判撤掉，
+> 并让 `docs/LIMITATIONS.md` §7 的现状与实测一致。
+
+### 修复
+
+- **`tools/device-tests/input/xi2probe.c` 调错了函数**（evidence 209）。原声明
+  `extern int XUngrabDevice(Display *, int, Time);` 并调用 `XUngrabDevice(d, 2, 0)`，而
+  X.Org 的 `XInput.h` 里 `XUngrabDevice` 的第二个参数是 `XDevice*`。传整数 2 进去，libXi 解引用
+  该地址，进程 SIGSEGV。改成 `XIUngrabDevice(d, 2, 0)` 后，`grab` 模式完整跑完：
+  `XIGrabDevice ret=0` → `RESULT mode=grab …` → `rc=0`；修前是同一条命令 `segv|sig=11`、`rc=139`，
+  且看不到 `RESULT`。
+- **新增 `tools/device-tests/input/ungrabmin.c`**：只做 `XOpenDisplay` → 一次解除抓取 → `XSync`，
+  四个模式（`xi` / `core` / `core-pt` / `xi-grab`）分别复跑，用来区分核心协议、XInput-1、XI2
+  三条路。本机实测：`xi` rc=0、`core-pt` rc=1（GrabNotActive）、`xi-grab` rc=0、错声明下的
+  `core` rc=139。
+
+### 更正
+
+- **evidence 208 §1 / §2 作废**：「崩点在 `XIUngrabDevice`」不成立（那个程序从未调用它），
+  server、libXi、path-shim 都没有问题，责任在探针自己的函数原型。
+- **`docs/LIMITATIONS.md` §7 标题**原写「桌面还吃不到」。当前事实是 gnome-shell 46 由
+  zink → PanVK 出帧、X 根窗口非黑像素 100%（evidence 165/168），标题改为「桌面已经在 GPU 上
+  出帧，剩下的是呈现那一次拷贝」，并在开头补现状段。
+- **§7 里 nautilus「内容区空白」定案**（evidence 207）：清掉残留实例后 15 秒出窗，窗口内
+  26 286 种颜色、内容区 17 223 种、白底占比 0.757，内容区不空白；「点了没反应」是单实例被上一轮
+  会话的残留进程劫持，`--new-window` 把请求转给一个 X 连接已死的实例。
+
+### 产物
+
+- 树包除 `VERSION` 一个文件外，与 0.0.7 的树包**逐字节一致**：15 个条目逐个比对 sha256 全部相同
+  （`libld.so fd1ec526…`、`libc.so.6 69ceef37…`、`install-husk.sh 79e1f8c1…`、`husk-desktop.sh
+  d7193c89…` 等）。1 928 579 字节，sha256
+  `49de7400173232345ae7c29eeb1eeca9708a92a68d366597e4018d0c2e4863f2`。
+
 ## [0.0.7] - 2026-11-25
 
 > 主题：**把 0.0.6 里"窗口拖不动"这件事查到底，然后修掉。** 结论是这条旧结论本身是错的——
@@ -400,3 +438,4 @@
 [0.0.3]: https://github.com/xishanp/Husk/releases/tag/v0.0.3
 [0.0.2]: https://github.com/xishanp/Husk/releases/tag/v0.0.2
 [0.0.1]: https://github.com/xishanp/Husk/releases/tag/v0.0.1
+[0.0.8]: https://github.com/xishanp/Husk/releases/tag/v0.0.8

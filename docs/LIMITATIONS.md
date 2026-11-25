@@ -45,7 +45,12 @@ guest 里 `/proc/self/fd/1` 是 socket。`make` 往它写完（309 字节就够�
 写入全部 `EACCES`。proot 下完全一样，所以不是 shim 的行为；但它限定了基准的取样方式：
 构建类步骤统一重定向到 `/dev/null`，只记墙钟（evidence 155）。
 
-## 7 · GPU：能算、GL 也能落到 GPU，但桌面还吃不到
+## 7 · GPU：桌面已经在 GPU 上出帧，剩下的是呈现那一次拷贝
+
+**2026-11-25 的现状**：gnome-shell 46 跑在 zink → PanVK 上，X 根窗口抓到完整桌面、非黑像素
+100%（evidence 165/168）；GTK4 应用因为圆角裁剪缺口默认走 `GSK_RENDERER=cairo`（evidence 187）；
+`nautilus` 46 的内容区实测完整（evidence 207）。还没消掉的是「窗口内容 → X server」那一次
+回读 + 拷贝，以及这颗 SoC 上没有 DRI3 要的 render 节点。
 
 **已经是 FACT（evidence 156，2026-11-24，当前版本的树）**：guest 进程直开 `/dev/mali0`；
 kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，compute 与离屏 graphics
@@ -81,7 +86,12 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
    `cairo`+zink、`ngl`+zink、`cairo`+llvmpipe 三种组合内容区都完整（面包屑、侧栏、图标网格
    全在），`ngl` 只多出 187 那种三角缺口。178 那次的可疑条件（`xdotool windowkill` 后重建
    窗口、1200x540 时代的旧几何、实验版加载器）当时同时成立，所以按**会话态问题**记，
-   不再当成渲染路径的已知 bug。WebKit/Electron 类**未测**。
+   不再当成渲染路径的已知 bug。
+   **2026-11-25 定案**（evidence 207）：清掉旧实例后 `nautilus --new-window /root/vtest`，
+   15 秒出窗（`281,142 1012x672`），窗口内 26 286 种颜色、内容区 17 223 种、白底占比 0.757、
+   672 行里有 44 行带文字边——内容区不空白。「点了没反应」的真实原因是单实例被上一轮会话的
+   残留进程劫持：`--new-window` 把请求转给一个 X 连接已死的实例，连等 60 秒一个新窗口都不出；
+   先 `kill -9` 再起就正常。`husk-desktop.sh` 起会话时清残留那一步就是治这个的。WebKit/Electron 类**未测**。
    键盘输入**已测**：XTEST 敲进 `gnome-text-editor`，标题与正文都跟着更新、折行正常
    （evidence 180）；**没量延迟**，也没测 IME/组合键，指针注入另见 evidence 148。
    另外每一轮 PanVK 起上下文都会打 `kbase: KBASE_IOCTL_MEM_EXEC_INIT failed: EPERM`
