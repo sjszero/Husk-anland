@@ -7199,6 +7199,55 @@ pub unsafe extern "C" fn scandir(
         return -1;
     }
 
+    scandir_common(dir, namelist, select, compar)
+}
+
+/// `scandirat(3)`：glibc 的实现在内部用 `__openat64_nocancel` 直接发系统调用，
+/// 导出同名符号也拦不到（evidence 214 §4.1，body patch 在 4.19 上 `sig=11`）。
+/// 所以这里自己实现：用我们的 `openat` 拿目录 fd（翻译与只读检查都在里面），
+/// `fdopendir` 之后和 `scandir` 共用同一个扫描体。
+#[no_mangle]
+pub unsafe extern "C" fn scandirat(
+    dirfd: CInt,
+    path: *const CChar,
+    namelist: *mut *mut *mut u8,
+    select: ScandirSelect,
+    compar: ScandirCompar,
+) -> CInt {
+    if namelist.is_null() {
+        *__errno_location() = 22; // EINVAL
+        return -1;
+    }
+    *namelist = core::ptr::null_mut();
+    if path.is_null() {
+        *__errno_location() = 14; // EFAULT
+        return -1;
+    }
+    let fd = openat(dirfd, path, O_RDONLY0 | O_DIRECTORY | O_CLOEXEC, 0);
+    if fd < 0 {
+        if *__errno_location() == 0 {
+            *__errno_location() = 2; // ENOENT: never return -1 with a stale errno
+        }
+        return -1;
+    }
+    let dir = fdopendir(fd);
+    if dir.is_null() {
+        let e = *__errno_location();
+        rc::close(fd);
+        *__errno_location() = if e == 0 { 12 } else { e };
+        return -1;
+    }
+    scandir_common(dir, namelist, select, compar)
+}
+
+unsafe fn scandir_common(
+    dir: *mut u8,
+    namelist: *mut *mut *mut u8,
+    select: ScandirSelect,
+    compar: ScandirCompar,
+) -> CInt {
+    *namelist = core::ptr::null_mut();
+
     let item_size = core::mem::size_of::<*mut u8>();
     let mut capacity = 8usize;
     let mut list = malloc(capacity * item_size) as *mut *mut u8;

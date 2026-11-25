@@ -7,6 +7,25 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.12] - 2026-11-25
+
+> 主题：**`scandirat` 补上，覆盖度探针进门禁**。0.0.11 里唯一没修通的那条漏网符号
+> （glibc 内部走 `__openat64_nocancel` 的直接调用，导出同名符号拦不到、body patch 又会
+> `sig=11`）改成自己实现扫描体；`tools/probe` 并进 `make gate-a`，门禁从"命令返回 0"
+> 变成"文件确实落在 guest 里"。
+
+### 修
+
+- **`scandirat(3)` 在 guest 里一直是 `ENOENT`**（evidence 215）。它的路径参数由 glibc 内部的
+  `__openat64_nocancel` 直接发起，我们导出同名符号也拦不到。改成自己实现：用 `openat`
+  拿目录 fd（翻译与只读检查都在里面）→ `fdopendir` → 与 `scandir` 共用同一个扫描体。
+  实测 `n=-1 errno=2` → `n=36 errno=0`。
+
+### 加
+
+- **`make gate-a` 现在跑两段**：36 项验收 + `tools/probe/run-coverage-probe.sh`。
+  探针的判据是"这些文件到底落在 guest 里还是宿主里"，不是"命令返回 0"（evidence 215 §2）。
+
 ## [0.0.11] - 2026-11-25
 
 > 主题：**安装器不再把失败当成功 + path-shim 的漏网符号补上并实测**。三处把子进程退出
@@ -573,3 +592,5 @@
 [0.0.9]: https://github.com/xishanp/Husk/releases/tag/v0.0.9
 [0.0.10]: https://github.com/xishanp/Husk/releases/tag/v0.0.10
 [0.0.11]: https://github.com/xishanp/Husk/releases/tag/v0.0.11
+
+[0.0.12]: https://github.com/xishanp/Husk/releases/tag/v0.0.12

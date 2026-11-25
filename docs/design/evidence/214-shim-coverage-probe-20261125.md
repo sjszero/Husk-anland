@@ -47,7 +47,7 @@ loader 用 `NDK=… make loader` 重编，设备上换 `files/linux/husk/libld.s
 
 ## 4 · 三个新发现（FACT）
 
-### 4.1 `scandirat` 修不动，因为拦它的那一层是坏的
+### 4.1 `scandirat` 修不动，因为拦它的那一层是坏的（*已被 evidence 215 修掉*）
 
 `scandirat` 的路径参数由 glibc 内部 `__openat64_nocancel` 直接发起（不是 GOT 调用），
 **导出同名符号也拦不到**。唯一能拦的是 body patch（覆写 libc 函数前 16 字节），而：

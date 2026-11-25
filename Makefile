@@ -119,11 +119,14 @@ bench:
 	@$(MAKE) --no-print-directory tools
 	$(HUSK_TOOLS) bench-compare docs/design/evidence/bench-*-il.log
 
+# 门禁 A = 36 项验收 + 覆盖度探针。探针单列一步，因为它的判据不是"命令返回 0"，
+# 而是"这个文件到底落在 guest 里还是宿主里"；两者都过才算过。
 gate-a:
 	DEV=$${DEV:?} PKG=$${PKG:-com.linuxhub.myth.husk} \
 		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} \
 		LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/14-gate-a-acceptance.sh
+	sh tools/probe/run-coverage-probe.sh "$${DEV}" "$${ROOTFS:-}" "$${LD:-}"
 
 docs: tools
 	$(HUSK_TOOLS) check-links
