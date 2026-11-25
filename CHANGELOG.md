@@ -7,6 +7,54 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.7] - 2026-11-25
+
+> 主题：**把 0.0.6 里"窗口拖不动"这件事查到底，然后修掉。** 结论是这条旧结论本身是错的——
+> 拖不动的只有**每个会话里的第一次**，第二次起就正常。修法是在会话起来后做一次输入预热。
+> 同时把 197/198/203/205 四份证据里"拖动完全失效"的判断全部更正。
+
+### 修复
+
+- **会话里第一次指针拖动不搬窗**（evidence 206）。`husk-desktop.sh` 在自检之后加第 5b 步
+  「输入预热」：屏幕中下部（`W/2, H*3/4`，避开左侧 dock 与 DING 图标列）做一次
+  `click` + 一次 `mousedown → +8px → mouseup`，输出 `CHECK input=primed`。
+  - 修前：起会话后立刻拖 → `236,188` 一格不动；45 秒后同一会话再拖 → `536,388`。
+  - 修后：起会话后立刻拖 → `536,388`（第一次就动），实测两次会话一致。
+  - 预热不是修根因：第一次 grab op 为什么丢位置更新还没定（mutter 日志显示抓取成功、
+    边缘计算也跑了，就是位置没更新），留作 UNKNOWN。
+- **顺带验了吸附**：拖到左边缘松手 → `46 12 1207 1088`，即 2400×1080 的左半屏平铺。
+
+### 更正（重要）
+
+- 197 / 198 / 203 / 205 写的"拖动完全失效"**作废**：那四份测的都是新会话里的第一次拖动，
+  把一次性故障当成了功能缺陷。
+- 205 初版把原因归到"这台 server 的 XI2 选择/枚举是坏的"，**也是错的**——我们自己的临时探针
+  把 `XISelectEvents` 的请求构造错了。用仓库里的 `xi2probe.c` 重测：`rc=0`，事件到手。
+- 本轮把事件层逐条排干净：核心抓取（窗口级 / root 级）、`XISelectEvents`（窗口 / root）、
+  `XIGrabDevice(root)` + XI2、XI2 motion 的 `root_x/root_y` 坐标——全部正常。
+
+### 测过
+
+| 项 | 数 |
+|---|---|
+| 第一次拖动（修前 / 修后） | `236,188` 不动 / `536,388`（+300,+200） |
+| 第二次拖动（同会话） | `536,388` |
+| 边缘平铺 | `46 12 1207 1088` |
+| XI2 motion 收到数（grab + root 选择） | 10 motion + 1 button |
+| XI2 motion 里的坐标 | 与注入值逐点一致（400,300 / 520,370 / 640,440） |
+
+### 工具
+
+- `tools/device-tests/input/xi2probe.c`：映射后等 400 ms 再抓（否则 `XIGrabDevice` 回
+  `3=NotViewable`，测出来的是"窗口没画完"）；新增 `SELECT_ON_ROOT=1`、`GRAB_ON_WINDOW=1` 两个开关。
+- `tools/device-tests/input/drag-window.sh`：Super+拖 vs `alt+F7` 的对照脚本入仓库。
+
+### 已知问题
+
+- 第一次 grab op 丢位置更新的**根因未定**（UNKNOWN），本版用预热绕过。
+- 挂载变化通知失效（evidence 202）、`getuid()==0` 的 privileged 提示、应用被 Android 冻结后
+  桌面停摆（evidence 203）——三条与 0.0.6 相同，仍未修。
+
 ## [0.0.6] - 2026-11-25
 
 > 主题：**把"桌面会话"从一堆手搓命令收成一个入口，并把三件长期挂在"根因 UNKNOWN"上的事钉死。**
@@ -345,6 +393,7 @@
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
 [未发布]: https://github.com/xishanp/Husk/compare/v0.0.3...HEAD
+[0.0.7]: https://github.com/xishanp/Husk/releases/tag/v0.0.7
 [0.0.6]: https://github.com/xishanp/Husk/releases/tag/v0.0.6
 [0.0.5]: https://github.com/xishanp/Husk/releases/tag/v0.0.5
 [0.0.4]: https://github.com/xishanp/Husk/releases/tag/v0.0.4

@@ -187,39 +187,36 @@ libc 里有 5 个函数打不上入口补丁，钉在 `tools/loader/libc-interpo
 slot 页定位不到，影响标 **UNKNOWN**：它的调用者是 libc 内部、外层入口（`open`/`open64`/
 `openat`/`openat64`）都已接管，但这是论证，不是实测。
 
-## 10 · 窗口拖不动：缺陷在本机 X server 的 grab op，替代操作是 `alt+F7`
+## 10 · 拖动窗口：只有会话里的第一次会失效，已用「输入预热」绕掉
 
-**现象**（FACT，evidence 203，2026-11-25 17:04 复核）：`Super`+按住拖标题栏，
-窗口一格不动；`alt+F7` 再动指针，窗口跟着走（`236,188` → `186,120`）。
-连带「拖动时才有的对齐、吸附」也一起没有。
+**结论先说**：拖动、对齐、边缘平铺**都是好的**。唯一的问题是**每个会话里的第一次**指针拖动
+不搬窗，第二次起就正常；`husk-desktop.sh` 现在会先做一次空点击 + 8 px 空拖动把这一次消耗掉
+（evidence 206）。
 
-**已排除的三条**（都实测过，别再往这三条上花时间）：
+**实测**（FACT）：
 
-1. 客户端请求路径——`_NET_WM_MOVERESIZE` 和 mutter 自己发起的搬窗**结果一样**，
-   所以不是客户端把请求发错了；
-2. X 层被动抓取——这台 X server 上 `XGrabButton` 永远拿不到（evidence 198）；
-3. 「mutter 没用 `XIGrabDevice`」不是原因——把 `XIGrabButton`/`XIGrabTouchBegin`
-   全跳过（`HUSK_NOGRAB=1`）之后拖动**依然不动**（evidence 198）。
+| 场景 | 第一次拖 | 第二次拖 |
+|---|---|---|
+| 起会话后立刻拖 | `236,188` 不动 | `536,388`（+300,+200） |
+| 两次连着做 | `236,188` 不动 | 紧接着就 `536,388` |
+| 加了预热之后 | `536,388`（第一次就动） | — |
 
-**再压一层之后（evidence 205，2026-11-25 18:05）**：事件投递这一侧**都是好的**——
-核心抓取（窗口级与 root 级）在抓取期间收到全部 XTEST motion；`XISelectEvents` 返回 0，
-XI2 的 motion/button 也都真的送到客户端。坏的是 **`XIGrabDevice` 之后的事件路径**：
-探针抓取成功（`ret=0`）但收到第一个事件就 SIGSEGV，而同样的探针不抓取时跑满 12 秒正常退出。
+拖到左边缘松手 → `46 12 1207 1088`，即 2400×1080 的左半屏平铺，吸附正常。
 
-**结论（JUDGMENT）**：缺口收窄到 mutter 的指针 grab op（它走的正是 `XIGrabDevice` + XI2），
-但"崩在 Xlib / 服务端 / 我们的 shim"三层还没分开，**未定案**。
-要分开只有一步：把 grab 后的协议交互退化成最小重现（只收 button / 只收 motion / 逐档改 mask 长度），
-看哪一档开始崩。这是 0.0.7 第一项。
+**第一次为什么失效（UNKNOWN）**：mutter 日志里这一次 grab op 是成功的、指针位置正确、
+连"Computing edges to resist-movement or snap-to"都跑了，但位置一次都没更新（evidence 206 §2）。
+是 mutter 首次算边缘时 work area 还没建好，还是首次 `ConfigureWindow` 之前 server 侧没准备好，
+没有证据。预热**不是**修根因，是把一次已知会失效的操作提前消耗掉。
 
-**一条 UNKNOWN，别当成已知**：生产手指走的是应用侧创建的 `Lorie` 设备（evidence 198 的 6/7/8），
-和自动化的 XTEST pointer 不是同一条。若 XI2 只对合成设备坏、对真实设备好，那真手指拖窗**可能**
-是能用的——没验证过，需要人手上机拖一次才算数。
-要给 2.0 那侧复现，就三步：`xev` 开窗 → `xdotool windowactivate` →
-`xdotool keydown super; mousedown 1; mousemove +120+90; mousemove +240+160; mouseup 1; keyup super`
-→ `xwininfo -id` 前后对比，坐标不变即为复现（脚本见 evidence 203 §4）。
+**事件层已全部排除**（evidence 205/206）：核心抓取（窗口级与 root 级）、`XISelectEvents`、
+`XIGrabDevice` + XI2 事件、XI2 motion 的 `root_x/root_y` 坐标——全部正常。
 
-**0.0.6 的处理**：列为已知缺陷，替代操作 `alt+F7`（键盘搬窗不经过 grab op，已验证可用）。
-0.0.7 再动，动之前要先确认改动落在 X server 侧、并且不碰应用代码。
+> 历史更正：197 / 198 / 203 / 205 都写着"拖动完全失效"，那四份测的全是
+> **新起会话里的第一次拖动**。205 初版还把原因归到“XI2 选择/枚举坏了”，那是我们自己的探针
+> 把请求构造错了。这两条都在各自文件里留痕并改掉了。
+
+**还剩一条不归我们管**：指针默认是 trackpad 语义（1:1 相对移动，不是触摸的绝对定位），
+那个默认值在 2.0 应用的 `touchMode` 里，本仓库没改。
 
 ## 11 · 屏幕一灭，桌面「像死了一样」：那是 Android 冻结，不是崩
 
