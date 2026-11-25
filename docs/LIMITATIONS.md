@@ -76,7 +76,12 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
    **反例是文件管理器**：`nautilus` 46 能开窗、能枚举目录（日志逐条打出 `/etc/*`），但内容区
    整块空白、连列头都不出现；`GSK_RENDERER=cairo` 与 `ngl` 一样、`list-view` 与 `icon-view`
    一样，**同一份 rootfs 换 proot 起也照样空白**，同一会话里最小 `GtkColumnView` 程序却正常
-   ——所以不是 path-shim 造成的，根因 UNKNOWN（evidence 178）。WebKit/Electron 类**未测**。
+   ——所以当时判断不是 path-shim 造成的（evidence 178）。
+   **2026-11-25 复查：没能复现**（evidence 188）。同一条 `nautilus --new-window /etc`，
+   `cairo`+zink、`ngl`+zink、`cairo`+llvmpipe 三种组合内容区都完整（面包屑、侧栏、图标网格
+   全在），`ngl` 只多出 187 那种三角缺口。178 那次的可疑条件（`xdotool windowkill` 后重建
+   窗口、1200x540 时代的旧几何、实验版加载器）当时同时成立，所以按**会话态问题**记，
+   不再当成渲染路径的已知 bug。WebKit/Electron 类**未测**。
    键盘输入**已测**：XTEST 敲进 `gnome-text-editor`，标题与正文都跟着更新、折行正常
    （evidence 180）；**没量延迟**，也没测 IME/组合键，指针注入另见 evidence 148。
    另外每一轮 PanVK 起上下文都会打 `kbase: KBASE_IOCTL_MEM_EXEC_INIT failed: EPERM`
