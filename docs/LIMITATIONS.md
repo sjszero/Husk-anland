@@ -237,3 +237,21 @@ Cached Apps Freezer 会把它的全部线程 SIGSTOP；X server 住在应用进�
 或把应用切回前台即恢复，**不需要重启应用**（FACT，evidence 203）。
 
 所以：真机上「锁屏一会儿回来桌面卡住」先看这一条，别当崩溃查。
+
+## 12 · 中文：locale、字体、输入法已经通了，界面翻译不全
+
+**已经做到的（FACT，evidence 210）**：默认 `LANG=zh_CN.UTF-8`（`/etc/profile.d/husk-locale.sh`，
+程序自己设了就不覆盖）；`fc-match "sans-serif:lang=zh-cn"` 落到 Noto Sans CJK SC，不再回落到
+日文字形；会话起来会拉起 fcitx5 并打 `CHECK im=fcitx5`；`ctrl+space` 切到拼音后，
+`gnome-text-editor` 里打 `nihao` + 空格提交出「你好」并 `ctrl+s` 落盘。
+
+**没做到的**：`/usr/share/locale/zh_CN/LC_MESSAGES/` 只有 19 个 `.mo`，`gtk40`、`gnome-shell`、
+`mutter`、`nautilus` 的翻译都没有。所以 `LANG` 设成中文只改到日期格式、字体族与排序，
+**界面文字仍是英文**。补语言包（`language-pack-zh-hans`、`language-pack-gnome-zh-hans`）
+约 30 MB，且要重打 1.3 GB 的 rootfs，本版没做。
+
+**其它未测**：输入法只在 GTK4 上验过；XIM 前端、Qt 应用、候选窗翻页与数字选词没测。
+
+**判断输入法是否正常的正确判据**（踩过一次）：没有焦点窗口时 `fcitx5-remote -o` 与 `-n`
+都返回空、状态保持 0，看上去像"没起来"，其实是"没有输入上下文可切"。必须给一个焦点窗口，
+看到状态从 0 变 2、再把提交的字符从应用里读回来，才算验过。

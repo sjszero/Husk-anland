@@ -7,6 +7,45 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.9] - 2026-11-25
+
+> 主题：**中文默认值。** 新装的树默认 `LANG=zh_CN.UTF-8`、中文字体族落到 Noto Sans CJK SC、
+> 会话起来拉起 fcitx5 并带一组「键盘 + 拼音」。界面翻译包不全，这条写进 `docs/LIMITATIONS.md` §12。
+
+### 新增
+
+- **`tools/guest-config/husk-locale.sh`**（evidence 210）：装到 `/etc/profile.d/husk-locale.sh`，
+  `LANG` 为空、`POSIX`、`C`、`C.UTF-8` 时补 `zh_CN.UTF-8`；程序自己设了就不动。
+  安装器同时写 `/etc/default/locale`（树里编译了 `zh_CN.utf8` 才写）。
+  为什么不用 `/etc/default/locale` 单独承担：它只对走 PAM 的登录 shell 生效，run-as 起的进程、
+  桌面 fork 出来的程序、`env -i` 都读不到。
+- **`tools/guest-config/fcitx5-profile`**：一组「键盘（keyboard-us）+ 拼音（pinyin）」，
+  `DefaultIM=pinyin`。安装器只在 `/root/.config/fcitx5/profile` 不存在时写，用户改过不覆盖。
+  不带这个文件时 fcitx5 第一次启动只建「键盘」一组，拼音要用户自己进 configtool 加。
+- **`husk-desktop.sh` 第 5c 步**：拉起 `fcitx5 -d --replace`，`fcitx5-remote -o` 成功则打
+  `CHECK im=fcitx5`；会话环境补 `GTK_IM_MODULE=fcitx`、`QT_IM_MODULE=fcitx`、
+  `XMODIFIERS=@im=fcitx`，以及 `LANG` / `LANGUAGE`。
+- **`tools/device-tests/input/imtest.sh`**：起编辑器 → 给焦点 → `ctrl+space` → 打 `nihao` →
+  空格 → `ctrl+s` → `od` 读回文件字节，一条命令跑完整条链路。
+
+### 测过（FACT，evidence 210）
+
+| 项 | 值 |
+|---|---|
+| `locale` / `nl_langinfo` | `zh_CN.UTF-8`；`MON_1=一月`；`D_FMT=%Y年%m月%d日` |
+| gnome-shell 进程 environ | `LANG=zh_CN.UTF-8`、`LANGUAGE=zh_CN:zh` |
+| 字体族 | `fc-match "sans-serif:lang=zh-cn"` → `Noto Sans CJK SC`（改前落 `Noto Sans CJK JP`） |
+| 会话自检 | `CHECK wm=yes / ding=yes / gpu=zink / input=primed / im=fcitx5` |
+| 输入法 | 有焦点窗口 `ctrl+space`：`fcitx5-remote` 0 → 2，`-n` = `pinyin` |
+| 端到端 | `gnome-text-editor` 打 `nihao`+空格 → 文件字节 `e4 bd a0 e5 a5 bd`（`你好`），`ctrl+s` 落盘 |
+
+### 没做
+
+- **界面翻译包不全**：`/usr/share/locale/zh_CN/LC_MESSAGES/` 只有 19 个 `.mo`，没有 `gtk40`、
+  `gnome-shell`、`mutter`、`nautilus`。`LANG` 改成中文只影响日期格式、字体族与排序，界面文字
+  仍是英文。补语言包约 30 MB 且要重打 1.3 GB rootfs，本版不做。
+- 输入法只在 GTK4 上验过；XIM 前端、Qt、候选窗翻页与数字选词未测。
+
 ## [0.0.8] - 2026-11-25
 
 > 主题：**把 0.0.7 留下来的那条 SIGSEGV 悬案结掉。** 结论是崩的并不是 `XIUngrabDevice`：探针调
@@ -439,3 +478,4 @@
 [0.0.2]: https://github.com/xishanp/Husk/releases/tag/v0.0.2
 [0.0.1]: https://github.com/xishanp/Husk/releases/tag/v0.0.1
 [0.0.8]: https://github.com/xishanp/Husk/releases/tag/v0.0.8
+[0.0.9]: https://github.com/xishanp/Husk/releases/tag/v0.0.9
