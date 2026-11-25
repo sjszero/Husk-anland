@@ -104,8 +104,21 @@
   以及去掉尾部 `/`（内核接受 `remount /mnt/b/`，原来直接 EINVAL）。修后 `remount,ro` → rc=0、
   写入 `EROFS`，`remount,rw` 恢复可写，tmpfs 与尾部斜杠同样成立。
 
+- **GPU 的 BO 只建不释放**（evidence 229）。`GEM_CLOSE` 没实现、`KBASE_MEM_FREE` 定义了却
+  没有调用点：每建一个 BO 就永久占一次 kbase 分配，实测第 64 个 `CREATE_BO` 起一律 ENOMEM
+  （4 KiB / 64 KiB / 1 MiB 三种大小都是 63 个，说明是次数上限不是字节数）。Mesa 关缓冲走的
+  正是 `GEM_CLOSE`，桌面跑得越久越接近上限。补上 `GEM_CLOSE → MEM_FREE（用分配它的那个
+  kfd）→ 摘表`：修前 5 轮 × 60 个只能过第一轮，修后 300 个全成。
+
+- **`DRM_CTX.dispatch()` 在并发下会发出重复 handle**（evidence 229）。BO 表的
+  「读 `next_handle` → 写槽 → `n_bos+1`」没有锁，8 线程 × 100 次里出现过 2–3 个重复 handle，
+  后写的覆盖前一条。加 `DRM_LOCK` 串行化 dispatch；修后 8 线程 × 5 轮 × 64 个零重复，
+  只剩 kbase 真实的 64 个活 BO 上限。GPU 冒烟（glxinfo/glxgears，zink/PanVK）正常。
+
 ### 加
 
+- `docs/design/evidence/229-drm-bo-lifecycle-20261126.md`：DRM 层 BO 生命周期与 dispatch
+  竞态的修前/修后对照。
 - `NR_MNT_DEBUG=1`：把每次 `mount(2)` 的原始 `src`/`tgt`/`type`/`flags` 打到 stderr
   （evidence 227 §3 就是靠它定性的）。不设变量时只多一次 `env_lookup`。
 - `docs/design/evidence/227-mount-table-and-remount-20261125.md`：挂载表跨线程的实际结论
@@ -118,7 +131,7 @@
   最便宜的下一步在应用侧（把回读后的 CPU 拷贝换成 GPU 上传），真正的零拷贝要把 X server
   搬进 guest。
 - `docs/design/evidence/226-audit-inventory-0.0.13.md`：0.0.13 的审计索引——已确认并修掉的
-  22 条（带证据编号）、记录在案的 7 条限制、9 项「核过不是缺陷」、以及还没审到的 5 个面
+  24 条（带证据编号）、记录在案的 7 条限制、9 项「核过不是缺陷」、以及还没审到的 5 个面
   各自卡在哪。
 - `tools/probe/audio-bridge-concurrency.py`：音频桥的 head-of-line blocking 判据
   （idle 客户端 + 第二个客户端 PING），evidence 225 §3。

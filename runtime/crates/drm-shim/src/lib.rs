@@ -59,6 +59,10 @@ pub const DRM_IOCTL_PANFROST_QUERY_BO_INFO: u64 =
 // ---------- DRM 核心（libdrm 的 drmGetVersion / drmGetCap 会问这些）----------
 pub const DRM_IOCTL_VERSION: u64 = ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, 0x00, 64);
 pub const DRM_IOCTL_GET_CAP: u64 = ioc(_IOC_READ | _IOC_WRITE, b'd' as u64, 0x0c, 16);
+/// DRM 核心里释放 GEM handle 的那个 ioctl（`struct drm_gem_close { u32 handle; u32 pad; }`）。
+/// panfrost 自己没有 close_bo，Mesa 关缓冲走的就是它。原来这里没实现：每建一个 BO 就
+/// 永久占掉一次 kbase 分配，攒到 64 次之后 `CREATE_BO` 一律 `ENOMEM`（evidence 229）。
+pub const DRM_IOCTL_GEM_CLOSE: u64 = ioc(0, b'd' as u64, 0x09, 8);
 pub const DRM_IOCTL_SET_MASTER: u64 = ioc(0, b'd' as u64, 0x1e, 0);
 pub const DRM_IOCTL_DROP_MASTER: u64 = ioc(0, b'd' as u64, 0x1f, 0);
 
@@ -247,10 +251,14 @@ impl DrmCtx {
     }
 
     pub fn bo(&self, handle: u32) -> Option<&Bo> {
+        self.bo_index(handle).map(|i| &self.bos[i])
+    }
+
+    fn bo_index(&self, handle: u32) -> Option<usize> {
         let mut i = 0;
         while i < self.n_bos {
             if self.bos[i].handle == handle {
-                return Some(&self.bos[i]);
+                return Some(i);
             }
             i += 1;
         }
@@ -333,6 +341,31 @@ impl DrmCtx {
                 core::ptr::copy_nonoverlapping(handle.to_le_bytes().as_ptr(), arg.add(8), 4);
                 core::ptr::copy_nonoverlapping(0u32.to_le_bytes().as_ptr(), arg.add(12), 4);
                 core::ptr::copy_nonoverlapping(va.to_le_bytes().as_ptr(), arg.add(16), 8);
+                0
+            }
+            DRM_IOCTL_GEM_CLOSE => {
+                // kbase 的 MEM_FREE 只认「当初分配它的那个 context」，所以必须用
+                // 我们自己的 kfd；换一个 fd 发过去是 EPERM（evidence 229 §2）。
+                let handle = u32::from_le_bytes([*arg, *arg.add(1), *arg.add(2), *arg.add(3)]);
+                let i = match self.bo_index(handle) {
+                    Some(i) => i,
+                    None => return -22, // 未知 handle：和真内核一样 EINVAL
+                };
+                // struct kbase_ioctl_mem_free { u64 gpu_addr; u32 flags; u32 pad; }
+                let mut f = [0u8; 16];
+                f[..8].copy_from_slice(&self.bos[i].va.to_le_bytes());
+                let _ = ioctl_fn(self.kfd, KBASE_MEM_FREE, f.as_mut_ptr());
+                // 不管 kbase 认不认，这个 handle 在 DRM 语义上都关掉了：留着它只会让
+                // 下一次 CREATE_BO 更早撞 ENOMEM。真失败时泄漏一次 VA，不影响正确性。
+                let last = self.n_bos - 1;
+                self.bos[i] = self.bos[last];
+                self.bos[last] = Bo {
+                    handle: 0,
+                    va: 0,
+                    bytes: 0,
+                    kbase_flags: 0,
+                };
+                self.n_bos -= 1;
                 0
             }
             DRM_IOCTL_PANFROST_MMAP_BO | DRM_IOCTL_PANFROST_GET_BO_OFFSET => {

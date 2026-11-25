@@ -28,6 +28,8 @@
 | H-20 | 挂载 | `mnt_read_file()` 的读缓冲是 `static mut`：两个线程往同一块内存里读，表文件在读的间隙被改小就解析出**旧的**挂载项 | 227 §2.1 |
 | H-21 | 挂载 | `mnt_save()` 用 `O_TRUNC` 直写，读的一方每次路径解析都读它：能读到 0 字节或**半张表**（刚挂上的东西这次解析里不存在） | 227 §2.2 |
 | H-22 | 挂载 | `mount -o remount,ro <tgt>`（util-linux）一直 EINVAL：它把 bind 的**源**当 target 交过来；尾部斜杠也匹配不上 | 227 §3 |
+| H-23 | GPU/DRM | BO 只建不释放：`GEM_CLOSE` 没实现、`KBASE_MEM_FREE` 从没被调用，第 64 个 `CREATE_BO` 起一律 ENOMEM | 229 §2 |
+| H-24 | GPU/DRM | `DRM_CTX.dispatch()` 无锁：并发 `CREATE_BO` 拿到重复 handle、覆盖 BO 表 | 229 §3 |
 
 ## 2 · 记录在案、不修或不完全修的（L）
 
@@ -59,7 +61,7 @@
 
 | 面 | 卡在哪 | 需要什么 |
 |---|---|---|
-| GPU 直通（剩余） | 懒初始化这一批已修；`DrmCtx` 内部字段布局、Mesa/ICD 在并发下的行为没审 | 能用的桌面 + `gl-probe` |
+| GPU 直通（剩余） | 懒初始化、BO 生命周期、`dispatch` 并发已审并修（229）；Mesa/ICD 在**桌面长跑**下的行为只做了冒烟（glxinfo/glxgears），没有长稳测试 | 桌面长跑 + 多应用并发 |
 | 输入栈 | evidence 95/148/180 已有行为记录，但并发（多客户端 / 触摸与指针混用）没审 | 能用的桌面 |
 | 音频 / VA-API 中转的**运行**验证 | 应用侧已改（H-19），但设备上跑的是 2.0 的包，这条桥没被拉起 | `make apk` 装一次，再跑 `tools/probe/audio-bridge-concurrency.py` |
 | 跨设备 | 16 KiB / Adreno / 其它 Android 版本只有 QEMU 或未验证 | 真机 |

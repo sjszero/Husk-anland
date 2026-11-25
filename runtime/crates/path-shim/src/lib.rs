@@ -11214,6 +11214,12 @@ const SYS_MMAP: usize = 222;
 static mut DRM_CTX: drm_shim::DrmCtx = drm_shim::DrmCtx::empty();
 static mut DRM_MALI_FD: CInt = -1;
 static mut FAKE_FDS: [CInt; 8] = [-1; 8];
+// `DRM_CTX.dispatch()` 会改 BO 表（`bos` / `n_bos` / `next_handle`）。初始化有
+// once_begin 串行化，但**每个 ioctl 的 dispatch 没有**：两个线程同时 CREATE_BO
+// 会各读一次同一个 next_handle，拿到两个一样的 handle、后写的覆盖前一条
+// （实测 8 线程 × 100 次里出现过 2 个重复 handle，evidence 229 §3）。
+// 这一把锁把它串起来；dispatch 里的 kbase ioctl 都是短调用，没有长阻塞。
+static DRM_LOCK: AtomicBool = AtomicBool::new(false);
 static DRM_STATE: AtomicU8 = AtomicU8::new(0);
 static DRM_OWNER: AtomicI32 = AtomicI32::new(0);
 // `FAKE_FDS` 的「找空槽 -> 写进去」不是原子的：两个线程同时 open 渲染节点时
@@ -11567,6 +11573,21 @@ unsafe fn drm_inherit_fake(old: CInt, new: CInt) {
     fake_fds_unlock();
 }
 
+unsafe fn drm_lock() {
+    while DRM_LOCK
+        .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        while DRM_LOCK.load(Ordering::Relaxed) {
+            core::hint::spin_loop();
+        }
+    }
+}
+
+unsafe fn drm_unlock() {
+    DRM_LOCK.store(false, Ordering::Release);
+}
+
 /// 假节点打开：懒初始化 kbase context，然后给调用方一个真 fd（/dev/null），
 /// 这样 close/poll/dup 都不会炸；对它的 ioctl/mmap 都进我们这里。
 unsafe fn drm_fake_open() -> CInt {
@@ -11631,11 +11652,13 @@ pub unsafe extern "C" fn ioctl(fd: CInt, request: u64, arg: *mut u8) -> CInt {
             dbghex(request);
             dbg(&[b"\n"]);
         }
+        drm_lock();
         let r = DRM_CTX.dispatch(
             |f, req, a| syscall4(SYS_IOCTL, f as usize, req as usize, a as usize, 0) as i64,
             request,
             arg,
         );
+        drm_unlock();
         if r < 0 {
             return set_errno((-r) as CInt);
         }
