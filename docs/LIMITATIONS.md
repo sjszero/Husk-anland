@@ -105,6 +105,28 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
    render 节点**。所以「DRI3 有扩展但没有设备」，只能停在
    `Could not get DRI3 device`。要么 shell 侧给服务器一条能 import dma-buf 的路，要么接受
    这次拷贝（已实测代价见 evidence 174）。
+
+### 7.1 这三条路各自落在哪一层（能不能只改 Linux 运行层）
+
+先说结论：**三条里没有一条能只靠 Linux 运行层（guest rootfs / shim / loader / Mesa）改完**，
+因为它们要动的对象是 X server，而这一版的 X server 是**应用进程里的 bionic Xorg**，不归
+shim 管。
+
+| 路线 | 要改什么 | 落在哪一层 | 现在能不能做 |
+|---|---|---|---|
+| DRI3：server 自己拿 render 节点 + import dma-buf | fake `renderD128` 要支持 prime 导出/导入；server 还要拿到 `mali0` 的 fd | guest shim **+** Android 侧（server 在应用里） | 本机没有 render 节点；fake 节点只做到 alloc/mmap/读写（`gpu-drm-shim.md` M1），prime 没做。**不是纯运行层** |
+| server 直接把像素写进应用给的共享段，应用侧再导入 GPU | server 侧新增一条呈现路径 + 应用侧 import | 主要是 Android 侧 | 没做。**不是纯运行层** |
+| 合成器绕过 X，直接把 buffer 交给 `SurfaceControl` | 换掉呈现层 | Android 侧 | 已否决（不换合成器、保持 X11） |
+
+**能在运行层单独做的，只有「把这一次拷贝的单价压低」，消不掉它**（都还没测，写在这里当待办）：
+
+- 让 guest 客户端走 MIT-SHM / shared pixmap，而不是 `XPutImage` 请求流。现在量的 17.66 ms/帧
+  是**请求流的上界**，不是 SHM 的真实代价——改的是 guest 里的库与驱动路径，属运行层。
+- 让 zink 的 present 路径少一次 tiled→linear 转换（Mesa 编译选项 / WSI 参数，属运行层），
+  能压「回读」那一格，压不到零。
+- 唯一能把上面三条变成「运行层可做」的架构前提：**把 X server 也从 bionic 搬进 guest**
+  （glibc Xorg + husk loader）。server 归 shim 管之后，fake render 节点才有对象可对。
+  代价明确：上屏呈现要重做、mutter/zink 组合要重验，工作量按周计。
    **这次拷贝是架构共性，不是这台机慢**（分开标）：来源是「X server 跑在 Android 应用进程里、
    拿不到 render node」。**FACT**：本机 `untrusted_app` 打开 `/dev/dri/renderD128` 直接
    `EPERM`，`card0` 是 shim 合成的 `10,33`；**FACT**：guest 内纯 `memmove` 实测 10.05 GiB/s
