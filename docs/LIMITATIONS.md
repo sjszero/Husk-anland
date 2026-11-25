@@ -73,6 +73,11 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
 `RESULT PASS`；显式 `HUSK_GPU=llvmpipe` 正确回退。这只说明默认值层级和设备门控，不改变
 窗口呈现/长跑限制。
 
+**2026-11-26 GPU 默认值 crate 与 Adreno 启动分支（FACT/UNKNOWN，evidence 243）**：默认值
+生成已抽成纯 Rust `gpu-env` crate，App 用它生成初始环境和 loader 读取的 Mali/Adreno 配置。Mali 真机
+回归通过；Adreno 的 `/dev/kgsl-3d0`、Freedreno/Turnip、ioctl/mmap、桌面和长跑没有真机证据，
+仍是 UNKNOWN。本版还让软件回退显式携带 `HUSK_GPU=llvmpipe`，避免 loader 重新注入硬件默认值。
+
 **还差的三件事**：
 
 1. **API 上限默认只有 GLES 2.0 / GL 2.1**。这是 Mesa 的 zink 报出来的上限，**不是**设备能力

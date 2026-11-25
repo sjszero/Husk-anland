@@ -12,6 +12,7 @@ name = "husk-session-guard"
 path = "src/bin/husk-session-guard.rs"
 
 [dependencies]
+gpu-env = { path = "../runtime/crates/gpu-env" }
 video-protocol = { path = "../runtime/crates/video-protocol" }
 fontdue = { version = "0.9", default-features = false, features = ["std"] }
 jni = "0.21.1"

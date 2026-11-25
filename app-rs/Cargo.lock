@@ -49,10 +49,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpu-env"
+version = "0.1.0"
+
+[[package]]
 name = "husk-app"
 version = "0.2.0"
 dependencies = [
  "fontdue",
+ "gpu-env",
  "jni",
  "video-protocol",
 ]

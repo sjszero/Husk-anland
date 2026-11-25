@@ -28,12 +28,13 @@ all: lint check version-check
 check:
 	cargo fmt --all --check --manifest-path $(MANIFEST)
 	cargo check --manifest-path $(MANIFEST) --target $(TARGET) \
-		-p runtime-core -p nr-tools -p ldconfig -p path-shim
+		-p runtime-core -p nr-tools -p ldconfig -p path-shim -p gpu-env
+	cargo test --manifest-path $(MANIFEST) -p gpu-env
 # No --all-targets: path-shim is no_std and its test harness collides with the
 # crate's own panic handler (duplicate lang item). Warnings there are tracked
 # separately; this gate fails on errors.
 	cargo clippy --manifest-path $(MANIFEST) --target $(TARGET) \
-		-p runtime-core -p nr-tools -p ldconfig -p path-shim
+		-p runtime-core -p nr-tools -p ldconfig -p path-shim -p gpu-env
 	sh tools/ci/check-shell.sh
 	@$(MAKE) --no-print-directory tools
 	$(HUSK_TOOLS) check-links
@@ -90,7 +91,7 @@ libc-verify: nr-tools
 
 test:
 	cargo test --manifest-path $(MANIFEST) --target $(TARGET) \
-		-p runtime-core -p nr-tools
+		-p runtime-core -p nr-tools -p gpu-env
 
 loader:
 	@test -n "$$NDK" || { echo "set NDK=<ndk>/bin (needs clang + llvm-objcopy)" >&2; exit 1; }

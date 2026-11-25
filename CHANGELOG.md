@@ -7,6 +7,33 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.18] - 2026-11-26
+
+> 主题：**GPU 默认值统一成独立 Rust crate，App 启动级补 Adreno/KGSL，软件回退不再被 loader 覆盖**。
+> Adreno 只有代码和主机侧单测，没有真机证据；本版不把它写成已支持。
+> 原始输出见 evidence 243。
+
+### 新增与修复
+
+- **GPU 默认值抽成纯 Rust `gpu-env` crate**（evidence 243）。App 的 canonical ICD、驱动探测、
+  `/etc/husk/gpu-env` 原子写入和软件回退不再堆在 `term.rs`；初始 shell 环境和 loader 随后读取
+  的配置文件由同一个 crate 生成。loader 仍只负责消费该文件，不依赖 App crate。
+- **App 冷启动补 Adreno/KGSL 路径**（evidence 243）。只有 `/dev/kgsl-3d0` 真实可读写且 rootfs
+  中存在 Freedreno/Turnip 驱动时，才生成 Adreno `gpu-env` 和 guest 相对 ICD；有原生
+  `kgsl_dri.so`/`freedreno_dri.so` 时走 kgsl/freedreno，否则走 zink。驱动不存在时不生成假配置。
+- **软件回退传递到 loader 层**（evidence 243）。`HUSK_GPU=llvmpipe` / `NR_GPU_DEFAULT_OFF`
+  回退现在会把 `HUSK_GPU=llvmpipe` 一并交给子进程，避免 loader 从 `gpu-env` 再次强制
+  `MESA_LOADER_DRIVER_OVERRIDE` / `GALLIUM_DRIVER`。
+- **回归门禁**（evidence 243）。`make check` 增加 `gpu-env` 编译、clippy 和 5 个主机侧单元测试；
+  最终 0.0.18 APK 在 Mali 真机上删除配置后冷启动重建，`env -i` 仍为
+  `zink Vulkan 1.3(Mali-G77 MC9)`，`HUSK_GPU=llvmpipe` 仍正确回退。
+
+### 边界
+
+- Adreno/KGSL 没有真机，真实打开、Turnip 枚举、ioctl/mmap、X11 桌面和长跑均为 UNKNOWN。
+- X11 窗口内容进入 X server 仍是 SHM 回读加拷贝，不是端到端零拷贝。
+- `glxgears` 的 PanVK/Bifrost 编译器 SIGSEGV 没有在本次重测为已修。
+
 ## [0.0.17] - 2026-11-26
 
 > 主题：**GPU 默认值从 App 初始 shell 下沉到 loader，`env -i` 也拿到 Mali 硬件渲染器**。
@@ -850,7 +877,8 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.17...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.18...HEAD
+[0.0.18]: https://github.com/xishanp/Husk/releases/tag/v0.0.18
 [0.0.17]: https://github.com/xishanp/Husk/releases/tag/v0.0.17
 [0.0.16]: https://github.com/xishanp/Husk/releases/tag/v0.0.16
 [0.0.15]: https://github.com/xishanp/Husk/releases/tag/v0.0.15

@@ -66,6 +66,10 @@ name = "gl-probe"
 version = "0.1.0"
 
 [[package]]
+name = "gpu-env"
+version = "0.1.0"
+
+[[package]]
 name = "gpu-probe"
 version = "0.1.0"
 
