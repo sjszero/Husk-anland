@@ -823,9 +823,7 @@ unsafe fn run_selftest(
 //   STOP                       -> BYE
 // ---------------------------------------------------------------------------
 
-const CAMERA_SOCKET: &str = "rootfs-full/run/husk/camera.sock";
-const CAMERA_MARKER: &str = "camera";
-const CAMERA_GUEST_MARKER: &str = "rootfs-full/tmp/husk-camera/enabled";
+const CAMERA_SOCKET_REL: &str = "run/husk/camera.sock";
 
 fn read_command(stream: &mut std::os::unix::net::UnixStream) -> Result<String, String> {
     use std::io::Read;
@@ -1003,15 +1001,34 @@ fn ordered(cams: &[CameraInfo]) -> Vec<&CameraInfo> {
 /// The guest's `/sys` is Android's real sysfs (the kernel has no V4L2), so the
 /// shim redirects `/sys/class/video4linux*` here. Same layout DroidNative binds:
 /// class entry, the `/sys/subsystem` mirror eudev prefers, and the udev db entry.
-fn prepare_v4l2_tree(files: &std::path::Path, cams: &[CameraInfo]) {
-    let base = files.join("rootfs-full");
-    let class = base.join("sys-v4l2/class");
-    let devices = base.join("sys-v4l2/subsystem/devices");
-    let udev = base.join("run/udev/data");
+fn active_rootfs(files: &std::path::Path) -> std::path::PathBuf {
+    let full = files.join("rootfs-full");
+    if full.is_dir() {
+        full
+    } else {
+        files.join("rootfs")
+    }
+}
+
+fn prepare_v4l2_tree(rootfs: &std::path::Path, cams: &[CameraInfo]) {
+    let class = rootfs.join("sys-v4l2/class");
+    let devices = rootfs.join("sys-v4l2/subsystem/devices");
+    let udev = rootfs.join("run/udev/data");
+    // Camera permission can be revoked between launches. Rebuild the shadow
+    // tree instead of leaving video nodes from an earlier permission state.
+    let _ = std::fs::remove_dir_all(&class);
+    let _ = std::fs::remove_dir_all(&devices);
     for d in [&class, &devices, &udev] {
         if let Err(e) = std::fs::create_dir_all(d) {
             crate::log(&format!("camera|v4l2|mkdir {d:?}: {e}"));
             return;
+        }
+    }
+    if let Ok(entries) = std::fs::read_dir(&udev) {
+        for entry in entries.flatten() {
+            if entry.file_name().to_string_lossy().starts_with("c81:") {
+                let _ = std::fs::remove_file(entry.path());
+            }
         }
     }
     for (k, cam) in ordered(cams).iter().enumerate() {
@@ -1068,6 +1085,8 @@ fn run() {
         crate::log("camera|SKIP|no files dir");
         return;
     };
+    let rootfs = active_rootfs(&files);
+    crate::log(&format!("camera|ROOTFS|{}", rootfs.display()));
     let api = unsafe {
         match CameraApi::load() {
             Ok(api) => api,
@@ -1111,7 +1130,7 @@ fn run() {
                 if cams.is_empty() { "no_permission" } else { "marker" }
             ));
         }
-        prepare_v4l2_tree(&files, &cams);
+        prepare_v4l2_tree(&rootfs, &cams);
 
         // One-shot self test, only when its marker exists.
         let selftest_marker = files.join("camera-selftest");
@@ -1135,16 +1154,11 @@ fn run() {
             run_selftest(&api, manager, &cams, &mut selftest);
         }
 
-        // Guest-facing server: bind while either marker is present.
-        let marker = files.join(CAMERA_MARKER);
-        let guest_marker = files.join(CAMERA_GUEST_MARKER);
-        let enabled = || marker.exists() || guest_marker.exists();
+        // Guest-facing server: camera is a standard Linux device, not an
+        // opt-in test feature. Bind for every session. If permission is absent,
+        // OPEN still receives the explicit denial instead of a dead socket.
         loop {
-            if !enabled() {
-                std::thread::sleep(Duration::from_millis(500));
-                continue;
-            }
-            let path = files.join(CAMERA_SOCKET);
+            let path = rootfs.join(CAMERA_SOCKET_REL);
             if let Some(parent) = path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
@@ -1166,12 +1180,9 @@ fn run() {
                         break;
                     }
                 }
-                if !enabled() {
-                    break;
-                }
             }
             let _ = std::fs::remove_file(&path);
-            crate::log("camera|STOP|marker removed");
+            crate::log("camera|REBIND|listener closed");
         }
     }
 }

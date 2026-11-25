@@ -121,15 +121,14 @@ DRI3 只能停在 `Could not get DRI3 device`。逐条数字与做法见
 
 ## 硬件接口
 
-这是 Husk 和翻译层方案最实质的区别：**用户态进程拿到的文件描述符是真的**，能直开的设备节点
-就直开，被 Android 沙箱拒绝的那部分（需要应用身份、需要 Surface、需要 MediaCodec 的）由
-应用内的硬件后端提供接口，边界写在
+这是 Husk 和翻译层方案最实质的区别：**能用真实内核节点的路径使用真实 fd，必须经过 Android
+应用身份的那部分由应用内后端提供标准 Linux 接口**。不把 facade 冒充成真设备节点，边界写在
 [`docs/design/husk-backend-interface.md`](docs/design/husk-backend-interface.md)。
 
 接法只有一根轴，不要混着说：
 
-- **直连**——guest 进程自己开设备节点，应用侧一行代码都不参与（GPU、相机）；
-- **中转**——一条明确的 socket 协议，数据在应用侧过一次（音频、视频）。
+- **直连**——guest 进程自己开设备节点，应用侧一行代码都不参与（GPU）；
+- **中转**——guest 看到标准 Linux 接口，后端经一条明确的 socket 协议到应用侧（相机、音频、视频）。
 
 逐类的节点实测、理由，以及「能说什么、不能说什么」，写在
 [`docs/design/hardware-interface-map.md`](docs/design/hardware-interface-map.md)。
@@ -146,13 +145,13 @@ DRI3 只能停在 `Could not get DRI3 device`。逐条数字与做法见
 | GPU | 直连 | 直开 `/dev/mali0`，kbase 后端的 PanVK | 枚举到 `Mali-G77 MC9`、compute 与离屏 graphics 回读通过；GL renderer `zink Vulkan 1.3(Mali-G77 MC9)`（evidence 156）。**X11 窗口呈现已通**（`stage 7→10`、60 swap，evidence 165），GNOME 桌面在 zink/PanVK 上出帧、X 根窗口非黑像素 100%（evidence 165/168）；默认值由加载器从 `/etc/husk/gpu-env` 注入，登录/非登录执行都吃得到（evidence 167、182）。上限 GLES 3.2（靠 `MESA_GLES_VERSION_OVERRIDE`，真实应用未验），呈现仍是 SHM 拷贝。**长跑未通过**：`glxgears` 在 PanVK/Bifrost 编译器 `emit_cf_list.isra.0+0x120` 稳定 SIGSEGV，pre-229 loader 同样复现；llvmpipe 对照和 gl-probe/ES3/Vulkan 探针通过（evidence 232） |
 | 显示 | 应用侧，零拷贝 | `AHardwareBuffer` → dma-buf → `SurfaceControl` | 3-buffer ring + 真实 `SYNC_FD`：submitted=10 000 / completed=10 000（evidence 59） |
 | 视频解码 | 中转 | MediaCodec `c2.mtk.avc.decoder` + AHB 三平面 | H.264 1080p30 连续 600 秒，`dropped=0`（evidence 80） |
-| 相机 | 直连 | V4L2 `/dev/videoN`（前端为 Camera2 + `AImageReader`） | 拍照 JPEG + 30 秒录制，硬件 H.264 编码（evidence 93） |
+| 相机 | 中转（标准 V4L2 facade） | guest `/dev/videoN` → Rust V4L2 shim → Camera2 NDK / `AImageReader` | `open()` 返回 memfd，不是真实 V4L2 fd；QUERYCAP / REQBUFS / DQBUF 可用，前后摄自动启动、无测试 marker；最终 0.0.15 构建复跑为 12.26–17.42 fps（evidence 240）。拍照 JPEG + 30 秒录像与硬件 H.264 编码见 evidence 93；不支持 DMABUF / read / controls |
 | 音频 | 中转 | PulseAudio → Rust relay → AAudio | 48 kHz 双声道连续会话通过（evidence 62，10 秒级，不是长稳） |
 | 输入 | 窗口层 | 触摸事件注入到用户态的窗口系统 | 触摸 → JNI → XI2，点哪落哪（evidence 148） |
 
-这张表的口径：**能直开的不经翻译，必须经应用身份的走一条明确的 socket 协议**，两边都不是
-软件模拟出来的假设备。按这一版实测：直连 2 类（GPU、相机），中转 2 类（音频、视频），显示那
-一段零拷贝、输入走窗口层，传感器 / 定位 / USB / 蓝牙 / NFC 未做，指纹不做。没做到的写在
+这张表的口径：**能直开的设备使用真实 fd；必须经过应用身份的仍给标准 Linux 接口，但明确标注
+facade 与中转**。按这一版实测：直连 1 类（GPU），中转 3 类（相机、音频、视频），显示那一段
+零拷贝、输入走窗口层，传感器 / 定位 / USB / 蓝牙 / NFC 未做，指纹不做。没做到的写在
 [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md)。
 
 GPU 默认值按设备节点分族，而不是按机型名写死：Mali/kbase 走 PanVK + Zink，Adreno/KGSL

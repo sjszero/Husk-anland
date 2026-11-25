@@ -6,11 +6,11 @@
 
 ## 接手须知（冷启动只读这一节 + 本文件的表）
 
-**设备**：一台 arm64 Android 手机（RMX3357）；序列号不入库，用 `adb devices` 的当前值。2.0 集成现场是应用
-`com.linuxhub.myth.husk`（debug 包名后缀），rootfs 在
-`files/linux/distributions/ubuntu-24.04/rootfs`，loader 在 `files/linux/husk/libld.so`，
-资产版本标记 `files/linux/husk/assets.version`（当前 `husk-runtime-spawn-link-23`）。
-旧测试会话的 `com.linuxhub.husk`（`files/rootfs-full`、`files/libld3.so`）不要动。
+**设备**：一台 arm64 Android 手机（RMX3357）；序列号不入库，用 `adb devices` 的当前值。
+本仓库这条工作线当前用独立验证包 `com.linuxhub.husk`（`files/rootfs-full`）做构建、安装和
+真机回归；`com.linuxhub.myth.husk` 是 2.0 集成现场，不在这条工作线的启动/停止和资产替换范围内。
+集成现场的 rootfs 在 `files/linux/distributions/ubuntu-24.04/rootfs`，loader 在
+`files/linux/husk/libld.so`，资产版本标记见 `files/linux/husk/assets.version`。
 
 **启动契约（两个变量必须同时设，缺一个就"看起来像 shim 坏了"）**：
 
@@ -26,6 +26,14 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 
 **仓库布局**：`runtime/crates/{path-shim,nr-tools,runtime-core}`（Rust）、`tools/loader/*.S`（裸汇编，仅入口与 hook）、
 `tools/device-tests/*.sh`、`docs/design/`（设计 + `evidence/` 原始记录）。
+
+**0.0.15 相机默认启用与接口口径版**：相机桥不再要求 `files/camera` / `files/camera-guest`
+测试 marker，App 每次启动都按活动 rootfs 建 `camera.sock` 和 V4L2 影子树；权限被拒时仍由
+socket 返回明确拒绝。独立验证包上删除 marker 后冷启动，`camera.sock` 自动出现，最终 0.0.15
+构建上前后摄复跑落在 12.26–17.42 fps（evidence 240）。同时更正旧文档：guest `/dev/videoN` 是标准 V4L2
+facade，`open()` 返回 shim memfd，帧经 socket 来自 App 内 Camera2，**不是真节点直连**。
+App 初始终端会话补齐 `HUSK_GPU=llvmpipe` / `NR_GPU_DEFAULT_OFF=1` 回退和
+`MESA_GLES_VERSION_OVERRIDE=3.2`；真机初始会话环境已核到这些值。
 
 **0.0.14 发布前补审版**：在 0.0.13 全链路审计基础上，补修合成 VFS 并发、虚构身份状态、
 APK 版本元数据和 NDK 构建入口，共记录 **28 条已修缺陷（H-01…H-28）**。
@@ -174,7 +182,7 @@ sudo/PAM 一条按"不需要"结案：`husk-su` 已覆盖提权路径，PAM 的 
 | 视频 | H.264 1080p30 连续 600 秒，dropped=0；VA-API 解码出真实帧 | 74–80 / 85–87 |
 | 音频输出 | PulseAudio → Rust relay → AAudio，610 秒连续会话 | 60 / 62 / 63 |
 | 音频输入 | 声学回环 440 Hz 通过 | 88 |
-| 相机 | guest `/dev/videoN` V4L2，GStreamer 取流、拍照、录像 | 91 / 92 / 93 |
+| 相机 | guest `/dev/videoN` 是 V4L2 facade（memfd + Camera2 NDK 中转），不是真节点直连；前后摄自动启动，取流、拍照、录像 | 91 / 92 / 93 / 240 |
 | 输入 | 全屏点击 5/5、双 X11 客户端各 5/5、各 15 个 XI 事件且无串扰；`adb input swipe` 路径仍是 UNKNOWN | 95 / 98 / 230 |
 | 桌面 | 2.0 rootfs 起 GNOME Shell 46（Wayland 显示服务器），GTK4 客户端可连 | 101 |
 | 装包 / dpkg | `apt-get install` / `--reinstall` / `-f install` 全通；dpkg 库零半配置包 | 106 / 109 |

@@ -82,7 +82,7 @@ fn husk_state(class: &str) -> (&'static str, &'static str) {
     match class {
         "gpu" => (
             "degraded",
-            "kbase compute / offscreen / Zink surfaceless verified (evidence 46/47); window WSI pending",
+            "Mali kbase -> PanVK -> Zink X11 window verified (evidence 165/167); SHM readback remains and glxgears hits a PanVK compiler SIGSEGV (evidence 232)",
         ),
         "display" => (
             "ready",
@@ -104,10 +104,13 @@ fn husk_state(class: &str) -> (&'static str, &'static str) {
             "degraded",
             "AAudio capture -> module-pipe-source, 1.9 MB loopback (evidence 88); needs install -g for the mic permission",
         ),
-        "camera" => ("absent", "no camera path exists yet"),
+        "camera" => (
+            "degraded",
+            "V4L2 /dev/videoN is served by Camera2 NDK without a test marker; capture/photo/record verified (evidence 91/93/240), but no DMABUF/read/controls and 12-17 fps observed",
+        ),
         "input" => (
-            "partial",
-            "gestures+keys reach the guest over run/husk/input.sock as evdev records (evidence 95); injection into the guest compositor (XTEST / EIS) not wired yet",
+            "degraded",
+            "X11 touch/click and keyboard injection verified (evidence 148/180); adb input swipe to XI2 remains UNKNOWN",
         ),
         "sensors" => ("absent", "no sensor path exists yet"),
         "platform-peripherals" => (
@@ -303,6 +306,7 @@ fn probe_all() {
 
     // ------------------------------------------------------ camera ------
     let mut cam = Row::new("camera");
+    cam.backend = "V4L2 /dev/videoN -> Camera2 NDK".to_string();
     match activity
         .as_ref()
         .ok_or_else(|| "no activity".to_string())

@@ -6,9 +6,9 @@
 >
 > 状态列只反映本机（RMX3357 / Android 13 / untrusted_app）实测。
 
-> 口径只有一根轴：**直连 / 中转**。直开设备节点的（GPU、相机）就是**绕过**中间层，应用身份
-> 那一侧一行都不参与；必须经应用身份的（音频、视频、输入）是**一条明确的 socket 协议**，
-> 数据在应用侧过一次。成功启用后再往下一层做的时候，按同一根轴写，不另起说法。
+> 口径只有一根轴：**直连 / 中转**。直开设备节点的只有 GPU；相机虽然给 guest 标准 V4L2
+> 接口，但后端必须经过 Camera2，所以也算中转。必须经应用身份的都走**一条明确的 socket
+> 协议**，数据在应用侧过一次。成功启用后再往下一层做的时候，按同一根轴写，不另起说法。
 
 ## 1. 逐类形态
 
@@ -20,7 +20,7 @@
 | 视频编码 | VA-API encode，后端接 MediaCodec 编码器 | 同上 | 未做（编码器存在已确认） |
 | 音频输出 | `module-pipe-sink`（guest PulseAudio 契约） | 桌面与播放器统一走 PulseAudio | 可用（610 秒） |
 | 音频输入 | `module-pipe-source` + 按需开关 | 同上；只有真录音时才开 Android 麦克风 | 可用（声学回环） |
-| 相机 | `/dev/videoN` V4L2（QUERYCAP / ENUM_FMT / G/S_FMT / REQBUFS / QBUF / DQBUF / poll） | GStreamer / Cheese / OpenCV 全走 V4L2 | 可用（取流 / 拍照 / 录像） |
+| 相机 | `/dev/videoN` V4L2 facade（QUERYCAP / ENUM_FMT / G/S_FMT / REQBUFS / QBUF / DQBUF / poll）→ Camera2 NDK | GStreamer / Cheese / OpenCV 全走 V4L2；应用域又不能把真实 V4L2 fd 交出去 | 可用（取流 / 拍照 / 录像）；`open()` 是 memfd，不支持 DMABUF / read / controls |
 | 输入 | 合成器级注入：mutter → `RemoteDesktop`(+EIS) | 不走 `/dev/input` + libinput + udev：那需要设备节点与 udev | 可用 |
 | 传感器 | `/sys/bus/iio/devices/iio:deviceN/*` 合成树 | `iio-sensor-proxy` 与直接读 sysfs 的程序都认；guest 读真 sysfs 会被 SELinux 拒 | 未做 |
 | 定位 | `/dev/gps0` 输出 NMEA 0183 | gpsd 一族只认串口 NMEA | 未做 |
@@ -52,6 +52,9 @@
   `REQBUFS`、`QBUF`、`DQBUF`、`poll`，`MMAP` 与 `USERPTR` 两种内存模式。
 - udev/GStreamer 会 glob 设备节点，Android 不允许列目录，因此还要合成
   `/sys/class/video4linux/videoN` 与 `/run/udev/data/c81:N`。
+- **FACT**：guest 打开 `/dev/videoN` 得到的是 shim 的 memfd，帧由 App 内的 Camera2
+  `AImageReader` 产生；这不是把 `/dev/videoN` 真节点直通进 guest。这样做的原因是
+  `untrusted_app` 不能打开平台的 V4L2 节点（evidence 240）。
 
 ## 5. 桌面路线
 

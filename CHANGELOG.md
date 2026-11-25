@@ -7,6 +7,38 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.15] - 2026-11-26
+
+> 主题：**相机进入默认路径，接口口径按源码和真机行为纠正**。这一版不新增“所有硬件都直连”
+> 一类说法；相机给 guest 标准 V4L2 接口，但后端是 App 内 Camera2，因此明确归入中转。
+> 最终构建和真机证据见 evidence 240。
+
+### 修复
+
+- **相机桥不再需要测试 marker**（evidence 240）。删掉 `files/camera` /
+  `files/camera-guest` 后冷启动 App，`files/rootfs-full/run/husk/camera.sock` 仍自动出现；
+  最终 0.0.15 构建上前后摄复跑落在 12.26–17.42 fps。相机桥现在优先使用
+  `files/rootfs-full`，没有时回退
+  `files/rootfs`，并重建 V4L2 影子树、清理旧 `c81:N` udev 项。权限被拒时 socket 返回明确错误，
+  不再表现为没有相机路径。
+- **App 初始终端补齐 GPU 默认值**（evidence 240）。`HUSK_GPU=llvmpipe` 和
+  `NR_GPU_DEFAULT_OFF=1` 现在对 App 自己创建的初始会话生效；硬件路径补
+  `MESA_GLES_VERSION_OVERRIDE=3.2`。真机 `/proc/<pid>/environ` 已核到
+  `GALLIUM_DRIVER=zink`、PanVK ICD 和 GLES 3.2 override。
+- **能力矩阵不再把相机写成缺失**（evidence 240）。相机状态为 `degraded`，后端写明
+  `V4L2 /dev/videoN -> Camera2 NDK`；输入状态改为 X11 点击/键盘已验证，并保留
+  `adb input swipe -> XI2` 为 UNKNOWN。
+
+### 文档更正
+
+- **相机不是真节点直连**（evidence 91、240）。guest `open(/dev/videoN)` 得到 shim memfd，
+  帧由 App 内 Camera2 `AImageReader` 产生并经 socket 传输。硬件分类由旧口径
+  “直连 2 类（GPU、相机）/ 中转 2 类（音频、视频）”更正为
+  **直连 1 类（GPU）/ 中转 3 类（相机、音频、视频）**。
+- 独立验证树 `com.linuxhub.husk` 的 PanVK 仍比 evidence 232 的集成树旧：本轮
+  `gl-probe es3` 和 `vulkan-probe` 在 zink/PanVK 上 SIGSEGV，llvmpipe 对照通过。因此本版只
+  确认初始会话的 GPU 环境注入，不宣称该独立树的 GPU 探针通过；集成树结果不据此重写。
+
 ## [0.0.14] - 2026-11-26
 
 > 主题：**发布前补审**。0.0.13 发布后又对并发、会话生命周期、APK 元数据和构建入口做了一轮
@@ -761,7 +793,8 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.14...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.15...HEAD
+[0.0.15]: https://github.com/xishanp/Husk/releases/tag/v0.0.15
 [0.0.14]: https://github.com/xishanp/Husk/releases/tag/v0.0.14
 [0.0.7]: https://github.com/xishanp/Husk/releases/tag/v0.0.7
 [0.0.6]: https://github.com/xishanp/Husk/releases/tag/v0.0.6

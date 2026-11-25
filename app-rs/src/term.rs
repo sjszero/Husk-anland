@@ -41,6 +41,29 @@ static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
 fn gpu_env(rootfs: &str) -> Vec<String> {
     let mut env = Vec::new();
 
+    let software = std::env::var("HUSK_GPU")
+        .map(|v| v == "llvmpipe")
+        .unwrap_or(false)
+        || std::env::var("NR_GPU_DEFAULT_OFF")
+            .map(|v| {
+                !matches!(
+                    v.trim(),
+                    "" | "0" | "false" | "FALSE" | "False" | "no" | "NO" | "off" | "OFF"
+                )
+            })
+            .unwrap_or(false);
+    if software {
+        env.push("LIBGL_ALWAYS_SOFTWARE=1".to_string());
+        env.push("GALLIUM_DRIVER=llvmpipe".to_string());
+        env.push("MESA_LOADER_DRIVER_OVERRIDE=swrast".to_string());
+        let lvp = format!("{rootfs}/usr/share/vulkan/icd.d/lvp_icd.json");
+        if std::path::Path::new(&lvp).exists() {
+            env.push(format!("VK_ICD_FILENAMES={lvp}"));
+            env.push(format!("VK_DRIVER_FILES={lvp}"));
+        }
+        return env;
+    }
+
     let egl_vendor = format!("{rootfs}/usr/share/glvnd/egl_vendor.d/50_mesa.json");
     if std::path::Path::new(&egl_vendor).exists() {
         env.push(format!("__EGL_VENDOR_LIBRARY_FILENAMES={egl_vendor}"));
@@ -61,6 +84,7 @@ fn gpu_env(rootfs: &str) -> Vec<String> {
         env.push(format!("VK_DRIVER_FILES={icd}"));
         env.push("MESA_LOADER_DRIVER_OVERRIDE=zink".to_string());
         env.push("GALLIUM_DRIVER=zink".to_string());
+        env.push("MESA_GLES_VERSION_OVERRIDE=3.2".to_string());
     }
 
     env
@@ -852,6 +876,7 @@ mod tests {
             .any(|v| v == &format!("VK_DRIVER_FILES={}", icd.display())));
         assert!(env.iter().any(|v| v == "MESA_LOADER_DRIVER_OVERRIDE=zink"));
         assert!(env.iter().any(|v| v == "GALLIUM_DRIVER=zink"));
+        assert!(env.iter().any(|v| v == "MESA_GLES_VERSION_OVERRIDE=3.2"));
 
         std::fs::remove_dir_all(&root).unwrap();
     }
