@@ -105,3 +105,62 @@ MotionNotify event, serial 35, synthetic NO, window 0x1800001
    `nograb` 实验：若拖窗立刻能动，则拖窗在 0.0.6 就能修在运行时层。
 2. 若加载器修好后仍然不动，则问题在 mutter 的 X11 grab op 与新设备拓扑的组合上，
    0.0.6 按"缺陷 + `alt+F7` 替代操作"发布，并给 2.0 侧一份 X server 侧的复现步骤。
+
+## 8 · 追加：设备树其实有 7 个，而且"生产输入"和我们测的不是同一个设备（FACT）
+
+`XIQueryDevice(dpy, 0, &n)`（`tmp/devlist3`，在 `:0` 上）：
+
+```
+query(0) -> n=7
+   id=2  use=1 attach=3  Virtual core pointer
+   id=3  use=2 attach=2  Virtual core keyboard
+   id=4  use=3 attach=2  Virtual core XTEST pointer
+   id=5  use=4 attach=3  Virtual core XTEST keyboard
+   id=6  use=3 attach=2  Lorie mouse      classes=7
+   id=7  use=3 attach=2  Lorie touch      classes=4
+   id=8  use=4 attach=3  Lorie keyboard   classes=1
+```
+
+两件事必须更正 198 前面的说法：
+
+1. **设备树不是"只有 2 个"**：`XIQueryDevice(0)` 能拿到完整 7 个；坏掉的是 `XIAllDevices(=3)`
+   这个枚举值（只回 1 个）。`XIAllMasterDevices(=1)` 回 2 个是对的。这是服务器枚举的**取值差异**，
+   不是能力缺失。
+2. **`Lorie mouse` / `Lorie touch` / `Lorie keyboard` 是应用侧（`com.linuxhub.myth` 的
+   Xorg）创建的真实 XI2 设备**，也就是手指和触控板的实际来源。我们前面所有拖动实验用的是
+   `XTEST pointer(id=4)`（`xdotool`），**和生产的设备不是同一个**。所以"XTEST 拖不动"不能
+   直接推出"手指拖不动"，反过来也一样——这一条之前没有分清，现在分清。
+
+## 9 · 真机手指输入没法从 adb 驱动（FACT）
+
+试过用 `adb shell input tap` 打点，再读 `xdotool getmouselocation`：
+
+```
+初始： x:2160 y:972
+input tap 540 1200  -> x:2160 y:972（没动）
+input tap 900 600   -> x:2160 y:972（没动）
+```
+
+⇒ 应用是直接读 `/dev/input` 的，`input` 注入的事件不进那条路。**手指/触控板路径只能人工在
+机器上验**，命令行能覆盖的只有 XTEST 这一条。
+
+## 10 · 预载实验的正确结论（修正本节第 4、5 点）
+
+- `--preload` 的**符号拦截是成立的**：`tmp/nograb2.c` 预载进 gnome-shell 后，启动期日志里
+  拿到 `XIGrabButton SKIP a=2 b=1/2/3` 各 11–18 次、`XIGrabTouchBegin SKIP` 1 次、`XIUngrabButton SKIP`。
+  之前"完全没拦截"的判断是错的，原因是**mutter 对指针根本不用 `XIGrabDevice`**，
+  它用的是 `XIGrabButton`（被动抓取）+ Clutter 自己的 `clutter_stage_grab`。
+- 把三类指针抓取全部跳过（`HUSK_NOGRAB=1`）之后，标题栏拖动**依然不动**，而且拖动期间
+  日志里没有任何新的抓取调用 ⇒ 拖窗不动**不是 X 层抓取造成的**，问题在 mutter 的 grab op
+  本身拿不到/不用 motion。
+- `tmp/mutfix.c`（把 `XIQueryDevice(3)` 改成 `(1)` 并补上 XTEST slave）从未被调用：
+  实测 mutter 只用 `XIQueryDevice(0)`（一次，7 个设备）和 `XIQueryDevice(7)`（一次），
+  所以"枚举值 3 坏掉"这件事对 mutter 没有影响，这个补丁没有价值，**不再尝试**。
+
+## 11 · 结论（更新）
+
+- 拖窗不动：**mutter 的 grab op 不跟 motion**，与 X 层抓取、与设备枚举无关。
+- 生产输入（Lorie mouse/touch）与命令行可测输入（XTEST）是两条设备，最终验收必须人工用手指。
+- 下一档可做的运行时层工作不是继续猜 mutter，而是**把"搬窗"做成我们自己的操作**：
+  输入层（`husk-rd`，吃应用给的 evdev 流）判定标题栏手势后直接 `_NET_MOVERESIZE_WINDOW`，
+  完全不依赖 mutter 的交互式搬窗。这条在 0.0.6 里按增量做，不影响其它三项。
