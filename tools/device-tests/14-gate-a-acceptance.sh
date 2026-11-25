@@ -127,12 +127,16 @@ nargv=$(ps -e -o args 2>/dev/null | grep -c '/data/user' || true)
 echo "  NOTE  guest-visible argv shows the app dir in $nargv process(es) (the loader's own argv)"
 eq "guest /data/user does not exist" "absent" "$([ -e /data/user ] && echo present || echo absent)"
 eq "guest /system does not exist" "absent" "$([ -e /system ] && echo present || echo absent)"
-# KNOWN GAP（0.0.11 实测，待 0.0.13 修）：commit 09d8689 的本意是让
-# readlinkat("/proc/self/exe") 返回 **guest 程序路径**，但实测仍然返回 loader 的宿主路径
-# （`readlink /proc/self/exe` → /data/data/.../husk/libld.so，evidence 214 §4）。
-# 这里按**现状**断言，并把名字写成"暴露宿主 loader"，免得下一个人以为这是期望行为。
-eq "readlink /proc/self/exe exposes host loader (KNOWN GAP)" "host" \
-  "$(case "$(readlink /proc/self/exe)" in /data/user/*|/data/data/*) echo host;; *) echo guest;; esac)"
+# `/proc/self/exe` 必须报**当前 guest 程序**的 guest 路径（evidence 217）。
+# 三条一起断言，缺一条就可能"看着对"：路径里不许出现 app 目录、在 guest 里
+# 必须真的存在且可执行、而且必须是**这个**程序（这里跑的是 readlink 自己）。
+# 0.0.11 之前它返回宿主 loader 的绝对路径，`sys.executable`、按自身目录找资源的
+# 程序全跟着错。
+exe=$(readlink /proc/self/exe)
+eq "/proc/self/exe has no app dir" "clean" \
+  "$(case "$exe" in /data/*) echo leaked;; *) echo clean;; esac)"
+eq "/proc/self/exe resolves inside guest" "ok" "$([ -x "$exe" ] && echo ok || echo missing)"
+eq "/proc/self/exe names this program" "readlink" "$(basename "$exe")"
 
 echo "== seccomp traps (real, excluding the init marker) =="
 traps=$(grep -c '^sigsys|nr=' /tmp/gate-a-sigsys.log 2>/dev/null || true)

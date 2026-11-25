@@ -14,6 +14,7 @@
 | [video-bridge.md](video-bridge.md) | 视频：MediaCodec ↔ guest 的 AHB 交接协议 |
 | [audio-bridge.md](audio-bridge.md) | 音频：guest ↔ app AAudio 的桥 |
 | [libc-interpose.md](libc-interpose.md) | libc 内部调用（非 PLT）的槽位方案 |
+| [compat-layer.md](compat-layer.md) | 兼容层机制：三层拦截、覆盖账（96/111）、代价与未闭合项 |
 | [lifecycle.md](lifecycle.md) | 壳应用生命周期与进程回收 |
 | [page-size.md](page-size.md) | 页大小无关的设计与体检 |
 | [dlopen-path-coverage.md](dlopen-path-coverage.md) | dlopen 进来的对象如何走 guest 路径 |

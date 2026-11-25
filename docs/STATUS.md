@@ -27,6 +27,13 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 **仓库布局**：`runtime/crates/{path-shim,nr-tools,runtime-core}`（Rust）、`tools/loader/*.S`（裸汇编，仅入口与 hook）、
 `tools/device-tests/*.sh`、`docs/design/`（设计 + `evidence/` 原始记录）。
 
+**0.0.13 在改（随修复推进更新）**：`/proc/self/exe` 已改报 guest 程序路径
+（evidence 217；门禁 A 的旧断言写的是坏行为，已换成三条正向断言，现 **38/38**）；
+`__xstat` 家族 6 个符号已补（evidence 218，覆盖 **90 → 96 / 111**）。还没收的：
+`dlmopen`、`execveat` 两个真缺口，libc 体内跳板（L2 目前是 0 覆盖，不是部分覆盖），
+以及共享状态的并发审计（`lib.rs` 里 `static mut` 63 处 / `Atomic` 21 处）。
+机制账与未闭合项见 `docs/design/compat-layer.md`。
+
 **当前开口（按优先级）**：
 1. 非 Mali GPU 家族**适配器**（Adreno kgsl+Turnip / 通用 DRM）：探测表与降级已落地（evidence 127），
    适配器本身等有设备再写——没设备只能出未验证代码；

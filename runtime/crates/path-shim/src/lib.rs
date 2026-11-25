@@ -1169,27 +1169,11 @@ static NAME_STATE: AtomicU8 = AtomicU8::new(0);
 /// other thread exists, so a single static buffer is enough.
 static mut CMDLINE_BUF: [u8; 65536] = [0; 65536];
 
-/// `comm` is inherited from the file the kernel executed, and for a guest
-/// process that file is always the loader - so every process in the container
-/// used to show up as "libld39.so" in `ps`/`top`/`htop`, and `pgrep -x bash`
-/// never matched. The real program is the first argument that is not one of the
-/// loader's own options, so take that basename and rename the process once.
-pub(crate) unsafe fn name_once() {
-    if NAME_STATE.load(Ordering::Relaxed) != 0 {
-        return;
-    }
-    NAME_STATE.store(1, Ordering::Relaxed);
+/// 读一次 `/proc/self/cmdline`，返回字节数（0 = 读失败）。
+unsafe fn cmdline_read(buf: &mut [u8; 65536]) -> usize {
     const SYS_OPENAT: usize = 56;
     const SYS_READ: usize = 63;
     const SYS_CLOSE: usize = 57;
-    const SYS_PRCTL: usize = 167;
-    const PR_SET_NAME: usize = 15;
-    // The cmdline is not two short lines: a nested exec re-runs the loader with
-    // `--library-path <every guest directory>` and that one argument is several
-    // kilobytes, so a 2 KiB stack buffer cut the program token off entirely and
-    // the process kept the loader's name (evidence 146 §2). A static buffer
-    // keeps the parse identical and costs 64 KiB of .bss.
-    let buf = &mut *core::ptr::addr_of_mut!(CMDLINE_BUF);
     let fd = syscall4(
         SYS_OPENAT,
         AT_FDCWD as usize,
@@ -1198,7 +1182,7 @@ pub(crate) unsafe fn name_once() {
         0,
     );
     if fd < 0 {
-        return;
+        return 0;
     }
     let n = syscall4(
         SYS_READ,
@@ -1209,13 +1193,20 @@ pub(crate) unsafe fn name_once() {
     );
     syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
     if n <= 0 {
-        return;
+        0
+    } else {
+        n as usize
     }
-    let n = n as usize;
+}
+
+/// 从 cmdline 里取出「loader 被要求跑的那个程序」，返回它在 buf 里的 (start, len)。
+///
+/// `--library-path <值>` 和 `--argv0 <值>` 是带参数的 loader 选项，值本身可能
+/// 以 `/` 开头，不能当成程序路径。
+unsafe fn cmdline_prog(buf: &[u8], n: usize) -> Option<(usize, usize)> {
     let mut i = 0usize;
     let mut idx = 0usize;
     let mut skip_value = false;
-    let mut prog: Option<(usize, usize)> = None;
     while i < n {
         let start = i;
         while i < n && buf[i] != 0 {
@@ -1229,7 +1220,7 @@ pub(crate) unsafe fn name_once() {
         }
         if skip_value {
             skip_value = false;
-            continue; // value of --library-path
+            continue; // value of --library-path / --argv0
         }
         if len == 14 && &buf[start..start + 14] == b"--library-path" {
             skip_value = true;
@@ -1243,11 +1234,35 @@ pub(crate) unsafe fn name_once() {
             continue; // any other loader option
         }
         if len > 0 {
-            prog = Some((start, len));
-            break;
+            return Some((start, len));
         }
     }
-    let (start, len) = match prog {
+    None
+}
+
+/// `comm` is inherited from the file the kernel executed, and for a guest
+/// process that file is always the loader - so every process in the container
+/// used to show up as "libld39.so" in `ps`/`top`/`htop`, and `pgrep -x bash`
+/// never matched. The real program is the first argument that is not one of the
+/// loader's own options, so take that basename and rename the process once.
+pub(crate) unsafe fn name_once() {
+    if NAME_STATE.load(Ordering::Relaxed) != 0 {
+        return;
+    }
+    NAME_STATE.store(1, Ordering::Relaxed);
+    const SYS_PRCTL: usize = 167;
+    const PR_SET_NAME: usize = 15;
+    // The cmdline is not two short lines: a nested exec re-runs the loader with
+    // `--library-path <every guest directory>` and that one argument is several
+    // kilobytes, so a 2 KiB stack buffer cut the program token off entirely and
+    // the process kept the loader's name (evidence 146 §2). A static buffer
+    // keeps the parse identical and costs 64 KiB of .bss.
+    let buf = &mut *core::ptr::addr_of_mut!(CMDLINE_BUF);
+    let n = cmdline_read(buf);
+    if n == 0 {
+        return;
+    }
+    let (start, len) = match cmdline_prog(&buf[..n], n) {
         Some(v) => v,
         None => return,
     };
@@ -1270,6 +1285,88 @@ pub(crate) unsafe fn name_once() {
         return;
     }
     syscall4(SYS_PRCTL, PR_SET_NAME, name.as_ptr() as usize, 0, 0);
+}
+
+/// 发布 `/proc/self/exe` 的答案：把 guest 绝对路径写进 `EXE_GUEST`。
+///
+/// seqlock 写：先 +1 变奇数、写完再 +1 变偶数，读的人只在偶数时读、读完核一次
+/// 序号。`gnome-shell` 这类多线程程序一边 spawn 子进程一边读 `/proc/self/exe`，
+/// 不设防就会读到「长度是新的、内容是旧的」的半截路径。
+unsafe fn exe_publish(p: &[u8]) {
+    let n = p.len().min(PATH_MAX - 1);
+    EXE_SEQ.fetch_add(1, Ordering::AcqRel);
+    EXE_GUEST[..n].copy_from_slice(&p[..n]);
+    EXE_GUEST_LEN = n;
+    EXE_SEQ.fetch_add(1, Ordering::AcqRel);
+}
+
+/// 在 boot 阶段把「本进程跑的是哪个 guest 程序」发布给 `/proc/self/exe`。
+///
+/// 只靠 execve 钩子写这一条不够：loader 起第一个程序时并不经过 execve（init
+/// 段直接跳进去），而且 exec 会把上一份进程内存整个换掉，钩子里写的那份跟着
+/// 消失。结果就是会话里的第一个进程（`sh`、`gnome-shell`、`python3`）读
+/// `/proc/self/exe` 时落回内核，拿到宿主 loader 的绝对路径——`sys.executable`、
+/// 按自身目录找资源的程序（Xorg 的模块目录、Electron 的 app.asar、JDK 的
+/// HOME）全都跟着错。
+///
+/// 这里在任何程序代码跑之前，从 `/proc/self/cmdline` 取回 loader 被要求跑的
+/// 那一条，换算成 guest 绝对路径发布出去（evidence 217）。
+pub unsafe fn publish_exe_guest() {
+    static STATE: AtomicU8 = AtomicU8::new(0);
+    if STATE.swap(1, Ordering::AcqRel) != 0 {
+        return;
+    }
+    let buf = &mut *core::ptr::addr_of_mut!(CMDLINE_BUF);
+    let n = cmdline_read(buf);
+    if n == 0 {
+        return;
+    }
+    let (start, len) = match cmdline_prog(&buf[..n], n) {
+        Some(v) => v,
+        None => return,
+    };
+    let prog = &buf[start..start + len];
+    let mut joined = [0u8; PATH_MAX];
+    let mut jn = 0usize;
+    if prog[0] == b'/' {
+        // 绝对路径有两种：guest 路径，或者「宿主真路径」。后者是常态——execve
+        // 钩子真正 exec 的是 rootfs 里那个文件，所以它给 loader 的程序参数带
+        // 着 rootfs 前缀（实测 evidence 217 第一版就踩在这里：发布出去的是
+        // `/data/user/0/…/rootfs/usr/bin/ls`）。折回 guest 路径再发布。
+        let _ = rootfd();
+        let mut gp = [0u8; PATH_MAX];
+        match guest_path_from_real(prog, gp.as_mut_ptr(), PATH_MAX) {
+            Some(g) if g > 0 && g < PATH_MAX => {
+                joined[..g].copy_from_slice(&gp[..g]);
+                jn = g;
+            }
+            _ => return,
+        }
+    } else {
+        // 相对路径：拼 guest cwd。set_guest_cwd 已经把 cwd 摆到 guest 根
+        // （继承的 cwd 在 root 外面时），所以这里拿到的是 guest 侧目录。
+        let cwd_n = cwd_into(&mut joined);
+        jn = cwd_n.min(PATH_MAX - 1);
+        if jn == 0 {
+            return;
+        }
+        if joined[jn - 1] != b'/' {
+            joined[jn] = b'/';
+            jn += 1;
+        }
+        for &c in prog {
+            if jn >= PATH_MAX - 1 {
+                return;
+            }
+            joined[jn] = c;
+            jn += 1;
+        }
+    }
+    let mut out = [0u8; PATH_MAX];
+    let on = normalize(&joined[..jn], &mut out);
+    if on > 0 && on < PATH_MAX {
+        exe_publish(&out[..on]);
+    }
 }
 
 unsafe fn rootfd() -> CInt {
@@ -4431,6 +4528,53 @@ pub unsafe extern "C" fn lstat(path: *const CChar, st: *mut u8) -> CInt {
     stat_like(path, st, AT_SYMLINK_NOFOLLOW)
 }
 
+/// 老二进制（当年跟 glibc < 2.33 链接的）走的是 `__xstat` 这组版本化入口，
+/// 不是 `stat`：路径翻译在它们内部做，所以只钩 `stat` 钩不到它们。实测
+/// evidence 218：`__xstat(0, "/root/x", &st)` → `ENOENT`，同一个文件 `stat()`
+/// 正常返回。`ver` 只描述 glibc 当年 `struct stat` 的布局，本机 glibc 2.39 的
+/// 布局就是我们要返回的那一份，因此忽略 `ver`，直接转给同名语义的钩子。
+#[no_mangle]
+pub unsafe extern "C" fn __xstat(_ver: CInt, path: *const CChar, st: *mut u8) -> CInt {
+    stat(path, st)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __xstat64(_ver: CInt, path: *const CChar, st: *mut u8) -> CInt {
+    stat(path, st)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __lxstat(_ver: CInt, path: *const CChar, st: *mut u8) -> CInt {
+    lstat(path, st)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __lxstat64(_ver: CInt, path: *const CChar, st: *mut u8) -> CInt {
+    lstat(path, st)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __fxstatat(
+    _ver: CInt,
+    dirfd: CInt,
+    path: *const CChar,
+    st: *mut u8,
+    flags: CInt,
+) -> CInt {
+    fstatat(dirfd, path, st, flags)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __fxstatat64(
+    _ver: CInt,
+    dirfd: CInt,
+    path: *const CChar,
+    st: *mut u8,
+    flags: CInt,
+) -> CInt {
+    fstatat(dirfd, path, st, flags)
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn fstatat(
     dirfd: CInt,
@@ -6651,9 +6795,26 @@ pub unsafe extern "C" fn readlinkat(
             i += 1;
         }
         if hit {
-            let l = core::cmp::min(EXE_GUEST_LEN, len);
-            core::ptr::copy_nonoverlapping(EXE_GUEST.as_ptr(), out as *mut u8, l);
-            return l as Ssize;
+            // seqlock 读：另一个线程正在 execve 时，`EXE_GUEST` 会被改写。
+            // gnome-shell 这类多线程程序一边 spawn 子进程一边读 /proc/self/exe，
+            // 不设防就会读到"长度是新的、内容是旧的"的半截路径。
+            let mut attempts = 0;
+            while attempts < 64 {
+                let s1 = EXE_SEQ.load(Ordering::Acquire);
+                if s1 & 1 == 0 {
+                    let n = EXE_GUEST_LEN;
+                    if n == 0 {
+                        break;
+                    }
+                    let l = core::cmp::min(n, len);
+                    core::ptr::copy_nonoverlapping(EXE_GUEST.as_ptr(), out as *mut u8, l);
+                    if EXE_SEQ.load(Ordering::Acquire) == s1 {
+                        return l as Ssize;
+                    }
+                }
+                attempts += 1;
+                core::hint::spin_loop();
+            }
         }
     }
     let absolute = *path == b'/' as CChar;
@@ -6958,6 +7119,10 @@ unsafe fn elf_interp(fd: CInt) -> bool {
 // guest path keeps those users inside it.
 static mut EXE_GUEST: [u8; PATH_MAX] = [0; PATH_MAX];
 static mut EXE_GUEST_LEN: usize = 0;
+/// `EXE_GUEST` 的 seqlock 序号：写的人先 +1（变奇数），写完再 +1（变偶数）。
+/// 读的人只在偶数时读、读完再核一次。和下面的 `EXE_GUEST`/`EXE_GUEST_LEN`
+/// 一起构成一个"读多写少"的发布通道（写只发生在 execve）。
+static EXE_SEQ: AtomicUsize = AtomicUsize::new(0);
 
 // ---------------------------------------------------------------------------
 // statx: coreutils >= 9 and many modern binaries use statx() directly, which
@@ -7685,8 +7850,7 @@ pub unsafe extern "C" fn execve(
         None => return set_errno(36),
     };
     if n < PATH_MAX {
-        EXE_GUEST[..n].copy_from_slice(&gp[..n]);
-        EXE_GUEST_LEN = n;
+        exe_publish(&gp[..n]);
     }
     // The path exactly as this call named it (guest-absolute, NUL terminated).
     // A script's interpreter has to receive *this* string and not the resolved

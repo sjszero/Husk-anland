@@ -940,6 +940,11 @@ pub unsafe extern "C" fn nr_boot(
     //    "libld.so" for every child (evidence 146).
     crate::name_once();
 
+    // 6. 让 `/proc/self/exe` 回答 guest 路径而不是宿主 loader 路径。必须在
+    //    程序代码之前做：第一个进程不经过 execve 钩子，只有这里补得上
+    //    （evidence 217）。
+    crate::publish_exe_guest();
+
     if debug_on() {
         say(&[b"nr-boot: imports="]);
         say_hex(n);
