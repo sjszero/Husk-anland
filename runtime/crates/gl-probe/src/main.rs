@@ -8,6 +8,11 @@
 //!                     a 1x1 readback. Prints a `stage N:` line per step so a
 //!                     crash says exactly where it died.
 //!                     (was tools/device-tests/egl-x11-window.c)
+//!   gl-probe fixed    surfaceless desktop OpenGL compatibility context with a
+//!                     fixed-function gear draw. This exercises the legacy GL
+//!                     lowering path that `glxgears` uses without requiring an
+//!                     X server, so a PanVK/Bifrost compiler crash is separable
+//!                     from the window/presentation layer.
 //!
 //! Why 1x1 readbacks: this guest's `glReadPixels` writes only the first row and
 //! the first column of a block read (evidence 162), so a block read would hide
@@ -15,7 +20,7 @@
 
 use std::ffi::CString;
 use std::io::Write;
-use std::os::raw::{c_char, c_int, c_uint, c_ulong, c_void};
+use std::os::raw::{c_char, c_double, c_int, c_uint, c_ulong, c_void};
 
 // ---------------------------------------------------------------- dlopen glue
 
@@ -60,8 +65,10 @@ macro_rules! say {
 // ------------------------------------------------------------- EGL constants
 
 const EGL_OPENGL_ES_API: c_uint = 0x30A0;
+const EGL_OPENGL_API: c_uint = 0x30A2;
 const EGL_SURFACE_TYPE: c_int = 0x3033;
 const EGL_PBUFFER_BIT: c_int = 0x0001;
+const EGL_OPENGL_BIT: c_int = 0x0008;
 const EGL_RENDERABLE_TYPE: c_int = 0x3040;
 const EGL_OPENGL_ES2_BIT: c_int = 0x0004;
 const EGL_OPENGL_ES3_BIT: c_int = 0x0040;
@@ -112,6 +119,20 @@ const GL_RENDERER: c_uint = 0x1F01;
 const GL_VERSION: c_uint = 0x1F02;
 const GL_SHADING_LANGUAGE_VERSION: c_uint = 0x8B8C;
 const GL_NO_ERROR: c_uint = 0;
+const GL_DEPTH_BUFFER_BIT: c_uint = 0x0100;
+const GL_LEQUAL: c_uint = 0x0203;
+const GL_SMOOTH: c_uint = 0x1D01;
+const GL_QUADS: c_uint = 0x0007;
+const GL_TRIANGLE_FAN: c_uint = 0x0006;
+const GL_PROJECTION: c_uint = 0x1701;
+const GL_MODELVIEW: c_uint = 0x1700;
+const GL_LIGHTING: c_uint = 0x0B50;
+const GL_LIGHT0: c_uint = 0x4000;
+const GL_POSITION: c_uint = 0x1203;
+const GL_COLOR_MATERIAL: c_uint = 0x0B57;
+const GL_FRONT_AND_BACK: c_uint = 0x0408;
+const GL_AMBIENT_AND_DIFFUSE: c_uint = 0x1602;
+const GL_NORMALIZE: c_uint = 0x0BA1;
 
 type Display = c_void;
 type Config = *mut c_void;
@@ -291,6 +312,316 @@ impl Gl {
         unsafe { std::ffi::CStr::from_ptr(p) }
             .to_string_lossy()
             .into_owned()
+    }
+}
+
+/// Minimal desktop OpenGL 2.1 entry points. Kept separate from `Gl` so the ES3
+/// probe keeps linking only GLESv2; this path deliberately loads `libGL.so.1`
+/// and uses fixed-function state, matching the lowering path used by glxgears.
+struct LegacyGl {
+    viewport: unsafe extern "C" fn(c_int, c_int, c_int, c_int),
+    clear_color: unsafe extern "C" fn(f32, f32, f32, f32),
+    clear: unsafe extern "C" fn(c_uint),
+    enable: unsafe extern "C" fn(c_uint),
+    depth_func: unsafe extern "C" fn(c_uint),
+    shade_model: unsafe extern "C" fn(c_uint),
+    matrix_mode: unsafe extern "C" fn(c_uint),
+    load_identity: unsafe extern "C" fn(),
+    frustum: unsafe extern "C" fn(c_double, c_double, c_double, c_double, c_double, c_double),
+    translatef: unsafe extern "C" fn(f32, f32, f32),
+    rotatef: unsafe extern "C" fn(f32, f32, f32, f32),
+    lightfv: unsafe extern "C" fn(c_uint, c_uint, *const f32),
+    color_material: unsafe extern "C" fn(c_uint, c_uint),
+    begin: unsafe extern "C" fn(c_uint),
+    end: unsafe extern "C" fn(),
+    normal3f: unsafe extern "C" fn(f32, f32, f32),
+    vertex3f: unsafe extern "C" fn(f32, f32, f32),
+    color3f: unsafe extern "C" fn(f32, f32, f32),
+    finish: unsafe extern "C" fn(),
+    read_pixels: unsafe extern "C" fn(c_int, c_int, c_int, c_int, c_uint, c_uint, *mut c_void),
+    get_error: unsafe extern "C" fn() -> c_uint,
+    get_string: unsafe extern "C" fn(c_uint) -> *const c_char,
+}
+
+impl LegacyGl {
+    fn load() -> Option<LegacyGl> {
+        let gl = Lib::open("libGL.so.1")?;
+        let p = |n: &str| gl.sym(n);
+        if p("glBegin").is_null() || p("glLightfv").is_null() {
+            return None;
+        }
+        Some(unsafe {
+            LegacyGl {
+                viewport: cast(p("glViewport")),
+                clear_color: cast(p("glClearColor")),
+                clear: cast(p("glClear")),
+                enable: cast(p("glEnable")),
+                depth_func: cast(p("glDepthFunc")),
+                shade_model: cast(p("glShadeModel")),
+                matrix_mode: cast(p("glMatrixMode")),
+                load_identity: cast(p("glLoadIdentity")),
+                frustum: cast(p("glFrustum")),
+                translatef: cast(p("glTranslatef")),
+                rotatef: cast(p("glRotatef")),
+                lightfv: cast(p("glLightfv")),
+                color_material: cast(p("glColorMaterial")),
+                begin: cast(p("glBegin")),
+                end: cast(p("glEnd")),
+                normal3f: cast(p("glNormal3f")),
+                vertex3f: cast(p("glVertex3f")),
+                color3f: cast(p("glColor3f")),
+                finish: cast(p("glFinish")),
+                read_pixels: cast(p("glReadPixels")),
+                get_error: cast(p("glGetError")),
+                get_string: cast(p("glGetString")),
+            }
+        })
+    }
+
+    fn string(&self, which: c_uint) -> String {
+        let p = unsafe { (self.get_string)(which) };
+        if p.is_null() {
+            return "?".into();
+        }
+        unsafe { std::ffi::CStr::from_ptr(p) }
+            .to_string_lossy()
+            .into_owned()
+    }
+}
+
+fn legacy_display_context(egl: &Egl) -> Option<(*mut Display, *mut Surface, Context)> {
+    let display = unsafe {
+        let d = (egl.get_platform_display)(
+            EGL_PLATFORM_SURFACELESS_MESA,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        );
+        if d.is_null() {
+            (egl.get_display)(std::ptr::null_mut())
+        } else {
+            d
+        }
+    };
+    if display.is_null() {
+        say!("FAIL eglGetDisplay(desktop GL)");
+        return None;
+    }
+    let (mut major, mut minor) = (0, 0);
+    if unsafe { (egl.initialize)(display, &mut major, &mut minor) } == 0 {
+        say!("FAIL eglInitialize(desktop GL)");
+        return None;
+    }
+    if unsafe { (egl.bind_api)(EGL_OPENGL_API) } == 0 {
+        say!("FAIL eglBindAPI(OpenGL) err={:#x}", unsafe {
+            (egl.get_error)()
+        });
+        return None;
+    }
+    let config_attrs = [
+        EGL_SURFACE_TYPE,
+        EGL_PBUFFER_BIT,
+        EGL_RENDERABLE_TYPE,
+        EGL_OPENGL_BIT,
+        EGL_RED_SIZE,
+        8,
+        EGL_GREEN_SIZE,
+        8,
+        EGL_BLUE_SIZE,
+        8,
+        EGL_NONE,
+    ];
+    let mut config: Config = std::ptr::null_mut();
+    let mut count = 0;
+    if unsafe { (egl.choose_config)(display, config_attrs.as_ptr(), &mut config, 1, &mut count) }
+        == 0
+        || count < 1
+    {
+        say!("RESULT UNSUPPORTED (no desktop-GL EGL config)");
+        return None;
+    }
+    let surface_attrs = [EGL_WIDTH, 64, EGL_HEIGHT, 64, EGL_NONE];
+    let surface = unsafe { (egl.create_pbuffer_surface)(display, config, surface_attrs.as_ptr()) };
+    if surface.is_null() {
+        say!(
+            "FAIL eglCreatePbufferSurface(desktop GL) err={:#x}",
+            unsafe { (egl.get_error)() }
+        );
+        return None;
+    }
+    let ctx_attrs = [
+        EGL_CONTEXT_MAJOR_VERSION,
+        2,
+        EGL_CONTEXT_MINOR_VERSION,
+        1,
+        EGL_NONE,
+    ];
+    let context =
+        unsafe { (egl.create_context)(display, config, std::ptr::null_mut(), ctx_attrs.as_ptr()) };
+    if context.is_null() {
+        say!("FAIL eglCreateContext(desktop GL) err={:#x}", unsafe {
+            (egl.get_error)()
+        });
+        return None;
+    }
+    if unsafe { (egl.make_current)(display, surface, surface, context) } == 0 {
+        say!("FAIL eglMakeCurrent(desktop GL) err={:#x}", unsafe {
+            (egl.get_error)()
+        });
+        return None;
+    }
+    Some((display, surface, context))
+}
+
+fn draw_fixed_gear(gl: &LegacyGl, angle_deg: f32) {
+    const TEETH: usize = 48;
+    const TAU: f32 = std::f32::consts::TAU;
+    let step = TAU / TEETH as f32;
+    unsafe {
+        (gl.load_identity)();
+        (gl.translatef)(0.0, 0.0, -3.6);
+        (gl.rotatef)(angle_deg, 0.0, 0.0, 1.0);
+        (gl.rotatef)(18.0, 1.0, 0.6, 0.0);
+
+        for (z, normal_z, color) in [
+            (0.18, 1.0, (0.20, 0.82, 1.0)),
+            (-0.18, -1.0, (0.08, 0.28, 0.42)),
+        ] {
+            (gl.color3f)(color.0, color.1, color.2);
+            (gl.begin)(GL_QUADS);
+            (gl.normal3f)(0.0, 0.0, normal_z);
+            for i in 0..TEETH {
+                let a0 = i as f32 * step;
+                let a1 = a0 + step * 0.28;
+                let a2 = a0 + step * 0.66;
+                let a3 = a0 + step * 0.94;
+                let ring = |a: f32, r: f32| (a.cos() * r, a.sin() * r);
+                let (ix0, iy0) = ring(a0, 0.76);
+                let (ox1, oy1) = ring(a1, 1.02);
+                let (ox2, oy2) = ring(a2, 1.02);
+                let (ix3, iy3) = ring(a3, 0.76);
+                if normal_z < 0.0 {
+                    (gl.vertex3f)(ix0, iy0, z);
+                    (gl.vertex3f)(ix3, iy3, z);
+                    (gl.vertex3f)(ox2, oy2, z);
+                    (gl.vertex3f)(ox1, oy1, z);
+                } else {
+                    (gl.vertex3f)(ix0, iy0, z);
+                    (gl.vertex3f)(ox1, oy1, z);
+                    (gl.vertex3f)(ox2, oy2, z);
+                    (gl.vertex3f)(ix3, iy3, z);
+                }
+            }
+            (gl.end)();
+        }
+
+        // A filled hub keeps the centre pixel useful even when the gear is
+        // rotated; it also gives the compiler several more varying paths.
+        (gl.color3f)(0.95, 0.75, 0.20);
+        (gl.begin)(GL_TRIANGLE_FAN);
+        (gl.normal3f)(0.0, 0.0, 1.0);
+        (gl.vertex3f)(0.0, 0.0, 0.19);
+        for i in 0..=32 {
+            let a = i as f32 * TAU / 32.0;
+            (gl.vertex3f)(a.cos() * 0.43, a.sin() * 0.43, 0.19);
+        }
+        (gl.end)();
+    }
+}
+
+fn run_fixed(frames: u32) -> i32 {
+    let Some(egl) = Egl::load() else {
+        say!("FAIL dlopen EGL");
+        return 1;
+    };
+    let Some((display, surface, context)) = legacy_display_context(&egl) else {
+        return 77;
+    };
+    let Some(gl) = LegacyGl::load() else {
+        say!("RESULT UNSUPPORTED (desktop libGL symbols missing)");
+        return 77;
+    };
+    say!("FIXED_RENDERER={}", gl.string(GL_RENDERER));
+    say!("FIXED_VERSION={}", gl.string(GL_VERSION));
+
+    let light_pos = [2.0f32, 3.0, 4.0, 1.0];
+    unsafe {
+        (gl.viewport)(0, 0, 64, 64);
+        (gl.enable)(GL_DEPTH_TEST);
+        (gl.depth_func)(GL_LEQUAL);
+        (gl.shade_model)(GL_SMOOTH);
+        (gl.enable)(GL_LIGHTING);
+        (gl.enable)(GL_LIGHT0);
+        (gl.enable)(GL_COLOR_MATERIAL);
+        (gl.enable)(GL_NORMALIZE);
+        (gl.color_material)(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+        (gl.lightfv)(GL_LIGHT0, GL_POSITION, light_pos.as_ptr());
+        (gl.matrix_mode)(GL_PROJECTION);
+        (gl.load_identity)();
+        (gl.frustum)(-1.0, 1.0, -1.0, 1.0, 1.0, 20.0);
+        (gl.matrix_mode)(GL_MODELVIEW);
+        (gl.clear_color)(0.02, 0.03, 0.05, 1.0);
+    }
+
+    // Debugging aid for mapping the driver's crash PC to a module offset. It is
+    // opt-in and capped so a typo cannot leave a test process sleeping forever.
+    if let Ok(ms) = std::env::var("HUSK_GL_FIXED_DELAY_MS") {
+        if let Ok(ms) = ms.parse::<u64>() {
+            std::thread::sleep(std::time::Duration::from_millis(ms.min(30_000)));
+        }
+    }
+
+    let started = std::time::Instant::now();
+    for frame in 0..frames {
+        unsafe {
+            (gl.clear)(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        }
+        draw_fixed_gear(&gl, frame as f32 * 2.7);
+        unsafe { (gl.finish)() };
+    }
+    let elapsed = started.elapsed().as_secs_f64();
+
+    let mut pixel = [0u8; 4];
+    unsafe {
+        (gl.read_pixels)(
+            32,
+            32,
+            1,
+            1,
+            GL_RGBA,
+            GL_UNSIGNED_BYTE,
+            pixel.as_mut_ptr() as *mut c_void,
+        );
+        (gl.finish)();
+    }
+    let err = unsafe { (gl.get_error)() };
+    let nonblack = pixel[0] as u32 + pixel[1] as u32 + pixel[2] as u32;
+    say!(
+        "FIXED frames={frames} elapsed={elapsed:.3}s fps={:.1} pixel={},{},{},{} err={err:#x}",
+        frames as f64 / elapsed.max(0.000_001),
+        pixel[0],
+        pixel[1],
+        pixel[2],
+        pixel[3]
+    );
+
+    unsafe {
+        (egl.make_current)(
+            display,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        );
+        (egl.destroy_context)(display, context);
+        (egl.destroy_surface)(display, surface);
+        (egl.terminate)(display);
+    }
+
+    if err == GL_NO_ERROR && nonblack > 20 {
+        say!("RESULT PASS");
+        0
+    } else {
+        say!("RESULT FAIL");
+        5
     }
 }
 
@@ -1849,6 +2180,14 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = match args.first().map(String::as_str) {
         Some("es3") => run_es3(),
+        Some("fixed") => {
+            let frames = args
+                .get(1)
+                .and_then(|a| a.parse::<u32>().ok())
+                .filter(|n| (1..=100_000).contains(n))
+                .unwrap_or(60);
+            run_fixed(frames)
+        }
         Some("window") => {
             let size = args.get(1).map(String::as_str).unwrap_or("640x480");
             let frames = args
@@ -1926,7 +2265,7 @@ fn main() {
         }
         Some("root") => run_root(),
         _ => {
-            eprintln!("usage: gl-probe <es3 | window [WxH [frames]] | pbuf [WxH [frames]] | xput [WxH [frames]] | fill [WxH [passes [frames]]] | readback [WxH] | root [out.ppm]>");
+            eprintln!("usage: gl-probe <es3 | fixed [frames] | window [WxH [frames]] | pbuf [WxH [frames]] | xput [WxH [frames]] | fill [WxH [passes [frames]]] | readback [WxH] | root [out.ppm]>");
             2
         }
     };

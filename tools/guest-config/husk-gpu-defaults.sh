@@ -62,6 +62,10 @@ case "$_husk_gpu_family" in
             [ -z "${GALLIUM_DRIVER:-}" ] && export GALLIUM_DRIVER=zink
             # PanVK/zink 当前上限 3.2；真实应用上限仍未验证。
             [ -z "${MESA_GLES_VERSION_OVERRIDE:-}" ] && export MESA_GLES_VERSION_OVERRIDE=3.2
+            # PanVK 默认打开 DXVK 兼容特性时会暴露 geometryShader；zink 的
+            # 四边形模拟 GS 在当前 Bifrost 后端会崩。普通 GL/桌面默认关闭，
+            # 需要 DXVK 的程序可自行 export PANVK_DXVK_COMPAT=1。
+            [ -z "${PANVK_DXVK_COMPAT:-}" ] && export PANVK_DXVK_COMPAT=0
             # GTK4 的 GL 后端在 PanVK/zink 上有三角缺口，只把 GTK 自己钉到 cairo。
             [ -z "${GSK_RENDERER:-}" ] && export GSK_RENDERER=cairo
         else

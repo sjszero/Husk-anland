@@ -136,13 +136,13 @@ DRI3 只能停在 `Could not get DRI3 device`。逐条数字与做法见
 > [!IMPORTANT]
 > 表里写的是**验证到什么程度**，不是「功能已完成」。GPU 只到「能开、能算」，没到「能上线」：
 > 窗口呈现（WSI）已经通了，但客户端的帧是经 SHM 拷贝进 X server 的，dmabuf 直传还没接
-> （`docs/LIMITATIONS.md` §7）。另外 `glxgears` 会稳定触发 PanVK/Bifrost 编译器崩溃，
-> 所以本版没有 GPU 长跑通过这一说；相机、视频、音频都是「有一条能跑的链路」，不是产品级的
-> 稳定性承诺。
+> （`docs/LIMITATIONS.md` §7）。fixed-function GL 的 PanVK/Bifrost GS 崩溃已有默认规避，600 帧
+> 探针通过；但真实 X11 `glxgears` 和桌面长跑仍未验证。相机、视频、音频都是「有一条能跑的
+> 链路」，不是产品级的稳定性承诺。
 
 | 能力 | 接法 | 用户态里的路径 | 实测 |
 |---|---|---|---|
-| GPU | 直连 | 直开 `/dev/mali0`，kbase 后端的 PanVK | 枚举到 `Mali-G77 MC9`、compute 与离屏 graphics 回读通过；GL renderer `zink Vulkan 1.3(Mali-G77 MC9)`（evidence 156）；PanVK ICD 由 canonical guest 相对 manifest 选择，独立验证树已复跑 `vulkan-probe` / `gl-probe es3` 通过（evidence 241）。**X11 窗口呈现已通**（`stage 7→10`、60 swap，evidence 165），GNOME 桌面在 zink/PanVK 上出帧、X 根窗口非黑像素 100%（evidence 165/168）；默认值由 App 按真实 `/dev/mali0` 门控生成，并由加载器从 `/etc/husk/gpu-env` 注入；`env -i`、登录/非登录执行都吃得到（evidence 167、182、241、242）；0.0.18 起 App 与 loader 共用 `gpu-env` crate（evidence 243）。上限 GLES 3.2（靠 `MESA_GLES_VERSION_OVERRIDE`，真实应用未验），呈现仍是 SHM 拷贝。**长跑未通过**：`glxgears` 在 PanVK/Bifrost 编译器 `emit_cf_list.isra.0+0x120` 稳定 SIGSEGV，pre-229 loader 同样复现；llvmpipe 对照和 gl-probe/ES3/Vulkan 探针通过（evidence 232） |
+| GPU | 直连 | 直开 `/dev/mali0`，kbase 后端的 PanVK | 枚举到 `Mali-G77 MC9`、compute 与离屏 graphics 回读通过；GL renderer `zink Vulkan 1.3(Mali-G77 MC9)`（evidence 156）；PanVK ICD 由 canonical guest 相对 manifest 选择，独立验证树已复跑 `vulkan-probe` / `gl-probe es3` 通过（evidence 241）。**X11 窗口呈现已通**（`stage 7→10`、60 swap，evidence 165），GNOME 桌面在 zink/PanVK 上出帧、X 根窗口非黑像素 100%（evidence 165/168）；默认值由 App 按真实 `/dev/mali0` 门控生成，并由加载器从 `/etc/husk/gpu-env` 注入；`env -i`、登录/非登录执行都吃得到（evidence 167、182、241、242）；0.0.18 起 App 与 loader 共用 `gpu-env` crate（evidence 243）。0.0.19 默认关闭 PanVK 的 DXVK 兼容 GS，并把默认值穿透真实 `setenv` 和 `execve`（evidence 244）：fixed-function 600 帧 `PASS`（588.5 fps），显式 `PANVK_DXVK_COMPAT=1` 仍以 `fa=0x21` 崩溃。上限 GLES 3.2（靠 `MESA_GLES_VERSION_OVERRIDE`，真实应用未验），呈现仍是 SHM 拷贝；**真实 X11 `glxgears`、桌面长跑和其他 fixed-function 程序仍是 UNKNOWN** |
 | 显示 | 应用侧，零拷贝 | `AHardwareBuffer` → dma-buf → `SurfaceControl` | 3-buffer ring + 真实 `SYNC_FD`：submitted=10 000 / completed=10 000（evidence 59） |
 | 视频解码 | 中转 | MediaCodec `c2.mtk.avc.decoder` + AHB 三平面 | H.264 1080p30 连续 600 秒，`dropped=0`（evidence 80） |
 | 相机 | 中转（标准 V4L2 facade） | guest `/dev/videoN` → Rust V4L2 shim → Camera2 NDK / `AImageReader` | `open()` 返回 memfd，不是真实 V4L2 fd；QUERYCAP / REQBUFS / DQBUF 可用，前后摄自动启动、无测试 marker；最终 0.0.15 构建复跑为 12.26–17.42 fps（evidence 240）。拍照 JPEG + 30 秒录像与硬件 H.264 编码见 evidence 93；不支持 DMABUF / read / controls |
@@ -162,7 +162,9 @@ UNKNOWN**，不能写成已经支持（evidence 233、243）。
 
 图形默认值也属于接口的一部分：ICD、GL 驱动、GLES 上限写在 `/etc/husk/gpu-env` 里，由**加载器**
 在程序自己没设置时补，所以登录 shell、cron、桌面 fork 出来的进程、`env -i` 看到的是同一套
-渲染器；程序自己 `export` 的永远优先（evidence 182）。文件首行的 `@GPU_FAMILY` 会阻止把
+渲染器；程序自己 `export` 的永远优先（evidence 182）。发生 `execve` 时，默认值会物化进真实
+`environ`，让不经过 `getenv` GOT 的库也能看到；`setenv(..., 0)` 同样遵守这套优先级（evidence 244）。
+文件首行的 `@GPU_FAMILY` 会阻止把
 Mali 的 ICD/驱动配置带到一个 Adreno rootfs 上；登录 shell 仍按当前设备节点重新探测；App 侧
 通过 `gpu-env` crate 生成 loader 要读取的配置，`env -i` 也由 loader 注入；软件回退会显式
 传递 `HUSK_GPU=llvmpipe`（evidence 242、243）。

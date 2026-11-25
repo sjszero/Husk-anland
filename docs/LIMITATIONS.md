@@ -45,7 +45,7 @@ guest 里 `/proc/self/fd/1` 是 socket。`make` 往它写完（309 字节就够�
 写入全部 `EACCES`。proot 下完全一样，所以不是 shim 的行为；但它限定了基准的取样方式：
 构建类步骤统一重定向到 `/dev/null`，只记墙钟（evidence 155）。
 
-## 7 · GPU：桌面出帧已通，但呈现仍拷贝，且有 PanVK 编译器崩溃
+## 7 · GPU：桌面出帧已通，fixed-function GS 有默认规避，但呈现仍拷贝
 
 **2026-11-25 的现状**：gnome-shell 46 跑在 zink → PanVK 上，X 根窗口抓到完整桌面、非黑像素
 100%（evidence 165/168）；GTK4 应用因为圆角裁剪缺口默认走 `GSK_RENDERER=cairo`（evidence 187）；
@@ -155,8 +155,16 @@ loader 下，`glxgears -info` 都在 45 秒超时前自行退出 `RC=139`；崩�
 `ldr x28, [x28]`。同一轮里 llvmpipe 跑到预期的 20 秒超时（约 348–371 FPS）、
 `gl-probe window`、ES3 workload 和 `vulkan-probe` 都通过。结论是 PanVK/Bifrost 的固定
 着色器编译路径有已知崩溃，不是“Mali 完全没有起来”；具体 NIR 破坏和其他应用命中率仍是
-**UNKNOWN**。所以本版不能宣称“GPU 长稳通过”，也不能为了 `glxgears` 直接把默认渲染器改成
-llvmpipe 破坏其他程序的硬件加速。单程序回退仍是 `HUSK_GPU=llvmpipe`。
+**UNKNOWN**。不能把默认渲染器改成 llvmpipe 来掩盖问题，也不能据此宣称 GPU 长稳通过。
+
+**2026-11-26 fixed-function 默认规避（FACT/UNKNOWN，evidence 244）**：不启动 X11 的
+`gl-probe fixed` 证明崩溃发生在 fixed-function 转译后的内部 geometry shader，不是窗口/呈现层。
+PanVK 的 DXVK 兼容开关默认暴露 `geometryShader`；0.0.19 在 Mali 的运行时默认值中设为
+`PANVK_DXVK_COMPAT=0`，并让 loader 把这个默认值物化到真实 `setenv`/`execve` 环境。默认配置下
+fixed-function 探针 600 帧 `PASS`（588.5 fps），ES3 和 Vulkan 回归也通过；显式
+`PANVK_DXVK_COMPAT=1` 仍在 `fa=0x21` SIGSEGV。**这不是 PanVK 编译器修复**；依赖 geometryShader
+的 DXVK 程序必须自己显式开启，当前默认不保证 DXVK 可用。真实 X11 `glxgears`、桌面长跑、
+其他 fixed-function 程序仍是 UNKNOWN，单程序回退仍是 `HUSK_GPU=llvmpipe`。
 
 ### 7.1 这三条路各自落在哪一层（能不能只改 Linux 运行层）
 

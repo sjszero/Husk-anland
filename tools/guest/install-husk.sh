@@ -408,6 +408,10 @@ fi
         # LIBGL_ALWAYS_SOFTWARE 比 GALLIUM_DRIVER 更优先，必须让它不可见。
         echo "-LIBGL_ALWAYS_SOFTWARE"
         echo "MESA_GLES_VERSION_OVERRIDE=3.2"
+        # PanVK 构建默认打开 DXVK 兼容特性并暴露 geometryShader；zink 的
+        # 四边形模拟 GS 会打崩当前 Bifrost 后端。普通 GL/桌面默认关闭，
+        # DXVK 程序可在自己的环境里显式覆盖成 1。
+        echo "PANVK_DXVK_COMPAT=0"
         # GTK4 的 GL 后端在 zink/PanVK 上有可复现的三角缺口；只影响 GTK 自己。
         echo "GSK_RENDERER=cairo"
     elif [ "$_husk_gpu_family" = adreno-kgsl ] && [ -n "$_husk_icd" ]; then

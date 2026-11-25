@@ -82,7 +82,7 @@ fn husk_state(class: &str) -> (&'static str, &'static str) {
     match class {
         "gpu" => (
             "degraded",
-            "Mali kbase -> PanVK -> Zink X11 window verified (evidence 165/167); SHM readback remains and glxgears hits a PanVK compiler SIGSEGV (evidence 232)",
+            "Mali kbase -> PanVK -> Zink X11 window verified (evidence 165/167); fixed-function 600-frame probe passes after defaulting PANVK_DXVK_COMPAT=0 (evidence 244), but real X11 glxgears, long-run and SHM readback remain unverified",
         ),
         "display" => (
             "ready",

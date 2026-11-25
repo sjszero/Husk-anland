@@ -282,3 +282,24 @@ pub unsafe fn count() -> usize {
     ensure();
     SLOT_N
 }
+
+/// Read one parsed slot without allocating. The returned slices are the
+/// loader's static storage and stay valid for the process lifetime.
+pub unsafe fn slot(i: usize) -> Option<(u8, &'static [u8], &'static [u8])> {
+    ensure();
+    if i >= SLOT_N {
+        return None;
+    }
+    let s = &SLOTS[i];
+    let nl = s.nlen as usize;
+    let vl = s.vlen as usize;
+    Some((
+        s.mode,
+        core::slice::from_raw_parts(s.name.as_ptr(), nl),
+        core::slice::from_raw_parts(s.value.as_ptr(), vl),
+    ))
+}
+
+pub const FILL: u8 = MODE_FILL;
+pub const FORCE: u8 = MODE_FORCE;
+pub const HIDE: u8 = MODE_HIDE;

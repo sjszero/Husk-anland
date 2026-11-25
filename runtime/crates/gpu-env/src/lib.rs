@@ -44,6 +44,12 @@ const FREEDRENO_NATIVE_DRI: &[&str] = &[
     "usr/lib/dri/freedreno_dri.so",
 ];
 
+// PanVK 的 kbase 构建默认打开 DXVK 兼容特性，其中包含 geometryShader。
+// zink 会为传统 GL 的四边形生成一个内部 GS；当前 Bifrost 后端在这条 NIR
+// 路径上会 SIGSEGV。默认关闭兼容特性，DXVK 用户仍可在 guest 内显式导出
+// PANVK_DXVK_COMPAT=1 覆盖这个填空值。
+const PANVK_DXVK_COMPAT_DEFAULT: &str = "PANVK_DXVK_COMPAT=0";
+
 static NEXT_FILE_TMP: AtomicU64 = AtomicU64::new(1);
 
 fn json_string_field<'a>(text: &'a str, field: &str) -> Option<&'a str> {
@@ -110,11 +116,46 @@ fn ensure_icd(
     atomic_write(&rootfs.join(canonical.trim_start_matches('/')), &manifest).then_some(canonical)
 }
 
-fn write_guest_gpu_defaults(rootfs: &Path, family: &str, icd: &str, body: &str) {
+fn env_name(line: &str) -> Option<&str> {
+    let line = line.trim();
+    let line = line
+        .strip_prefix('!')
+        .or_else(|| line.strip_prefix('-'))
+        .unwrap_or(line);
+    line.split_once('=').map(|(name, _)| name)
+}
+
+fn add_missing_defaults(existing: &str, required: &[&str]) -> String {
+    let mut updated = existing.to_string();
+    for required_line in required {
+        let Some(required_name) = env_name(required_line) else {
+            continue;
+        };
+        if updated
+            .lines()
+            .filter_map(env_name)
+            .any(|name| name == required_name)
+        {
+            continue;
+        }
+        if !updated.ends_with('\n') {
+            updated.push('\n');
+        }
+        updated.push_str(required_line);
+        updated.push('\n');
+    }
+    updated
+}
+
+fn write_guest_gpu_defaults(rootfs: &Path, family: &str, icd: &str, body: &str, required: &[&str]) {
     let path = rootfs.join("etc/husk/gpu-env");
     let family_line = format!("@GPU_FAMILY={family}");
     if let Ok(existing) = std::fs::read_to_string(&path) {
         if existing.contains(&family_line) && existing.contains(icd) {
+            let migrated = add_missing_defaults(&existing, required);
+            if migrated != existing {
+                let _ = atomic_write(&path, &migrated);
+            }
             return;
         }
     }
@@ -139,8 +180,10 @@ VK_DRIVER_FILES={icd}\n\
 !GALLIUM_DRIVER=zink\n\
 -LIBGL_ALWAYS_SOFTWARE\n\
 MESA_GLES_VERSION_OVERRIDE=3.2\n\
+{PANVK_DXVK_COMPAT_DEFAULT}\n\
 GSK_RENDERER=cairo\n"
         ),
+        &[PANVK_DXVK_COMPAT_DEFAULT],
     );
 }
 
@@ -165,6 +208,7 @@ vblank_mode=0\n\
 -LIBGL_ALWAYS_SOFTWARE\n\
 {gl_lines}"
         ),
+        &[],
     );
 }
 
@@ -222,6 +266,7 @@ pub fn build(
             env.push("MESA_LOADER_DRIVER_OVERRIDE=zink".to_string());
             env.push("GALLIUM_DRIVER=zink".to_string());
             env.push("MESA_GLES_VERSION_OVERRIDE=3.2".to_string());
+            env.push(PANVK_DXVK_COMPAT_DEFAULT.to_string());
         }
     } else if adreno_available {
         if let Some(icd) = ensure_icd(
@@ -294,6 +339,7 @@ mod tests {
         assert!(env.iter().any(|v| v == "MESA_LOADER_DRIVER_OVERRIDE=zink"));
         assert!(env.iter().any(|v| v == "GALLIUM_DRIVER=zink"));
         assert!(env.iter().any(|v| v == "MESA_GLES_VERSION_OVERRIDE=3.2"));
+        assert!(env.iter().any(|v| v == PANVK_DXVK_COMPAT_DEFAULT));
 
         let canonical =
             std::fs::read_to_string(root.join(PANVK_CANONICAL_ICD.trim_start_matches('/')))
@@ -310,6 +356,7 @@ mod tests {
         assert!(defaults.contains(&format!("VK_ICD_FILENAMES={PANVK_CANONICAL_ICD}")));
         assert!(defaults.contains("!MESA_LOADER_DRIVER_OVERRIDE=zink"));
         assert!(defaults.contains("-LIBGL_ALWAYS_SOFTWARE"));
+        assert!(defaults.contains(PANVK_DXVK_COMPAT_DEFAULT));
         assert!(!defaults.contains("/data/"));
 
         std::fs::remove_dir_all(&root).unwrap();
@@ -338,6 +385,7 @@ mod tests {
         assert!(env.iter().any(|v| v == "FD_FORCE_KGSL=1"));
         assert!(env.iter().any(|v| v == "MESA_LOADER_DRIVER_OVERRIDE=kgsl"));
         assert!(env.iter().any(|v| v == "GALLIUM_DRIVER=freedreno"));
+        assert!(!env.iter().any(|v| v.starts_with("PANVK_DXVK_COMPAT=")));
 
         let canonical =
             std::fs::read_to_string(root.join(FREEDRENO_CANONICAL_ICD.trim_start_matches('/')))
@@ -396,6 +444,29 @@ mod tests {
         let _ = build(&root, true, false, false);
         let preserved = std::fs::read_to_string(root.join("etc/husk/gpu-env")).unwrap();
         assert!(preserved.starts_with("# custom\n"));
+        assert!(preserved.contains(PANVK_DXVK_COMPAT_DEFAULT));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn preserves_explicit_panvk_dxvk_compatibility_override() {
+        let root = test_dir("gpu-dxvk-custom");
+        write(
+            &root.join("usr/share/vulkan/icd.d/husk_panvk_frist370_execva.json"),
+            b"{\"ICD\":{\"api_version\":\"1.4.352\"}}",
+        );
+        write(&root.join(PANVK_DRIVERS[0]), b"driver");
+        write(
+            &root.join("etc/husk/gpu-env"),
+            format!(
+                "@GPU_FAMILY=mali-kbase\nVK_ICD_FILENAMES={PANVK_CANONICAL_ICD}\nPANVK_DXVK_COMPAT=1\n"
+            )
+            .as_bytes(),
+        );
+        let _ = build(&root, true, false, false);
+        let preserved = std::fs::read_to_string(root.join("etc/husk/gpu-env")).unwrap();
+        assert!(preserved.contains("PANVK_DXVK_COMPAT=1\n"));
+        assert!(!preserved.contains("PANVK_DXVK_COMPAT=0\n"));
         std::fs::remove_dir_all(&root).unwrap();
     }
 }

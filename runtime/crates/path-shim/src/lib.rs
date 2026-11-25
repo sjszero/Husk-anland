@@ -272,6 +272,85 @@ pub unsafe extern "C" fn __secure_getenv(name: *const CChar) -> *mut CChar {
     secure_getenv(name)
 }
 
+// ---------------------------------------------------------------- setenv ---
+//
+// Some libraries implement "set only if absent" as
+// `setenv(name, value, 0)`. libc's setenv checks the real environ directly and
+// does not call the public getenv through a GOT slot, so a loader-only default
+// is invisible to that check. PanVK does exactly this in its constructor:
+// `/etc/husk/gpu-env` says PANVK_DXVK_COMPAT=0, but setenv(..., 1, 0) would put
+// 1 into environ and re-enable the geometryShader path that crashes Bifrost.
+//
+// Keep setenv on the same semantics as our getenv: forced values stay forced,
+// hidden values stay hidden, and a fill default counts as already present when
+// overwrite=0. An explicit overwrite=1 still replaces fill defaults.
+type SetenvFn = unsafe extern "C" fn(*const CChar, *const CChar, CInt) -> CInt;
+static REAL_SETENV: AtomicUsize = AtomicUsize::new(0);
+static REAL_SETENV_LOCK: AtomicU8 = AtomicU8::new(0);
+
+unsafe fn real_setenv_addr() -> usize {
+    let v = REAL_SETENV.load(Ordering::Acquire);
+    if v != 0 {
+        return v;
+    }
+    if REAL_SETENV_LOCK
+        .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        let mut i = 0u32;
+        while i < 200_000 {
+            let v = REAL_SETENV.load(Ordering::Acquire);
+            if v != 0 {
+                return v;
+            }
+            i += 1;
+            core::hint::spin_loop();
+        }
+        return 0;
+    }
+    let m = boot::nr_get_main_map();
+    let a = boot::nr_resolve_name_skip(
+        m,
+        b"setenv\0".as_ptr() as usize,
+        b"setenv".len(),
+        setenv as usize,
+    );
+    if a != 0 {
+        REAL_SETENV.store(a, Ordering::Release);
+    }
+    REAL_SETENV_LOCK.store(0, Ordering::Release);
+    a
+}
+
+unsafe fn call_real_setenv(name: *const CChar, value: *const CChar, overwrite: CInt) -> CInt {
+    let a = real_setenv_addr();
+    if a == 0 {
+        *__errno_location() = 38; // ENOSYS
+        return -1;
+    }
+    let f: SetenvFn = core::mem::transmute(a);
+    f(name, value, overwrite)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn setenv(name: *const CChar, value: *const CChar, overwrite: CInt) -> CInt {
+    if name.is_null() || value.is_null() {
+        return call_real_setenv(name, value, overwrite);
+    }
+    let n = bytes(name);
+    if n.is_empty() || n.contains(&b'=') {
+        return call_real_setenv(name, value, overwrite);
+    }
+    match gpuenv::forced(n) {
+        gpuenv::Forced::Value(_) | gpuenv::Forced::Hide => return 0,
+        gpuenv::Forced::None => {}
+    }
+    if overwrite == 0 && !gpuenv::default_value(n).is_null() {
+        return 0;
+    }
+    call_real_setenv(name, value, overwrite)
+}
+
 /// 一次性懒初始化的串行化。
 ///
 /// 这一族以前都是「`if X_READY == 0 { 干活; X_READY = 1 }`」：两个线程同时第一次
@@ -8299,7 +8378,6 @@ pub unsafe extern "C" fn lremovexattr(path: *const CChar, name: *const CChar) ->
     }))
 }
 
-#[no_mangle]
 /// `inotify_add_watch(2)` 在 glibc 里只是一个系统调用包装：没有 body 可以改，也没有
 /// 别的被钩子覆盖的函数替它翻译路径，于是内核被问的是宿主路径（实测 evidence 214：
 /// `wd=-1, ENOENT`）。后果不是报错而是**静默失效** —— GIO 的文件监视（Nautilus 自动
@@ -8379,6 +8457,206 @@ unsafe fn statvfs_common(path: *const CChar, out: *mut u8) -> CInt {
     0
 }
 
+/// The loader-level defaults have to survive an explicit `execve(..., envp)`,
+/// not just `getenv()`. A library such as PanVK may check the real environ with
+/// `setenv(..., 0)` and never call our getenv hook. Materialize the same fill /
+/// force / hide rules into the envp passed to the child. User-supplied values
+/// still win for fill rules; force and hide keep the documented precedence.
+struct ExecEnv {
+    ptrs: *mut *const CChar,
+    strings: *mut u8,
+}
+
+impl ExecEnv {
+    unsafe fn prepare(envp: *const *const CChar) -> ExecEnv {
+        let source = if envp.is_null() {
+            environ as *const *const CChar
+        } else {
+            envp
+        };
+        let no_augment = ExecEnv {
+            ptrs: core::ptr::null_mut(),
+            strings: core::ptr::null_mut(),
+        };
+        if source.is_null() {
+            return no_augment;
+        }
+
+        let mut source_n = 0usize;
+        while source_n < 4096 && !(*source.add(source_n)).is_null() {
+            source_n += 1;
+        }
+        if source_n >= 4096 {
+            return no_augment;
+        }
+        let slot_n = gpuenv::count();
+        if slot_n == 0 {
+            return no_augment;
+        }
+
+        let mut kept_n = 0usize;
+        let mut i = 0usize;
+        while i < source_n {
+            let entry = *source.add(i);
+            let name = env_entry_name(entry);
+            match gpu_env_rule(name) {
+                Some((gpuenv::FORCE | gpuenv::HIDE, _, _)) => {}
+                _ => kept_n += 1,
+            }
+            i += 1;
+        }
+
+        let mut append_n = 0usize;
+        let mut strings_len = 0usize;
+        i = 0;
+        while i < slot_n {
+            let Some((mode, name, value)) = gpuenv::slot(i) else {
+                return no_augment;
+            };
+            let append = match mode {
+                gpuenv::FORCE => true,
+                gpuenv::FILL => !env_has_name(source, name),
+                gpuenv::HIDE => false,
+                _ => false,
+            };
+            if append {
+                append_n += 1;
+                let Some(n) = name.len().checked_add(value.len() + 2) else {
+                    return no_augment;
+                };
+                let Some(total) = strings_len.checked_add(n) else {
+                    return no_augment;
+                };
+                strings_len = total;
+            }
+            i += 1;
+        }
+
+        let out_n = kept_n + append_n;
+        let Some(ptr_bytes) = out_n.checked_add(1).and_then(|n| n.checked_mul(8)) else {
+            return no_augment;
+        };
+        let ptrs = malloc(ptr_bytes) as *mut *const CChar;
+        if ptrs.is_null() {
+            return no_augment;
+        }
+        let strings = if strings_len == 0 {
+            core::ptr::null_mut()
+        } else {
+            malloc(strings_len)
+        };
+        if strings_len != 0 && strings.is_null() {
+            free(ptrs as *mut u8);
+            return no_augment;
+        }
+
+        let mut out_i = 0usize;
+        let mut str_i = 0usize;
+        i = 0;
+        while i < source_n {
+            let entry = *source.add(i);
+            let name = env_entry_name(entry);
+            match gpu_env_rule(name) {
+                Some((gpuenv::FORCE | gpuenv::HIDE, _, _)) => {}
+                _ => {
+                    *ptrs.add(out_i) = entry;
+                    out_i += 1;
+                }
+            }
+            i += 1;
+        }
+        i = 0;
+        while i < slot_n {
+            let Some((mode, name, value)) = gpuenv::slot(i) else {
+                free(strings);
+                free(ptrs as *mut u8);
+                return no_augment;
+            };
+            let append = match mode {
+                gpuenv::FORCE => true,
+                gpuenv::FILL => !env_has_name(source, name),
+                gpuenv::HIDE => false,
+                _ => false,
+            };
+            if append {
+                let p = strings.add(str_i);
+                core::ptr::copy_nonoverlapping(name.as_ptr(), p, name.len());
+                str_i += name.len();
+                *strings.add(str_i) = b'=';
+                str_i += 1;
+                core::ptr::copy_nonoverlapping(value.as_ptr(), strings.add(str_i), value.len());
+                str_i += value.len();
+                *strings.add(str_i) = 0;
+                str_i += 1;
+                *ptrs.add(out_i) = p as *const CChar;
+                out_i += 1;
+            }
+            i += 1;
+        }
+        *ptrs.add(out_i) = core::ptr::null();
+        ExecEnv { ptrs, strings }
+    }
+
+    fn as_ptr(&self, fallback: *const *const CChar) -> *const *const CChar {
+        if self.ptrs.is_null() {
+            fallback
+        } else {
+            self.ptrs
+        }
+    }
+}
+
+impl Drop for ExecEnv {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.strings.is_null() {
+                free(self.strings);
+            }
+            if !self.ptrs.is_null() {
+                free(self.ptrs as *mut u8);
+            }
+        }
+    }
+}
+
+unsafe fn env_entry_name(entry: *const CChar) -> &'static [u8] {
+    let raw = bytes(entry);
+    match raw.iter().position(|b| *b == b'=') {
+        Some(eq) => &raw[..eq],
+        None => raw,
+    }
+}
+
+unsafe fn gpu_env_rule(name: &[u8]) -> Option<(u8, &'static [u8], &'static [u8])> {
+    let n = gpuenv::count();
+    let mut i = 0usize;
+    while i < n {
+        let Some((mode, slot_name, value)) = gpuenv::slot(i) else {
+            return None;
+        };
+        if slot_name == name {
+            return Some((mode, slot_name, value));
+        }
+        i += 1;
+    }
+    None
+}
+
+unsafe fn env_has_name(envp: *const *const CChar, name: &[u8]) -> bool {
+    let mut i = 0usize;
+    while i < 4096 {
+        let entry = *envp.add(i);
+        if entry.is_null() {
+            return false;
+        }
+        if env_entry_name(entry) == name {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn execve(
     path: *const CChar,
@@ -8388,6 +8666,8 @@ pub unsafe extern "C" fn execve(
     if path.is_null() {
         return set_errno(14);
     }
+    let augmented_env = ExecEnv::prepare(envp);
+    let envp = augmented_env.as_ptr(envp);
     let rfd = rootfd();
     if rfd < 0 {
         let mut gp = [0u8; PATH_MAX];

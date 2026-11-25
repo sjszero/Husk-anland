@@ -7,6 +7,39 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.19] - 2026-11-26
+
+> 主题：**fixed-function OpenGL 的 PanVK/Bifrost GS 崩溃增加默认规避，并让 loader 默认值穿透
+> 真实 `setenv` 与 `execve`**。这是运行时默认值修复，不是 PanVK 编译器修复。
+> 原始输出见 evidence 244。
+
+### 修复
+
+- **Mali 默认关闭 PanVK 的 DXVK 兼容 GS**（evidence 244）。`gpu-env` crate、安装器和登录 shell
+  都写入 `PANVK_DXVK_COMPAT=0`；已有配置只补缺失项，用户显式写 `1` 不会被迁移覆盖。
+  当前 Bifrost 后端会在 fixed-function 转译产生的内部 geometry shader 上以 `fa=0x21` SIGSEGV。
+- **`setenv` 遵守 loader 环境规则**（evidence 244）。path-shim 导出 `setenv`，fill 默认值在
+  `overwrite=0` 时视为已存在，forced/hidden 规则继续生效；显式 `overwrite=1` 仍可覆盖 fill 值。
+- **`execve` 物化真实 environ**（evidence 244）。子进程的 `envp` 会收到 fill/force/hide 规则，
+  因此不经过 shim `getenv` 的库（例如 PanVK 构造器）也能看到同一套默认值。
+- **新增 `gl-probe fixed`**（evidence 244）。不启动 X11，使用 surfaceless desktop GL 2.1 固定管线
+  画齿轮，把 fixed-function 编译问题与窗口/呈现层分开。
+
+### 验证
+
+- 当前源码重建的 loader SHA256 为 `020ab832e69e1aaadfe81219006636fc21347558a0e56b599e166a2240515c7c`；
+  真机默认环境 600 帧 `RESULT PASS`，588.5 fps，像素 `255,214,57,255`（evidence 244）。
+- 显式 `PANVK_DXVK_COMPAT=1` 仍以 `segv|sig=11|fa=21|RC=139` 复现，证明默认关闭不是硬编码。
+- ES3 纹理/MRT、Vulkan compute/graphics/buffer 回读回归通过；`env -i` 经 bash `exec` 后能看到
+  canonical ICD、Zink、GLES 3.2 和 `PANVK_DXVK_COMPAT=0`（evidence 244）。
+
+### 边界
+
+- PanVK/Bifrost 的 GS 编译缺陷仍在；依赖 geometryShader 的 DXVK 程序需要显式设置
+  `PANVK_DXVK_COMPAT=1`，当前默认不保证 DXVK 可用。
+- 真实 X11 `glxgears`、GNOME 桌面长跑、多应用并发和其他 fixed-function 程序仍是 UNKNOWN。
+- 窗口内容进入 X server 仍是 SHM 回读加拷贝，不是端到端零拷贝；Adreno/KGSL 仍无真机证据。
+
 ## [0.0.18] - 2026-11-26
 
 > 主题：**GPU 默认值统一成独立 Rust crate，App 启动级补 Adreno/KGSL，软件回退不再被 loader 覆盖**。
@@ -877,7 +910,8 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.18...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.19...HEAD
+[0.0.19]: https://github.com/xishanp/Husk/releases/tag/v0.0.19
 [0.0.18]: https://github.com/xishanp/Husk/releases/tag/v0.0.18
 [0.0.17]: https://github.com/xishanp/Husk/releases/tag/v0.0.17
 [0.0.16]: https://github.com/xishanp/Husk/releases/tag/v0.0.16

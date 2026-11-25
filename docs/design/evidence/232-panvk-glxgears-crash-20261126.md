@@ -119,3 +119,8 @@ vulkan-probe:    PASS, physical=Mali-G77 MC9, buffer readback=0x4855534b
 
 发布口径：0.0.13 可以说“常规 GPU 探针和桌面出帧通过”，不能说“GPU 长跑通过”或“所有 GPU
 程序稳定”。`HUSK_GPU=llvmpipe` 仍可作为单个不兼容程序的回退，但不能把回退当成硬件加速修复。
+
+> 后续：2026-11-26 的 evidence 244 用不启动 X11 的 `gl-probe fixed` 把同一崩溃定位到
+> fixed-function 转译产生的内部 geometry shader，并默认关闭 PanVK 的 DXVK 兼容 GS；600 帧
+> 探针通过，显式 `PANVK_DXVK_COMPAT=1` 仍可复现。本文保留原 `glxgears`/X11 现象，不把探针
+> 通过改写成桌面或长跑已经通过。
