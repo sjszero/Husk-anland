@@ -50,12 +50,25 @@
   判断全部拿不到答案。现在读链接从 guest 视图回答：`cwd` → `/root`、`root` → `/`；
   `/proc/self/fd/N` 的目标也改写成 guest 路径（以前 `/proc/self/fd/1024` 直接暴露应用数据目录）。
 
+- **GPU / 相机侧的懒初始化没有串行化**（evidence 224）。`DRM_CTX`+`DRM_MALI_FD`、
+  `V4L2_CTX`、`/dev/dri` 假目录、`/dev/mali0` 的 dev/rdev 缓存全是「`if READY == 0 { 初始化;
+  READY = 1 }`」：两个线程同时第一次 open 就各做一遍（fd/socket 泄漏、结构体一半新一半旧），
+  而且普通 store 之间没有顺序保证，另一个核可能先看到 READY 再读数据。实测 8 线程并发
+  `DRM_IOCTL_VERSION`，15 个进程里 2–3 个出现一次 EACCES；改成 CAS + owner tid 的
+  `once_begin`/`once_end` 之后 30 个进程 / 4800 次 ioctl 零失败。`FAKE_FDS` 的
+  「找空槽→写进去」也一并加锁（两个线程抢同一个空位会让被覆盖的 fd 的 ioctl 落到 memfd 上，
+  客户端判定「不是 GPU」退回软件渲染）。
+
 - **并发 `dlopen` 会把进程打死**（evidence 223）。`nr_repatch()` 在 `dlopen` 返回之后沿
   link_map 补 GOT，此刻 glibc 的装载锁已经放开；别的线程的 `dlclose` 把对象摘链、unmap，
   我们就走在已经释放的内存上。实测 8 线程 × 60 轮 dlopen/dlsym/dlclose，10 次里 2 次
   SIGSEGV，关掉 repatch 后 12 次全过。修法：`dlopen`/`dlmopen`/`dlclose` 共用一把进程内锁
   （`dlclose` 因此第一次被钩，`interposed` 195 → 196），repatch 只在持锁期间跑；
   另外两处懒解析/互斥的 check-then-set 换成 CAS。修后 45 / 45 全过，门禁 A 不变。
+
+- **sigsys 去重表在信号处理器里 TOCTOU**（evidence 224 §4）。`SEEN_NR`/`SEEN_COUNT` 用
+  「读计数→判断→写→加一」的写法，两个线程同时命中时计数可以越过 24，之后遍历读越界元素，
+  去重从此失效、日志重新开始刷。改成 `fetch_update` 领槽。
 
 - **`inotify_add_watch` / `statfs` / `getxattr` 一族在路径解析失败时报 EPERM**（evidence 222 §3）。
   `xattr_pinned()` 失败时写 errno 并返回 `-1`，调用方再喂给 `ret_or_errno()`，后者把 `-1`

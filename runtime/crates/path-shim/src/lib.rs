@@ -270,6 +270,44 @@ pub unsafe extern "C" fn __secure_getenv(name: *const CChar) -> *mut CChar {
     secure_getenv(name)
 }
 
+/// 一次性懒初始化的串行化。
+///
+/// 这一族以前都是「`if X_READY == 0 { 干活; X_READY = 1 }`」：两个线程同时第一次
+/// open("/dev/dri/renderD128") 或 open("/dev/video0") 时会一起进初始化，把同一个
+/// 上下文结构体写两遍（socket/fd 泄漏、字段一半新一半旧）；而在 aarch64 上，
+/// 就算只写一遍，另一个核也可能先看到 READY=1 再去看数据（普通 store 之间没有
+/// 顺序保证），于是拿着长度为 0 的前缀去拼路径。
+///
+/// `state`: 0=没做, 1=有人在做, 2=做好了。返回 true 表示「这次由我来做」，
+/// 做完必须调 `once_end`。递归进入（初始化里又走到同一条路径）返回 false。
+unsafe fn once_begin(state: &AtomicU8, owner: &AtomicI32) -> bool {
+    let tid = syscall4(SYS_GETTID, 0, 0, 0, 0) as i32;
+    loop {
+        match state.load(Ordering::Acquire) {
+            2 => return false,
+            0 => {
+                if state
+                    .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+                {
+                    owner.store(tid, Ordering::Release);
+                    return true;
+                }
+            }
+            _ => {
+                if owner.load(Ordering::Acquire) == tid {
+                    return false;
+                }
+                core::hint::spin_loop();
+            }
+        }
+    }
+}
+
+unsafe fn once_end(state: &AtomicU8, ok: bool) {
+    state.store(if ok { 2 } else { 0 }, Ordering::Release);
+}
+
 unsafe fn bytes(p: *const CChar) -> &'static [u8] {
     core::slice::from_raw_parts(p as *const u8, c_strlen(p))
 }
@@ -484,7 +522,7 @@ unsafe fn sigsys_mode() -> u8 {
 /// who hit what - so the rest are dropped. The syscall is still answered the
 /// same way; only the log line goes away.
 static mut SEEN_NR: [u16; 24] = [0; 24];
-static mut SEEN_COUNT: usize = 0;
+static SEEN_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 /// Cross-process half of the same rule: a session runs hundreds of short-lived
 /// processes and each of them would otherwise re-print its own copy of the
@@ -560,16 +598,27 @@ unsafe fn first_sighting_on_disk(nr: u16, mode: u16) -> bool {
 
 unsafe fn first_sighting(nr: u16, mode: u16) -> bool {
     let key = (nr << 4) | (mode & 0xf);
+    // 这个函数在 SIGSYS 处理器里跑，也就是**异步**于任何线程。以前是
+    // `if SEEN_COUNT < len { SEEN_NR[SEEN_COUNT] = key; SEEN_COUNT += 1 }`：
+    // 两个线程都读到同一个下标、都写同一个槽、各自 +1，计数可以越过 24，
+    // 下一次遍历就读 SEEN_NR[24]（越界）并从此把每个 (nr,mode) 都当成第一次。
+    // 现在用 CAS 领槽：领到的下标一定小于数组长度。
+    let n = SEEN_COUNT.load(Ordering::Acquire).min(SEEN_NR.len());
     let mut i = 0usize;
-    while i < SEEN_COUNT {
+    while i < n {
         if SEEN_NR[i] == key {
             return false;
         }
         i += 1;
     }
-    if SEEN_COUNT < SEEN_NR.len() {
-        SEEN_NR[SEEN_COUNT] = key;
-        SEEN_COUNT += 1;
+    if let Ok(slot) = SEEN_COUNT.fetch_update(Ordering::AcqRel, Ordering::Acquire, |c| {
+        if c < SEEN_NR.len() {
+            Some(c + 1)
+        } else {
+            None
+        }
+    }) {
+        SEEN_NR[slot] = key;
     }
     first_sighting_on_disk(nr, mode)
 }
@@ -11034,6 +11083,13 @@ const SYS_MMAP: usize = 222;
 static mut DRM_CTX: drm_shim::DrmCtx = drm_shim::DrmCtx::empty();
 static mut DRM_MALI_FD: CInt = -1;
 static mut FAKE_FDS: [CInt; 8] = [-1; 8];
+static DRM_STATE: AtomicU8 = AtomicU8::new(0);
+static DRM_OWNER: AtomicI32 = AtomicI32::new(0);
+// `FAKE_FDS` 的「找空槽 -> 写进去」不是原子的：两个线程同时 open 渲染节点时
+// 会看中同一个空槽，先写的被后写的覆盖，被覆盖那个 fd 从此不在表里——它的
+// ioctl/mmap 落到 memfd 上（EINVAL/ENOTTY），客户端判定「这不是 GPU」直接退回
+// 软件渲染。表只有 8 槽，这种丢失还特别容易凑满。所有读写都走这把锁。
+static FAKE_FDS_LOCK: AtomicBool = AtomicBool::new(false);
 
 unsafe fn syscall6(n: usize, a: usize, b: usize, c: usize, d: usize, e: usize, f: usize) -> Ssize {
     let ret: Ssize;
@@ -11049,14 +11105,25 @@ unsafe fn syscall6(n: usize, a: usize, b: usize, c: usize, d: usize, e: usize, f
 /// 由 openat 的假节点分支接管，所以文件内容无所谓。
 static mut DRM_DIR_HOST: [u8; PATH_MAX] = [0; PATH_MAX];
 static mut DRM_DIR_LEN: usize = 0;
-static mut DRM_DIR_READY: u8 = 0;
+static DRM_DIR_STATE: AtomicU8 = AtomicU8::new(0);
+static DRM_DIR_OWNER: AtomicI32 = AtomicI32::new(0);
 
 unsafe fn drm_dir_host() -> Option<&'static [u8]> {
-    if DRM_DIR_READY == 1 {
+    if DRM_DIR_STATE.load(Ordering::Acquire) == 2 {
+        // Acquire 之后读这两个值：发布前写的数据一定看得见。
         return Some(&DRM_DIR_HOST[..DRM_DIR_LEN]);
+    }
+    let mine = once_begin(&DRM_DIR_STATE, &DRM_DIR_OWNER);
+    if !mine {
+        // 别人做好了（或者正在做）：做好了才给，做砸了照旧 None。
+        if DRM_DIR_STATE.load(Ordering::Acquire) == 2 {
+            return Some(&DRM_DIR_HOST[..DRM_DIR_LEN]);
+        }
+        return None;
     }
     let rl = ROOT_REAL_LEN;
     if rl == 0 || rl > PATH_MAX - 32 {
+        once_end(&DRM_DIR_STATE, false);
         return None;
     }
     let mut d = [0u8; PATH_MAX];
@@ -11093,7 +11160,7 @@ unsafe fn drm_dir_host() -> Option<&'static [u8]> {
     }
     DRM_DIR_HOST = d;
     DRM_DIR_LEN = dl;
-    DRM_DIR_READY = 1;
+    once_end(&DRM_DIR_STATE, true);
     Some(&DRM_DIR_HOST[..DRM_DIR_LEN])
 }
 
@@ -11115,25 +11182,35 @@ fn is_drm_node(p: &[u8]) -> bool {
 /// report the real kbase character device's numbers.
 static mut MALI_DEV: u64 = 0;
 static mut MALI_RDEV: u64 = 0;
-static mut MALI_META_READY: u8 = 0;
+static MALI_META_STATE: AtomicU8 = AtomicU8::new(0);
+static MALI_META_OWNER: AtomicI32 = AtomicI32::new(0);
 
 unsafe fn mali_meta() -> Option<(u64, u64)> {
-    if MALI_META_READY == 0 {
-        let mut buf = [0u8; 256];
-        let r = syscall4(
-            SYS_NEWFSTATAT,
-            AT_FDCWD as usize,
-            b"/dev/mali0\0".as_ptr() as usize,
-            buf.as_mut_ptr() as usize,
-            0,
-        );
-        if r < 0 {
-            return None;
+    if MALI_META_STATE.load(Ordering::Acquire) != 2 {
+        if !once_begin(&MALI_META_STATE, &MALI_META_OWNER) {
+            // 别人正在做/做过了。没做好就如实返回 None，不编一组 0,0 出去
+            // （0,0 会让客户端把假节点当成普通文件，直接退回软件渲染）。
+            if MALI_META_STATE.load(Ordering::Acquire) != 2 {
+                return None;
+            }
+        } else {
+            let mut buf = [0u8; 256];
+            let r = syscall4(
+                SYS_NEWFSTATAT,
+                AT_FDCWD as usize,
+                b"/dev/mali0\0".as_ptr() as usize,
+                buf.as_mut_ptr() as usize,
+                0,
+            );
+            if r < 0 {
+                once_end(&MALI_META_STATE, false);
+                return None;
+            }
+            // struct stat: st_dev at 0, st_rdev at 32 (aarch64 LP64)
+            MALI_DEV = core::ptr::read_unaligned(buf.as_ptr() as *const u64);
+            MALI_RDEV = core::ptr::read_unaligned(buf.as_ptr().add(32) as *const u64);
+            once_end(&MALI_META_STATE, true);
         }
-        // struct stat: st_dev at 0, st_rdev at 32 (aarch64 LP64)
-        MALI_DEV = core::ptr::read_unaligned(buf.as_ptr() as *const u64);
-        MALI_RDEV = core::ptr::read_unaligned(buf.as_ptr().add(32) as *const u64);
-        MALI_META_READY = 1;
     }
     Some((MALI_DEV, MALI_RDEV))
 }
@@ -11251,7 +11328,21 @@ unsafe fn drm_shim_off() -> bool {
     env_lookup(b"NR_DRM_SHIM_OFF").is_some()
 }
 
-unsafe fn is_fake_fd(fd: CInt) -> bool {
+unsafe fn fake_fds_lock() {
+    while FAKE_FDS_LOCK
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        core::hint::spin_loop();
+    }
+}
+
+unsafe fn fake_fds_unlock() {
+    FAKE_FDS_LOCK.store(false, Ordering::Release);
+}
+
+/// 调用方持 `FAKE_FDS_LOCK`。
+unsafe fn is_fake_fd_locked(fd: CInt) -> bool {
     let mut i = 0;
     while i < FAKE_FDS.len() {
         if FAKE_FDS[i] == fd && fd >= 0 {
@@ -11262,7 +11353,8 @@ unsafe fn is_fake_fd(fd: CInt) -> bool {
     false
 }
 
-unsafe fn register_fake_fd(fd: CInt) -> bool {
+/// 调用方持 `FAKE_FDS_LOCK`。
+unsafe fn register_fake_fd_locked(fd: CInt) -> bool {
     let mut i = 0;
     while i < FAKE_FDS.len() {
         if FAKE_FDS[i] < 0 {
@@ -11274,12 +11366,8 @@ unsafe fn register_fake_fd(fd: CInt) -> bool {
     false
 }
 
-/// 释放一个假 DRM fd 的记账。
-///
-/// 之前只有 v4l2 / netlink 的假 fd 会在 close 时注销，DRM 的一直留着：`FAKE_FDS` 只有 8 槽，
-/// 反复 open("/dev/dri/renderD128") 八次之后槽位耗尽，第九次开始的节点不再被记账，
-/// 它的 ioctl/mmap 会落到 memfd 上（EINVAL/ENOTTY），客户端就此退回软件。
-unsafe fn drm_forget(fd: CInt) {
+/// 调用方持 `FAKE_FDS_LOCK`。
+unsafe fn drm_forget_locked(fd: CInt) {
     let mut i = 0;
     while i < FAKE_FDS.len() {
         if FAKE_FDS[i] == fd && fd >= 0 {
@@ -11290,8 +11378,37 @@ unsafe fn drm_forget(fd: CInt) {
     }
 }
 
+unsafe fn is_fake_fd(fd: CInt) -> bool {
+    if fd < 0 {
+        return false;
+    }
+    fake_fds_lock();
+    let r = is_fake_fd_locked(fd);
+    fake_fds_unlock();
+    r
+}
+
+unsafe fn register_fake_fd(fd: CInt) -> bool {
+    fake_fds_lock();
+    let r = register_fake_fd_locked(fd);
+    fake_fds_unlock();
+    r
+}
+
+/// 释放一个假 DRM fd 的记账。
+///
+/// 之前只有 v4l2 / netlink 的假 fd 会在 close 时注销，DRM 的一直留着：`FAKE_FDS` 只有 8 槽，
+/// 反复 open("/dev/dri/renderD128") 八次之后槽位耗尽，第九次开始的节点不再被记账，
+/// 它的 ioctl/mmap 会落到 memfd 上（EINVAL/ENOTTY），客户端就此退回软件。
+unsafe fn drm_forget(fd: CInt) {
+    fake_fds_lock();
+    drm_forget_locked(fd);
+    fake_fds_unlock();
+}
+
 /// close_range 一次关掉一整段：把落在区间里的槽位一起清掉，否则同样是泄漏。
 unsafe fn drm_forget_range(first: u32, last: u32) {
+    fake_fds_lock();
     let mut i = 0;
     while i < FAKE_FDS.len() {
         let f = FAKE_FDS[i];
@@ -11300,6 +11417,7 @@ unsafe fn drm_forget_range(first: u32, last: u32) {
         }
         i += 1;
     }
+    fake_fds_unlock();
 }
 
 /// dup 出来的新 fd 指向同一个对象，对它的 ioctl/mmap 必须和原 fd 一样被接管。
@@ -11307,11 +11425,15 @@ unsafe fn drm_forget_range(first: u32, last: u32) {
 /// 这一条不是抄来的：Mesa 拿渲染节点时会 fcntl(F_DUPFD) 复制一份再在副本上问
 /// DRM_IOCTL_VERSION，副本不在表里就等于"不是我们的 fd"，版本查询直接失败。
 unsafe fn drm_inherit_fake(old: CInt, new: CInt) {
-    if new < 0 || !is_fake_fd(old) {
+    if new < 0 || old < 0 {
         return;
     }
-    drm_forget(new);
-    let _ = register_fake_fd(new);
+    fake_fds_lock();
+    if is_fake_fd_locked(old) {
+        drm_forget_locked(new);
+        let _ = register_fake_fd_locked(new);
+    }
+    fake_fds_unlock();
 }
 
 /// 假节点打开：懒初始化 kbase context，然后给调用方一个真 fd（/dev/null），
@@ -11320,22 +11442,32 @@ unsafe fn drm_fake_open() -> CInt {
     if verbose_on() {
         dbg(&[b"nrshim drm: fake open\n"]);
     }
-    if DRM_MALI_FD < 0 {
-        let fd = syscall4(
-            SYS_OPENAT,
-            AT_FDCWD as usize,
-            b"/dev/mali0\0".as_ptr() as usize,
-            2, // O_RDWR
-            0,
-        );
-        if fd < 0 {
-            plan::log_plan_once(b"mali0 open");
+    // 打开 kbase 并初始化 ioctl 上下文只做一次。两个线程同时第一次 open 渲染节点时
+    // 会各自打开一个 /dev/mali0、各自往同一个 DRM_CTX 里 init（多一个 fd 泄漏，
+    // 上下文一半新一半旧），所以这段和 drm_dir_host / v4l2_ready 一样串行化。
+    if DRM_STATE.load(Ordering::Acquire) != 2 {
+        if once_begin(&DRM_STATE, &DRM_OWNER) {
+            let fd = syscall4(
+                SYS_OPENAT,
+                AT_FDCWD as usize,
+                b"/dev/mali0\0".as_ptr() as usize,
+                2, // O_RDWR
+                0,
+            );
+            if fd < 0 {
+                plan::log_plan_once(b"mali0 open");
+                once_end(&DRM_STATE, false);
+                return set_errno(2);
+            }
+            DRM_MALI_FD = fd as CInt;
+            let _ = DRM_CTX.init(DRM_MALI_FD, |f, req, arg| {
+                syscall4(SYS_IOCTL, f as usize, req as usize, arg as usize, 0) as i64
+            });
+            once_end(&DRM_STATE, true);
+        } else if DRM_STATE.load(Ordering::Acquire) != 2 {
+            // 别的线程正在初始化（或刚失败）：这次按「拿不到设备」答，不假装成功。
             return set_errno(2);
         }
-        DRM_MALI_FD = fd as CInt;
-        let _ = DRM_CTX.init(DRM_MALI_FD, |f, req, arg| {
-            syscall4(SYS_IOCTL, f as usize, req as usize, arg as usize, 0) as i64
-        });
     }
     // 用 memfd：名字可辨识，LD_PRELOAD 那一层靠 /proc/self/fd 也能认出这个 fd
     const SYS_MEMFD_CREATE: usize = 279;
@@ -11455,26 +11587,28 @@ pub unsafe extern "C" fn mmap64(
 // 事务；打开的 fd 是 memfd，所以 poll/select/epoll 天然"可读"。
 // ---------------------------------------------------------------------------
 static mut V4L2_CTX: v4l2_shim::Ctx = v4l2_shim::Ctx::empty();
-static mut V4L2_READY: u8 = 0;
+static V4L2_STATE: AtomicU8 = AtomicU8::new(0);
+static V4L2_OWNER: AtomicI32 = AtomicI32::new(0);
 
 unsafe fn v4l2_ready() -> bool {
-    if V4L2_READY == 1 {
+    if V4L2_STATE.load(Ordering::Acquire) == 2 {
         return true;
+    }
+    if !once_begin(&V4L2_STATE, &V4L2_OWNER) {
+        return V4L2_STATE.load(Ordering::Acquire) == 2;
     }
     let rl = ROOT_REAL_LEN;
     if rl == 0 || rl > 200 {
+        once_end(&V4L2_STATE, false);
         return false;
     }
     let suffix = b"/run/husk/camera.sock";
     let mut p = [0u8; 256];
     p[..rl].copy_from_slice(&ROOT_REAL[..rl]);
     p[rl..rl + suffix.len()].copy_from_slice(suffix);
-    if V4L2_CTX.init(&p[..rl + suffix.len()]) {
-        V4L2_READY = 1;
-        true
-    } else {
-        false
-    }
+    let ok = V4L2_CTX.init(&p[..rl + suffix.len()]);
+    once_end(&V4L2_STATE, ok);
+    ok
 }
 
 /// `/dev/videoN` → Some(N)
