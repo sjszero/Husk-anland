@@ -10,7 +10,8 @@
 //
 // 三条规矩：
 //   1. 程序自己设置过的变量永远优先——先查 environ，查不到才落到这里；
-//   2. `HUSK_GPU=llvmpipe` 或 `NR_GPU_DEFAULT_OFF=1` 时一条都不注入（bisect 用）；
+//   2. `HUSK_GPU=llvmpipe`，或 `NR_GPU_DEFAULT_OFF` 取真值（1/true/yes/on）时一条都不注入（bisect 用）；
+//      `NR_GPU_DEFAULT_OFF=0`、`false`、`no`、`off`、空串都不关。
 //   3. 行前缀决定语义：`NAME=VALUE` 只在程序没设时生效（填空）；
 //      `!NAME=VALUE` 无条件生效（覆盖）；`-NAME` 让这一个变量对程序不可见（屏蔽）。
 //      覆盖/屏蔽只用于我们自己控制的、明确知道后果的变量，见 install-husk.sh 的注释；
@@ -132,6 +133,27 @@ unsafe fn parse(buf: &[u8]) {
     }
 }
 
+// 空串、`0`、`false`、`no`、`off` 都算「不关」；其余非空值算「关」。
+fn truthy(v: &[u8]) -> bool {
+    let mut i = 0;
+    let mut j = v.len();
+    while i < j && (v[i] == b' ' || v[i] == b'\t' || v[i] == b'\r' || v[i] == b'\n') {
+        i += 1;
+    }
+    while j > i && (v[j - 1] == b' ' || v[j - 1] == b'\t' || v[j - 1] == b'\r' || v[j - 1] == b'\n')
+    {
+        j -= 1;
+    }
+    let t = &v[i..j];
+    if t.is_empty() || t == b"0" {
+        return false;
+    }
+    !matches!(
+        t,
+        b"false" | b"FALSE" | b"False" | b"no" | b"NO" | b"off" | b"OFF"
+    )
+}
+
 unsafe fn load() {
     // 逃逸开关先看，看命中就不必碰文件系统。
     if let Some(v) = crate::env_lookup(b"HUSK_GPU") {
@@ -139,8 +161,12 @@ unsafe fn load() {
             return;
         }
     }
-    if crate::env_lookup(b"NR_GPU_DEFAULT_OFF").is_some() {
-        return;
+    // 值要按布尔看：只要变量存在就关，会让 `NR_GPU_DEFAULT_OFF=0` 也关掉注入
+    // （实证过：0/false 写进去，登录 shell 里 `gl-probe` 报 llvmpipe）。
+    if let Some(v) = crate::env_lookup(b"NR_GPU_DEFAULT_OFF") {
+        if truthy(v) {
+            return;
+        }
     }
     let fd = open_guest(ENV_FILE);
     if fd < 0 {

@@ -12,7 +12,6 @@ app 进程 (untrusted_app, uid 10512)
   │  产品壳要起一条命令
   ▼
 guest loader  ← 这是我们唯一改过的文件（ld.so）
-  ├─ 入口桩 entry-stub.S：在 glibc 自举之前接管控制流
   ├─ 静态 nop 掉的 2 个 svc 调用点（set_robust_list / rseq）
   ├─ _dl_init 钩子（init-hook.S）：
   │     mprotect 自己的可写窗口 → 调 nr_boot()
@@ -34,6 +33,11 @@ guest loader  ← 这是我们唯一改过的文件（ld.so）
 
 - 这两处 `svc` 只能构建期 `nop`；
 - 用户态第一个能安全接管的点是 `_dl_init`（全部对象重定位完成、构造函数未跑）。
+
+早先还有一个 `tools/loader/entry-stub.S`：它在 `_start` 之前装一个 SIGSYS handler，把被
+seccomp 拦下的调用改答 `ENOSYS`。svc 调用点改成构建期 `nop` 之后它就没有调用者了，
+2026-11-25 删掉（内容在 git 历史里，`git log -- tools/loader/entry-stub.S`）。现在
+SIGSYS 由 shim 在 `nr_boot()` 里自己装 handler 回答（evidence 159）。
 
 这也决定了不能靠 `LD_PRELOAD`：preload 对象在 `_dl_init` 之前就已经需要 libc 服务。
 

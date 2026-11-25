@@ -7,6 +7,66 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.11] - 2026-11-25
+
+> 主题：**安装器不再把失败当成功 + path-shim 的漏网符号补上并实测**。三处把子进程退出
+> 状态丢掉的地方（第二遍解包、符号链接改写与校验）改成读真实退出码；第一遍解包的状态捕获
+> 在 `set -e` 下本来就走不到；`NR_GPU_DEFAULT_OFF` 改成按布尔值判断；删掉没有调用者的入口桩。
+> 另一半是覆盖度：`inotify_add_watch` 与 `utime` 实测确实漏翻译，已修并给出 10 条点测；
+> 顺带交付「符号差集」和「探针」两个工具，把覆盖度从猜测变成可重跑。
+
+### 修
+
+- **第二遍解包失败会被当成功**（evidence 212）。`install-husk.sh` 里
+  `'tar -xf …' 2>&1 | sed 's/^/   /'` 的退出状态是 `sed` 的，`tar` 挂了看不出来。
+  改成写日志文件、直接读 `tar` 的返回码，非 0 就 `exit 69`。
+- **符号链接校验永远不会失败**（evidence 212）。`husk-symlinks --root / --verify --quiet`
+  同样走了管道，后面那个 `|| { … exit 71; }` 因此永远不触发。改成两次调用都读真实返回码，
+  `--apply` 或 `--verify` 任一非 0 就 `exit 71`。
+- **第一遍解包的"只容忍硬链接错误"分支是死代码**（evidence 212）。脚本开头 `set -eu`，
+  `tar …; rc=$?` 在 `tar` 失败时已经退出，`rc` 永远读到 0。改成 `if tar … ; then rc=0; else rc=$?; fi`。
+- **`NR_GPU_DEFAULT_OFF` 只看变量在不在**（evidence 212）。文档写的是 `=1` 关闭默认 GPU 注入，
+  代码却对任意取值都关，`NR_GPU_DEFAULT_OFF=0` 也会关掉。改成按布尔值判断：`1`/`true`/`yes`/`on`
+  关，`0`/`false`/`no`/`off`/空串都不关。
+
+### 删
+
+- **`tools/loader/entry-stub.S`**（及其构建产物 `entry-stub.bin`）。它是 `_start` 之前装 SIGSYS
+  handler 的入口桩；两个 `svc` 调用点(`set_robust_list`/`rseq`)改成构建期 `nop` 之后它没有
+  调用者，`build-embedded-loader.sh` 也不编译它。内容在 git 历史里。`docs/ARCHITECTURE.md`
+  和 `docs/assets/architecture.svg` 里把它画成实际入口的那两处一起改掉。
+
+### 修（覆盖度，evidence 213/214）
+
+- **`inotify_add_watch` 没被翻译**（evidence 214）。GIO 的文件监视（Nautilus 自动刷新、编辑器
+  感知外部改动、构建工具 watcher）全走这条，guest 里一直是**静默失效**：不报错，只是永远不来
+  事件。实测改前 `wd=-1 ENOENT`，改后 `wd=1` 且事件 `n=32`。
+- **`utime(3)` 没被翻译**（evidence 214）。glibc 自己发 `utimensat` 系统调用，不经过我们导出的
+  `utimensat` 符号。实测改前 `rc=-1 ENOENT`，改后 `rc=0`。
+- 新增 `__openat_nocancel` / `__openat64_nocancel` 导出，并把四个名字加进 `BODY_PATCH`。
+
+### 加（工具，evidence 213/214）
+
+- `tools/dev/path-symbols.txt` + `tools/dev/hook-coverage.sh`：把「需要路径翻译的 111 个符号」
+  和 path-shim 实际导出的 184 个做差，覆盖度从猜测变成一条命令（当前 87/111）。
+- `tools/probe/coverage-probe.c` + `run-coverage-probe.sh`：在设备上逐条验「翻译到底发没发生」，
+  跑一次 `--- coverage-probe: PASS`。顺带把 213 里四条**推断错误**（`remove`/`freopen`/`pathconf`/
+  `truncate64` 实测都是通的）改回实测口径。
+
+### 测过（FACT，evidence 212）
+
+| 项 | 值 |
+|---|---|
+| 截断的 rootfs 包 | 安装器 `exit 68`，不再打印 `== done ==` |
+| 正常 rootfs 全新目录安装 | `rc=0`，`== done ==`，自检 `bash -l -c 'id; head -1 /etc/os-release'` 通过 |
+| `NR_GPU_DEFAULT_OFF=0` | `gl-probe` 仍报 `zink`（改前报 `llvmpipe`） |
+| `NR_GPU_DEFAULT_OFF=1` | 不注入，`gl-probe` 报软件渲染 |
+| 门禁 A | `PASS=36 FAIL=0` |
+
+### 没做
+
+- 没有把第二遍解包的错误分类（哪些算"可容忍"）。这一遍本来就只做硬链接物化，非 0 一律当失败。
+
 ## [0.0.10] - 2026-11-25
 
 > 主题：**中文界面**。0.0.9 让 locale、字体、输入法通了，但界面文字还是英文——缺翻译。
@@ -512,3 +572,4 @@
 [0.0.8]: https://github.com/xishanp/Husk/releases/tag/v0.0.8
 [0.0.9]: https://github.com/xishanp/Husk/releases/tag/v0.0.9
 [0.0.10]: https://github.com/xishanp/Husk/releases/tag/v0.0.10
+[0.0.11]: https://github.com/xishanp/Husk/releases/tag/v0.0.11

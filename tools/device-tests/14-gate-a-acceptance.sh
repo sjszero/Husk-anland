@@ -111,8 +111,15 @@ eq "host paths only in internal NR_ vars" "0" \
 eq "ps exposes no Android app other than this one" "0" \
   "$(ps -e -o args= 2>/dev/null | grep -oE 'com\.[a-z0-9_.]+' \
      | grep -v '^com\.linuxhub\.myth\.husk$' | sort -u | wc -l | tr -d ' ')"
-eq "no host system processes visible" "0" \
-  "$(ps -e -o args 2>/dev/null | grep -v '/data/user' | grep -cE 'system_server|zygote|/system/bin|/apex' || true)"
+# 把命中的行打出来：只报一个计数的话，出现 1 的时候没法判断是宿主泄漏还是
+# 我们自己的进程被误计（2026-11-25 第一次跑 0.0.11 门禁时就是这种情况）。
+# 注意：这条检查自己的 grep 命令行里就带着上面那几个 pattern，`ps` 会把它列出来，
+# 于是"命中 1 条"永远是它自己（2026-11-25 实测）。先把带 grep 的行剔掉再计数。
+hosts=$(ps -e -o args 2>/dev/null | grep -v '/data/user' \
+          | grep -v 'grep -E' \
+          | grep -E 'system_server|zygote|/system/bin|/apex' || true)
+[ -n "$hosts" ] && { echo "  offenders:"; echo "$hosts" | head -5 | sed 's/^/    /'; }
+eq "no host system processes visible" "0" "$(printf '%s' "$hosts" | grep -c . || true)"
 # FACT worth recording: the loader keeps its own argv, so a guest reading
 # /proc/self/cmdline or `ps -o args` sees the app dir. Same uid, no privilege
 # crosses; recorded instead of papered over.
@@ -120,8 +127,12 @@ nargv=$(ps -e -o args 2>/dev/null | grep -c '/data/user' || true)
 echo "  NOTE  guest-visible argv shows the app dir in $nargv process(es) (the loader's own argv)"
 eq "guest /data/user does not exist" "absent" "$([ -e /data/user ] && echo present || echo absent)"
 eq "guest /system does not exist" "absent" "$([ -e /system ] && echo present || echo absent)"
-eq "readlink /proc/self/exe is host loader" "host" \
-  "$(case "$(readlink /proc/self/exe)" in /data/user/*) echo host;; *) echo guest;; esac)"
+# KNOWN GAP（0.0.11 实测，待 0.0.13 修）：commit 09d8689 的本意是让
+# readlinkat("/proc/self/exe") 返回 **guest 程序路径**，但实测仍然返回 loader 的宿主路径
+# （`readlink /proc/self/exe` → /data/data/.../husk/libld.so，evidence 214 §4）。
+# 这里按**现状**断言，并把名字写成"暴露宿主 loader"，免得下一个人以为这是期望行为。
+eq "readlink /proc/self/exe exposes host loader (KNOWN GAP)" "host" \
+  "$(case "$(readlink /proc/self/exe)" in /data/user/*|/data/data/*) echo host;; *) echo guest;; esac)"
 
 echo "== seccomp traps (real, excluding the init marker) =="
 traps=$(grep -c '^sigsys|nr=' /tmp/gate-a-sigsys.log 2>/dev/null || true)

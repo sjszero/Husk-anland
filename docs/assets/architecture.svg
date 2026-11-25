@@ -26,9 +26,9 @@
   <text x="640" y="198" class="tag">203,968 B → 290,816 B</text>
 
   <rect class="box" x="50" y="212" width="260" height="88" fill="#fffdf5" stroke="#e8d9a8"/>
-  <text x="66" y="236" class="lbl" font-weight="600">entry-stub.S</text>
-  <text x="66" y="258" class="mono">glibc 自举前接管</text>
-  <text x="66" y="278" class="mono">2 处 svc 已 nop</text>
+  <text x="66" y="236" class="lbl" font-weight="600">构建期改写</text>
+  <text x="66" y="258" class="mono">2 处 svc 已 nop</text>
+  <text x="66" y="278" class="mono">set_robust_list · rseq</text>
 
   <rect class="box" x="330" y="212" width="280" height="88" fill="#fffdf5" stroke="#e8d9a8"/>
   <text x="346" y="236" class="lbl" font-weight="600">init-hook.S → nr_boot()</text>

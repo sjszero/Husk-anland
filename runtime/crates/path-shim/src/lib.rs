@@ -175,6 +175,7 @@ const SYS_FCHMOD: usize = 52;
 const SYS_FCHMODAT: usize = 53;
 const SYS_FCHOWNAT: usize = 54;
 const SYS_UTIMENSAT: usize = 88;
+const SYS_INOTIFY_ADD_WATCH: usize = 27;
 const SYS_TRUNCATE: usize = 45;
 const SYS_CONNECT: usize = 203;
 const SYS_BIND: usize = 200;
@@ -1737,6 +1738,30 @@ pub unsafe extern "C" fn __open_nocancel(path: *const CChar, flags: CInt, mode: 
 #[no_mangle]
 pub unsafe extern "C" fn __open64_nocancel(path: *const CChar, flags: CInt, mode: CInt) -> CInt {
     openat(AT_FDCWD, path, flags, mode)
+}
+
+/// glibc 内部真正被调用的那两个名字。`scandirat`、`glob`、部分 stdio 路径走的是
+/// `__openat_nocancel` / `__openat64_nocancel`，不是 `openat`；只导出 `__open*_nocancel`
+/// 等于漏了一半（实测 evidence 214：`scandir("/root")` 正常，`scandirat(AT_FDCWD,"/root")`
+/// 却 ENOENT —— 差别只在内部走的是哪一个）。
+#[no_mangle]
+pub unsafe extern "C" fn __openat_nocancel(
+    dirfd: CInt,
+    path: *const CChar,
+    flags: CInt,
+    mode: CInt,
+) -> CInt {
+    openat(dirfd, path, flags, mode)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __openat64_nocancel(
+    dirfd: CInt,
+    path: *const CChar,
+    flags: CInt,
+    mode: CInt,
+) -> CInt {
+    openat(dirfd, path, flags, mode)
 }
 
 // --------------------------------------------------------------- virtual files
@@ -6580,6 +6605,24 @@ pub unsafe extern "C" fn utimes(path: *const CChar, tv: *const i64) -> CInt {
     utimens_target(AT_FDCWD, path, t as *const u8, true, 0)
 }
 
+/// `utime(3)` 是 `struct utimbuf`（两个秒）的老 API：glibc 里它自己发 `utimensat`
+/// 系统调用，不经过我们导出的 `utimensat` 符号（实测 evidence 214：`rc=-1 ENOENT`）。
+/// 换算成两个 timespec 再走同一条翻译/只读检查。
+#[no_mangle]
+pub unsafe extern "C" fn utime(path: *const CChar, ub: *const i64) -> CInt {
+    let mut ts = [0i64; 4];
+    if !ub.is_null() {
+        ts[0] = *ub;
+        ts[2] = *ub.add(1);
+    }
+    let t = if ub.is_null() {
+        core::ptr::null()
+    } else {
+        ts.as_ptr()
+    };
+    utimens_target(AT_FDCWD, path, t as *const u8, true, 0)
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn readlinkat(
     dirfd: CInt,
@@ -7481,6 +7524,24 @@ pub unsafe extern "C" fn lremovexattr(path: *const CChar, name: *const CChar) ->
     }
     ret_or_errno(pathonly(path, false, |p| {
         syscall4(SYS_LREMOVEXATTR, p as usize, name as usize, 0, 0)
+    }))
+}
+
+#[no_mangle]
+/// `inotify_add_watch(2)` 在 glibc 里只是一个系统调用包装：没有 body 可以改，也没有
+/// 别的被钩子覆盖的函数替它翻译路径，于是内核被问的是宿主路径（实测 evidence 214：
+/// `wd=-1, ENOENT`）。后果不是报错而是**静默失效** —— GIO 的文件监视（Nautilus 自动
+/// 刷新、编辑器感知外部改动、构建工具的 watcher）全部走这一条。
+#[no_mangle]
+pub unsafe extern "C" fn inotify_add_watch(fd: CInt, path: *const CChar, mask: u32) -> CInt {
+    ret_or_errno(xattr_pinned(path, |p| {
+        syscall4(
+            SYS_INOTIFY_ADD_WATCH,
+            fd as usize,
+            p as usize,
+            mask as usize,
+            0,
+        )
     }))
 }
 

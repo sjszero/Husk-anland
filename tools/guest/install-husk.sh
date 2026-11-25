@@ -141,14 +141,22 @@ case "$magic" in
         # exits 1 with "gzclose: Inappropriate ioctl for device" (measured
         # 2026-11-24), so an honest exit-code check cannot tell that apart from a
         # truncated archive.
-        tar xzf "$ROOTFS_TAR" -C "$DEST" > "$OUT/.husk-pass1.log" 2>&1
-        rc=$? ;;
+        # `set -e` is on, so the status has to be captured inside an `if`;
+        # `cmd; rc=$?` would exit before rc is ever read.
+        if tar xzf "$ROOTFS_TAR" -C "$DEST" > "$OUT/.husk-pass1.log" 2>&1; then
+            rc=0
+        else
+            rc=$?
+        fi ;;
     fd377a585a00*)  dec="xz -dc" ;;
     28b52ffd*)      dec="zstd -dc" ;;
     *)
         # Plain tar (and anything else tar can sniff on its own).
-        tar xf "$ROOTFS_TAR" -C "$DEST" > "$OUT/.husk-pass1.log" 2>&1
-        rc=$? ;;
+        if tar xf "$ROOTFS_TAR" -C "$DEST" > "$OUT/.husk-pass1.log" 2>&1; then
+            rc=0
+        else
+            rc=$?
+        fi ;;
 esac
 if [ -n "$dec" ]; then
     command -v "${dec%% *}" >/dev/null 2>&1 || { echo "install-husk: $ROOTFS_TAR is compressed but ${dec%% *} is not available" >&2; exit 67; }
@@ -158,8 +166,11 @@ if [ -n "$dec" ]; then
         1f8b|fd37|28b5) echo "install-husk: $ROOTFS_TAR is compressed twice (a .gz of a .gz); pass the inner tarball" >&2
                         rm -f "$OUT/.husk-pass1.tar"; exit 67 ;;
     esac
-    tar xf "$OUT/.husk-pass1.tar" -C "$DEST" > "$OUT/.husk-pass1.log" 2>&1
-    rc=$?
+    if tar xf "$OUT/.husk-pass1.tar" -C "$DEST" > "$OUT/.husk-pass1.log" 2>&1; then
+        rc=0
+    else
+        rc=$?
+    fi
     rm -f "$OUT/.husk-pass1.tar"
 fi
 sed 's/^/   /' "$OUT/.husk-pass1.log"
@@ -183,10 +194,22 @@ mkdir -p "$DEST/tmp"
 cp "$ROOTFS_TAR" "$DEST/tmp/.husk-rootfs.tar"
 LIBS="$DEST/lib/aarch64-linux-gnu:$DEST/usr/lib/aarch64-linux-gnu"
 [ -d "$DEST/usr/lib/aarch64-linux-gnu" ] || LIBS="$DEST/usr/lib"
+# Pass 2 is the only pass that has to succeed completely: it is the one that
+# materialises hard links. So it goes to a log file and its exit status is read
+# directly - a `| sed` here would report sed's status and hide a failed extract.
+set +e
 ( cd "$DEST" && NR_ROOTFS=$DEST NR_LD=$LOADER "$LOADER" --library-path "$LIBS" usr/bin/env -i \
     PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     NR_ROOTFS=$DEST NR_LD=$LOADER /bin/sh -c \
-    'tar -xf /tmp/.husk-rootfs.tar -C / && rm -f /tmp/.husk-rootfs.tar' 2>&1 | sed 's/^/   /' )
+    'tar -xf /tmp/.husk-rootfs.tar -C / && rm -f /tmp/.husk-rootfs.tar' ) > "$OUT/.husk-pass2.log" 2>&1
+rc2=$?
+set -e
+sed 's/^/   /' "$OUT/.husk-pass2.log"
+rm -f "$OUT/.husk-pass2.log" "$DEST/tmp/.husk-rootfs.tar"
+if [ "$rc2" -ne 0 ]; then
+    echo "install-husk: pass 2 failed (tar rc=$rc2); hard links are not materialised, this tree is broken" >&2
+    exit 69
+fi
 
 # 2b. a release tarball leaves the mount points out on purpose
 #     (tools/guest/make-release.sh): tmp/proc/sys/dev/run/root are recreated
@@ -400,10 +423,20 @@ guest_run() {
         NR_ROOTFS=$DEST NR_LD=$LOADER "$@" )
 }
 if [ -x "$DEST/usr/bin/husk-symlinks" ]; then
-    guest_run usr/bin/husk-symlinks --root / --apply 2>&1 | sed 's/^/   /'
-    guest_run usr/bin/husk-symlinks --root / --verify --quiet 2>&1 | sed 's/^/   /' || {
-        echo "install-husk: absolute symlinks still escape the rootfs; those names will not dlopen" >&2
-        exit 71; }
+    # Both calls report through a log file, for the same reason as pass 2: a
+    # `| sed` would make a failing `--verify` look like success.
+    set +e
+    guest_run usr/bin/husk-symlinks --root / --apply > "$OUT/.husk-sym.log" 2>&1
+    rc_apply=$?
+    guest_run usr/bin/husk-symlinks --root / --verify --quiet >> "$OUT/.husk-sym.log" 2>&1
+    rc_verify=$?
+    set -e
+    sed 's/^/   /' "$OUT/.husk-sym.log"
+    rm -f "$OUT/.husk-sym.log"
+    if [ "$rc_apply" -ne 0 ] || [ "$rc_verify" -ne 0 ]; then
+        echo "install-husk: absolute symlinks still escape the rootfs (apply rc=$rc_apply, verify rc=$rc_verify); those names will not dlopen" >&2
+        exit 71
+    fi
 else
     echo "   (this bundle has no husk-symlinks; absolute links, if any, stay)" >&2
 fi
