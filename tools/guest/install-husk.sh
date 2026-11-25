@@ -247,6 +247,32 @@ else
     echo "            the pre-scaled wallpaper will never be generated." >&2
 fi
 
+# 2b-2b'. locale 默认值：同一类问题——只写 /etc/default/locale 会被非登录进程绕过。
+if [ -f "$HERE/guest-config/husk-locale.sh" ]; then
+    mkdir -p "$DEST/etc/profile.d"
+    cp "$HERE/guest-config/husk-locale.sh" "$DEST/etc/profile.d/husk-locale.sh"
+    chmod 644 "$DEST/etc/profile.d/husk-locale.sh"
+    if [ -f "$DEST/usr/lib/locale/locale-archive" ] || [ -d "$DEST/usr/lib/locale/zh_CN.utf8" ]; then
+        mkdir -p "$DEST/etc/default"
+        printf 'LANG=zh_CN.UTF-8\nLANGUAGE=zh_CN:zh\n' > "$DEST/etc/default/locale"
+        echo "   wrote etc/profile.d/husk-locale.sh + etc/default/locale (zh_CN.UTF-8)"
+    else
+        echo "   wrote etc/profile.d/husk-locale.sh (no zh_CN.utf8 locale in this rootfs; LANG left alone)"
+    fi
+else
+    echo "WARNING: no guest-config/husk-locale.sh next to the installer; locale defaults are NOT installed." >&2
+fi
+
+# 2b-2b''. fcitx5 的默认输入法组（键盘 + 拼音）。只在没有时写，用户改过就不覆盖。
+if [ -f "$HERE/guest-config/fcitx5-profile" ] && [ -x "$DEST/usr/bin/fcitx5" ]; then
+    if [ ! -f "$DEST/root/.config/fcitx5/profile" ]; then
+        mkdir -p "$DEST/root/.config/fcitx5"
+        cp "$HERE/guest-config/fcitx5-profile" "$DEST/root/.config/fcitx5/profile"
+        chmod 644 "$DEST/root/.config/fcitx5/profile"
+        echo "   wrote root/.config/fcitx5/profile (keyboard + pinyin)"
+    fi
+fi
+
 # 2b-2c. 同一份默认值也给加载器。`/etc/profile.d` 只对登录 shell 生效；cron、systemd
 #        user unit、桌面 fork 出来的进程、`env -i`、`ssh host -- prog` 都读不到它，
 #        于是同一个 rootfs 里会出现"终端里的程序吃 GPU、别处的掉回 llvmpipe"。

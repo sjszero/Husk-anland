@@ -159,6 +159,7 @@ dist:
 	@mkdir -p dist/guest dist/guest-config
 	cp tools/guest/husk-wallpaper-scale.js dist/guest/
 	cp tools/guest-config/husk-gpu-defaults.sh tools/guest-config/husk-look.override \
+	   tools/guest-config/husk-locale.sh tools/guest-config/fcitx5-profile \
 	   tools/guest-config/pulse-client-no-shm.conf dist/guest-config/
 	cp VERSION dist/VERSION
 	tar czf dist/husk-arm64.tar.gz -C dist \
@@ -170,6 +171,11 @@ dist:
 # with no GPU defaults and no error. Asserted on the tarball, not on dist/.
 	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/husk-gpu-defaults.sh' || \
 	    { echo "dist: bundle is missing guest-config/husk-gpu-defaults.sh" >&2; exit 1; }
+# 少了 locale 默认值，装出来的树不会报错，只是桌面回到英文界面、中文按日文字形渲染。
+	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/husk-locale.sh' || \
+	    { echo "dist: bundle is missing guest-config/husk-locale.sh" >&2; exit 1; }
+	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/fcitx5-profile' || \
+	    { echo "dist: bundle is missing guest-config/fcitx5-profile" >&2; exit 1; }
 # Same failure mode for the look defaults: a bundle without them installs a tree where
 # the shell is Yaru and every app window is Adwaita, and nothing says why.
 	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/husk-look.override' || \

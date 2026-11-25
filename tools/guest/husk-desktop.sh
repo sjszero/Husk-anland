@@ -64,12 +64,28 @@ if [ -f "$ROOTFS/etc/ld.so.husk-path" ]; then
     LIBS="$LIBS:$(sed -n 's|^|'"$ROOTFS"'|p' "$ROOTFS/etc/ld.so.husk-path" | tr '\n' ':')"
 fi
 
+# 桌面 UI 的语言由 LANG 决定，而这个变量经常是空的（run-as 起的进程、env -i 都不带）。
+# 树里有 zh_CN.utf8 就用中文；调用者自己设了 LANG 就不动。
+case "${LANG:-}" in
+    ''|POSIX|C|C.UTF-8)
+        if [ -f "$ROOTFS/usr/lib/locale/locale-archive" ] || [ -d "$ROOTFS/usr/lib/locale/zh_CN.utf8" ]; then
+            G_LANG=zh_CN.UTF-8
+        else
+            G_LANG=C.UTF-8
+        fi ;;
+    *) G_LANG=$LANG ;;
+esac
+: "${LANGUAGE:=zh_CN:zh}"
+G_LANGUAGE=$LANGUAGE
+
 # 在 guest 里跑一条命令（不继承宿主的 XDG_*，避免把宿主路径漏进去）
 g() {
     ( cd "$ROOTFS" && env -u XDG_CACHE_HOME -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_STATE_HOME \
         HOME="$HOME_G" PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
         NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" NR_LIBRARY_PATH="$LIBS" \
         DISPLAY="$DISPLAY" XDG_RUNTIME_DIR="$RT_G" \
+        LANG="$G_LANG" LANGUAGE="$G_LANGUAGE" \
+        GTK_IM_MODULE=fcitx QT_IM_MODULE=fcitx XMODIFIERS=@im=fcitx \
         DBUS_SESSION_BUS_ADDRESS="unix:path=$SESSBUS_G" \
         DBUS_SYSTEM_BUS_ADDRESS="unix:path=$SYSBUS_G" \
         "$NR_LD" --library-path "$LIBS" "$@" ) 2>/dev/null
@@ -83,6 +99,8 @@ g_bg() {
         HOME="$HOME_G" PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
         NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" NR_LIBRARY_PATH="$LIBS" \
         DISPLAY="$DISPLAY" XDG_RUNTIME_DIR="$RT_G" \
+        LANG="$G_LANG" LANGUAGE="$G_LANGUAGE" \
+        GTK_IM_MODULE=fcitx QT_IM_MODULE=fcitx XMODIFIERS=@im=fcitx \
         DBUS_SESSION_BUS_ADDRESS="unix:path=$SESSBUS_G" \
         DBUS_SYSTEM_BUS_ADDRESS="unix:path=$SYSBUS_G" \
         "$NR_LD" --library-path "$LIBS" "$@" > "$logf" 2>&1 & )
@@ -206,6 +224,20 @@ if g usr/bin/xdotool mousemove "$PX" "$PY" >/dev/null 2>&1; then
     input=primed
 fi
 echo "CHECK input=$input"
+
+# 5c. 中文输入法（evidence 210）。树里装了 fcitx5 和它的 gtk3/gtk4 immodule，但没有任何东西
+#     去起它：结果就是中文能显示、不能输入。这里起在会话总线里，起不来不影响会话，
+#     自检里如实写 im=none。
+im=none
+if [ -x "$ROOTFS/usr/bin/fcitx5" ]; then
+    g_bg "$ROOTFS/tmp/fcitx5.log" usr/bin/fcitx5 -d --replace >/dev/null 2>&1 || true
+    i=0
+    while [ $i -lt 10 ]; do
+        if g usr/bin/fcitx5-remote -o >/dev/null 2>&1; then im=fcitx5; break; fi
+        sleep 1; i=$((i+1))
+    done
+fi
+echo "CHECK im=$im"
 echo "CHECK shell_log=$SHELL_LOG"
 
 # 壁纸：装好的看护脚本会把当前壁纸缩到屏幕尺寸（并修复空/失效的 picture-uri）。

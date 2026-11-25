@@ -1,0 +1,25 @@
+# fcitx5 的默认输入法组：一个键盘 + 拼音。
+# 不带这个文件时，fcitx5 第一次启动只会建"键盘"一组，拼音得用户自己进 configtool 加，
+# 于是"中文能显示、不能输入"。安装器只在文件不存在时写入，用户改过就不覆盖。
+[Groups/0]
+# Group Name
+Name=Default
+# Layout
+Default Layout=us
+# Default Input Method
+DefaultIM=pinyin
+
+[Groups/0/Items/0]
+# Name
+Name=keyboard-us
+# Layout
+Layout=
+
+[Groups/0/Items/1]
+# Name
+Name=pinyin
+# Layout
+Layout=
+
+[GroupOrder]
+0=Default
