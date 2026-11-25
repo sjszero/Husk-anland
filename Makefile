@@ -162,10 +162,17 @@ dist:
 	   tools/guest-config/husk-locale.sh tools/guest-config/fcitx5-profile \
 	   tools/guest-config/pulse-client-no-shm.conf dist/guest-config/
 	cp VERSION dist/VERSION
+	@if [ -f tools/langpack/husk-lang-zh.tar.gz ]; then \
+	    cp tools/langpack/husk-lang-zh.tar.gz dist/; \
+	    tar tzf dist/husk-lang-zh.tar.gz | grep -qx 'usr/share/locale-langpack/zh_CN/LC_MESSAGES/gnome-shell.mo' || \
+	        { echo "dist: lang pack is missing gnome-shell.mo" >&2; exit 1; }; \
+	else \
+	    echo "dist: no tools/langpack/husk-lang-zh.tar.gz; UI text will stay English" >&2; \
+	fi
 	tar czf dist/husk-arm64.tar.gz -C dist \
 	    libld.so libc.so.6 husk-ldconfig husk-usermgr husk-su husk-symlinks \
 	    guest guest-config install-husk.sh husk-session.sh husk-desktop.sh \
-	    husk-ding-fallback.sh husk-wallpaper-fit.sh VERSION
+	    husk-ding-fallback.sh husk-wallpaper-fit.sh husk-lang-zh.tar.gz VERSION
 # The installer writes /etc/profile.d/husk-gpu.sh from guest-config/, and skips it
 # silently when the file is not next to it: a bundle without it installs a tree
 # with no GPU defaults and no error. Asserted on the tarball, not on dist/.
@@ -190,7 +197,7 @@ dist:
 	@rm -f dist/libld.so dist/libc.so.6 dist/husk-ldconfig dist/husk-usermgr \
 	    dist/husk-su dist/husk-symlinks dist/install-husk.sh dist/husk-session.sh \
 	    dist/husk-desktop.sh dist/husk-ding-fallback.sh dist/husk-wallpaper-fit.sh \
-	    dist/VERSION
+	    dist/husk-lang-zh.tar.gz dist/VERSION
 	@rm -rf dist/guest dist/guest-config
 	@cd dist && sha256sum husk-arm64.tar.gz > SHA256SUMS && cat SHA256SUMS
 

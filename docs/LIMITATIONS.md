@@ -238,17 +238,17 @@ Cached Apps Freezer 会把它的全部线程 SIGSTOP；X server 住在应用进�
 
 所以：真机上「锁屏一会儿回来桌面卡住」先看这一条，别当崩溃查。
 
-## 12 · 中文：locale、字体、输入法已经通了，界面翻译不全
+## 12 · 中文：locale、字体、输入法、界面翻译都通了，繁體没有
 
-**已经做到的（FACT，evidence 210）**：默认 `LANG=zh_CN.UTF-8`（`/etc/profile.d/husk-locale.sh`，
-程序自己设了就不覆盖）；`fc-match "sans-serif:lang=zh-cn"` 落到 Noto Sans CJK SC，不再回落到
-日文字形；会话起来会拉起 fcitx5 并打 `CHECK im=fcitx5`；`ctrl+space` 切到拼音后，
-`gnome-text-editor` 里打 `nihao` + 空格提交出「你好」并 `ctrl+s` 落盘。
+**已经做到的（FACT，evidence 210 / 211）**：默认 `LANG=zh_CN.UTF-8`
+（`/etc/profile.d/husk-locale.sh`，程序自己设了就不覆盖）；`fc-match "sans-serif:lang=zh-cn"`
+落到 Noto Sans CJK SC，不再回落到日文字形；会话起来拉起 fcitx5 并打 `CHECK im=fcitx5`；
+`ctrl+space` 切拼音后在 `gnome-text-editor` 里能打出「你好」并落盘；界面翻译由树包里附带的
+语言包提供（413 个 `.mo` 装到 `/usr/share/locale-langpack/zh_CN/LC_MESSAGES/`），
+`gnome-calculator --help` 在中文下输出「用法：/帮助选项：」。
 
-**没做到的**：`/usr/share/locale/zh_CN/LC_MESSAGES/` 只有 19 个 `.mo`，`gtk40`、`gnome-shell`、
-`mutter`、`nautilus` 的翻译都没有。所以 `LANG` 设成中文只改到日期格式、字体族与排序，
-**界面文字仍是英文**。补语言包（`language-pack-zh-hans`、`language-pack-gnome-zh-hans`）
-约 30 MB，且要重打 1.3 GB 的 rootfs，本版没做。
+**没做到的**：只有 `zh_CN`，`zh_TW` / `zh_HK`（繁體）没打；翻译版本绑在
+`24.04+20260905`，换 Ubuntu 版本要重下（步骤见 `tools/langpack/README.md`）。
 
 **其它未测**：输入法只在 GTK4 上验过；XIM 前端、Qt 应用、候选窗翻页与数字选词没测。
 

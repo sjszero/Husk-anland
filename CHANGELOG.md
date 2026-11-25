@@ -7,6 +7,36 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.10] - 2026-11-25
+
+> 主题：**中文界面**。0.0.9 让 locale、字体、输入法通了，但界面文字还是英文——缺翻译。
+> 这一版把 `zh_CN` 的 413 个 `.mo` 单独打成 5 MB 的附加包，安装器解开，不重打 1.3 GB 的 rootfs。
+
+### 新增
+
+- **`tools/langpack/husk-lang-zh.tar.gz`**（evidence 211）：从 noble 的
+  `language-pack-zh-hans-base` 与 `language-pack-gnome-zh-hans-base`（都是 `24.04+20260905`）
+  解出 413 个 `.mo`，装到 `usr/share/locale-langpack/zh_CN/LC_MESSAGES/`。Ubuntu 的 glibc 会搜
+  `locale-langpack`，所以 `/usr/share/locale` 里原有的 19 个不用动。来源、sha256 与重建步骤写在
+  `tools/langpack/README.md`。
+- **`install-husk.sh` 解开语言包**：树包旁边有这个文件就解到 `$DEST`，数 `.mo`，少于 400 个
+  直接 `exit 74`；没有就跳过并打印"界面文字保持英文"。
+- **`make dist` 带上它**，并断言包里有 `usr/share/locale-langpack/zh_CN/LC_MESSAGES/gnome-shell.mo`。
+
+### 测过（FACT，evidence 211）
+
+| 调用 | 无 LANG | `LANG=zh_CN.UTF-8` |
+|---|---|---|
+| `dgettext("gnome-shell","Activities")` | `Activities` | 活动 |
+| `dgettext("nautilus","Files")` | `Files` | 文件 |
+| `dgettext("gtk40","Cancel")` | `Cancel` | `Cancel`（该域没有这条 msgid，不是查找失败） |
+| `gnome-calculator --help` | `Usage: / Help Options: / Show help options` | `用法： / 帮助选项： / 显示帮助选项` |
+
+### 没做
+
+- 只有 `zh_CN`，`zh_TW` / `zh_HK`（繁體）没打。
+- 翻译版本绑在 `24.04+20260905`，换 Ubuntu 版本要重下。
+
 ## [0.0.9] - 2026-11-25
 
 > 主题：**中文默认值。** 新装的树默认 `LANG=zh_CN.UTF-8`、中文字体族落到 Noto Sans CJK SC、
@@ -480,3 +510,4 @@
 [0.0.1]: https://github.com/xishanp/Husk/releases/tag/v0.0.1
 [0.0.8]: https://github.com/xishanp/Husk/releases/tag/v0.0.8
 [0.0.9]: https://github.com/xishanp/Husk/releases/tag/v0.0.9
+[0.0.10]: https://github.com/xishanp/Husk/releases/tag/v0.0.10

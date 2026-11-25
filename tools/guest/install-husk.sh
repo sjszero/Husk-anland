@@ -273,6 +273,21 @@ if [ -f "$HERE/guest-config/fcitx5-profile" ] && [ -x "$DEST/usr/bin/fcitx5" ]; 
     fi
 fi
 
+# 2b-2b'''. 中文界面翻译包（可选）：树包旁边有 husk-lang-zh.tar.gz 就解开。
+# 没有也不报错——locale、字体、输入法都不受影响，只是界面文字回到英文。
+if [ -f "$HERE/husk-lang-zh.tar.gz" ]; then
+    mkdir -p "$DEST/usr/share"
+    tar xzf "$HERE/husk-lang-zh.tar.gz" -C "$DEST"
+    n=$(ls "$DEST/usr/share/locale-langpack/zh_CN/LC_MESSAGES/" 2>/dev/null | wc -l | tr -d ' ')
+    if [ "${n:-0}" -lt 400 ]; then
+        echo "install-husk: lang pack unpacked only ${n:-0} .mo files - do not ship this tree" >&2
+        exit 74
+    fi
+    echo "   installed zh_CN lang pack ($n .mo files in usr/share/locale-langpack)"
+else
+    echo "   no husk-lang-zh.tar.gz next to the installer; UI text stays English"
+fi
+
 # 2b-2c. 同一份默认值也给加载器。`/etc/profile.d` 只对登录 shell 生效；cron、systemd
 #        user unit、桌面 fork 出来的进程、`env -i`、`ssh host -- prog` 都读不到它，
 #        于是同一个 rootfs 里会出现"终端里的程序吃 GPU、别处的掉回 llvmpipe"。
