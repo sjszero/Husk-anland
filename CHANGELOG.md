@@ -44,6 +44,11 @@
   限定：不含 `/dev/input` → X 这一段，也不含合成器 → 屏幕扫描，**不等于手指到画面的延迟**。
 - **拖动窗口**（evidence 203 复核）：`Super`+拖位移 **0**（`236,188` → `236,188`）；
   `alt+F7` + 指针 motion 位移有效（→ `186,120`）。
+- **发版门禁 A：PASS=36 FAIL=0**（evidence 204）。第一次跑是 35/36，失败项是
+  `guest /data/user does not exist`——rootfs 里有一条 14 层深、32 KB 的空目录链，
+  正好等于把 `$ROOTFS` 的宿主绝对路径当成 guest 路径 `mkdir -p` 了一次
+  （时间戳 16:17，会话调试期间）。已清；成因记 UNKNOWN 并写明候选，
+  这条门禁断言就是探测器。
 - **`/proc/self/mountinfo` 的 EPERM 定根因**（evidence 202）：虚拟 proc 文件全是 **memfd**
   （`S_IFREG`、`dev 0:5`、`/memfd:husk-virt (deleted)`），而 libmount 的内核挂载监视只做
   `epoll_ctl(ADD)`，**内核对普通文件一律 EPERM**。不是 mountinfo 独有，`/proc/uptime` 一样。
