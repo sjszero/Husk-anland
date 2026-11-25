@@ -1123,6 +1123,11 @@ fn handle_capture(api: &Api, mut stream: UnixStream) {
             .unwrap_or("")
             .to_ascii_uppercase();
         let reply = match cmd.as_str() {
+            // The concurrency probe uses PING on both listening sockets. The
+            // capture protocol used to answer only OPEN/READ/CLOSE, so the
+            // probe reported "unknown-command" even when the listener was
+            // healthy and accepting the second client.
+            "PING" => send_line(&mut stream, "PONG bridge=audio-capture-v1"),
             "OPEN" => {
                 let rate = parse_i32(&fields, "rate", 48_000).unwrap_or(48_000);
                 let channels = parse_i32(&fields, "channels", 2).unwrap_or(2);

@@ -7,11 +7,11 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
-## [未发布]
+## [0.0.13] - 2026-11-26
 
-> 主题：**0.0.13 全链路审计进行中**。这一批收的是「路径兼容层 + 挂载表」这条链：两个真缺口、
-> 一个假的 `/proc/self/exe`、六个老二进制入口，挂载表的读写两个洞与 `remount,ro` 那条，
-> 并把覆盖账写成常设门禁可以对照的表。
+> 主题：**全链路审计版**。这一版收掉路径兼容层、并发、挂载、loader、GPU/DRM、X11 呈现、
+> 音频桥和输入栈里已经复现的 24 个缺陷。不能闭环的部分写进限制或明确标成 UNKNOWN；
+> 不把「代码改过」当「真机已经通过」。
 
 ### 修
 
@@ -77,12 +77,13 @@
   `dbus-daemon` 起会话总线时打印 "Cannot setup inotify … Operation not permitted"，
   任何把 EPERM 当致命错误的 watcher 会直接放弃。改成回 `-errno`，实测 EPERM → ENOENT。
 
-- **音频桥的 accept 循环被单个客户端堵住**（evidence 225）。`serve()` 在 accept 循环里
+- **音频桥的 accept 循环被单个客户端堵住**（evidence 225/231）。`serve()` 在 accept 循环里
   同步跑 `handle_client()`，而后者是一条长连接会话：一个连上就不发数据的客户端能把整条
   监听堵 30 秒（输出侧读超时），采集侧 `handle_capture` 连超时都没有，于是永久堵死；
   两个监听口还共用同一个循环。改成每客户端一个线程（`Arc<Api>` + 上限 12 + panic 隔离）。
-  代码已改、`cargo check --target aarch64-linux-android` 通过；运行未验证——设备上装的还是
-  2.0 那个包，这条桥在当前布局下没被拉起来。
+  Husk 最小包真机运行验证：两个监听口的 idle + `PING` 并发判据 `PASS=2 FAIL=0`；播放
+  `OPEN → DATA → CLOSE` 写入 48000/48000 帧，1 次 xrun、平均 121.667 ms；采集
+  `OPEN → READ → CLOSE` 收回 49152 帧 / 196608 字节。
 
 - **挂载表读缓冲是共享的 `static mut`**（evidence 227 §2.1）。`mnt_read_file()` 的
   `BUF` 是静态的、读在锁外：两个线程同时进来会往同一块内存里写。读的是同一个文件时看不出来，
@@ -113,12 +114,17 @@
 - **`DRM_CTX.dispatch()` 在并发下会发出重复 handle**（evidence 229）。BO 表的
   「读 `next_handle` → 写槽 → `n_bos+1`」没有锁，8 线程 × 100 次里出现过 2–3 个重复 handle，
   后写的覆盖前一条。加 `DRM_LOCK` 串行化 dispatch；修后 8 线程 × 5 轮 × 64 个零重复，
-  只剩 kbase 真实的 64 个活 BO 上限。GPU 冒烟（glxinfo/glxgears，zink/PanVK）正常。
+  只剩 kbase 真实的 64 个活 BO 上限。GPU 冒烟中 `glxinfo`/`gl-probe` 正常；`glxgears`
+  只完成了启动，随后在同一 Mesa 树里崩溃，不能算通过（见下方已知限制，evidence 232）。
 
 ### 加
 
 - `docs/design/evidence/229-drm-bo-lifecycle-20261126.md`：DRM 层 BO 生命周期与 dispatch
   竞态的修前/修后对照。
+- `docs/design/evidence/230-x11-input-audit-20261126.md`：X11 输入全屏 5/5、双客户端各 5/5；
+  `adb input swipe` 25 秒 0 事件，按 UNKNOWN 记录，不冒充已支持。
+- `docs/design/evidence/231-audio-bridge-runtime-20261126.md`：音频并发入口、播放 DATA、
+  采集 READ 的真机协议结果，包括 1 次 xrun 和 121.667 ms 平均延迟。
 - `NR_MNT_DEBUG=1`：把每次 `mount(2)` 的原始 `src`/`tgt`/`type`/`flags` 打到 stderr
   （evidence 227 §3 就是靠它定性的）。不设变量时只多一次 `env_lookup`。
 - `docs/design/evidence/227-mount-table-and-remount-20261125.md`：挂载表跨线程的实际结论
@@ -131,13 +137,23 @@
   最便宜的下一步在应用侧（把回读后的 CPU 拷贝换成 GPU 上传），真正的零拷贝要把 X server
   搬进 guest。
 - `docs/design/evidence/226-audit-inventory-0.0.13.md`：0.0.13 的审计索引——已确认并修掉的
-  24 条（带证据编号）、记录在案的 7 条限制、9 项「核过不是缺陷」、以及还没审到的 5 个面
-  各自卡在哪。
+  24 条（带证据编号）、记录在案的 7 条限制、9 项「核过不是缺陷」，以及仍未闭环的 GPU
+  长跑和跨设备验证。
 - `tools/probe/audio-bridge-concurrency.py`：音频桥的 head-of-line blocking 判据
   （idle 客户端 + 第二个客户端 PING），evidence 225 §3。
+- `tools/probe/audio-capture-probe.py`：采集桥的 `OPEN → READ → CLOSE` 与 PCM 字节数判据。
 - `tools/probe/symbol-gap-probe.c`：把没钩的符号逐个**试出后果**（判据是效果不是符号）。
 - `docs/design/compat-layer.md`：三层拦截、覆盖账（98 / 111）、与 ptrace 型的代价对比、未闭合项。
 - 门禁 A 里 `/proc/self/exe` 的旧断言写的是**坏行为**，换成三条正向断言；现 38 项。
+
+### 已知限制
+
+- **GPU 长跑不能宣称通过**（evidence 232）。`glxgears -info` 在 zink → PanVK 上于 45 秒超时前
+  自行退出 `RC=139`，崩溃地址为 `libvulkan_panfrost_x11.so` 的
+  `emit_cf_list.isra.0+0x120`，故障地址 `0x21`。pre-229 loader 同样复现；关闭 shader cache、
+  `PANVK_DEBUG=noopt`、改 GL 版本都不改变结论。llvmpipe 同一程序跑到预期的超时，
+  `gl-probe window` / ES3 / Vulkan probe 仍通过。具体 NIR 破坏原因 **UNKNOWN**；本版不把
+  “代码改过”或“单个探针通过”写成 GPU 全量稳定。
 
 ## [0.0.12] - 2026-11-25
 
@@ -725,4 +741,5 @@
 [0.0.10]: https://github.com/xishanp/Husk/releases/tag/v0.0.10
 [0.0.11]: https://github.com/xishanp/Husk/releases/tag/v0.0.11
 
+[0.0.13]: https://github.com/xishanp/Husk/releases/tag/v0.0.13
 [0.0.12]: https://github.com/xishanp/Husk/releases/tag/v0.0.12

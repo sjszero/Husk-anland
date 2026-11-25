@@ -16,10 +16,31 @@ LD=${LD:-$APPDIR/husk/libld.so}
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESS=${SESS:-/data/local/tmp/husk-session.sh}
 
+# The Makefile invocation passes workspace-relative device paths. Normalize them
+# before they cross into the guest session; keeping them relative makes failures
+# depend on run-as's current directory and used to surface as an opaque rc=127.
+device_path() {
+    case "$1" in
+        /*) printf '%s\n' "$1" ;;
+        files/linux/*) printf '%s/%s\n' "$APPDIR" "${1#files/linux/}" ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+ROOTFS=$(device_path "$ROOTFS")
+LD=$(device_path "$LD")
+
 adb push "$HERE/coverage-probe.c" /data/local/tmp/coverage-probe.c >/dev/null
 adb shell "run-as $PKG sh -c 'cp /data/local/tmp/coverage-probe.c $ROOTFS/root/coverage-probe.c'"
-adb shell "run-as $PKG env NR_LD=$LD sh $SESS $ROOTFS -- /usr/bin/gcc -O1 -o /root/p /root/coverage-probe.c" >/dev/null 2>&1
-OUT=$(adb shell "run-as $PKG env NR_LD=$LD sh $SESS $ROOTFS -- /root/p" 2>&1)
+if ! BUILD=$(adb shell "run-as $PKG env NR_LD=$LD sh $SESS $ROOTFS -- /usr/bin/gcc -O1 -o /root/p /root/coverage-probe.c" 2>&1); then
+    echo '--- coverage-probe: compile failed' >&2
+    echo "$BUILD" >&2
+    exit 1
+fi
+if ! OUT=$(adb shell "run-as $PKG env NR_LD=$LD sh $SESS $ROOTFS -- /root/p" 2>&1); then
+    echo '--- coverage-probe: execution failed' >&2
+    echo "$OUT" >&2
+    exit 1
+fi
 
 echo "$OUT"
 

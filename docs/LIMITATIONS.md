@@ -45,7 +45,7 @@ guest 里 `/proc/self/fd/1` 是 socket。`make` 往它写完（309 字节就够�
 写入全部 `EACCES`。proot 下完全一样，所以不是 shim 的行为；但它限定了基准的取样方式：
 构建类步骤统一重定向到 `/dev/null`，只记墙钟（evidence 155）。
 
-## 7 · GPU：桌面已经在 GPU 上出帧，剩下的是呈现那一次拷贝
+## 7 · GPU：桌面出帧已通，但呈现仍拷贝，且有 PanVK 编译器崩溃
 
 **2026-11-25 的现状**：gnome-shell 46 跑在 zink → PanVK 上，X 根窗口抓到完整桌面、非黑像素
 100%（evidence 165/168）；GTK4 应用因为圆角裁剪缺口默认走 `GSK_RENDERER=cairo`（evidence 187）；
@@ -128,6 +128,15 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
    `Could not get DRI3 device`。要么 shell 侧给服务器一条能 import dma-buf 的路，要么接受
    这次拷贝（已实测代价见 evidence 174）。
 
+**2026-11-26 增补：`glxgears` 不是长跑通过（FACT，evidence 232）**。当前 loader 和 pre-229
+loader 下，`glxgears -info` 都在 45 秒超时前自行退出 `RC=139`；崩溃处理器给出 `fa=0x21`，
+相对地址落在 `libvulkan_panfrost_x11.so` 的 `emit_cf_list.isra.0+0x120`，对应指令为
+`ldr x28, [x28]`。同一轮里 llvmpipe 跑到预期的 20 秒超时（约 348–371 FPS）、
+`gl-probe window`、ES3 workload 和 `vulkan-probe` 都通过。结论是 PanVK/Bifrost 的固定
+着色器编译路径有已知崩溃，不是“Mali 完全没有起来”；具体 NIR 破坏和其他应用命中率仍是
+**UNKNOWN**。所以本版不能宣称“GPU 长稳通过”，也不能为了 `glxgears` 直接把默认渲染器改成
+llvmpipe 破坏其他程序的硬件加速。单程序回退仍是 `HUSK_GPU=llvmpipe`。
+
 ### 7.1 这三条路各自落在哪一层（能不能只改 Linux 运行层）
 
 先说结论：**三条里没有一条能只靠 Linux 运行层（guest rootfs / shim / loader / Mesa）改完**，
@@ -178,8 +187,8 @@ socket 协议，数据在应用侧过一次。逐类理由见
 | guest 内 VA-API 全链（播放器直接用） | 中转 | 部分 | evidence 81–87 |
 | 视频编码（VA-API encode） | 中转（未做） | 未做 | — |
 | 相机（V4L2 `/dev/videoN` + 平台编码） | 直连 | 有实测链路 | evidence 91–93 |
-| 音频（PulseAudio → `audio-relay` → AAudio） | 中转 | 可用，10 秒级，非长稳；guest 里 `/dev/snd` 打不开 | evidence 62 |
-| 输入注入（触摸/键盘） | 窗口层 | 能到应用；指针默认是 trackpad 语义，2.0 侧的 `touchMode` 默认值未在本仓库改；**拖动窗口失效**（见 §10） | evidence 148、180、203 |
+| 音频（PulseAudio → `audio-relay` → AAudio） | 中转 | 可用，非长稳；本轮播放 1 次 xrun、平均 121.667 ms，采集协议通过但未做声学质量测试；guest 里 `/dev/snd` 打不开 | evidence 62、231 |
+| 输入注入（触摸/键盘） | 窗口层 | 全屏点击与双客户端已验证；`adb input swipe` 的 XI 事件仍是 UNKNOWN；指针默认是 trackpad 语义，2.0 侧的 `touchMode` 默认值未在本仓库改；**拖动窗口失效**（见 §10） | evidence 148、180、203、230 |
 | 传感器、GPS、USB、蓝牙、NFC | 未做 | 未开始：这几类既开不到节点，NDK 也没有对应平台 API | — |
 | 指纹 | 不做 | 认证必须绑定可见 Activity 的用户交互 | — |
 | 浏览器 | — | 随附 rootfs 无浏览器包，未跑过 | — |

@@ -27,15 +27,18 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 **仓库布局**：`runtime/crates/{path-shim,nr-tools,runtime-core}`（Rust）、`tools/loader/*.S`（裸汇编，仅入口与 hook）、
 `tools/device-tests/*.sh`、`docs/design/`（设计 + `evidence/` 原始记录）。
 
-**0.0.13 在改（随修复推进更新）**：`/proc/self/exe` 已改报 guest 程序路径
-（evidence 217；门禁 A 的旧断言写的是坏行为，已换成三条正向断言，现 **38/38**）；
-`__xstat` 家族 6 个符号已补（evidence 218），`dlmopen` 与 `execveat` 两个真缺口已收
-（evidence 219，覆盖 **90 → 98 / 111**，符号层没有已知真缺口了）。还没收的：
-libc 体内跳板（L2 目前是 0 覆盖，不是部分覆盖），并发审计的剩余项
-（第一批已修 `PEER_CACHE` 元组撕裂、`FAKE_ID_READY` 发布顺序、`RAND_COUNTER` 自增，
-evidence 220；`ALIAS_*` 等 7 处仍是 UNKNOWN），挂载表那条链（默认重读挂载表、
-清理死挂载项，evidence 221），以及 X11 呈现 / GPU / 音频 / 输入栈的审计。
-机制账与未闭合项见 `docs/design/compat-layer.md`。
+**0.0.13 全链路审计版**：路径兼容、并发、挂载、loader、GPU/DRM、X11 呈现、音频桥和输入栈
+共记录 **24 条已修缺陷（H-01…H-24）**，逐条有真机或静态证据，索引见
+`docs/design/evidence/226-audit-inventory-0.0.13.md`。`/proc/self/exe` 改报 guest 路径；
+`__xstat` 家族补 6 个入口；`dlmopen`/`execveat` 两个真缺口收掉（覆盖 90 → 98 / 111）；
+挂载表重读、死项清理和 `remount,ro` 修复；音频桥并发、播放和采集协议真机通过；X11 输入
+全屏和双客户端各 5/5 命中。门禁 A 为 **38/38**。
+
+**未闭合、不得写成通过**：libc 体内跳板（L2）仍是 0 覆盖；`ALIAS_*` 等 7 处仍是 UNKNOWN；
+`adb input swipe` 到 XI2 的事件路径 UNKNOWN；GPU 的 `glxgears` 在 PanVK/Bifrost 编译器
+`emit_cf_list.isra.0+0x120` 稳定 SIGSEGV（evidence 232），所以不能宣称 GPU 长跑通过。
+跨设备仍只有 Mali-G77 / Android 13 / 4 KiB 真机证据。机制账见 `docs/design/compat-layer.md`，
+限制见 `docs/LIMITATIONS.md`。
 
 **当前开口（按优先级）**：
 1. 非 Mali GPU 家族**适配器**（Adreno kgsl+Turnip / 通用 DRM）：探测表与降级已落地（evidence 127），
@@ -162,7 +165,7 @@ sudo/PAM 一条按"不需要"结案：`husk-su` 已覆盖提权路径，PAM 的 
 | loader + path-shim | 零 ptrace，路径一次改写完成；dlopen 进来的库也覆盖 | 27 / 100 |
 | exec / PTY / 信号 / 生命周期 | 600 秒长稳、零僵尸、无重启风暴；旋转与 Surface 重建不重启会话 | 32 / 72 |
 | 页大小 | rootfs 2987 个 ELF + loader + 我们全部产物在 4K/16K/64K 静态体检全绿（含 `p_align % 页` 规则）；**真 16K 内核（RPi5 kernel）与真 64K 内核（Ubuntu `linux-image-6.8.0-31-generic-64k`）上我们的 loader 端到端全绿**：`cat /etc/os-release`、`/usr/bin` 计数、嵌套 exec、`/tmp` 写读、`check-elf` 727 个 ELF 三档 congruent；修掉三个真 Bug（段重叠、mprotect 对齐、xattr/readlink 返回裸 -errno）；**16K/64K 真机仍 UNKNOWN**（本机只有 4K） | 30, 122, 124, 125, 126 |
-| GPU | PanVK 列举 Mali-G77、compute、离屏 graphics、Zink surfaceless；X11 窗口化 EGL 与桌面出帧 | 46 / 47 / 165 |
+| GPU | PanVK 列举 Mali-G77、compute、离屏 graphics、X11 窗口化 EGL 与桌面出帧；**`glxgears` 在 Bifrost 编译器稳定 SIGSEGV，长跑未通过** | 46 / 47 / 165 / 232 |
 | 设备族探测与降级 | `path-shim/src/plan.rs`：按节点定族（mali0 / kgsl-3d0 / renderD128 / 都没有），只有 Mali 才遮蔽 `/dev/dri`，有真节点则透传，其它家族拒绝并输出 `nr-plan: … reason=…`；`NR_FORCE_SOFTWARE_GPU` 实测降到 llvmpipe 且不崩。Adreno 与真 DRM 节点仍 UNKNOWN（无设备） | 127 |
 | 外设族探测 | `gpu-probe periph`：传感器/GPS/USB/蓝牙/NFC/指纹/输入/i2c/spi 逐个节点实测，`EACCES`(13) 与 `ENOENT`(2) 分开记录；不造假节点、进程退出码 0。本机是否真有传感器仍 UNKNOWN（EACCES 藏住了） | 128 |
 | 用户身份与 2.0 swap | `NR_FAKE_UID/GID` + `setuid/setresuid/setreuid/getresuid` 跟随 + `getgroups` 只报主组：`id` 报 `uid=1000(hu1)`，`su` 这一步可以删；`tools/guest/husk-session.sh` 是 `prootCommand()` 的替代契约（`env -i` 必须带 `NR_ROOTFS/NR_LD`）。**`su`/PAM 仍报 `PAM_SYSTEM_ERR`（UNKNOWN，已绕开）** | 129 |
@@ -171,7 +174,7 @@ sudo/PAM 一条按"不需要"结案：`husk-su` 已覆盖提权路径，PAM 的 
 | 音频输出 | PulseAudio → Rust relay → AAudio，610 秒连续会话 | 60 / 62 / 63 |
 | 音频输入 | 声学回环 440 Hz 通过 | 88 |
 | 相机 | guest `/dev/videoN` V4L2，GStreamer 取流、拍照、录像 | 91 / 92 / 93 |
-| 输入 | 触摸/键盘/鼠标经 mutter `RemoteDesktop` 注入 guest 合成器 | 95 / 98 |
+| 输入 | 全屏点击 5/5、双 X11 客户端各 5/5、各 15 个 XI 事件且无串扰；`adb input swipe` 路径仍是 UNKNOWN | 95 / 98 / 230 |
 | 桌面 | 2.0 rootfs 起 GNOME Shell 46（Wayland 显示服务器），GTK4 客户端可连 | 101 |
 | 装包 / dpkg | `apt-get install` / `--reinstall` / `-f install` 全通；dpkg 库零半配置包 | 106 / 109 |
 | `scandir` / `dpkg-deb` | `scandir` interpose 补齐；guest `/tmp` 临时控制目录可见，`dpkg-deb -I` 与真实 `dpkg -i acl` 均返回 0 | 131 |

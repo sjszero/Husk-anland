@@ -104,7 +104,8 @@ glxinfo -B:
   Vendor: Mesa (0x13b5)
   Device: zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK)) (0x90800011)
   Accelerated: yes
-glxgears: 正常启动，"Running synchronized to the vertical refresh"
+glxgears: 能启动并打印 "Running synchronized to the vertical refresh"；这**只证明启动路径**，
+         不代表长跑通过。后续同机测试在 PanVK/Bifrost 编译器稳定 SIGSEGV，见 evidence 232。
 ```
 
 ## 5 · 记录在案
@@ -113,4 +114,4 @@ glxgears: 正常启动，"Running synchronized to the vertical refresh"
 |---|---|
 | kbase 每 context 约 64 个并发分配 | 真上限，不是 bug。Mesa 只要正常 `GEM_CLOSE` 就在上限内循环使用；H-23 修完不会累积。 |
 | `KBASE_IOCTL_MEM_EXEC_INIT` → EPERM | 可执行 BO 分配被拒，Mesa 打警告后走非可执行路径。已知限制，这一轮不动。 |
-| `DRM_LOCK` 会把 `SUBMIT` 也串起来 | 目前 `SUBMIT` 只是把 kbase job 投进去就返回，实测 glxgears/glxinfo 正常；如果以后出现多线程提交瓶颈，再把 job 提交拆出锁外。 |
+| `DRM_LOCK` 会把 `SUBMIT` 也串起来 | 目前 `SUBMIT` 只是把 kbase job 投进去就返回，实测 glxinfo/gl-probe 正常；`glxgears` 只验证到启动，长跑在 Mesa 编译器崩溃（evidence 232）。如果以后出现多线程提交瓶颈，再把 job 提交拆出锁外。 |

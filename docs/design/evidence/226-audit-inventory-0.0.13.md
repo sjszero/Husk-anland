@@ -24,7 +24,7 @@
 | H-16 | GPU/相机 | `DRM_CTX`/`V4L2_CTX`/`/dev/dri` 假目录/`mali0` 元数据全是无保护的懒初始化；并发下 `DRM_IOCTL_VERSION` 偶发 EACCES | 224 |
 | H-17 | GPU | `FAKE_FDS` 的「找空槽→写入」非原子：被覆盖的 fd 的 ioctl 落到 memfd，客户端判定「不是 GPU」退回软件 | 224 |
 | H-18 | sigsys | `SEEN_NR`/`SEEN_COUNT` 在信号处理器里 TOCTOU，计数可越过数组长度 | 224 |
-| H-19 | 音频中转 | 音频桥在 accept 循环里同步跑长连接会话：一个 idle 客户端堵死整条监听 | 225（**代码已改，运行未验证**） |
+| H-19 | 音频中转 | 音频桥在 accept 循环里同步跑长连接会话：一个 idle 客户端堵死整条监听 | 225；231（并发 2/2、播放与采集协议真机 PASS） |
 | H-20 | 挂载 | `mnt_read_file()` 的读缓冲是 `static mut`：两个线程往同一块内存里读，表文件在读的间隙被改小就解析出**旧的**挂载项 | 227 §2.1 |
 | H-21 | 挂载 | `mnt_save()` 用 `O_TRUNC` 直写，读的一方每次路径解析都读它：能读到 0 字节或**半张表**（刚挂上的东西这次解析里不存在） | 227 §2.2 |
 | H-22 | 挂载 | `mount -o remount,ro <tgt>`（util-linux）一直 EINVAL：它把 bind 的**源**当 target 交过来；尾部斜杠也匹配不上 | 227 §3 |
@@ -42,6 +42,7 @@
 | L-05 | 信号处置继承自 Android 父进程（一位 RT 信号被忽略） | loader 既不添也不清，与 `adb shell` 逐位相同 | LIMITATIONS §14 / 222 §5 |
 | L-06 | `nr_set_main_map` 是没人调用的导出 | 删它会动 nr-tools 的符号表，本轮不动 | 223 §7 |
 | L-07 | DRI3/dma-buf 直传在这台机上不可用（没有 render 节点） | 不是权限问题，是设备没有那个节点；呈现那一次回读还在 | LIMITATIONS §7 |
+| L-08 | `glxgears` 在 zink/PanVK 的 `emit_cf_list.isra.0+0x120` 稳定 SIGSEGV | pre-229 loader 同样复现；同一轮 gl-probe/ES3/Vulkan 通过；具体 NIR 破坏 UNKNOWN，不能宣称 GPU 长跑通过 | 232 |
 
 ## 3 · 核过、不是缺陷的（避免下次重新怀疑）
 
@@ -61,9 +62,7 @@
 
 | 面 | 卡在哪 | 需要什么 |
 |---|---|---|
-| GPU 直通（剩余） | 懒初始化、BO 生命周期、`dispatch` 并发已审并修（229）；Mesa/ICD 在**桌面长跑**下的行为只做了冒烟（glxinfo/glxgears），没有长稳测试 | 桌面长跑 + 多应用并发 |
-| 输入栈 | evidence 95/148/180 已有行为记录，但并发（多客户端 / 触摸与指针混用）没审 | 能用的桌面 |
-| 音频 / VA-API 中转的**运行**验证 | 应用侧已改（H-19），但设备上跑的是 2.0 的包，这条桥没被拉起 | `make apk` 装一次，再跑 `tools/probe/audio-bridge-concurrency.py` |
+| GPU 直通（剩余） | 懒初始化、BO 生命周期、`dispatch` 并发已审并修（229）；常规 GPU 探针通过，但 `glxgears` 在 PanVK/Bifrost 编译器稳定崩溃（L-08） | 需要 Mesa 侧定位 NIR 破坏；不能以单个回退参数冒充修复 |
 | 跨设备 | 16 KiB / Adreno / 其它 Android 版本只有 QEMU 或未验证 | 真机 |
 
 ## 5 · 已审完的面
@@ -71,10 +70,13 @@
 | 面 | 结论 | 证据 |
 |---|---|---|
 | X11 呈现与零拷贝 | 除 DRI3 外**当前布局里没有更便宜的路径**：MIT-SHM 因 server 是 bionic + 内核无 SysV IPC 而 `BadAccess`；客户端只能 `XPutImage`（2400×1080 上 18.9 ms/帧）；应用侧 5–9 FPS 且 `0/0 present copies offloaded to GPU`。见 evidence 228 的三条路径与代价排序 | 228 |
+| X11 输入 | 全屏 5/5 坐标命中；双客户端各 5/5、各 15 个 XI 事件，无串扰。`adb input swipe` 25 秒 0 事件，注入路径仍是 UNKNOWN，不冒充支持 | 230 |
+| 音频中转运行 | idle 客户端不再堵死两个监听口（2/2 PASS）；播放 `48000/48000` 帧写入，1 次 xrun、平均 121.667 ms；采集 49152 帧 / 196608 字节全部收回 | 231 |
 
 ## 6 · 结论怎么用
 
 - H-xx 全部有复现与修后对照，能进 0.0.13 的 CHANGELOG。
 - L-xx 不修，但必须写在 LIMITATIONS 里，别让下一个人以为是漏掉的 bug。
 - §3 是「别再查一遍」的清单；§4 是这一版不打算宣称完成的部分。
-- H-19 是唯一一条「改了但没跑过」的，CHANGELOG 里写明了，不算已验收。
+- H-19 已在 evidence 231 做真机运行验证；但“用户实际听到”和“麦克风声学质量”仍是 UNKNOWN。
+- L-08 已写入 0.0.13 的公开限制；GPU 长跑未通过，不能把 `gl-probe` 通过写成“所有 GPU 程序稳定”。

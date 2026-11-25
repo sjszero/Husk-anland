@@ -137,12 +137,13 @@ DRI3 只能停在 `Could not get DRI3 device`。逐条数字与做法见
 > [!IMPORTANT]
 > 表里写的是**验证到什么程度**，不是「功能已完成」。GPU 只到「能开、能算」，没到「能上线」：
 > 窗口呈现（WSI）已经通了，但客户端的帧是经 SHM 拷贝进 X server 的，dmabuf 直传还没接
-> （`docs/LIMITATIONS.md` §7）。相机、视频、
-> 音频都是「有一条能跑的链路」，不是产品级的稳定性承诺。
+> （`docs/LIMITATIONS.md` §7）。另外 `glxgears` 会稳定触发 PanVK/Bifrost 编译器崩溃，
+> 所以本版没有 GPU 长跑通过这一说；相机、视频、音频都是「有一条能跑的链路」，不是产品级的
+> 稳定性承诺。
 
 | 能力 | 接法 | 用户态里的路径 | 实测 |
 |---|---|---|---|
-| GPU | 直连 | 直开 `/dev/mali0`，kbase 后端的 PanVK | 枚举到 `Mali-G77 MC9`、compute 与离屏 graphics 回读通过；GL renderer `zink Vulkan 1.3(Mali-G77 MC9)`（evidence 156）。**X11 窗口呈现已通**（`stage 7→10`、60 swap，evidence 165），GNOME 桌面在 zink/PanVK 上出帧、X 根窗口非黑像素 100%（evidence 165/168）；默认值由加载器从 `/etc/husk/gpu-env` 注入，登录/非登录执行都吃得到（evidence 167、182）。上限 GLES 3.2（靠 `MESA_GLES_VERSION_OVERRIDE`，真实应用未验），呈现仍是 SHM 拷贝 |
+| GPU | 直连 | 直开 `/dev/mali0`，kbase 后端的 PanVK | 枚举到 `Mali-G77 MC9`、compute 与离屏 graphics 回读通过；GL renderer `zink Vulkan 1.3(Mali-G77 MC9)`（evidence 156）。**X11 窗口呈现已通**（`stage 7→10`、60 swap，evidence 165），GNOME 桌面在 zink/PanVK 上出帧、X 根窗口非黑像素 100%（evidence 165/168）；默认值由加载器从 `/etc/husk/gpu-env` 注入，登录/非登录执行都吃得到（evidence 167、182）。上限 GLES 3.2（靠 `MESA_GLES_VERSION_OVERRIDE`，真实应用未验），呈现仍是 SHM 拷贝。**长跑未通过**：`glxgears` 在 PanVK/Bifrost 编译器 `emit_cf_list.isra.0+0x120` 稳定 SIGSEGV，pre-229 loader 同样复现；llvmpipe 对照和 gl-probe/ES3/Vulkan 探针通过（evidence 232） |
 | 显示 | 应用侧，零拷贝 | `AHardwareBuffer` → dma-buf → `SurfaceControl` | 3-buffer ring + 真实 `SYNC_FD`：submitted=10 000 / completed=10 000（evidence 59） |
 | 视频解码 | 中转 | MediaCodec `c2.mtk.avc.decoder` + AHB 三平面 | H.264 1080p30 连续 600 秒，`dropped=0`（evidence 80） |
 | 相机 | 直连 | V4L2 `/dev/videoN`（前端为 Camera2 + `AImageReader`） | 拍照 JPEG + 30 秒录制，硬件 H.264 编码（evidence 93） |
