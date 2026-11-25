@@ -76,8 +76,17 @@
   `dbus-daemon` 起会话总线时打印 "Cannot setup inotify … Operation not permitted"，
   任何把 EPERM 当致命错误的 watcher 会直接放弃。改成回 `-errno`，实测 EPERM → ENOENT。
 
+- **音频桥的 accept 循环被单个客户端堵住**（evidence 225）。`serve()` 在 accept 循环里
+  同步跑 `handle_client()`，而后者是一条长连接会话：一个连上就不发数据的客户端能把整条
+  监听堵 30 秒（输出侧读超时），采集侧 `handle_capture` 连超时都没有，于是永久堵死；
+  两个监听口还共用同一个循环。改成每客户端一个线程（`Arc<Api>` + 上限 12 + panic 隔离）。
+  代码已改、`cargo check --target aarch64-linux-android` 通过；运行未验证——设备上装的还是
+  2.0 那个包，这条桥在当前布局下没被拉起来。
+
 ### 加
 
+- `tools/probe/audio-bridge-concurrency.py`：音频桥的 head-of-line blocking 判据
+  （idle 客户端 + 第二个客户端 PING），evidence 225 §3。
 - `tools/probe/symbol-gap-probe.c`：把没钩的符号逐个**试出后果**（判据是效果不是符号）。
 - `docs/design/compat-layer.md`：三层拦截、覆盖账（98 / 111）、与 ptrace 型的代价对比、未闭合项。
 - 门禁 A 里 `/proc/self/exe` 的旧断言写的是**坏行为**，换成三条正向断言；现 38 项。

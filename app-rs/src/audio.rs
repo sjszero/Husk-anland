@@ -14,7 +14,8 @@ use core::ffi::{c_char, c_int, c_void};
 use std::ffi::CStr;
 use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const RTLD_NOW: c_int = 2;
@@ -88,6 +89,46 @@ struct Api {
     get_frames_written: FnGetI64,
     get_timestamp: FnGetTimestamp,
     wait_for_state_change: FnWaitState,
+}
+
+// `Api` 只是一组 AAudio 的函数指针（外加一个 dlopen 句柄，句柄是进程级的）。
+// AAudio 的 builder/stream API 本身是线程安全的，所以把它共享给多个客户端线程
+// 不需要再包一层锁——但 Rust 看不到这一点，裸指针默认既不 Send 也不 Sync。
+unsafe impl Send for Api {}
+unsafe impl Sync for Api {}
+
+/// 同时服务的客户端上限。每个客户端一个线程，超出的直接关掉（客户端看到 EOF），
+/// 免得一个坏掉的调用方把线程数拉爆。
+const MAX_AUDIO_CLIENTS: usize = 12;
+static AUDIO_CLIENTS: AtomicUsize = AtomicUsize::new(0);
+
+fn client_slot() -> bool {
+    let n = AUDIO_CLIENTS.fetch_add(1, Ordering::AcqRel);
+    if n >= MAX_AUDIO_CLIENTS {
+        AUDIO_CLIENTS.fetch_sub(1, Ordering::AcqRel);
+        return false;
+    }
+    true
+}
+
+/// 每个客户端一个线程：`handle_client` 是一条长连接的会话（DATA frames=N 会一直
+/// 等下一块 PCM），以前它是**在 accept 循环里**同步跑的。于是一个连上来就不说话的
+/// 客户端会把整条监听堵住 30 秒（读超时），而两个监听口共用同一个循环——第二个
+/// 客户端（另一条 socket、或者 PulseAudio 自己重连的那一个）只能干等。相机那侧
+/// (`handle_capture`) 更是没有读超时，一个 idle 客户端能把它永久堵死。
+fn spawn_client<F>(api: Arc<Api>, stream: UnixStream, f: F)
+where
+    F: FnOnce(&Api, UnixStream) + Send + 'static,
+{
+    if !client_slot() {
+        crate::log("audio|client|BUSY|refused");
+        drop(stream);
+        return;
+    }
+    std::thread::spawn(move || {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&api, stream)));
+        AUDIO_CLIENTS.fetch_sub(1, Ordering::AcqRel);
+    });
 }
 
 fn symbol<T: Copy>(handle: *mut c_void, name: &CStr) -> Result<T, String> {
@@ -828,6 +869,7 @@ fn serve() {
         crate::log("audio|bridge|FAIL|AAudio symbols unavailable");
         return;
     };
+    let api = Arc::new(api);
     crate::log("audio|bridge|API|libaaudio.so");
 
     let marker = files.join("audio-bridge");
@@ -869,10 +911,7 @@ fn serve() {
                     crate::log(&format!("audio|bridge|LISTEN|{}", path.display()));
                     listeners.push(listener);
                 }
-                Err(e) => crate::log(&format!(
-                    "audio|bridge|FAIL|bind {}: {e}",
-                    path.display()
-                )),
+                Err(e) => crate::log(&format!("audio|bridge|FAIL|bind {}: {e}", path.display())),
             }
         }
         if listeners.is_empty() {
@@ -885,7 +924,7 @@ fn serve() {
                 match listener.accept() {
                     Ok((stream, _)) => {
                         any = true;
-                        handle_client(&api, stream);
+                        spawn_client(Arc::clone(&api), stream, handle_client);
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
                     Err(e) => crate::log(&format!("audio|bridge|FAIL|accept {e}")),
@@ -947,7 +986,9 @@ struct CaptureStream {
 impl CaptureStream {
     unsafe fn open_input(api: &Api, rate: i32, channels: i32) -> Result<Self, String> {
         if rate <= 0 || rate > 384_000 || channels <= 0 || channels > 8 {
-            return Err(format!("bad capture format: rate={rate} channels={channels}"));
+            return Err(format!(
+                "bad capture format: rate={rate} channels={channels}"
+            ));
         }
         let mut builder: *mut Builder = core::ptr::null_mut();
         let rc = (api.create_builder)(&mut builder);
@@ -989,7 +1030,9 @@ impl CaptureStream {
             let state = (api.get_state)(native);
             let _ = (api.request_stop)(native);
             let _ = (api.close)(native);
-            return Err(format!("AAudio input start failed: rc={start_rc} state={state}"));
+            return Err(format!(
+                "AAudio input start failed: rc={start_rc} state={state}"
+            ));
         }
         crate::log(&format!(
             "audio|capture|open|preset={preset}|rate={actual_rate}|channels={actual_channels}|format={actual_format}|device={device_id}|burst={burst}|capacity={capacity}"
@@ -1102,7 +1145,9 @@ fn handle_capture(api: &Api, mut stream: UnixStream) {
             }
             "READ" => match active.as_mut() {
                 Some(current) => {
-                    let frames = parse_usize(&fields, "frames", 1024).unwrap_or(1024).clamp(1, 8192);
+                    let frames = parse_usize(&fields, "frames", 1024)
+                        .unwrap_or(1024)
+                        .clamp(1, 8192);
                     match unsafe { current.read_frames(api, frames) } {
                         Ok(pcm) => send_line(
                             &mut stream,
@@ -1154,6 +1199,7 @@ fn serve_capture() {
         crate::log("audio|capture|FAIL|AAudio symbols unavailable");
         return;
     };
+    let api = Arc::new(api);
     let marker = files.join(CAPTURE_MARKER);
     let guest_marker = files.join(CAPTURE_GUEST_MARKER);
     let enabled = || marker.exists() || guest_marker.exists();
@@ -1193,7 +1239,7 @@ fn serve_capture() {
         crate::log(&format!("audio|capture|LISTEN|{}", path.display()));
         while enabled() {
             match listener.accept() {
-                Ok((stream, _)) => handle_capture(&api, stream),
+                Ok((stream, _)) => spawn_client(Arc::clone(&api), stream, handle_capture),
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     std::thread::sleep(Duration::from_millis(25));
                 }
