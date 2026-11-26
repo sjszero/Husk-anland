@@ -198,6 +198,9 @@ g_bg "$ROOTFS/tmp/husk-sysbus.log" usr/bin/dbus-daemon \
      --nofork --address=unix:path=/run/dbus/system_bus_socket
 i=0; while [ $i -lt 20 ] && [ ! -S "$SYSBUS" ]; do sleep 1; i=$((i+1)); done
 [ -S "$SYSBUS" ] || say "WARNING: 系统总线没起来（账号/挂载相关功能会退化）"
+if [ -x "$BASE/husk-system-services.sh" ] && [ -S "$SYSBUS" ]; then
+    "$BASE/husk-system-services.sh" "$ROOTFS" "$NR_LD" "$LIBS" || true
+fi
 
 # 地址必须写 guest 路径：写宿主绝对路径时路径层会再拼一次 rootfs，
 # 拼完直接超 sun_path 上限（实测 101 + 90 = 191，dbus 报 Socket name too long）。

@@ -12,6 +12,10 @@
 
 ## 0. 结论
 
+> **历史说明（2026-11-27 后续修订）**：本文记录最初的 `sys-iio` 影子树实现。当前实现已改为
+> `rootfs/sys/subsystem/iio/devices` 的真实目录加上 `bus`/`class` 逐设备符号链接；D-Bus
+> `iio-sensor-proxy` 也已在参考机验证。当前结果见 evidence 322，本文旧命令输出仅保留作历史证据。
+
 - **FACT**：实现完全走公开 NDK C API，不新增 Java Activity / Listener；`hasCode=false` 不变。
 - **FACT**：支持五类默认传感器：加速度、磁力、陀螺仪、环境光、距离。
 - **FACT**：事件只来自真实 NDK 回调；首次事件前值为零，不伪造硬件采样。
@@ -151,5 +155,5 @@ drwx------? 2 husk husk10303 3488 iio:device4
 
 ## 8. 未验证边界
 
-- `iio-sensor-proxy` 不在当前 807 包树中，未验证其 D-Bus 输出；标准 IIO sysfs 读取已验证。
+- 本文初测时 `iio-sensor-proxy` 未安装；后续已由 evidence 322 验证 D-Bus 输出。标准 IIO sysfs 读取仍以当前 `bus/class/subsystem` 三路径为准。
 - 只验证五类默认传感器。Android 暴露的未校准磁力、未校准陀螺、计步等类型没有映射到额外 IIO 节点。

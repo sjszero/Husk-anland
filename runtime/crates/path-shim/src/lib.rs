@@ -4853,6 +4853,32 @@ unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt)
             let mut gp = [0u8; PATH_MAX];
             match resolve_dirfd_rel(dirfd, bytes(path), &mut gp) {
                 Ok(Some(n)) => {
+                    // Once a caller has opened `/sys/class/iio` (or `/sys/
+                    // bus/iio`) as a directory, glibc switches to `openat(fd,
+                    // "iio:deviceN/...")`.  Absolute-path mapping alone is not
+                    // enough here: the kernel would apply the relative name to
+                    // the app-private symlink and fail on the missing shadow
+                    // path.  Route the resolved guest path through the same
+                    // canonical IIO/V4L2 facades before the generic resolver.
+                    let mut facade = [0u8; PATH_MAX];
+                    if let Some(sn) = iio_sys_host(&gp[..n], &mut facade) {
+                        return ret_or_errno(syscall4(
+                            SYS_OPENAT,
+                            AT_FDCWD as usize,
+                            facade.as_ptr() as usize,
+                            flags as usize,
+                            mode as usize,
+                        ));
+                    }
+                    if let Some(sn) = v4l2_sys_host(&gp[..n], &mut facade) {
+                        return ret_or_errno(syscall4(
+                            SYS_OPENAT,
+                            AT_FDCWD as usize,
+                            facade.as_ptr() as usize,
+                            flags as usize,
+                            mode as usize,
+                        ));
+                    }
                     // Descriptors are the ordinary way round a check that only
                     // reads the caller's string: open("/mnt/ro") once, then
                     // openat(fd, "f", O_WRONLY) resolves to the tmpfs source.
@@ -5323,13 +5349,32 @@ pub unsafe extern "C" fn fstatat(
         let mut gp = [0u8; PATH_MAX];
         match resolve_dirfd_rel(dirfd, bytes(path), &mut gp) {
             Ok(Some(n)) => {
+                let mut facade = [0u8; PATH_MAX];
+                if let Some(sn) = iio_sys_host(&gp[..n], &mut facade) {
+                    return ret_or_errno(syscall4(
+                        SYS_NEWFSTATAT,
+                        AT_FDCWD as usize,
+                        facade.as_ptr() as usize,
+                        st as usize,
+                        flags as usize,
+                    ));
+                }
+                if let Some(sn) = v4l2_sys_host(&gp[..n], &mut facade) {
+                    return ret_or_errno(syscall4(
+                        SYS_NEWFSTATAT,
+                        AT_FDCWD as usize,
+                        facade.as_ptr() as usize,
+                        st as usize,
+                        flags as usize,
+                    ));
+                }
                 return match rc::resolve_fstat(rfd, &gp[..n], st, flags) {
                     Ok(()) => {
                         own_patch_stat(st);
                         0
                     }
                     Err(e) => set_errno(e),
-                }
+                };
             }
             Ok(None) => {}
             Err(e) => return set_errno(e),
@@ -5483,6 +5528,43 @@ pub unsafe extern "C" fn access(path: *const CChar, mode: CInt) -> CInt {
         };
         if let Some(_vn) = video_index(&gp[..n]) {
             return 0;
+        }
+        let mut sysbuf = [0u8; PATH_MAX];
+        if let Some(sn) = iio_sys_host(&gp[..n], &mut sysbuf) {
+            let mut st = [0u8; 128];
+            let r = syscall4(
+                SYS_NEWFSTATAT,
+                AT_FDCWD as usize,
+                sysbuf.as_ptr() as usize,
+                st.as_mut_ptr() as usize,
+                0,
+            );
+            if r < 0 {
+                return ret_or_errno(r);
+            }
+            own_patch_stat(st.as_mut_ptr());
+            return match fake_access_mode(mode, st.as_ptr()) {
+                Ok(()) => 0,
+                Err(e) => set_errno(e),
+            };
+        }
+        if let Some(sn) = v4l2_sys_host(&gp[..n], &mut sysbuf) {
+            let mut st = [0u8; 128];
+            let r = syscall4(
+                SYS_NEWFSTATAT,
+                AT_FDCWD as usize,
+                sysbuf.as_ptr() as usize,
+                st.as_mut_ptr() as usize,
+                0,
+            );
+            if r < 0 {
+                return ret_or_errno(r);
+            }
+            own_patch_stat(st.as_mut_ptr());
+            return match fake_access_mode(mode, st.as_ptr()) {
+                Ok(()) => 0,
+                Err(e) => set_errno(e),
+            };
         }
         if passthrough(&gp[..n]) {
             return ret_or_errno(syscall4(
@@ -8057,6 +8139,26 @@ unsafe fn readlink_guestify(out: *mut CChar, n: Ssize) -> Ssize {
     }
     let g = l - root.len();
     core::ptr::copy(b.add(root.len()), b, g);
+
+    // Legacy IIO/V4L2 facade paths may still appear in a running tree, but the
+    // current IIO implementation uses real `/sys/class`, `/sys/bus` and
+    // `/sys/subsystem` directories. libudev calls realpath()/chase() on a
+    // device and rejects a canonical path outside `/sys`; present any legacy
+    // shadow spelling under its guest path. Removing the suffix is safe
+    // because the replacement is always shorter.
+    let suffix = if core::slice::from_raw_parts(b, g).starts_with(b"/sys-iio/") {
+        Some(4usize)
+    } else if core::slice::from_raw_parts(b, g).starts_with(b"/sys-v4l2/") {
+        Some(5usize)
+    } else {
+        None
+    };
+    if let Some(n) = suffix {
+        let keep = 4usize; // "/sys"
+        core::ptr::copy(b.add(keep + n), b.add(keep), g - keep - n);
+        return (g - n) as Ssize;
+    }
+
     g as Ssize
 }
 
@@ -8193,19 +8295,40 @@ pub unsafe extern "C" fn readlinkat(
         }
     }
     let n = match abs_guest(path, &mut gp) {
-        Some(n) if rfd >= 0 && !passthrough(&gp[..n]) => n,
-        Some(_) => {
-            let r = syscall4(
-                SYS_READLINKAT,
-                AT_FDCWD as usize,
-                gp.as_ptr() as usize,
-                out as usize,
-                len,
-            );
-            return ssize_or_errno(readlink_guestify(out, r));
-        }
+        Some(n) => n,
         None => return set_errno(36) as Ssize,
     };
+    let mut sysbuf = [0u8; PATH_MAX];
+    if let Some(sn) = iio_sys_host(&gp[..n], &mut sysbuf) {
+        let r = syscall4(
+            SYS_READLINKAT,
+            AT_FDCWD as usize,
+            sysbuf.as_ptr() as usize,
+            out as usize,
+            len,
+        );
+        return ssize_or_errno(readlink_guestify(out, r));
+    }
+    if let Some(sn) = v4l2_sys_host(&gp[..n], &mut sysbuf) {
+        let r = syscall4(
+            SYS_READLINKAT,
+            AT_FDCWD as usize,
+            sysbuf.as_ptr() as usize,
+            out as usize,
+            len,
+        );
+        return ssize_or_errno(readlink_guestify(out, r));
+    }
+    if rfd >= 0 && passthrough(&gp[..n]) {
+        let r = syscall4(
+            SYS_READLINKAT,
+            AT_FDCWD as usize,
+            gp.as_ptr() as usize,
+            out as usize,
+            len,
+        );
+        return ssize_or_errno(readlink_guestify(out, r));
+    }
     let mut name = [0u8; 256];
     let parent = match rc::resolve_parent(rfd, &gp[..n], &mut name) {
         Ok(fd) => fd,
@@ -8977,6 +9100,8 @@ const SYS_LLISTXATTR: usize = 12;
 const SYS_REMOVEXATTR: usize = 14;
 const SYS_LREMOVEXATTR: usize = 15;
 const SYS_STATFS: usize = 43;
+const SYS_FSTATFS: usize = 44;
+const SYSFS_MAGIC: u64 = 0x6265_6572;
 
 unsafe fn proc_fd_path(fd: CInt, name: &[u8], out: &mut [u8; PATH_MAX]) -> Option<usize> {
     let mut i = 0usize;
@@ -9234,9 +9359,94 @@ pub unsafe extern "C" fn inotify_add_watch(fd: CInt, path: *const CChar, mask: u
 
 #[no_mangle]
 pub unsafe extern "C" fn statfs(path: *const CChar, buf: *mut u8) -> CInt {
-    ret_or_errno(xattr_pinned(path, |p| {
-        syscall4(SYS_STATFS, p as usize, buf as usize, 0, 0)
-    }))
+    if path.is_null() {
+        return set_errno(14);
+    }
+    let mut facade = [0u8; PATH_MAX];
+    let r = if let Some(_) = iio_sys_host(bytes(path), &mut facade) {
+        syscall4(SYS_STATFS, facade.as_ptr() as usize, buf as usize, 0, 0)
+    } else if let Some(_) = v4l2_sys_host(bytes(path), &mut facade) {
+        syscall4(SYS_STATFS, facade.as_ptr() as usize, buf as usize, 0, 0)
+    } else {
+        xattr_pinned(path, |p| {
+            syscall4(SYS_STATFS, p as usize, buf as usize, 0, 0)
+        })
+    };
+    let r = ret_or_errno(r);
+    if r == 0 && guest_path_is_sys(path) {
+        spoof_sysfs_type(buf);
+    }
+    r
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn statfs64(path: *const CChar, buf: *mut u8) -> CInt {
+    statfs(path, buf)
+}
+
+/// `sd-device` accepts a syspath only when `fstatfs(fd).f_type` is sysfs.
+/// The IIO/V4L2 facades necessarily live in the app's F2FS data directory, so
+/// report sysfs for descriptors whose kernel path is below the guest `/sys`.
+/// The data still comes from the facade; only the filesystem identity changes.
+#[no_mangle]
+pub unsafe extern "C" fn fstatfs(fd: CInt, buf: *mut u8) -> CInt {
+    fstatfs_common(fd, buf)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn fstatfs64(fd: CInt, buf: *mut u8) -> CInt {
+    fstatfs_common(fd, buf)
+}
+
+unsafe fn fstatfs_common(fd: CInt, buf: *mut u8) -> CInt {
+    if buf.is_null() {
+        return set_errno(14);
+    }
+    let r = ret_or_errno(syscall4(SYS_FSTATFS, fd as usize, buf as usize, 0, 0));
+    if r == 0 && fd_path_is_guest_sys(fd) {
+        spoof_sysfs_type(buf);
+    }
+    r
+}
+
+unsafe fn spoof_sysfs_type(buf: *mut u8) {
+    if !buf.is_null() {
+        core::ptr::write_unaligned(buf as *mut u64, SYSFS_MAGIC);
+    }
+}
+
+unsafe fn guest_path_is_sys(path: *const CChar) -> bool {
+    if path.is_null() {
+        return false;
+    }
+    let p = bytes(path);
+    p == b"/sys" || (p.len() > 4 && &p[..4] == b"/sys" && p[4] == b'/')
+}
+
+unsafe fn fd_path_is_guest_sys(fd: CInt) -> bool {
+    let mut proc_path = [0u8; PATH_MAX];
+    let Some(pn) = proc_fd_path(fd, b"", &mut proc_path) else {
+        return false;
+    };
+    let mut real = [0u8; PATH_MAX];
+    let rn = syscall4(
+        SYS_READLINKAT,
+        AT_FDCWD as usize,
+        proc_path.as_ptr() as usize,
+        real.as_mut_ptr() as usize,
+        PATH_MAX,
+    );
+    if rn <= 0 {
+        return false;
+    }
+    let n = (rn as usize).min(PATH_MAX);
+    let real = &real[..n];
+    let root = guest_root();
+    if root.len() <= 1 || real.len() <= root.len() || &real[..root.len()] != root {
+        return false;
+    }
+    let rest = &real[root.len()..];
+    rest == b"/sys" || (rest.len() > 4 && &rest[..4] == b"/sys" && rest[4] == b'/')
 }
 
 /// `statvfs(3)` is glibc's own wrapper around `statfs(2)`: the conversion runs
@@ -11846,6 +12056,43 @@ pub unsafe extern "C" fn faccessat(
             let mut gp = [0u8; PATH_MAX];
             match resolve_dirfd_rel(dirfd, bytes(path), &mut gp) {
                 Ok(Some(n)) => {
+                    let mut facade = [0u8; PATH_MAX];
+                    if let Some(sn) = iio_sys_host(&gp[..n], &mut facade) {
+                        let mut st = [0u8; 128];
+                        let r = syscall4(
+                            SYS_NEWFSTATAT,
+                            AT_FDCWD as usize,
+                            facade.as_ptr() as usize,
+                            st.as_mut_ptr() as usize,
+                            nofollow as usize,
+                        );
+                        if r < 0 {
+                            return ret_or_errno(r);
+                        }
+                        own_patch_stat(st.as_mut_ptr());
+                        return match fake_access_mode(mode, st.as_ptr()) {
+                            Ok(()) => 0,
+                            Err(e) => set_errno(e),
+                        };
+                    }
+                    if let Some(sn) = v4l2_sys_host(&gp[..n], &mut facade) {
+                        let mut st = [0u8; 128];
+                        let r = syscall4(
+                            SYS_NEWFSTATAT,
+                            AT_FDCWD as usize,
+                            facade.as_ptr() as usize,
+                            st.as_mut_ptr() as usize,
+                            nofollow as usize,
+                        );
+                        if r < 0 {
+                            return ret_or_errno(r);
+                        }
+                        own_patch_stat(st.as_mut_ptr());
+                        return match fake_access_mode(mode, st.as_ptr()) {
+                            Ok(()) => 0,
+                            Err(e) => set_errno(e),
+                        };
+                    }
                     let result = if fake_root_on() {
                         fake_access_path(rfd, &gp[..n], mode, flags)
                     } else {
@@ -13584,23 +13831,38 @@ unsafe fn v4l2_sys_host(p: &[u8], out: &mut [u8; PATH_MAX]) -> Option<usize> {
 }
 
 /// The guest sees a Linux IIO tree even though Android's app domain cannot
-/// read the real one.  The app-side sensor bridge writes this shadow tree
-/// (rootfs-full/sys-iio); these three names are the paths libiio and
-/// iio-sensor-proxy enumerate.
+/// read the real one. The app-side sensor bridge writes the canonical tree
+/// under `rootfs/sys/subsystem/iio`; `/sys/bus/iio` and `/sys/class/iio` are
+/// real directory views containing per-device symlinks, matching sysfs.
 unsafe fn iio_sys_host(p: &[u8], out: &mut [u8; PATH_MAX]) -> Option<usize> {
     let rl = ROOT_REAL_LEN;
     if rl == 0 {
         return None;
     }
     const B: &[u8] = b"/sys/bus/iio/devices";
+    const BI: &[u8] = b"/sys/bus/iio";
     const C: &[u8] = b"/sys/class/iio";
     const S: &[u8] = b"/sys/subsystem/iio";
+    // libudev walks `/sys`, `/sys/bus` and `/sys/class` component by component
+    // before it reaches the device. Map each view to its physical rootfs path so
+    // the per-device symlinks resolve without escaping the guest `/sys`.
+    const BUS_ROOT: &[u8] = b"/sys/bus";
+    const CLASS_ROOT: &[u8] = b"/sys/class";
+    const SUBSYSTEM_ROOT: &[u8] = b"/sys/subsystem";
     let (dir, rest) = if p.starts_with(B) {
-        (b"/sys-iio/bus/iio/devices".as_ref(), &p[B.len()..])
+        (b"/sys/bus/iio/devices".as_ref(), &p[B.len()..])
+    } else if p.starts_with(BI) {
+        (b"/sys/bus/iio".as_ref(), &p[BI.len()..])
     } else if p.starts_with(C) {
-        (b"/sys-iio/class/iio".as_ref(), &p[C.len()..])
+        (b"/sys/class/iio".as_ref(), &p[C.len()..])
     } else if p.starts_with(S) {
-        (b"/sys-iio/subsystem/iio".as_ref(), &p[S.len()..])
+        (b"/sys/subsystem/iio".as_ref(), &p[S.len()..])
+    } else if p == BUS_ROOT || p == b"/sys/bus/" {
+        (b"/sys/bus".as_ref(), &p[BUS_ROOT.len()..])
+    } else if p == CLASS_ROOT || p == b"/sys/class/" {
+        (b"/sys/class".as_ref(), &p[CLASS_ROOT.len()..])
+    } else if p == SUBSYSTEM_ROOT || p == b"/sys/subsystem/" {
+        (b"/sys/subsystem".as_ref(), &p[SUBSYSTEM_ROOT.len()..])
     } else {
         return None;
     };

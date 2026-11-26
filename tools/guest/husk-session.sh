@@ -215,6 +215,13 @@ if [ ! -S "$ROOTFS/run/dbus/system_bus_socket" ] && \
     done
 fi
 
+# A custom bus config deliberately does not use systemd. Start the two
+# services consumers actually need for the hardware bridge: polkitd resolves
+# the guest identity, and iio-sensor-proxy publishes the claimed sensors.
+if [ -x "$BASE/husk-system-services.sh" ]; then
+    "$BASE/husk-system-services.sh" "$ROOTFS" "$NR_LD" "$LIBS" || true
+fi
+
 cd "$ROOTFS"
 # env is started by the loader with a relative path; everything after it is a
 # normal exec (absolute guest paths are fine there).

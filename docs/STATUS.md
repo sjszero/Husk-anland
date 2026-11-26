@@ -62,7 +62,7 @@ Gate A 的唯一 SKIP 是离线树没有 apt package index。没有把 SKIP 计�
 | 相机 | 中转 | V4L2 `/dev/videoN` facade | 2026-11-27 复验：A-hw 11/0；前后摄各 3 帧 1280×720 NV12；V4L2/GStreamer fixture 两档通过；crop/selection 与 monotonic PTS 已验；DMABUF、通用 controls、非整帧裁剪未支持 |
 | 音频 | 中转 | PulseAudio → Rust relay → AAudio | 输出与采集真实 PCM；采集探针 196,608 bytes、`peak=285` |
 | 视频解码 | 中转 | VA-API → bridge → MediaCodec | H.264 1080p30 连续 600 秒，`dropped=0` |
-| 传感器 | 中转 | IIO sysfs 影子树 ← `ASensorManager_*` | 加速度、磁力、陀螺仪、环境光、距离五类可读 |
+| 传感器 | 中转 | IIO sysfs 影子树 ← `ASensorManager_*` | 加速度、磁力、陀螺仪、环境光、距离五类可读；`iio-sensor-proxy` 已发布 `net.hadess.SensorProxy`，三项 Claim 与 `monitor-sensor` 真机通过（evidence 322） |
 | 显示 | 应用侧中转 | AHB → dma-buf → SurfaceControl | 3-buffer ring 与真实 `SYNC_FD` 跑到 10,000 帧；只覆盖应用侧接管段 |
 | 输入 | 窗口层 | Android 输入 → 宿主 window/X11 | bridge 已实现；端到端依赖宿主窗口系统 |
 | 定位 / USB / 蓝牙 | 权限或厂商限制 | 需要 Java 回调/Intent | 当前 `hasCode=false`，需要极小 Java 垫片或明确子集 |
@@ -130,7 +130,6 @@ ls: files/rootfs-full/usr/lib/xorg/Xorg: No such file or directory
 - 16 KiB / 64 KiB 页真机；当前只有 QEMU 证据。
 - Adreno/KGSL、其他 Android 版本、其他厂商 seccomp/SELinux 策略。
 - 定位、USB、蓝牙的完整链路。
-- 传感器通过 `iio-sensor-proxy` 的 D-Bus 输出。
 - 相机 DMABUF、通用 V4L2 controls、非整帧裁剪、真实 Camera2 的 GStreamer PTS、跨进程假 fd。
 - 窗口内容到 X server 的零拷贝。
 - 长时间负载型 soak；现有 30 分钟为空载，GPU 有 300 秒并发探针。

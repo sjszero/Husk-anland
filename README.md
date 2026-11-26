@@ -112,7 +112,7 @@ Husk 不按应用逐个开洞。能直接使用的内核节点就直接交给 gu
 | 相机 | **中转** | 标准 V4L2 `/dev/videoN` facade | 前后摄可启动；`read`、`readv`、`mmap`、拍照和录像通过。`open()` 返回 shim 的 memfd，不是真实 V4L2 内核 fd；DMABUF 与 controls 未支持 |
 | 音频 | **中转** | PulseAudio → Rust relay → AAudio | 输出与采集均有真实 PCM 数据；`/dev/snd` 在应用域不可直接打开 |
 | 视频解码 | **中转** | VA-API → Rust bridge → MediaCodec | H.264 1080p30 连续 600 秒，`dropped=0` |
-| 传感器 | **中转** | IIO sysfs 影子树 ← NDK `ASensorManager_*` | 加速度、磁力、陀螺仪、环境光、距离五类可读，数值随真实事件更新 |
+| 传感器 | **中转** | IIO sysfs 影子树 ← NDK `ASensorManager_*` | 加速度、磁力、陀螺仪、环境光、距离五类可读，数值随真实事件更新；`iio-sensor-proxy` 的 D-Bus Claim 与 `monitor-sensor` 已在参考机通过 |
 | 显示 | **应用侧中转** | `AHardwareBuffer` → dma-buf → `SurfaceControl` | 3-buffer ring 与真实 `SYNC_FD` 跑过 10,000 帧；这一段是应用侧零拷贝 |
 | 输入 | **窗口层** | Android 输入事件 → 宿主 window/X11 | bridge 已实现；端到端结果取决于宿主是否提供窗口系统 |
 

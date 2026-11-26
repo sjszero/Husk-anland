@@ -15,3 +15,6 @@ netdev::111:0
 # the image, the way a distro image does, keeps dpkg --configure working.
 rtkit:106:106:1
 pipewire::107:1
+# polkitd 需要自己的系统账号；没有它时，iio-sensor-proxy 的 Claim* 调用会在
+# polkit 的 subject/name 解析阶段失败。这个 uid/gid 只在本 guest 里有意义。
+polkitd:101:101:1

@@ -17,6 +17,9 @@ fstatat
 fstatat64
 statx
 statfs
+statfs64
+fstatfs
+fstatfs64
 access
 faccessat
 eaccess

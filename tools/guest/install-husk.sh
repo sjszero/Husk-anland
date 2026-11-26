@@ -267,6 +267,31 @@ if [ ! -s "$DEST/var/lib/dbus/machine-id" ] || ! cmp -s "$DEST/etc/machine-id" "
 fi
 chmod 644 "$DEST/var/lib/dbus/machine-id"
 
+# 2b-0b. system-service identities and polkit policy. Ubuntu package postinst
+# normally creates these accounts; an extracted release tree does not have a
+# running package manager or a successful lock/PAM path. Install the minimum
+# identities once, then install the sensor-proxy policy/rule that lets a local
+# guest claim the NDK bridge through polkit.
+if [ -f "$HERE/guest-config/provision-accounts.sh" ] && \
+   [ -f "$HERE/guest-config/guest-accounts.txt" ]; then
+    sh "$HERE/guest-config/provision-accounts.sh" "$DEST"
+else
+    echo "install-husk: guest account provisioner missing; polkit/system services may not start" >&2
+fi
+if [ -f "$HERE/guest-config/net.hadess.SensorProxy.policy" ] && \
+   [ -f "$HERE/guest-config/60-husk-sensor-proxy.rules" ]; then
+    mkdir -p "$DEST/usr/share/polkit-1/actions" "$DEST/usr/share/polkit-1/rules.d"
+    cp "$HERE/guest-config/net.hadess.SensorProxy.policy" \
+        "$DEST/usr/share/polkit-1/actions/net.hadess.SensorProxy.policy"
+    cp "$HERE/guest-config/60-husk-sensor-proxy.rules" \
+        "$DEST/usr/share/polkit-1/rules.d/60-husk-sensor-proxy.rules"
+    chmod 644 "$DEST/usr/share/polkit-1/actions/net.hadess.SensorProxy.policy" \
+        "$DEST/usr/share/polkit-1/rules.d/60-husk-sensor-proxy.rules"
+    echo "   wrote polkit sensor policy + local claim rule"
+else
+    echo "install-husk: sensor-proxy polkit files missing; sensor D-Bus claims may be denied" >&2
+fi
+
 # 2b-1. DING announces itself by scanning /proc/<pid>/cmdline. Android hides some
 # host processes from the app UID, and the extension treats one EACCES as a fatal
 # init error: dock/DING/wallpaper never appear while gnome-shell looks healthy.
@@ -916,6 +941,14 @@ if [ "$HERE/husk-session.sh" != "$OUT/husk-session.sh" ]; then
     cp "$HERE/husk-session.sh" "$OUT/husk-session.sh"
 fi
 chmod 755 "$OUT/husk-session.sh"
+if [ -f "$HERE/husk-system-services.sh" ]; then
+    if [ "$HERE/husk-system-services.sh" != "$OUT/husk-system-services.sh" ]; then
+        cp "$HERE/husk-system-services.sh" "$OUT/husk-system-services.sh"
+    fi
+    chmod 755 "$OUT/husk-system-services.sh"
+else
+    echo "install-husk: husk-system-services.sh missing; polkitd/iio-sensor-proxy will not auto-start" >&2
+fi
 # husk-desktop.sh 是"起一个可用桌面会话"的单一入口（evidence 200）：清残留、清安全模式
 # 标记、起双总线、起 shell、自检。放在 rootfs 旁边，和 husk-session.sh 同级。
 if [ "$HERE/husk-desktop.sh" != "$OUT/husk-desktop.sh" ]; then

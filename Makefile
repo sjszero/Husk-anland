@@ -330,13 +330,16 @@ dist:
 	cp tools/loader/libc-nop.so.6 dist/libc.so.6   # the artifact `make libc-patch` refreshed
 	cp tools/guest/install-husk.sh tools/guest/husk-session.sh \
 	   tools/guest/husk-desktop.sh tools/guest/husk-ding-fallback.sh \
-	   tools/guest/husk-wallpaper-fit.sh dist/
+	   tools/guest/husk-wallpaper-fit.sh tools/guest/husk-system-services.sh dist/
 	@mkdir -p dist/guest dist/guest-config
 	cp tools/guest/husk-wallpaper-scale.js dist/guest/
 	cp tools/guest-config/husk-gpu-defaults.sh tools/guest-config/husk-look.override \
 	   tools/guest-config/husk-locale.sh tools/guest-config/fcitx5-profile \
 	   tools/guest-config/pulse-client-no-shm.conf \
-	   tools/guest-config/linuxhub-system-bus.conf dist/guest-config/
+	   tools/guest-config/linuxhub-system-bus.conf \
+	   tools/guest-config/provision-accounts.sh tools/guest-config/guest-accounts.txt \
+	   tools/guest-config/net.hadess.SensorProxy.policy \
+	   tools/guest-config/60-husk-sensor-proxy.rules dist/guest-config/
 	@mkdir -p dist/vendor/panvk
 	cp -R vendor/panvk/fristonerr-1.2.0-mali-g77 dist/vendor/panvk/
 	cp VERSION dist/VERSION
@@ -350,7 +353,8 @@ dist:
 	COPYFILE_DISABLE=1 tar czf dist/husk-arm64.tar.gz -C dist \
 	    libld.so libc.so.6 husk-ldconfig husk-usermgr husk-su husk-symlinks \
 	    husk-window-wait guest guest-config vendor install-husk.sh husk-session.sh husk-desktop.sh \
-	    husk-ding-fallback.sh husk-wallpaper-fit.sh husk-lang-zh.tar.gz VERSION
+	    husk-ding-fallback.sh husk-wallpaper-fit.sh husk-system-services.sh \
+	    husk-lang-zh.tar.gz VERSION
 # The installer writes /etc/profile.d/husk-gpu.sh from guest-config/, and skips it
 # silently when the file is not next to it: a bundle without it installs a tree
 # with no GPU defaults and no error. Asserted on the tarball, not on dist/.
@@ -376,6 +380,16 @@ dist:
 # absent, while the installer itself succeeds.  Assert it on the tarball.
 	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/linuxhub-system-bus.conf' || \
 	    { echo "dist: bundle is missing guest-config/linuxhub-system-bus.conf" >&2; exit 1; }
+	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/provision-accounts.sh' || \
+	    { echo "dist: bundle is missing guest-config/provision-accounts.sh" >&2; exit 1; }
+	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/guest-accounts.txt' || \
+	    { echo "dist: bundle is missing guest-config/guest-accounts.txt" >&2; exit 1; }
+	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/net.hadess.SensorProxy.policy' || \
+	    { echo "dist: bundle is missing the sensor proxy policy" >&2; exit 1; }
+	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/60-husk-sensor-proxy.rules' || \
+	    { echo "dist: bundle is missing the sensor claim rule" >&2; exit 1; }
+	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'husk-system-services.sh' || \
+	    { echo "dist: bundle is missing husk-system-services.sh" >&2; exit 1; }
 # A bundle without the kbase PanVK snapshot installs successfully on Mali and then silently
 # renders with llvmpipe. Assert the compressed driver, guest-relative ICD and license.
 	@for f in \
@@ -396,6 +410,7 @@ dist:
 	@rm -f dist/libld.so dist/libc.so.6 dist/husk-ldconfig dist/husk-usermgr \
 	    dist/husk-su dist/husk-symlinks dist/husk-window-wait dist/install-husk.sh dist/husk-session.sh \
 	    dist/husk-desktop.sh dist/husk-ding-fallback.sh dist/husk-wallpaper-fit.sh \
+	    dist/husk-system-services.sh \
 	    dist/husk-lang-zh.tar.gz dist/VERSION
 	@rm -rf dist/guest dist/guest-config dist/vendor
 	@cd dist && sha256sum husk-arm64.tar.gz > SHA256SUMS && cat SHA256SUMS

@@ -13,6 +13,7 @@
 //! deliberate "no sample yet" state rather than invented hardware data.
 
 use core::ffi::{c_char, c_int, c_void};
+use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -189,13 +190,32 @@ fn active_rootfs(files: &Path) -> PathBuf {
     }
 }
 
-fn node_dirs(rootfs: &Path, index: usize) -> [PathBuf; 3] {
-    let name = format!("iio:device{index}");
-    [
-        rootfs.join("sys-iio/bus/iio/devices").join(&name),
-        rootfs.join("sys-iio/class/iio").join(&name),
-        rootfs.join("sys-iio/subsystem/iio").join(&name),
-    ]
+fn node_dir(rootfs: &Path, index: usize) -> PathBuf {
+    rootfs
+        .join("sys/subsystem/iio/devices")
+        .join(format!("iio:device{index}"))
+}
+
+fn replace_entry(entry: &Path) -> Result<(), String> {
+    match std::fs::symlink_metadata(entry) {
+        Ok(meta) if meta.file_type().is_dir() => {
+            std::fs::remove_dir_all(entry).map_err(|e| format!("remove {entry:?}: {e}"))?;
+        }
+        Ok(_) => std::fs::remove_file(entry).map_err(|e| format!("remove {entry:?}: {e}"))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("lstat {entry:?}: {e}")),
+    }
+    Ok(())
+}
+
+fn replace_dir(entry: &Path) -> Result<(), String> {
+    replace_entry(entry)?;
+    std::fs::create_dir_all(entry).map_err(|e| format!("mkdir {entry:?}: {e}"))
+}
+
+fn replace_symlink(target: &str, link: &Path) -> Result<(), String> {
+    replace_entry(link)?;
+    symlink(target, link).map_err(|e| format!("symlink {link:?}: {e}"))
 }
 
 fn initial_value(attr: &str) -> &'static str {
@@ -214,32 +234,146 @@ fn initial_value(attr: &str) -> &'static str {
     }
 }
 
+fn proxy_type(index: usize) -> Option<&'static str> {
+    match index {
+        0 => Some("iio-poll-accel"),
+        3 => Some("iio-poll-als"),
+        4 => Some("iio-poll-proximity"),
+        _ => None,
+    }
+}
+
 fn prepare_tree(rootfs: &Path) -> Result<(), String> {
-    let iio = rootfs.join("sys-iio");
-    let _ = std::fs::remove_dir_all(&iio);
+    // A real sysfs subsystem has one canonical device directory and two
+    // device-level symlink views:
+    //
+    //   /sys/subsystem/iio/devices/iio:deviceN
+    //   /sys/bus/iio/devices/iio:deviceN -> ../../../subsystem/iio/devices/...
+    //   /sys/class/iio/iio:deviceN       -> ../../subsystem/iio/devices/...
+    //
+    // Do not replace `/sys/{bus,class}/iio` themselves with symlinks. libudev
+    // walks the parent directories first and rejects an intermediate path that
+    // canonicalizes outside `/sys`.
+    let legacy_iio = rootfs.join("sys-iio");
+    let _ = std::fs::remove_dir_all(&legacy_iio);
+
+    let sys = rootfs.join("sys");
+    let iio = sys.join("subsystem/iio");
+    replace_dir(&iio)?;
+    std::fs::create_dir_all(iio.join("devices"))
+        .map_err(|e| format!("mkdir {iio:?}/devices: {e}"))?;
+
+    let class_iio = sys.join("class/iio");
+    let bus_iio = sys.join("bus/iio");
+    replace_dir(&class_iio)?;
+    replace_dir(&bus_iio)?;
+    let bus_devices = bus_iio.join("devices");
+    replace_dir(&bus_devices)?;
+
     for (index, _, name, attrs) in NODES {
-        for dir in node_dirs(rootfs, *index) {
-            std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir {dir:?}: {e}"))?;
-            std::fs::write(dir.join("name"), format!("{name}\n"))
-                .map_err(|e| format!("write {dir:?}/name: {e}"))?;
-            std::fs::write(dir.join("uevent"), b"IIO_DEVICE=1\n")
-                .map_err(|e| format!("write {dir:?}/uevent: {e}"))?;
-            for attr in *attrs {
-                std::fs::write(dir.join(attr), initial_value(attr))
-                    .map_err(|e| format!("write {dir:?}/{attr}: {e}"))?;
-            }
+        let dir = node_dir(rootfs, *index);
+        std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir {dir:?}: {e}"))?;
+        std::fs::write(dir.join("name"), format!("{name}\n"))
+            .map_err(|e| format!("write {dir:?}/name: {e}"))?;
+        std::fs::write(dir.join("dev"), format!("241:{index}\n"))
+            .map_err(|e| format!("write {dir:?}/dev: {e}"))?;
+        let mut uevent =
+            format!("MAJOR=241\nMINOR={index}\nDEVNAME=iio:device{index}\nDEVTYPE=iio_device\n");
+        if let Some(kind) = proxy_type(*index) {
+            uevent.push_str("IIO_SENSOR_PROXY_TYPE=");
+            uevent.push_str(kind);
+            uevent.push('\n');
         }
+        std::fs::write(dir.join("uevent"), uevent)
+            .map_err(|e| format!("write {dir:?}/uevent: {e}"))?;
+        replace_symlink("../../../iio", &dir.join("subsystem"))?;
+        for attr in *attrs {
+            std::fs::write(dir.join(attr), initial_value(attr))
+                .map_err(|e| format!("write {dir:?}/{attr}: {e}"))?;
+        }
+
+        let device = format!("iio:device{index}");
+        replace_symlink(
+            &format!("../../../subsystem/iio/devices/{device}"),
+            &bus_devices.join(&device),
+        )?;
+        replace_symlink(
+            &format!("../../subsystem/iio/devices/{device}"),
+            &class_iio.join(&device),
+        )?;
     }
     Ok(())
 }
 
-fn write_value(rootfs: &Path, index: usize, attr: &str, value: &str) {
-    for dir in node_dirs(rootfs, index) {
-        let path = dir.join(attr);
-        let tmp = dir.join(format!(".{attr}.tmp"));
-        if std::fs::write(&tmp, value).is_ok() {
-            let _ = std::fs::rename(&tmp, &path);
+#[cfg(test)]
+mod tests {
+    use super::{prepare_tree, NODES};
+    use std::os::unix::fs::symlink;
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!("husk-sensors-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn prepare_tree_builds_real_bus_and_class_views() {
+        let rootfs = scratch("views");
+        let sys = rootfs.join("sys");
+        std::fs::create_dir_all(sys.join("subsystem/iio/devices")).unwrap();
+        std::fs::create_dir_all(sys.join("bus")).unwrap();
+        std::fs::create_dir_all(sys.join("class")).unwrap();
+        symlink("../subsystem/iio", sys.join("bus/iio")).unwrap();
+        symlink("../subsystem/iio", sys.join("class/iio")).unwrap();
+
+        prepare_tree(&rootfs).unwrap();
+
+        for view in ["bus/iio", "class/iio"] {
+            let metadata = std::fs::symlink_metadata(sys.join(view)).unwrap();
+            assert!(
+                metadata.file_type().is_dir() && !metadata.file_type().is_symlink(),
+                "{view} must be a real directory"
+            );
         }
+        assert_eq!(
+            std::fs::read_to_string(sys.join("class/iio/iio:device0/name")).unwrap(),
+            "accel_3d\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(sys.join("bus/iio/devices/iio:device0/name")).unwrap(),
+            "accel_3d\n"
+        );
+        assert_eq!(
+            std::fs::read_link(sys.join("class/iio/iio:device0")).unwrap(),
+            std::path::Path::new("../../subsystem/iio/devices/iio:device0")
+        );
+        assert_eq!(
+            std::fs::read_link(sys.join("bus/iio/devices/iio:device0")).unwrap(),
+            std::path::Path::new("../../../subsystem/iio/devices/iio:device0")
+        );
+
+        // Re-running at app startup must replace stale links without losing the
+        // canonical nodes that the sensor thread updates.
+        prepare_tree(&rootfs).unwrap();
+        assert_eq!(NODES.len(), 5);
+        let _ = std::fs::remove_dir_all(&rootfs);
+    }
+}
+
+fn write_value(rootfs: &Path, index: usize, attr: &str, value: &str) {
+    let dir = node_dir(rootfs, index);
+    if let Ok(meta) = std::fs::symlink_metadata(&dir) {
+        if !meta.file_type().is_dir() {
+            return;
+        }
+    } else {
+        return;
+    }
+    let path = dir.join(attr);
+    let tmp = dir.join(format!(".{attr}.tmp"));
+    if std::fs::write(&tmp, value).is_ok() {
+        let _ = std::fs::rename(&tmp, &path);
     }
 }
 

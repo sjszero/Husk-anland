@@ -85,7 +85,7 @@ GPU 表面 -> CPU 回读 -> X server / SHM 拷贝 -> 应用侧 AHB -> 屏幕
 | 相机 | 中转 | 标准 V4L2 facade，后端 Camera2；不支持 DMABUF/controls |
 | 音频 | 中转 | PulseAudio → Rust relay → AAudio；无 `/dev/snd` |
 | 视频解码 | 中转 | VA-API → MediaCodec；只覆盖 H.264 已验证路径 |
-| 传感器 | 中转 | NDK → IIO 影子树；`iio-sensor-proxy` D-Bus 未验 |
+| 传感器 | 中转 | NDK → IIO 影子树 → `iio-sensor-proxy`；D-Bus 输出已在参考机验证，当前只映射五类默认传感器 |
 | 定位 / USB / 蓝牙 | 权限或厂商限制 | 需要 Java 回调或明确功能子集 |
 | NFC / 指纹 | 不需要 | 没有可复用的标准 Linux 设备语义 |
 
@@ -146,7 +146,6 @@ Termux 不是交付形态。Husk 的用户态二进制、库、安装路径和 A
 ## 11. 仍需补测的项目
 
 - 相机 DMABUF、V4L2 controls、跨进程假 fd；
-- 传感器 D-Bus 消费端；
 - 定位、USB、蓝牙；
 - 窗口内容到 X server 的 dma-buf 直传；
 - 负载型长稳和更多 GPU 应用；

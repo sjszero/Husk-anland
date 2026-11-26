@@ -22,7 +22,7 @@ Husk 的目标不是给某个 Linux 应用单独开洞，而是把 Android 宿�
 | 音频输出 | 中转 | PulseAudio | Rust relay → AAudio | 真实 PCM 输出已验证 |
 | 音频采集 | 中转 | PulseAudio source | Rust relay → AAudio | 196,608 PCM bytes、peak=285 已验证 |
 | 视频解码 | 中转 | VA-API | Rust VA driver → MediaCodec | H.264 1080p30 600 秒，dropped=0 |
-| 传感器 | 中转 | IIO sysfs 影子树 | NDK `ASensorManager_*` | 加速度、磁力、陀螺仪、环境光、距离五类可读；D-Bus 消费端未验 |
+| 传感器 | 中转 | IIO sysfs 影子树 | NDK `ASensorManager_*` | 加速度、磁力、陀螺仪、环境光、距离五类可读；`iio-sensor-proxy` 的 `net.hadess.SensorProxy`、三项 Claim 与 `monitor-sensor` 已在参考机通过（evidence 322） |
 | 显示 | 应用侧中转 | AHB / dma-buf | `SurfaceControl` | 3-buffer ring 与 `SYNC_FD` 10,000 帧；仅代表应用侧接管段 |
 | 输入 | 窗口层 | 宿主 window/X11 事件 | Android 输入事件 | bridge 已实现；端到端依赖宿主窗口系统 |
 | 定位 | 权限或厂商限制 | Location 接口（候选） | Java `LocationManager` | 持续定位需要 Java 回调类；可接受 last-known 子集或加最小垫片 |
@@ -76,7 +76,9 @@ GPU_LOADER_DEFAULTS PASS=9 FAIL=0 SKIP=0
 - **音频**：`/dev/snd` 在应用域不可打开；guest 使用 PulseAudio，Rust relay 转成 AAudio。
 - **视频**：guest 使用 VA-API；Rust driver 和 bridge 把帧转到 MediaCodec / AHardwareBuffer。
 - **传感器**：NDK `ASensorManager_*` 产生事件，写入应用私有 IIO 影子树；guest 通过标准
-  `/sys/bus/iio/devices/iio:deviceN/*` 读取。
+  `/sys/bus/iio/devices/iio:deviceN/*`、`/sys/class/iio/iio:deviceN/*` 和
+  `/sys/subsystem/iio/devices/iio:deviceN/*` 读取；`iio-sensor-proxy` 再把这些节点发布为
+  `net.hadess.SensorProxy` D-Bus 接口。
 
 这些接口的好处是应用侧无需改代码；代价是协议、同步和格式能力受 Android 后端限制。测试数字
 分别见 evidence 309、310、302、80。

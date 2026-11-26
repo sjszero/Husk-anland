@@ -1,0 +1,7 @@
+// Husk 的单用户 guest 没有 logind seat；Android 也不提供可交互的 PAM 认证。
+// 因此把 claim 权限限定在“本机、当前 guest subject”，不把动作无条件放给远端。
+polkit.addRule(function(action, subject) {
+    if (action.id == "net.hadess.SensorProxy.claim-sensor" && subject.local) {
+        return polkit.Result.YES;
+    }
+});

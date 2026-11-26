@@ -71,6 +71,7 @@ Gate A 的 SKIP 是离线树没有 apt package index。没有把它算成 PASS�
 | V4L2 crop/selection + monotonic PTS | 两档契约通过；GStreamer 无 `CROPCAP`/时间戳相关性警告 | 321 |
 | AAudio 采集 | 196,608 PCM bytes，`peak=285` | 310 |
 | 传感器 IIO | 5 类默认传感器 `READY`，guest 可读 | 302 |
+| 传感器 D-Bus | `iio-sensor-proxy` 出现；Accelerometer/Light/Proximity 三项 Claim 成功；`monitor-sensor` 读到三类设备 | 322 |
 | MediaCodec 解码 | H.264 1080p30，600 秒，dropped=0 | 80 |
 | AHB → SurfaceControl | 3-buffer ring / SYNC_FD，10,000 帧 | 59 |
 
@@ -88,6 +89,5 @@ GNOME/X11 桌面为 **UNVERIFIED**。不得把其他 App 或旧 PRoot 树的 X s
 - 其他 Android 版本、厂商 seccomp/SELinux；
 - 相机 DMABUF、通用 V4L2 controls、非整帧裁剪、真实 Camera2 的 GStreamer PTS、跨进程假 fd；
 - 定位、USB、蓝牙完整链路；
-- `iio-sensor-proxy` D-Bus 输出；
 - 窗口内容到 X server 的零拷贝；
 - 负载型长时间稳定性和更多 GPU 应用。

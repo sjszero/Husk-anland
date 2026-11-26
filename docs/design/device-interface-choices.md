@@ -22,7 +22,7 @@
 | 音频输入 | `module-pipe-source` + 按需开关 | 同上；只有真录音时才开 Android 麦克风 | 可用（声学回环） |
 | 相机 | `/dev/videoN` V4L2 facade（QUERYCAP / ENUM_FMT / G/S_FMT / REQBUFS / QBUF / DQBUF / read / readv / poll）→ Camera2 NDK | GStreamer / Cheese / OpenCV 全走 V4L2；应用域又不能把真实 V4L2 fd 交出去 | 可用（取流 / 拍照 / 录像）；`open()` 是 memfd；DMABUF / controls 仍不支持 |
 | 输入 | 合成器级注入：mutter → `RemoteDesktop`(+EIS) | 不走 `/dev/input` + libinput + udev：那需要设备节点与 udev | 可用 |
-| 传感器 | `/sys/bus/iio/devices/iio:deviceN/*` 合成树 | NDK `ASensorManager_*` 提供真实事件；`untrusted_app` 读真实 sysfs 被 SELinux 拒，所以 guest 看到的是标准 IIO 影子树 | 中转可用：5 类默认传感器 `READY`，guest 三路径读取和节点枚举通过；`iio-sensor-proxy` 未安装，其 D-Bus 输出未验证 |
+| 传感器 | `/sys/bus/iio/devices/iio:deviceN/*` 合成树 | NDK `ASensorManager_*` 提供真实事件；`untrusted_app` 读真实 sysfs 被 SELinux 拒，所以 guest 看到的是标准 IIO 影子树 | 中转可用：5 类默认传感器 `READY`，guest 三路径读取和节点枚举通过；`iio-sensor-proxy` 已启动并发布 `net.hadess.SensorProxy`，三项 Claim 与 `monitor-sensor` 已在参考机通过（evidence 322） |
 | 定位 | `/dev/gps0` 输出 NMEA 0183 | gpsd 一族只认串口 NMEA；宿主侧只有 `LocationManager`，需要最小 Java 回调类 | 中转，当前只给 last-known 子集或不提供 |
 | USB | `/dev/bus/usb/00X/00Y` + `USBDEVFS_*` ioctl 语义 | libusb 的 Linux 后端就长这样；宿主 `UsbManager` 需要 Intent/Receiver 承接授权 | 中转 + 权限对话框，需要最小 Java 垫片 |
 | 蓝牙 | org.bluez D-Bus 接口 | 本机没有 HCI 节点 / VHCI；`BluetoothAdapter` 只有 Java API | 中转 + 运行时权限，需要最小 Java 垫片 |
