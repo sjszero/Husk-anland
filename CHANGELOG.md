@@ -50,6 +50,14 @@
   不再伪成功也不再静默。普通 fd 的 ioctl 一次额外系统调用都不多花。
   新增设备侧用例 `pathshim-drm-fake-fd-identity-lost`（用 `/proc/self/fd` 复现同样的
   「同 memfd、新 fd 号、无记账」形状）。**未上机验证。**
+- **两个 LD_PRELOAD 层现在真的能构建**（`Makefile` 新增 `make preloads`，
+  `tools/ci/audit-preload-exports.sh`，CI 新增 `preloads` job）。`v4l2-preload` 用 `.symver`
+  造了带版本的 libc 符号（`open64@GLIBC_2.17`、`stat64@GLIBC_2.33` …），版本节点必须由
+  `crates/v4l2-preload/exports.map` 在链接期提供——而那个 map **全仓库无人引用**，
+  于是 `cargo build --release -p v4l2-preload` 一直链接失败（`symbol open64@GLIBC_2.17 has
+  undefined version`），`cargo check` 因为不链接所以一直是绿的。现在 map 进了链接行，
+  产物里确认 10 个带版本符号。两个层的导出集也加了断言：它们是 `#[no_mangle]` cdylib、
+  树里没有任何东西链接它们，丢一个 `#[no_mangle]` 编译期完全看不出来。
 - **账户数据库改成先全部暂存再统一换入**（`runtime/crates/usermgr/src/main.rs`）。
   `save()` 原先逐个 `write_atomic`：四个文件各自 `fsync` 后 `rename`，而
   `f.sync_all().ok()` 与 `fs::set_permissions(...).ok()` 把失败吞掉了。于是

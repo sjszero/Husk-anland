@@ -18,7 +18,7 @@ MANIFEST    := runtime/Cargo.toml
 PROFILE_DIR := runtime/target/$(TARGET)/release
 HUSK_TOOLS  := runtime/target/debug/husk-tools
 
-.PHONY: all check lint test tools nr-tools loader apk bench gate-a gpu-audit camera-audit virt-race docs dist clean version-check version-bump release-audit \
+.PHONY: all check lint test tools nr-tools loader preloads apk bench gate-a gpu-audit camera-audit virt-race docs dist clean version-check version-bump release-audit \
         libc-patch libc-verify
 
 all: lint check version-check
@@ -107,6 +107,34 @@ test:
 loader:
 	@test -n "$$NDK" || { echo "set NDK=<ndk>/bin (needs clang + llvm-objcopy)" >&2; exit 1; }
 	sh tools/loader/build-embedded-loader.sh
+
+# --- LD_PRELOAD layers -----------------------------------------------------
+# Two separate .so, not part of the loader: they cover libraries that dlopen
+# *after* start (Mesa's libgbm/libdrm, GStreamer's libgstvideo4linux2), whose
+# calls never pass the loader's GOT patch.
+#
+# v4l2-preload refers to its libc symbols with GLIBC versions
+# (open64@GLIBC_2.17 ...). An unversioned definition does not satisfy those
+# references, so the map in crates/v4l2-preload/exports.map has to be on the
+# link line. That map was committed long ago and referenced by nothing: a plain
+# `cargo build --release -p v4l2-preload` failed with
+#   symbol open64@GLIBC_2.17 has undefined version
+# while `cargo check` (which never links) stayed green. Hence this target.
+# `cd runtime` matters: runtime/.cargo/config.toml is what points the
+# aarch64-unknown-linux-gnu link at rust-lld. Running cargo from the repo root
+# picks up no config and tries the host `cc`, which cannot link these objects.
+PRELOAD_RUSTFLAGS = -C link-arg=-z -C link-arg=max-page-size=0x10000 \
+                    -C link-arg=-z -C link-arg=separate-loadable-segments
+V4L2_MAP = $(CURDIR)/runtime/crates/v4l2-preload/exports.map
+NM ?= llvm-nm
+
+preloads:
+	cd runtime && RUSTFLAGS="$(PRELOAD_RUSTFLAGS)" CARGO_PROFILE_RELEASE_STRIP=symbols \
+	  cargo build --release --target $(TARGET) -p drm-preload
+	cd runtime && RUSTFLAGS="$(PRELOAD_RUSTFLAGS) -C link-arg=--version-script=$(V4L2_MAP)" \
+	  CARGO_PROFILE_RELEASE_STRIP=symbols \
+	  cargo build --release --target $(TARGET) -p v4l2-preload
+	@sh tools/ci/audit-preload-exports.sh "$(NM)"
 
 # The APK is two native pieces and one Gradle skeleton: the embedded loader
 # (jniLibs/libld.so) and the App's own .so (jniLibs/libhuskapp.so). Both are
