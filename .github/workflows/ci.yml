@@ -37,9 +37,13 @@ jobs:
         with:
           workspaces: runtime
       - run: rustup target add $TARGET
-      - run: >
-          cargo check --manifest-path runtime/Cargo.toml --target $TARGET
-          -p runtime-core -p nr-tools -p ldconfig -p path-shim -p v4l2-preload -p v4l2-ref-probe -p fd-identity-probe -p drm-preload
+      # --workspace, not a hand-written -p list: the list used to name 8 of the
+      # 39 crates, so a break in any other crate (audio, video, camera, session
+      # guard, probe) stayed invisible. No --all-targets here on purpose: the
+      # no_std crates (path-shim, drm-preload, v4l2-preload, v4l2-shim,
+      # runtime-core, husk-init, logd) carry their own panic handler, so a test
+      # harness target collides with it. Tests are a separate, explicit job.
+      - run: cargo check --manifest-path runtime/Cargo.toml --target $TARGET --workspace
 
   clippy:
     name: cargo clippy
@@ -54,9 +58,77 @@ jobs:
           workspaces: runtime
       - run: rustup target add $TARGET
       # Warnings are allowed (the shim keeps several on purpose); errors are not.
+      - run: cargo clippy --manifest-path runtime/Cargo.toml --target $TARGET --workspace
+
+  test:
+    name: cargo test (host)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: runtime
+      # Host target on purpose: these crates are std and their assertions are
+      # pure, so they can run here. The no_std/aarch64 crates cannot - they are
+      # compile-checked by the `check` job and exercised on a device instead.
       - run: >
-          cargo clippy --manifest-path runtime/Cargo.toml --target $TARGET
-          -p runtime-core -p nr-tools -p ldconfig -p path-shim -p v4l2-preload -p v4l2-ref-probe -p fd-identity-probe -p drm-preload
+          cargo test --manifest-path runtime/Cargo.toml
+          -p gpu-env -p session-env
+
+  android:
+    name: app-rs cross compile (aarch64-linux-android)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app-rs
+      - name: NDK present
+        run: test -n "$ANDROID_NDK_LATEST_HOME" && ls "$ANDROID_NDK_LATEST_HOME"
+      - name: cargo build (lib + session guard)
+        env:
+          CC_aarch64_linux_android: ${{ env.ANDROID_NDK_LATEST_HOME }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
+          AR_aarch64_linux_android: ${{ env.ANDROID_NDK_LATEST_HOME }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: ${{ env.ANDROID_NDK_LATEST_HOME }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
+        run: >
+          cargo build --release --manifest-path app-rs/Cargo.toml
+          --target aarch64-linux-android --lib --bin husk-session-guard
+
+  apk:
+    name: APK build and version contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app-rs
+      # `gradlew assembleDebug` alone is not enough: jniLibs/libhuskapp.so,
+      # libhuskguard.so and libld.so are build outputs and none of them is
+      # tracked, so a Gradle-only job would package an empty shell. `make apk`
+      # is the target that builds the loader and the Rust app first.
+      - name: make apk
+        env:
+          NDK: ${{ env.ANDROID_NDK_LATEST_HOME }}/toolchains/llvm/prebuilt/linux-x86_64/bin
+        run: make apk
+      - name: APK carries all three native pieces
+        run: sh tools/ci/audit-apk-contents.sh apk
+      - name: APK version matches VERSION
+        run: sh tools/ci/audit-apk-version.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: husk-debug-apk
+          path: app/app/build/outputs/apk/debug/*.apk
 
   scripts:
     name: shell scripts parse

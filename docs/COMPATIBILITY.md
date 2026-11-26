@@ -36,8 +36,8 @@
 |---|---|---|
 | `/dev/mali0` 直开 | 可用 | evidence 156 |
 | PanVK（kbase 后端）枚举 + compute + 离屏 graphics | 可用，`Mali-G77 MC9` | evidence 156 |
-| GL/EGL 经 Zink 落到 GPU | 可用，renderer `zink Vulkan 1.3(Mali-G77 MC9)`，上限 GLES 2.0 | evidence 156 |
-| 桌面硬件加速（WSI / 窗口呈现） | 未做 | `docs/LIMITATIONS.md` §7 |
+| GL/EGL 经 Zink 落到 GPU | 可用，renderer `zink Vulkan 1.3(Mali-G77 MC9)`；GLES 上限 3.2（靠 `MESA_GLES_VERSION_OVERRIDE`，zink 默认只报 ES 2.0，真实应用未验） | evidence 156、182 |
+| 桌面硬件加速（WSI / 窗口呈现） | 已通：X11 窗口化 EGL + GLX 跑真程序 600 秒，GNOME / Nautilus / 嵌套 GTK 均在 zink + `/dev/mali0` 上；**但呈现不是零拷贝**（SHM 拷贝，24.8 ms/兆像素） | evidence 165、245、278；`docs/LIMITATIONS.md` §7 |
 
 不开 Zink 时 GL 落在 `llvmpipe`；开了 zink 但用发行版自带的 `panfrost_icd.json` 会
 `VK_ERROR_INCOMPATIBLE_DRIVER`，因为它要的是 DRM render node，本机只有 kbase。
@@ -50,6 +50,13 @@
 
 ## 不在支持范围
 
-Termux 不是交付形态（`LIMITATIONS.md` §3）。传感器 / GPS / USB / 蓝牙 / NFC / 指纹未开始；
-硬件视频解码只有应用侧的 MediaCodec 链路（evidence 80），guest 内的全链未见可用结论。
-桌面硬件加速（WSI）未做，见 `LIMITATIONS.md` §7。
+Termux 不是交付形态（`LIMITATIONS.md` §3）。
+
+硬件按宿主能力分四类，逐类理由见 [`design/hardware-interface-map.md`](design/hardware-interface-map.md)：
+传感器（中转，NDK 可做，未做）、定位 / USB / 蓝牙（中转，卡在 `hasCode=false` 的
+Java 回调）、NFC 与指纹（不需要，逐条理由在该表里）。被宿主挡住的能力贴的是原始错误串，
+不写「未做」。
+
+guest 内的 VA-API 全链已通到 `vaapih264dec` 出真实帧（evidence 81–87），但只有解码方向。
+桌面呈现仍不是零拷贝（DRI3 未通，X server 是应用内的 bionic Xorg，本机没有 render node），
+见 `LIMITATIONS.md` §7。

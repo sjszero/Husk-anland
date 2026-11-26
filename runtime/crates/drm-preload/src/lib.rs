@@ -138,8 +138,11 @@ unsafe fn is_fake(fd: i32) -> bool {
     // Never trust a fd number kept in a private table. dup2/dup3 can close the
     // old destination and install an ordinary file under the same number; glibc
     // internals can also close without entering this preload's close symbol.
-    // The kernel's /proc/self/fd target is the identity. Both fake forms are
-    // recognizable: loader memfd "husk-drm" and the real kbase node "mali".
+    // The kernel's /proc/self/fd target is the identity. Only two exact names
+    // count: the loader's fake node memfd "husk-drm" and the real kbase node
+    // /dev/mali0. Never match substrings: any path containing "mali" would be
+    // claimed, and `/memfd:husk-` also matched the V4L2 shim's camera fds
+    // (`/memfd:husk-v4l2-N`), routing foreign fds into DRM emulation.
     if fd < 0 {
         return false;
     }
@@ -177,9 +180,25 @@ unsafe fn is_fake(fd: i32) -> bool {
         return false;
     }
     let n = r as usize;
-    let s = &out[..n];
-    let hit = s.windows(12).any(|w| w == b"/memfd:husk-") || s.windows(4).any(|w| w == b"mali");
-    hit
+    classify_fd_target(&out[..n])
+}
+
+/// Decide whether a `/proc/self/fd/<n>` target is one of our fake DRM fds.
+///
+/// Exact equality on both names, because a substring test cannot tell these
+/// apart from ordinary files or from another subsystem's memfd:
+///
+/// * `/dev/mali0`            — the real kbase node, opened once and then dup'ed
+/// * `/memfd:husk-drm`       — the fake node the loader hands out
+///
+/// `readlink` appends `" (deleted)"` when the name has been unlinked; the
+/// identity survives that, so the suffix is stripped before comparing.
+fn classify_fd_target(link: &[u8]) -> bool {
+    let s = match link.strip_suffix(b" (deleted)".as_slice()) {
+        Some(stripped) => stripped,
+        None => link,
+    };
+    s == b"/dev/mali0" || s == b"/memfd:husk-drm"
 }
 
 unsafe fn cstr_len(p: *const u8) -> usize {

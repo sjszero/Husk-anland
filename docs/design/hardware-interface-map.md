@@ -1,11 +1,24 @@
-# 硬件接口地图：直连、中转、未做
+# 硬件接口地图：直连 / 中转 / 不需要 / 权限或厂商限制
 
 > 唯一目标机：RMX3357（Android 13 / kernel 4.19.191 / 4 KiB 页 / Mali-G77 MC9 /
 > `untrusted_app`，无 root、无 Shizuku）。状态列只写这台机器的实测。
 > 逐类的取舍理由在 [`device-interface-choices.md`](device-interface-choices.md)，
 > 后端协议在 [`husk-backend-interface.md`](husk-backend-interface.md)。
 
-## 1. 只有一根轴：直连 / 中转
+## 1. 四类口径
+
+每个接口必须落进且只落进其中一类，没有第五类，也不允许写「未做」：
+
+| 分类 | 定义 |
+|---|---|
+| **直连** | guest 能安全打开的真实设备节点或标准内核接口，中间没有我们的代码 |
+| **中转** | 必须经过 Android 服务 / NDK 的标准接口；guest 看到的是标准 Linux 接口，后端是宿主 |
+| **不需要** | 对 Linux 用户态本来就无意义，或实现出来只能和 Android 抢同一份硬件 |
+| **权限或厂商限制** | 想做但被宿主挡住；必须贴具体错误串，不许写「未做」 |
+
+下面 1.1 是实测的接法，1.2 是能映射但还没做的，1.3 是明确不需要的，1.4 是被挡住的。
+
+### 1.1 已接上的（直连 / 中转）
 
 | 设备类 | guest 看到的接口 | 接法 | 实测 | 证据 |
 |---|---|---|---|---|
@@ -13,6 +26,31 @@
 | 相机 | V4L2 `/dev/videoN` facade | **中转**：guest 看到标准 V4L2 ioctl/read，后端经 socket 到 Camera2 NDK；`open()` 是 memfd，不是真节点 | 前后摄自动启动并取流；NV12/YUYV 的 `read`、`readv`、mmap 均通过；拍照 / 30 秒录像，硬件 H.264 编码。无 DMABUF / controls | 93、240、282 |
 | 音频 | PulseAudio（`module-pipe-sink` / `module-pipe-source`） | **中转**：Rust `audio-relay` → AAudio | 48 kHz 双声道 610 秒；反证：guest 里 `/dev/snd` 是 `Permission denied`，根本没有声卡节点 | 62 |
 | 视频解码 | VA-API（`vaGetDisplayDRM` / `vaCreateSurfaces`） | **中转**：Rust VA driver + `video-bridge` ↔ MediaCodec，AHB 交接 | H.264 1080p30 连续 600 秒，`dropped=0` | 80–87 |
+
+### 1.2 有标准接口可以映射、还没做的
+
+| 接口 | 分类 | 宿主侧接口 | 现在卡在哪 |
+|---|---|---|---|
+| 传感器 | **中转（可做，未做）** | NDK 纯 C：`ASensorManager_*` / `ASensorEventQueue_*` 由 `libandroid.so` 导出（本机 `libandroid.so` 导出表已核）；`pm list features` 有 accel / compass / gyro / light / proximity / stepcounter | 没有实现。`untrusted_app` 读不到 `/sys/bus/iio/devices`（`Permission denied`），但这不影响走 NDK。前人做法已读完：伪造一棵 IIO sysfs 树，值文件原地覆盖写 |
+| 定位 | 中转（受限） | 无 NDK API；`LocationManager` 是平台类，JNI 可以取 `getLastKnownLocation()` | 持续定位需要 `LocationListener` 实现类，`hasCode=false` 造不出来。要么接受「只给 last-known」，要么单独设计一个极小的 Java 类 |
+| USB | 中转 + 权限对话框 | `UsbManager`（Java）拿到 `UsbDeviceConnection` 的 fd 后，可以交给 guest 的 `libusb` | 首次插拔必须弹系统授权，需要 `Intent` + 广播接收器，同样卡在 `hasCode=false` |
+| 蓝牙 | 中转 + 运行时权限 | 只有 Java `BluetoothAdapter`，NDK 没有 API | 监听器 / 接收器同上；Android 12+ 还要 `BLUETOOTH_CONNECT`、`BLUETOOTH_SCAN` |
+
+### 1.3 不需要的
+
+| 接口 | 理由 |
+|---|---|
+| NFC | Linux 用户态没有标准 POSIX NFC 接口。Android 的 NFC 只在 Java 侧由前台 Activity 派发 tag，guest 没有能承接一次刷卡交互的可信窗口。硬做只能和 Android 抢同一张卡。 |
+| 指纹 | 认证语义绑定「可见 Activity 上的用户交互」，`BiometricPrompt` 要求真实窗口。guest 能拿到的只有「已认证」这个结论，拿不到可用的凭据流。 |
+
+### 1.4 被宿主挡住的（贴原始结果）
+
+| 节点 / 能力 | 实际结果 |
+|---|---|
+| `/dev/snd` | `Permission denied`（`untrusted_app`）—— 所以音频只能中转 |
+| `/sys/bus/iio/devices` | `Permission denied` —— 所以传感器只能走 NDK，不能直读 sysfs |
+| `/dev/gps*` | `No such file or directory` —— 没有字符设备，只能走定位服务 |
+| `/dev/dri/renderD128` | 不存在（只有 `card0`，`226,0`，`system:system 0660`）—— DRI3 因此不通，呈现只能回读加拷贝 |
 
 > **跨 SoC 代码状态**：GPU 按节点分族。Mali/kbase 的本机实测见上表；Adreno/KGSL 的
 > render-node → 真实 KGSL fd 适配器代码已落地（evidence 233），但本仓库没有 Adreno 真机，

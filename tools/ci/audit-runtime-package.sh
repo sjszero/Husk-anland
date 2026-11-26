@@ -46,7 +46,7 @@ check_literal() {
 
 check_literal Makefile 'PKG        ?= com.linuxhub.husk' 'Makefile PKG default'
 check_literal app/app/build.gradle.kts '    namespace = "com.linuxhub.husk"' 'Android namespace'
-check_literal app/app/build.gradle.kts '        applicationId = "com.linuxhub.husk"' 'Android applicationId'
+check_literal app/app/build.gradle.kts 'val huskApplicationId = providers.gradleProperty("huskApplicationId").orElse("com.linuxhub.husk")' 'Android applicationId default'
 check_literal runtime/crates/nr-tools/src/provision.rs '    let mut app = "com.linuxhub.husk".to_string();' 'nr-tools provision default'
 check_literal tools/bench/bench.env 'PKG=${PKG:-com.linuxhub.husk}' 'benchmark package default'
 

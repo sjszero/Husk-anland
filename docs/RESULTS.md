@@ -67,7 +67,7 @@
 
 ## 7. 未验证（UNKNOWN）
 
-- WSI / swapchain：guest EGL 直接渲到 AHB 的窗口路径。
+- WSI 的**零拷贝**方向：窗口呈现已通（X11 EGL/GLX，600 秒；evidence 165、245、278），未通的是 dma-buf 直传（DRI3 无 render node），现在是回读 + SHM 拷贝。
 - SurfaceFlinger 内部等待行为的 trace。
 - 16 KiB / 64 KiB 页内核上的实机运行。
 - HEVC / VP9 / AV1 解码；硬件编码。

@@ -7,6 +7,67 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.36] - 2026-11-26
+
+这一版把「检查」和「事实」两件事补上：CI 不再只检查 8 个 crate，DRM 假 fd 的身份判定从
+子串匹配改成精确名字，硬件能力表从「直连 / 中转 / 未做」改成四分类。运行时的默认行为不变。
+
+### 修复
+
+- **CI 覆盖整个 workspace**（`.github/workflows/ci.yml`）。此前 `cargo check` 与 `cargo clippy`
+  各自只带 8 个 `-p`，39 个 crate 里另外 31 个（音频、视频、相机、会话守卫、全部探针）编译
+  坏了也不会红。现在两条都走 `--workspace`（本机实测 `cargo check --workspace
+  --target aarch64-unknown-linux-gnu` 通过）；`no_std` 的 7 个 crate 不塞进测试目标，
+  因为它们的 panic handler 会和测试 harness 撞 `duplicate lang item`。
+- **新增 `test` job**：`gpu-env`、`session-env` 在宿主目标上真跑单测（此前 CI 里没有
+  `cargo test`）。
+- **新增 `android` job**：`app-rs` 交叉编译 `aarch64-linux-android`（lib + session guard）。
+  此前 CI 从不编译 App 侧 Rust。
+- **新增 `apk` job**：跑 `make apk` 而不是只跑 `gradlew`——`jniLibs` 下三个 `.so` 都不入库，
+  Gradle 单独跑只会打出一个空壳。随后两道断言：
+  `tools/ci/audit-apk-contents.sh` 确认 APK 里有 `libhuskapp.so` / `libhuskguard.so` /
+  `libld.so`，`tools/ci/audit-apk-version.sh` 确认 `versionName` 等于 `VERSION`、
+  `versionCode` 等于 100 进位值。后者此前**没有任何机器检查**。
+- **DRM 假 fd 只认精确名字**（`runtime/crates/drm-preload/src/lib.rs`）。旧判定是
+  `windows(4) == b"mali" || windows(12) == b"/memfd:husk-"`，会把任何路径含 `mali` 的普通
+  文件（如 `/tmp/mali-cache`）和**相机 shim 的 memfd**（`/memfd:husk-v4l2-N`）都当成 GPU fd，
+  从而把它们塞进 DRM ioctl/mmap 模拟。现在只认 `/dev/mali0` 与 `/memfd:husk-drm`，并先剥掉
+  `readlink` 追加的 `" (deleted)"`。负向测试进 `fd-identity-probe`
+  （`drm-preload-is-fake-exact-names`）：普通 `mali` 路径与 `husk-v4l2-0` 必须被拒，
+  `husk-drm` 与 `/dev/mali0` 必须被认。
+- **运行时权限改用 `ANativeActivity.clazz`**（`app-rs/src/permissions.rs`）。`clazz` 就是
+  Activity 实例的全局引用（NDK 的历史命名），坐实生命周期；不再反射 `ActivityThread` 的
+  私有字段 `mActivities`——那是 hidden API，名单逐版本变化，失败时只会静默。
+  仍保持 `hasCode=false`。**这一条尚未在真机上验收**：权限弹窗、拒绝、重新授权、升级保留
+  四类都要跑过才算完成（evidence 282 的 `install -g` 依赖也未解除）。
+
+### 文档
+
+- **硬件接口地图改成四分类**（`docs/design/hardware-interface-map.md`）：直连 / 中转 /
+  不需要 / 权限或厂商限制。删掉标题里的「未做」。
+- **修正一处错误事实**：`docs/LIMITATIONS.md` 原写「传感器…这几类既开不到节点，NDK 也没有
+  对应平台 API」。前半句成立（`/sys/bus/iio/devices` 对 `untrusted_app` 是 `Permission
+  denied`），**后半句不成立**：`ASensorManager_*` / `ASensorEventQueue_*` 由
+  `libandroid.so` 导出，是纯 C 的 NDK 接口，不需要一行 Java。传感器因此是「中转、可做、
+  未做」，不是「未做且做不了」。定位 / USB / 蓝牙的阻塞点另写清楚：`hasCode=false` 造不出
+  Java 回调与广播接收器。NFC 与指纹归「不需要」，逐条给理由。
+- **更正桌面 GPU 状态**（`README`、`docs/LIMITATIONS.md`、`docs/COMPATIBILITY.md`、
+  `docs/RESULTS.md`）：旧文写「2.0 拉起的 GNOME 仍显式走 llvmpipe、约 1.0–1.2 FPS」，
+  已被 evidence 278 推翻——`gnome-shell` / `nautilus` / 嵌套 GTK 的 environ 是
+  `GALLIUM_DRIVER=zink`，持有 `/dev/mali0`，`make gpu-audit` 为 `PASS=3 FAIL=0`。
+  `COMPATIBILITY.md` 的「GLES 上限 2.0」「桌面 WSI 未做」同时改正为 3.2（靠 override）与
+  「窗口呈现已通、零拷贝未通」。
+
+### 未验证（UNVERIFIED）
+
+- 本轮**没有重跑设备门禁**：门禁 A、coverage-sweep、相机 read/readv/mmap、GStreamer、
+  GPU audit、干净目录安装、普通 APK 安装路径都未在本机重跑。上面的改动有编译级与静态
+  验证，运行级结论沿用 0.0.34/0.0.35 的证据，新 APK 未安装过。
+- 相机 / 麦克风的运行时权限流程仍是 WIP：代码能编过，四类验收没做。
+- 符号链接深度仍是 16（Linux 语义约 40），这一条**没有**在本版修：40 层需要先把
+  `resolve_at` 的 4 KiB 栈缓冲挪出递归帧，否则是拿栈溢出换 `ELOOP`。
+- `usermgr` 四库仍非事务，`fsync` / `chmod` 失败仍被 `.ok()` 吞掉。
+
 ## [0.0.35] - 2026-11-26
 
 这一版只修发布门禁：`0.0.34` 的 Git 引用审计在提交前看不到未跟踪文件，提交后从干净检出运行
@@ -1460,6 +1521,7 @@ GTK 应用都走同一套 Mali/PanVK 设备运行时”。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
 [未发布]: https://github.com/xishanp/Husk/compare/v0.0.35...HEAD
+[0.0.36]: https://github.com/xishanp/Husk/releases/tag/v0.0.36
 [0.0.35]: https://github.com/xishanp/Husk/releases/tag/v0.0.35
 [0.0.34]: https://github.com/xishanp/Husk/releases/tag/v0.0.34
 [0.0.33]: https://github.com/xishanp/Husk/releases/tag/v0.0.33

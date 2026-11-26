@@ -16,10 +16,11 @@
 mod ahb;
 mod audio;
 mod camera;
-mod encoder;
 mod caps;
+mod encoder;
 mod gl;
 mod input;
+mod permissions;
 mod surface;
 mod sys;
 mod term;
@@ -429,8 +430,9 @@ static CALLBACKS: ANativeActivityCallbacks = ANativeActivityCallbacks {
 unsafe extern "C" fn on_start(_a: *mut ANativeActivity) {
     log("cb: onStart");
 }
-unsafe extern "C" fn on_resume(_a: *mut ANativeActivity) {
+unsafe extern "C" fn on_resume(a: *mut ANativeActivity) {
     log("cb: onResume");
+    permissions::on_resume(a);
 }
 unsafe extern "C" fn on_pause(_a: *mut ANativeActivity) {
     log("cb: onPause");

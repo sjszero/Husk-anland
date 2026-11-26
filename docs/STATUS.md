@@ -235,7 +235,7 @@ APK 版本元数据和 NDK 构建入口，共记录 **28 条已修缺陷（H-01�
 **当前开口（按优先级）**：
 1. 非 Mali GPU 家族**适配器**（Adreno kgsl+Turnip / 通用 DRM）：探测表与降级已落地（evidence 127），
    适配器本身等有设备再写——没设备只能出未验证代码；
-2. 传感器 / GPS / USB / 蓝牙 / NFC / 指纹——未开始（先读 `husk-notes/prior-art/sensor-gps-*.md`、`platform-peripherals-*.md`）；
+2. 传感器（中转，NDK `ASensorManager_*` 可做，未做）、定位 / USB / 蓝牙（中转，卡在 `hasCode=false` 的 Java 回调）、NFC / 指纹（不需要）——四类口径与逐条理由见 `docs/design/hardware-interface-map.md`；
 3. 2.0 集成：映射表与替代启动器已落地（docs/design/linuxhub-2.0-swap.md，evidence 129）；
    ① `su` 已用 husk-su 替掉（evidence 139），PAM 那条路仍是 UNKNOWN 但不再需要；
    ② Kotlin 侧已经接上（运行时替换 + 资产），门禁 A 的干净重跑见 evidence 140；

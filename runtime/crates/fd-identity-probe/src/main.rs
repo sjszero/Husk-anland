@@ -753,6 +753,122 @@ fn test_drm_preload() {
     }
 }
 
+/// Identity must come from exact names, never substrings.
+///
+/// The old predicate was `windows(4).any(|w| w == b"mali") || windows(12)
+/// .any(|w| w == b"/memfd:husk-")`, which claimed two classes of foreign fd:
+/// any ordinary path containing "mali", and every `husk-*` memfd - including
+/// the V4L2 shim's camera fds (`/memfd:husk-v4l2-N`). Both then entered the DRM
+/// ioctl/mmap emulation. This probe pins the exactness from the outside, the
+/// way a real client sees it.
+fn test_drm_is_fake_exactness() {
+    const NAME: &str = "drm-preload-is-fake-exact-names";
+    const SYS_MEMFD_CREATE: libc::c_long = 279;
+
+    let handle = match unsafe { load_drm_preload() } {
+        Ok(v) => v,
+        Err(e) => {
+            line(NAME, false, e);
+            return;
+        }
+    };
+    let sym = unsafe {
+        libc::dlsym(
+            handle,
+            b"drm_shim_is_fake\0".as_ptr() as *const libc::c_char,
+        )
+    };
+    if sym.is_null() {
+        line(NAME, false, "missing drm_shim_is_fake");
+        return;
+    }
+    let is_fake: unsafe extern "C" fn(RawFd) -> i32 = unsafe { std::mem::transmute(sym) };
+
+    let mut problems: Vec<String> = Vec::new();
+
+    // 1. An ordinary file whose *path* contains "mali" must not be claimed.
+    let decoy = b"/tmp/mali-cache-decoy\0";
+    let decoy_fd = unsafe {
+        libc::open(
+            decoy.as_ptr() as *const libc::c_char,
+            libc::O_CREAT | libc::O_RDWR,
+            0o644,
+        )
+    };
+    if decoy_fd < 0 {
+        problems.push(format!("open /tmp/mali-cache-decoy: {}", errno()));
+    } else {
+        let got = unsafe { is_fake(decoy_fd) };
+        if got != 0 {
+            problems.push(format!(
+                "/tmp/mali-cache-decoy claimed as DRM fake fd ({got})"
+            ));
+        }
+        unsafe { libc::close(decoy_fd) };
+        unsafe { libc::unlink(decoy.as_ptr() as *const libc::c_char) };
+    }
+
+    // 2. Another subsystem's memfd must not be claimed. `/memfd:husk-v4l2-N`
+    //    is what the camera shim hands to guests.
+    let name = b"husk-v4l2-0\0";
+    let v4l2_fd =
+        unsafe { libc::syscall(SYS_MEMFD_CREATE, name.as_ptr() as *const libc::c_char, 0u32) }
+            as RawFd;
+    if v4l2_fd < 0 {
+        problems.push(format!("memfd_create husk-v4l2-0: {}", errno()));
+    } else {
+        let got = unsafe { is_fake(v4l2_fd) };
+        if got != 0 {
+            problems.push(format!("/memfd:husk-v4l2-0 claimed as DRM fake fd ({got})"));
+        }
+        unsafe { libc::close(v4l2_fd) };
+    }
+
+    // 3. The two names that *are* ours must still be claimed.
+    let drm_name = b"husk-drm\0";
+    let drm_fd = unsafe {
+        libc::syscall(
+            SYS_MEMFD_CREATE,
+            drm_name.as_ptr() as *const libc::c_char,
+            0u32,
+        )
+    } as RawFd;
+    if drm_fd < 0 {
+        problems.push(format!("memfd_create husk-drm: {}", errno()));
+    } else {
+        let got = unsafe { is_fake(drm_fd) };
+        if got != 1 {
+            problems.push(format!("/memfd:husk-drm not claimed ({got})"));
+        }
+        unsafe { libc::close(drm_fd) };
+    }
+
+    let mali = b"/dev/mali0\0";
+    let mali_fd = unsafe { libc::open(mali.as_ptr() as *const libc::c_char, libc::O_RDWR) };
+    if mali_fd < 0 {
+        problems.push(format!(
+            "open /dev/mali0: {} (device absent, cannot verify positive case)",
+            errno()
+        ));
+    } else {
+        let got = unsafe { is_fake(mali_fd) };
+        if got != 1 {
+            problems.push(format!("/dev/mali0 not claimed ({got})"));
+        }
+        unsafe { libc::close(mali_fd) };
+    }
+
+    line(
+        NAME,
+        problems.is_empty(),
+        if problems.is_empty() {
+            "decoy paths and foreign memfds rejected; husk-drm and /dev/mali0 claimed".to_string()
+        } else {
+            problems.join("; ")
+        },
+    );
+}
+
 fn main() {
     let rootfs = std::env::var("NR_ROOTFS").unwrap_or_else(|_| "/".into());
     line("start", true, format!("rootfs={rootfs}"));
@@ -769,4 +885,5 @@ fn main() {
     test_netlink_overwrite(true, "netlink-dup3-ordinary-over-fake");
     test_netlink_dup_preserved();
     test_drm_preload();
+    test_drm_is_fake_exactness();
 }
