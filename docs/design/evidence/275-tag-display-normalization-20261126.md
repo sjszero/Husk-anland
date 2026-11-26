@@ -17,6 +17,14 @@ FACT：本地重写后的 32 个 tag 显示名全部通过检查：
 ```text
 MISMATCH_COUNT=0
 local tag subjects: PASS
+remote tag commit targets: PASS (32/32)
+```
+
+FACT：推送后重新从 GitHub API 回读，发布门禁通过：
+
+```text
+README header: PASS
+release naming audit: PASS (tags=32 releases=32 latest=Husk 0.0.32)
 ```
 
 ## 1 · 修复前的不合规类型
