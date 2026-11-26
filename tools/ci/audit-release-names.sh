@@ -13,12 +13,15 @@ trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 fail=0
 version=$(cat VERSION)
 
-# The landing page is part of the release surface.  Keep the hero block free of
-# prose so a project introduction cannot silently move back above "## 概览".
-if ! sh tools/ci/audit-readme-header.sh; then
+# 离线半：版本三元组、tag 命名、序列不跳号、VERSION 与最新 tag 的一致关系、
+# 首页首屏头块。这些不需要网络，已经进 CI（tools/ci/audit-release-offline.sh）；
+# 这里再调一次，保证"人工跑的联网检查"包含同样的规则，而不是各写一遍。
+if ! sh tools/ci/audit-release-offline.sh; then
     fail=1
 fi
 
+# 下面是联网半：只有 GitHub 知道的那些事情。tag 列表仍然取远端视图，因为
+# annotated tag 的注释正文要从 GitHub 读。
 git ls-remote --tags origin > "$tmp/remote-tags"
 awk '$2 ~ /^refs\/tags\// {
     tag = $2
@@ -26,84 +29,7 @@ awk '$2 ~ /^refs\/tags\// {
     sub(/\^\{\}$/, "", tag)
     print tag
 }' "$tmp/remote-tags" | sort -u > "$tmp/tag-names"
-
-tag_count=0
-while IFS= read -r tag; do
-    case "$tag" in
-        v[0-9]*.[0-9]*.[0-9]*) ;;
-        *)
-            echo "invalid tag name: $tag (expected vX.Y.Z)" >&2
-            fail=1
-            continue
-            ;;
-    esac
-
-    number=${tag#v}
-    if ! printf '%s\n' "$number" | awk -F. '
-        NF != 3 { exit 1 }
-        $1 !~ /^(0|[1-9][0-9]*)$/ ||
-        $2 !~ /^(0|[1-9][0-9]*)$/ ||
-        $3 !~ /^(0|[1-9][0-9]*)$/ { exit 1 }
-        $1 > 99 || $2 > 99 || $3 > 99 { exit 1 }
-    '; then
-        echo "invalid version tag: $tag (expected vX.Y.Z, components 0..99, no leading zeros)" >&2
-        fail=1
-        continue
-    fi
-    tag_count=$((tag_count + 1))
-done < "$tmp/tag-names"
-
-# Versions advance one release at a time using base-100 components.  This is
-# deliberately stricter than a generic SemVer check: it catches skipped
-# releases and the 0.0.100-style mistake before a release page is trusted.
-sed 's/^v//' "$tmp/tag-names" \
-    | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
-    | sort -t. -k1,1n -k2,2n -k3,3n > "$tmp/tag-versions"
-
-first=1
-last_version=
-expected_major=0
-expected_minor=0
-expected_patch=1
-while IFS=. read -r major minor patch; do
-    [ -n "$major" ] || continue
-    if [ "$first" -eq 1 ]; then
-        if [ "$major" -ne 0 ] || [ "$minor" -ne 0 ] || [ "$patch" -ne 1 ]; then
-            echo "release sequence must start at 0.0.1, found $major.$minor.$patch" >&2
-            fail=1
-        fi
-        first=0
-    elif [ "$major" -ne "$expected_major" ] || \
-         [ "$minor" -ne "$expected_minor" ] || \
-         [ "$patch" -ne "$expected_patch" ]; then
-        echo "release sequence gap: expected $expected_major.$expected_minor.$expected_patch, found $major.$minor.$patch" >&2
-        fail=1
-    fi
-
-    expected_patch=$((patch + 1))
-    if [ "$expected_patch" -eq 100 ]; then
-        expected_patch=0
-        expected_minor=$((minor + 1))
-        if [ "$expected_minor" -eq 100 ]; then
-            expected_minor=0
-            expected_major=$((major + 1))
-        else
-            expected_major=$major
-        fi
-    else
-        expected_minor=$minor
-        expected_major=$major
-    fi
-    last_version="$major.$minor.$patch"
-done < "$tmp/tag-versions"
-
-if [ "$first" -eq 1 ]; then
-    echo "release sequence is empty" >&2
-    fail=1
-elif [ "$last_version" != "$version" ]; then
-    echo "latest tag is v$last_version but VERSION is $version" >&2
-    fail=1
-fi
+tag_count=$(wc -l < "$tmp/tag-names" | tr -d ' ')
 
 repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
 

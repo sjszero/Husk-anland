@@ -449,3 +449,109 @@ fn hex_nibble(b: u8) -> io::Result<u8> {
         _ => Err(io::Error::new(io::ErrorKind::InvalidData, "non-hex digit")),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn layout_rejects_out_of_range_and_is_aligned() {
+        assert!(RingLayout::new(0, 4096).is_err(), "0 slots must be refused");
+        assert!(
+            RingLayout::new(65, 4096).is_err(),
+            ">64 slots must be refused"
+        );
+        assert!(
+            RingLayout::new(4, RECORD_HEADER_SIZE as u32 - 1).is_err(),
+            "slot smaller than the record header must be refused"
+        );
+        assert!(
+            RingLayout::new(4, 64 * 1024 * 1024 + 1).is_err(),
+            "slot above the 64 MiB ceiling must be refused"
+        );
+        let l = RingLayout::new(4, 2 * 1024 * 1024).unwrap();
+        assert_eq!(l.slots, 4);
+        assert_eq!(l.stride % 64, 0, "stride has to stay 64-byte aligned");
+        assert_eq!(
+            l.bytes,
+            RING_HEADER_SIZE + l.stride as usize * l.slots as usize,
+            "ring size is header + slots*stride, nothing else"
+        );
+    }
+
+    #[test]
+    fn hex_round_trips_and_refuses_junk() {
+        let bytes: Vec<u8> = (0..=255u8).collect();
+        assert_eq!(hex_decode(&hex_encode(&bytes)).unwrap(), bytes);
+        assert_eq!(hex_encode(&[0x00, 0x0f, 0xff]), "000fff");
+        assert!(hex_decode("abc").is_err(), "odd length must be refused");
+        assert!(hex_decode("zz").is_err(), "non-hex digit must be refused");
+    }
+
+    #[test]
+    fn ring_is_fifo_and_reports_full() {
+        let (ring, fd) = MappedRing::create(RingLayout::new(2, 4096).unwrap()).unwrap();
+        close_fd(fd);
+
+        ring.write_sample(1, 1_000, 900, 1, b"first").unwrap();
+        ring.write_sample(2, 2_000, 1_900, 0, b"second").unwrap();
+        let err = ring.write_sample(3, 0, 0, 0, b"third").unwrap_err();
+        assert_eq!(
+            err.kind(),
+            io::ErrorKind::WouldBlock,
+            "ring full must block"
+        );
+
+        let mut out = Vec::new();
+        let meta = ring.read_into(1, &mut out).unwrap();
+        assert_eq!(meta.seq, 1);
+        assert_eq!(meta.pts_us, 1_000);
+        assert_eq!(meta.dts_us, 900);
+        assert_eq!(meta.flags, 1);
+        assert_eq!(meta.len, 5);
+        assert_eq!(&out[..], b"first");
+        // read_into 不推进 read_seq：没 commit 之前同一槽还能再读一次。
+        assert!(ring.read_into(2, &mut out).is_ok());
+        ring.commit(1).unwrap();
+
+        let mut out = Vec::new();
+        ring.read_into(2, &mut out).unwrap();
+        assert_eq!(&out[..], b"second");
+        ring.commit(2).unwrap();
+
+        // 腾出槽位后必须还能写，且序号连续（这就是"卡死"类回归的探针）。
+        ring.write_sample(3, 0, 0, 0, b"third").unwrap();
+        let mut out = Vec::new();
+        let meta = ring.read_into(3, &mut out).unwrap();
+        assert_eq!(&out[..], b"third");
+        assert_eq!(meta.seq, 3);
+    }
+
+    #[test]
+    fn empty_ring_blocks_instead_of_returning_garbage() {
+        let (ring, fd) = MappedRing::create(RingLayout::new(2, 4096).unwrap()).unwrap();
+        close_fd(fd);
+        let mut out = vec![0u8; 8];
+        let err = ring.read_into(1, &mut out).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::WouldBlock);
+    }
+
+    #[test]
+    fn oversized_and_out_of_order_writes_are_refused() {
+        let (ring, fd) = MappedRing::create(RingLayout::new(2, 4096).unwrap()).unwrap();
+        close_fd(fd);
+
+        let too_big = vec![0u8; 4097];
+        let err = ring.write_sample(1, 0, 0, 0, &too_big).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+
+        // 序号必须从 1 开始连续，跳号会让消费者永远等不到第一条。
+        let err = ring.write_sample(2, 0, 0, 0, b"skipped").unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+
+        // 空 ring 上 commit 一个不存在的序号也必须被拒。
+        let err = ring.commit(1).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(ring.sequences(), (0, 0));
+    }
+}

@@ -72,9 +72,15 @@ jobs:
       # Host target on purpose: these crates are std and their assertions are
       # pure, so they can run here. The no_std/aarch64 crates cannot - they are
       # compile-checked by the `check` job and exercised on a device instead.
+      #
+      # video-protocol and husk-va-driver are Linux-host-only: they call
+      # libc::memfd_create, which the macOS libc crate does not expose, so
+      # `cargo test` on the dev box cannot even link them. That is why they are
+      # here and not in `make check`.
       - run: >
           cargo test --manifest-path runtime/Cargo.toml
-          -p gpu-env -p session-env -p usermgr
+          -p gpu-env -p session-env -p usermgr -p nr-tools
+          -p video-protocol -p husk-va-driver
 
   preloads:
     name: LD_PRELOAD layers (build + export contract)
@@ -153,7 +159,14 @@ jobs:
     name: shell scripts parse
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 -> tags are present, so the release-sequence half of the
+      # offline audit really runs instead of printing SKIP.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: release naming contract (offline half)
+        run: sh tools/ci/audit-release-offline.sh
+
       - name: release version contract
         run: sh tools/ci/test-version-bump.sh
 
