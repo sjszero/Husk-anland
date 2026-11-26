@@ -7,6 +7,7 @@
 #   make apk     loader + ArkTS-free Rust app .so + Gradle assembleDebug
 #   make bench   three-runner benchmark (needs a device)
 #   make gate-a  the 38-item acceptance gate + path/V4L2/DRM probes (needs a device)
+#   make gpu-audit  desktop shell + nested GTK app hardware-GPU inheritance (needs a device)
 #   make docs    markdown link check
 #   make dist    release artifacts + SHA256SUMS
 
@@ -16,7 +17,7 @@ MANIFEST    := runtime/Cargo.toml
 PROFILE_DIR := runtime/target/$(TARGET)/release
 HUSK_TOOLS  := runtime/target/debug/husk-tools
 
-.PHONY: all check lint test tools nr-tools loader apk bench gate-a virt-race docs dist clean version-check version-bump release-audit \
+.PHONY: all check lint test tools nr-tools loader apk bench gate-a gpu-audit virt-race docs dist clean version-check version-bump release-audit \
         libc-patch libc-verify
 
 all: lint check version-check
@@ -136,6 +137,13 @@ bench:
 
 # 门禁 A = 38 项验收 + 覆盖度探针 + 补充组/session locale/身份初始化/组表竞态/session guard/rootfd/最终 symlink 真机回归。
 # 探针单列一步，因为 locale 看 env -i 后的真实值，竞态看宿主哨兵是否被改动。
+gpu-audit:
+	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.myth.husk} \
+		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} \
+		LD=$${LD:-files/linux/husk/libld.so} \
+		ENV=DISPLAY=:0,XDG_RUNTIME_DIR=/tmp/runtime-husk \
+		sh tools/device-tests/run-guest.sh 15-gpu-global-audit.sh
+
 gate-a:
 	DEV=$${DEV:?} PKG=$${PKG:-com.linuxhub.myth.husk} \
 		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} \

@@ -204,14 +204,32 @@ while [ $i -lt 15 ]; do
     if g usr/bin/xwininfo -root -children 2>/dev/null | grep -q 'Desktop Icons'; then ding=yes; break; fi
     sleep 1; i=$((i+1))
 done
-# GPU 这一项只看证据，不猜：llvmpipe 会话的日志里会有 llvmpipe/swrast，zink+PanVK 的
-# 会话里会出现 PanVK/FristOneRR 的告警。rootfs 里没有 gl-probe（那是开发机上的探针），
-# 所以这里读日志而不是跑探针。
+# GPU 这一项不能只看日志里的一个单词，也不能要求 VK_ICD_FILENAMES 出现在 environ：
+# loader 的填空默认值只回答 getenv，不会反写 /proc/<pid>/environ（evidence 187）。
+# 以进程真实状态为准：zink 变量 + 硬件设备 fd + 已加载的硬件 Vulkan 后端，三者齐全才记
+# zink。任何一项缺失都降级为 partial/unknown，不用日志冒充实测。
 gpu=unknown
-if [ -f "$ROOTFS/tmp/husk-shell.log" ]; then
-    if grep -qiE 'llvmpipe|swrast' "$ROOTFS/tmp/husk-shell.log"; then gpu=llvmpipe
-    elif grep -qiE 'panvk|FristOneRR|zink' "$ROOTFS/tmp/husk-shell.log"; then gpu=zink
+shell_pid=$(ps -A -o PID,ARGS 2>/dev/null | awk '/usr\/bin\/gnome-shell/ && $0 !~ /awk/ { print $1; exit }')
+if [ -n "${shell_pid:-}" ]; then
+    shell_env=$(tr '\000' '\n' < "/proc/$shell_pid/environ" 2>/dev/null || true)
+    shell_fds=$(ls -l "/proc/$shell_pid/fd" 2>/dev/null || true)
+    shell_maps=$(grep -E '/(libvulkan_(panfrost|freedreno)[^/]*\.so)' "/proc/$shell_pid/maps" 2>/dev/null || true)
+    if printf '%s\n' "$shell_env" | grep -qx 'GALLIUM_DRIVER=zink' && \
+       printf '%s\n' "$shell_env" | grep -qx 'MESA_LOADER_DRIVER_OVERRIDE=zink' && \
+       printf '%s\n' "$shell_fds" | grep -qE '/dev/(mali0|kgsl-3d0)' && \
+       [ -n "$shell_maps" ]; then
+        gpu=zink
+    elif printf '%s\n' "$shell_env" | grep -qx 'GALLIUM_DRIVER=zink' && \
+         printf '%s\n' "$shell_fds" | grep -qE '/dev/(mali0|kgsl-3d0)' ; then
+        gpu=zink-partial
+    elif printf '%s\n' "$shell_env" | grep -qE '(^LIBGL_ALWAYS_SOFTWARE=1$|^GALLIUM_DRIVER=llvmpipe$|^MESA_LOADER_DRIVER_OVERRIDE=swrast$)'; then
+        gpu=llvmpipe
     fi
+fi
+# 没有可读取的进程信息时只作为日志提示，不把它升级成“已用 GPU”的结论。
+if [ "$gpu" = unknown ] && [ -f "$ROOTFS/tmp/husk-shell.log" ] && \
+   grep -qiE 'panvk|FristOneRR|zink' "$ROOTFS/tmp/husk-shell.log"; then
+    gpu=zink-log
 fi
 
 echo "CHECK wm=$wm"
