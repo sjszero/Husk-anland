@@ -148,9 +148,13 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      # 两个 target 都要：app-rs 编 aarch64-linux-android，而 `make loader`
+      # 要编 guest 侧那几块 no_std crate（runtime-core / drm-shim / v4l2-shim），
+      # 它们是 aarch64-unknown-linux-gnu。漏了这个 target，`make apk` 会在
+      # `can't find crate for core` 上倒下（run 45824929709 实测）。
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android,aarch64-unknown-linux-gnu
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: app-rs
