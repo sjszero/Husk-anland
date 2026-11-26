@@ -298,3 +298,28 @@ CI 的 `libc patch artifact asserts` 作业从第一个版本起就是红的（r
   挪出递归帧，否则是拿栈溢出换 ELOOP；测 16/17/40/41 层。
 - 假 DRM / V4L2 / netlink fd 的身份判定改精确名字（现在 `drm-preload` 用子串 `mali`）。
 - `usermgr` 四库事务化；只读挂载补 `chmod`/`chown`/`utimensat`。
+
+## 8 · CI 全线绿（本次门禁的真实交付）
+
+第 2 轮开工前，`main` 上**连续 6 个提交的 CI 全是红的**（`5bc335c`…`13231bd`），
+而且红得不带信息：三个作业各有各的结构性原因，谁也没在看，于是"CI 绿不绿"这件事
+事实上不存在。
+
+| 作业 | 修前 | 原因 | 修后 |
+|---|---|---|---|
+| `apk` / `android` | 红 | 拼 `ANDROID_NDK_LATEST_HOME`（ubuntu-latest 没有这个变量）→ `/toolchains/.../clang` | 各自解析 NDK：先找 `$ANDROID_HOME/ndk/*`，没有再用 sdkmanager 装 |
+| `apk` | 红 | `make loader` 要编 guest 侧 no_std crate（`aarch64-unknown-linux-gnu`），作业只装了 `aarch64-linux-android` → `can't find crate for core` | rust-toolchain 两个 target 一起装 |
+| `libc` | 红 | 钉子钉了不存在的 `69ceef37`（§6） | 改钉 8.5 / `19554f27` |
+
+**FACT**：run `45825616837`（commit `30d487b`）**11/11 作业全绿**：
+
+```
+cargo fmt: success                          cargo check (aarch64-unknown-linux-gnu): success
+cargo clippy: success                       cargo test (host): success
+LD_PRELOAD layers: success                  app-rs cross compile (aarch64-linux-android): success
+APK build and version contract: success     libc patch artifact asserts: success
+shell scripts parse: success                docs links: success
+brand assets present: success
+```
+
+这是"回归网"能成立的前提：网先得是绿的，红才有意义。
