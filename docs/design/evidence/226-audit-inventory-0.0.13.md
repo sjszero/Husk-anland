@@ -40,6 +40,7 @@
 | H-32 | 发布构建 | `libc-nop.so.6` 是被忽略的生成物，但 `make dist` 没生成也没前置拒绝；clean tree 在复制阶段失败 | 252 |
 | H-33 | V4L2 | `dev_of_fd()` 只按 fd 号码认相机；`dup2`/`dup3` 用普通文件覆盖假 fd 后，`VIDIOC_QUERYCAP` 仍伪成功 | 253 |
 | H-34 | V4L2 | 假 fd 被覆盖后 live memfd 引用可为 0，但 `close()` 只把 1 当最后引用，camera.sock 泄漏不关闭 | 253 |
+| H-35 | GPU/DRM | `libdrm_preload.so` 把 fd 号码记在私有表里；`dup2` 用普通文件覆盖假 DRM fd 后仍认成 DRM，并把普通文件 ioctl 错误路由进 GPU 模拟层 | 254 |
 
 ## 2 · 记录在案、不修或不完全修的（L）
 

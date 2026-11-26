@@ -7,6 +7,36 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.27] - 2026-11-26
+
+> 主题：**修掉 `libdrm_preload.so` 把 fd 号码当永久身份的问题**。
+> 这一版只改 DRM preload 的设备身份判定与测试门禁，不改变 GPU 后端，也不宣称 Adreno 已真机验证。
+
+### 修复
+
+- **DRM preload 不再维护 fd 号码表**（evidence 254）。旧实现用 `FAKE: [i32; 8]` 记录假 fd，
+  `dup2`/`dup3` 覆盖目标后无法知道旧号码已经变成普通文件；现在每次判定都读取
+  `/proc/self/fd/<n>` 的内核目标，识别 `memfd:husk-*` 与真实 `mali` 节点。
+- **复制保留方向仍成立**（evidence 254）。假 fd 被 `dup2` 到新号码、源 fd 关闭后，
+  新号码仍能从 `/proc/self/fd` 识别为 DRM 设备。
+- **DRM preload 纳入编译与 Clippy 门禁**（evidence 254）。`make check` 和 CI 不再漏掉这个
+  LD_PRELOAD crate；fd 身份探针同时动态加载并测试它。
+
+### 验证
+
+- 旧 `0.0.26` 构建的 `libdrm_preload.so` 负对照：
+  `drm-preload-dup2-ordinary-over-fake|FAIL|before=1 after=1 expected=1->0`。
+- 修后真机：覆盖方向 `PASS|before=1 after=0 expected=1->0`；复制保留方向
+  `PASS|is_fake_after_source_close=1 expected=1`。
+- `fd-identity-probe` 8 个断言全部 PASS，V4L2、netlink 既有回归同时通过。
+- 完整门禁 A、`make check` 与发布构建的结果见 evidence 254。
+
+### 边界
+
+- FACT：动态证据来自 RMX3357 / MT6893 / Mali-G77 / Android 13 / kernel 4.19.191 / 4 KiB。
+- UNKNOWN：Adreno/KGSL 真机上的同路径仍没有动态证据。
+- UNKNOWN：`SCM_RIGHTS` 跨进程传假 DRM fd，以及多线程同时 `dup2`/`dup3`/`close` 的长时压力。
+
 ## [0.0.26] - 2026-11-26
 
 > 主题：**修掉 V4L2 假相机 fd 被 `dup2`、`dup3` 覆盖后的身份误判与 socket 泄漏**。
@@ -1122,7 +1152,8 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.26...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.27...HEAD
+[0.0.27]: https://github.com/xishanp/Husk/releases/tag/v0.0.27
 [0.0.26]: https://github.com/xishanp/Husk/releases/tag/v0.0.26
 [0.0.25]: https://github.com/xishanp/Husk/releases/tag/v0.0.25
 [0.0.24]: https://github.com/xishanp/Husk/releases/tag/v0.0.24

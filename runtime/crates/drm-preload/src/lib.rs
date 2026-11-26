@@ -30,7 +30,6 @@ const O_RDWR: i32 = 2;
 
 static LOCK: AtomicBool = AtomicBool::new(false);
 static mut CTX: drm_shim::DrmCtx = drm_shim::DrmCtx::empty();
-static mut FAKE: [i32; 8] = [-1; 8];
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
@@ -100,14 +99,11 @@ unsafe fn sycall_write(b: &[u8]) {
 }
 
 unsafe fn is_fake(fd: i32) -> bool {
-    let mut i = 0;
-    while i < FAKE.len() {
-        if FAKE[i] == fd && fd >= 0 {
-            return true;
-        }
-        i += 1;
-    }
-    // loader 里的 shim 建的是 memfd("husk-drm")：两个层不共享状态，靠名字认
+    // Never trust a fd number kept in a private table. dup2/dup3 can close the
+    // old destination and install an ordinary file under the same number; glibc
+    // internals can also close without entering this preload's close symbol.
+    // The kernel's /proc/self/fd target is the identity. Both fake forms are
+    // recognizable: loader memfd "husk-drm" and the real kbase node "mali".
     if fd < 0 {
         return false;
     }
@@ -148,17 +144,6 @@ unsafe fn is_fake(fd: i32) -> bool {
     let s = &out[..n];
     let hit = s.windows(12).any(|w| w == b"/memfd:husk-") || s.windows(4).any(|w| w == b"mali");
     hit
-}
-
-unsafe fn register_fake(fd: i32) {
-    let mut i = 0;
-    while i < FAKE.len() {
-        if FAKE[i] < 0 {
-            FAKE[i] = fd;
-            return;
-        }
-        i += 1;
-    }
 }
 
 unsafe fn cstr_len(p: *const u8) -> usize {
@@ -206,11 +191,7 @@ unsafe fn fake_drm_open() -> i32 {
     unlock();
     // 用真的 /dev/mali0：dup 出来的 fd 靠 readlink 里的 "mali" 认回来，
     // libdrm 那边 fstat 也能看到一个合法的字符设备（memfd 的 st_rdev 是 0:0，会被当成非 DRM 设备）。
-    let fd = open_raw(b"/dev/mali0\0", O_RDWR, 0);
-    if fd >= 0 {
-        register_fake(fd);
-    }
-    fd
+    open_raw(b"/dev/mali0\0", O_RDWR, 0)
 }
 
 #[no_mangle]

@@ -351,6 +351,127 @@ fn test_netlink_dup_preserved() {
     }
 }
 
+unsafe fn load_drm_preload() -> Result<*mut c_void, String> {
+    const PATH: &[u8] = b"/root/libhusk_drm.so\0";
+    let handle = libc::dlopen(PATH.as_ptr() as *const libc::c_char, libc::RTLD_NOW);
+    if handle.is_null() {
+        let detail = libc::dlerror();
+        let text = if detail.is_null() {
+            "unknown dlopen error".into()
+        } else {
+            std::ffi::CStr::from_ptr(detail)
+                .to_string_lossy()
+                .into_owned()
+        };
+        Err(format!("dlopen /root/libhusk_drm.so: {text}"))
+    } else {
+        Ok(handle)
+    }
+}
+
+fn test_drm_preload() {
+    const NAME: &str = "drm-preload-dup2-ordinary-over-fake";
+    const PRESERVED: &str = "drm-preload-dup2-fake-preserved";
+
+    let handle = match unsafe { load_drm_preload() } {
+        Ok(v) => v,
+        Err(e) => {
+            line(NAME, false, e.clone());
+            line(PRESERVED, false, e);
+            return;
+        }
+    };
+    let open_sym = unsafe {
+        libc::dlsym(
+            handle,
+            b"husk_drm_fake_open\0".as_ptr() as *const libc::c_char,
+        )
+    };
+    let fake_sym = unsafe {
+        libc::dlsym(
+            handle,
+            b"drm_shim_is_fake\0".as_ptr() as *const libc::c_char,
+        )
+    };
+    if open_sym.is_null() || fake_sym.is_null() {
+        line(
+            NAME,
+            false,
+            "missing husk_drm_fake_open or drm_shim_is_fake",
+        );
+        return;
+    }
+    let fake_open: unsafe extern "C" fn() -> RawFd = unsafe { std::mem::transmute(open_sym) };
+    let is_fake: unsafe extern "C" fn(RawFd) -> i32 = unsafe { std::mem::transmute(fake_sym) };
+
+    let victim = unsafe { fake_open() };
+    if victim < 0 {
+        line(NAME, false, format!("husk_drm_fake_open errno={}", errno()));
+        return;
+    }
+    let victim_owner = unsafe { File::from_raw_fd(victim) };
+    let ordinary = match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open("/tmp/fdidentity-drm-preload-ordinary")
+    {
+        Ok(v) => v,
+        Err(e) => {
+            line(NAME, false, format!("ordinary open: {e}"));
+            return;
+        }
+    };
+    let before = unsafe { is_fake(victim) };
+    let rc = unsafe { libc::dup2(ordinary.as_raw_fd(), victim) };
+    if rc != victim {
+        line(NAME, false, format!("dup2 rc={rc} errno={}", errno()));
+        return;
+    }
+    let after = unsafe { is_fake(victim) };
+    line(
+        NAME,
+        before != 0 && after == 0,
+        format!("before={before} after={after} expected=1->0"),
+    );
+    drop(ordinary);
+    drop(victim_owner);
+
+    let source = unsafe { fake_open() };
+    if source < 0 {
+        line(
+            PRESERVED,
+            false,
+            format!("husk_drm_fake_open errno={}", errno()),
+        );
+        return;
+    }
+    let source_owner = unsafe { File::from_raw_fd(source) };
+    unsafe {
+        libc::close(COPY_FD);
+    }
+    let copied = unsafe { libc::dup2(source, COPY_FD) };
+    if copied != COPY_FD {
+        line(
+            PRESERVED,
+            false,
+            format!("dup2 rc={copied} errno={}", errno()),
+        );
+        return;
+    }
+    drop(source_owner);
+    let family = unsafe { is_fake(COPY_FD) };
+    line(
+        PRESERVED,
+        family != 0,
+        format!("is_fake_after_source_close={family} expected=1"),
+    );
+    unsafe {
+        libc::close(COPY_FD);
+    }
+}
+
 fn main() {
     let rootfs = std::env::var("NR_ROOTFS").unwrap_or_else(|_| "/".into());
     line("start", true, format!("rootfs={rootfs}"));
@@ -362,4 +483,5 @@ fn main() {
     test_netlink_overwrite(false, "netlink-dup2-ordinary-over-fake");
     test_netlink_overwrite(true, "netlink-dup3-ordinary-over-fake");
     test_netlink_dup_preserved();
+    test_drm_preload();
 }

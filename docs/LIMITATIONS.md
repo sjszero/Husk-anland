@@ -375,6 +375,16 @@ STREAMON/DQBUF 与多线程压力仍未验证，UNKNOWN。
 通过 `SCM_RIGHTS` 把假 DRM fd 交给另一进程后的表身份恢复仍未实现；多线程同时
 `dup2`/`dup3`/`close` 的长时压力也仍是 UNKNOWN。
 
+## 20 · DRM preload 假 fd 的覆盖写（2026-11-26）
+
+0.0.27 起，`libdrm_preload.so` 不再保存 fd 号码身份表。每次判定都通过 `/proc/self/fd/<n>`
+读取内核目标，只有 `memfd:husk-*` 或真实 `mali` 节点才进入 DRM 模拟；普通文件通过
+`dup2`/`dup3` 覆盖旧号码后不会再被误认（evidence 254）。假 fd 复制到新号码、源关闭后的
+识别仍然成立。
+
+**仍未验证的是 Adreno/KGSL 真机**：当前设备只有 Mali-G77。通过 `SCM_RIGHTS` 把假 DRM fd
+交给另一进程后的身份恢复未实现；多线程同时 `dup2`/`dup3`/`close` 的长时压力仍是 UNKNOWN。
+
 ## 19 · V4L2 假 fd 的覆盖写与跨进程边界（2026-11-26）
 
 0.0.26 起，V4L2 不再把 fd 号码当设备身份。每次 ioctl / mmap / close 都通过

@@ -1,9 +1,11 @@
 #!/bin/sh
-# Dynamic identity regression for synthetic V4L2 and netlink descriptors.
+# Dynamic identity regression for synthetic V4L2, netlink and DRM descriptors.
 #
 # Runs a glibc Rust probe through the Husk loader and exercises both directions:
 #   ordinary -> fake destination: the destination must leave the emulation;
 #   fake -> copied descriptor:    the copy must keep the fake identity.
+#
+# The DRM half dlopens the preload directly and exercises its exported identity check.
 #
 # The V4L2 half uses an in-process camera.sock protocol impostor; no real camera
 # or app-side permission is required.
@@ -56,12 +58,14 @@ FLAGS="-C linker=$NDK_BIN/clang \
        -C link-arg=-Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 \
        -C link-arg=-Wl,-z,max-page-size=65536"
 RUSTFLAGS="$FLAGS" cargo build --manifest-path runtime/Cargo.toml \
-    --release --target aarch64-unknown-linux-gnu -p fd-identity-probe >/dev/null
+    --release --target aarch64-unknown-linux-gnu -p fd-identity-probe -p drm-preload >/dev/null
 BIN=runtime/target/aarch64-unknown-linux-gnu/release/fd-identity-probe
+PRELOAD=runtime/target/aarch64-unknown-linux-gnu/release/libdrm_preload.so
 
 adb -s "$DEV" push "$HERE/../guest/husk-session.sh" "$SESS" >/dev/null
 adb -s "$DEV" push "$BIN" /data/local/tmp/fd-identity-probe >/dev/null
-if ! adb -s "$DEV" shell "run-as $PKG sh -c 'cp /data/local/tmp/fd-identity-probe $ROOTFS/root/fd-identity-probe && chmod 755 $ROOTFS/root/fd-identity-probe'"; then
+adb -s "$DEV" push "$PRELOAD" /data/local/tmp/libhusk_drm.so >/dev/null
+if ! adb -s "$DEV" shell "run-as $PKG sh -c 'cp /data/local/tmp/fd-identity-probe $ROOTFS/root/fd-identity-probe && chmod 755 $ROOTFS/root/fd-identity-probe && cp /data/local/tmp/libhusk_drm.so $ROOTFS/root/libhusk_drm.so && chmod 755 $ROOTFS/root/libhusk_drm.so'"; then
     echo '--- fd-identity-probe: install failed' >&2
     exit 1
 fi
@@ -88,9 +92,11 @@ want 'fdidentity|v4l2-dup2-fake-preserved|PASS|' 'V4L2 假 fd 的 dup2 副本在
 want 'fdidentity|netlink-dup2-ordinary-over-fake|PASS|' 'netlink dup2 普通 socket 覆盖假 fd 后离开模拟层'
 want 'fdidentity|netlink-dup3-ordinary-over-fake|PASS|' 'netlink dup3 普通 socket 覆盖假 fd 后离开模拟层'
 want 'fdidentity|netlink-dup2-fake-preserved|PASS|' 'netlink 假 fd 的 dup2 副本在源关闭后仍是 AF_NETLINK'
+want 'fdidentity|drm-preload-dup2-ordinary-over-fake|PASS|' 'drm preload 的假 fd 被普通文件覆盖后不再认成 DRM'
+want 'fdidentity|drm-preload-dup2-fake-preserved|PASS|' 'drm preload 的假 fd 复制副本在源关闭后仍有效'
 
-adb -s "$DEV" shell "run-as $PKG rm -f $ROOTFS/root/fd-identity-probe" || true
-adb -s "$DEV" shell 'rm -f /data/local/tmp/fd-identity-probe' || true
+adb -s "$DEV" shell "run-as $PKG rm -f $ROOTFS/root/fd-identity-probe $ROOTFS/root/libhusk_drm.so" || true
+adb -s "$DEV" shell 'rm -f /data/local/tmp/fd-identity-probe /data/local/tmp/libhusk_drm.so' || true
 
 if [ "$fail" -ne 0 ]; then
     echo '--- fd-identity-probe: FAIL' >&2

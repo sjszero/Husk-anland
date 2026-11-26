@@ -26,6 +26,13 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 **仓库布局**：`runtime/crates/{path-shim,nr-tools,runtime-core,gpu-env}`（Rust）、`tools/loader/*.S`（裸汇编，仅入口与 hook）、
 `tools/device-tests/*.sh`、`docs/design/`（设计 + `evidence/` 原始记录）。
 
+**0.0.27 DRM preload fd 覆盖身份**：`libdrm_preload.so` 不再用私有 fd 号码表认定假 DRM。
+每次检查都读取 `/proc/self/fd` 的内核目标，因此 `dup2` 用普通文件覆盖旧假 fd 后会退出 DRM
+模拟层；假 fd 复制到新号码、源关闭后仍能识别。旧 0.0.26 `.so` 的负对照为
+`before=1 after=1`，修后为 `before=1 after=0`，复制保留方向 `PASS`。DRM preload 已接入
+`make check`、Clippy、CI 和 fd identity 真机门禁（evidence 254）。Adreno/KGSL 真机、
+跨进程 `SCM_RIGHTS` 与多线程覆盖压力仍是 UNKNOWN。
+
 **0.0.26 V4L2 fd 覆盖身份与零引用回收**：V4L2 不再按 fd 号码认定相机；`dup2`/`dup3`
 用普通文件覆盖假 `/dev/video0` 后，`VIDIOC_QUERYCAP` 会离开模拟层并返回普通文件失败，
 不再伪报 `driver=husk`。系统调用成功后 path-shim 会清核目标号码的旧 V4L2 设备；零 live
