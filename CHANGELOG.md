@@ -7,6 +7,46 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.32] - 2026-11-26
+
+> 主题：**修正文件创建 mode、虚拟所有权和 `access/faccessat` 的主体语义**。
+> 三项修复都进入实际发布的 `libld.so`，不是实验 preload 或桌面补丁。
+
+### 修复
+
+- **`O_CREAT` 不再强制追加 `0600`**（evidence 259）。旧实现为绕开 dpkg 重开 `0440`
+  conffile 的失败，把所有创建请求改成 `mode | 0600`，导致 guest 读回的模式永久改变；
+  现在保留调用方请求的 mode。dpkg 需要的临时放宽改为钉住 inode、加 owner-write、重新
+  `open` 后立即恢复原 `07777`，恢复失败则关闭新 fd 并返回错误。
+- **`fchown(fd)` 真正更新虚构所有权表**（evidence 259）。旧实现只返回成功，随后
+  `fstat(fd)` 和按路径 `stat` 都仍是真实 app uid；现在同一进程与后续进程查询都会得到
+  guest 设置的 uid/gid。
+- **`access/faccessat` 按 guest 身份判断，并检查全部父目录**（evidence 259）。旧实现把路径
+  交给内核，内核按真实 Android app uid 判断，导致假 root 读不了 `0000` 文件、非 root 又被
+  当成所有者；现在 root 使用 `CAP_DAC_OVERRIDE` 语义，非 root 按 owner/group/other 位判断，
+  且逐级检查父目录的 X 权限。只读挂载上的 `W_OK` 仍返回 `EROFS`。
+- **新增 dpkg conffile 真机探针**（evidence 259）。测试包内放入 `0440` conffile，真实执行
+  `dpkg -i` 后断言落盘模式仍为 `0440`，并接入门禁 A。
+
+### 验证
+
+- 修前真机负对照：`CREATE_MODE ... mode=640 expected=440`、
+  `OWNER_RESTORE ... mode_final=600`、`FCHOWN_SAME 0:0`、`ACCESS_ROOT ... read=-1/13`。
+- 修后真机：`mode=440`、`mode_final=440`、`same=1500:1600 cross=1500:1600`、
+  `ACCESS_ROOT read=0/0 write=0/0 exec0=-1/13 exec5=0/0`、
+  `ACCESS_USER parent=-1/13 owned=0/0`。
+- 完整门禁 A：`PASS=38 FAIL=0`；coverage-sweep 1400 条无泄漏；dpkg、V4L2、DRM 与
+  fd identity 全部通过。
+- `make check`：73 个 shell 脚本、284 个 Markdown 文件检查通过。
+
+### 边界
+
+- FACT：动态证据来自 RMX3357 / MT6893 / Mali-G77 / Android 13 / kernel 4.19.191 / 4 KiB。
+- FACT：三项 path-shim 修复都编入发布包 `libld.so`。
+- UNKNOWN：其他 Android 版本、16 KiB/64 KiB 真机与 Adreno 设备上的同一行为。
+- UNKNOWN：多线程目录替换、符号链接竞态与只读挂载组合压力未做专项动态验证。
+- UNVERIFIED：写放宽后的恢复失败分支没有在真机上人为注入故障。
+
 ## [0.0.31] - 2026-11-26
 
 > 主题：**补齐 V4L2 假节点的 open 标志语义，并把 netlink 标志加入真机回归**。
@@ -1269,7 +1309,8 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.31...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.32...HEAD
+[0.0.32]: https://github.com/xishanp/Husk/releases/tag/v0.0.32
 [0.0.31]: https://github.com/xishanp/Husk/releases/tag/v0.0.31
 [0.0.30]: https://github.com/xishanp/Husk/releases/tag/v0.0.30
 [0.0.29]: https://github.com/xishanp/Husk/releases/tag/v0.0.29

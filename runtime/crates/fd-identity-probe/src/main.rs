@@ -59,6 +59,52 @@ fn test_pathshim_drm_open_cloexec() {
     }
 }
 
+fn test_pathshim_fchown_owner() {
+    const NAME: &str = "pathshim-fchown-owner";
+    const PATH: &str = "/root/.fdidentity-fchown-owner";
+    let _ = std::fs::remove_file(PATH);
+    let file = match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(PATH)
+    {
+        Ok(v) => v,
+        Err(e) => {
+            line(NAME, false, format!("create: {e}"));
+            return;
+        }
+    };
+    let fd = file.as_raw_fd();
+    let chown_rc = unsafe { libc::fchown(fd, 1500, 1600) };
+    let chown_errno = if chown_rc == 0 { 0 } else { errno() };
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    let stat_rc = unsafe { libc::fstat(fd, &mut st) };
+    let same = format!("{}:{}", st.st_uid, st.st_gid);
+    drop(file);
+    let cross = match std::process::Command::new("/usr/bin/stat")
+        .args(["-c", "%u:%g", PATH])
+        .output()
+    {
+        Ok(v) if v.status.success() => String::from_utf8_lossy(&v.stdout).trim().to_string(),
+        Ok(v) => format!(
+            "stat rc={} stderr={}",
+            v.status,
+            String::from_utf8_lossy(&v.stderr).trim()
+        ),
+        Err(e) => format!("spawn stat: {e}"),
+    };
+    let _ = std::fs::remove_file(PATH);
+    line(
+        NAME,
+        chown_rc == 0 && stat_rc == 0 && same == "1500:1600" && cross == "1500:1600",
+        format!(
+            "chown_rc={chown_rc} chown_errno={chown_errno} same={same} cross={cross} expected=1500:1600"
+        ),
+    );
+}
+
 fn test_v4l2_open_flags(rootfs: &str) {
     const NAME: &str = "pathshim-v4l2-open-flags";
     let sock_path = PathBuf::from(rootfs).join("run/husk/camera.sock");
@@ -712,6 +758,7 @@ fn main() {
     line("start", true, format!("rootfs={rootfs}"));
 
     test_pathshim_drm_open_cloexec();
+    test_pathshim_fchown_owner();
     test_v4l2_open_flags(&rootfs);
     test_netlink_socket_flags();
     test_v4l2_overwrite(&rootfs, false, "v4l2-dup2-ordinary-over-fake");

@@ -100,6 +100,72 @@ int main(void)
       printf("HARDLINK_STDIO link_rc=%d link_errno=%d content=%s\n", lr, le, got);
       unlink(a); unlink(b); rmdir(dir); }
 
+    /* 6.0 O_CREAT 必须按 caller 给的 mode 落地，不能为了后续重开偷加 0600 */
+    { const char *p = "/root/.p-create-mode"; struct stat st;
+      unlink(p); mode_t old_umask = umask(0);
+      errno = 0; int fd = open(p, O_WRONLY | O_CREAT | O_EXCL, 0440);
+      int e = errno;
+      int mode = stat(p, &st) == 0 ? (int)(st.st_mode & 0777) : -1;
+      int wr = fd >= 0 ? (int)write(fd, "C", 1) : -1;
+      if (fd >= 0) close(fd);
+      umask(old_umask);
+      printf("CREATE_MODE open_fd=%d errno=%d mode=%o write=%d expected=440\n",
+             fd, e, mode, wr);
+      unlink(p); }
+
+    /* 6.1 假 root 放宽写权限后，原 inode 模式必须立即恢复 */
+    { const char *p = "/root/.p-owner-restore"; struct stat st;
+      unlink(p);
+      int c = open(p, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+      if (c >= 0) { write(c, "A", 1); close(c); }
+      chmod(p, 0440);
+      errno = 0; int fd = open(p, O_WRONLY);
+      int e = errno;
+      int mode_open = stat(p, &st) == 0 ? (int)(st.st_mode & 0777) : -1;
+      int wr = fd >= 0 ? (int)write(fd, "B", 1) : -1;
+      if (fd >= 0) close(fd);
+      int mode_final = stat(p, &st) == 0 ? (int)(st.st_mode & 0777) : -1;
+      printf("OWNER_RESTORE open_fd=%d errno=%d mode_open=%o write=%d mode_final=%o\n",
+             fd, e, mode_open, wr, mode_final);
+      unlink(p); }
+
+    /* 6.2 假 root 的 access：0000 可读写但不可执行；任何执行位存在才可执行 */
+    { const char *p = "/root/.p-access-root";
+      unlink(p);
+      int fd = open(p, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+      if (fd >= 0) close(fd);
+      chmod(p, 0000);
+      errno = 0; int rd = access(p, R_OK); int re = errno;
+      errno = 0; int wr = access(p, W_OK); int we = errno;
+      errno = 0; int x0 = access(p, X_OK); int xe = errno;
+      chmod(p, 0555);
+      errno = 0; int x1 = access(p, X_OK); int x1e = errno;
+      printf("ACCESS_ROOT read=%d/%d write=%d/%d exec0=%d/%d exec5=%d/%d\n",
+             rd, re, wr, we, x0, xe, x1, x1e);
+      unlink(p); }
+
+    /* 6.3 非 root：最终模式与父目录路径权限都要按 guest 身份判断。
+       /tmp 本身可搜索；deny 目录只拒绝父目录 X，own 目录验证虚构 owner 正向。 */
+    { const char *dd = "/tmp/.p-access-deny";
+      const char *df = "/tmp/.p-access-deny/file";
+      const char *od = "/tmp/.p-access-own";
+      const char *of = "/tmp/.p-access-own/owned";
+      unlink(df); unlink(of); rmdir(dd); rmdir(od);
+      mkdir(dd, 0700); chmod(dd, 0700);
+      mkdir(od, 0755); chmod(od, 0755);
+      int fd = open(df, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+      if (fd >= 0) close(fd);
+      chmod(df, 0644);
+      fd = open(of, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+      if (fd >= 0) { fchown(fd, 1000, 1000); close(fd); }
+      chmod(of, 0600);
+      setgid(1000); setuid(1000);
+      errno = 0; int parent = access(df, R_OK); int pe = errno;
+      errno = 0; int ownread = access(of, R_OK); int oe = errno;
+      setuid(0); setgid(0);
+      printf("ACCESS_USER parent=%d/%d owned=%d/%d\n", parent, pe, ownread, oe);
+      unlink(df); unlink(of); rmdir(dd); rmdir(od); }
+
     /* 7 raw syscall：已知绕过，作对照 */
     { errno = 0;
       int fd = (int)syscall(SYS_openat, AT_FDCWD, "/root/.p-rawopen", O_WRONLY | O_CREAT, 0644);

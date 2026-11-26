@@ -136,6 +136,7 @@ gate-a:
 		sh tools/device-tests/14-gate-a-acceptance.sh
 	sh tools/probe/run-coverage-probe.sh "$${DEV}" "$${ROOTFS:-}" "$${LD:-}"
 	sh tools/probe/coverage-sweep.sh "$${DEV}"
+	sh tools/device-tests/run-dpkg-conffile-mode-probe.sh "$${DEV}"
 	sh tools/device-tests/run-v4l2-ref-probe.sh "$${DEV}"
 	sh tools/device-tests/run-drm-fd-probe.sh "$${DEV}"
 	sh tools/device-tests/run-fd-identity-probe.sh "$${DEV}"

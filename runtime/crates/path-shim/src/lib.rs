@@ -4675,19 +4675,11 @@ pub unsafe extern "C" fn fclose(stream: *mut u8) -> CInt {
 
 #[no_mangle]
 unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt) -> CInt {
-    // dpkg unpacks a conffile by creating `<dest>.dpkg-new` with the mode the
-    // package asks for and then writing through that very descriptor. Modes
-    // such as sudo's /etc/sudoers.d/README (0440) leave the *owner* without
-    // write permission, and the kernel enforces that against the real app uid,
-    // not the uid we report. Root ignores those bits, so a file we create always
-    // keeps owner rw: measured as "unable to open
-    // '/etc/sudoers.d/README.dpkg-new': Permission denied" in the 2.0 sudo step
-    // (evidence 137).
-    let mode = if flags & O_CREAT != 0 {
-        mode | 0o600
-    } else {
-        mode
-    };
+    // Keep the caller's create mode exactly. The old shim forced `mode | 0600`
+    // so dpkg could reopen a 0440 conffile, but that also changed every file
+    // created by every program. Reopen-under-fake-root is now handled below by
+    // temporarily adding owner-write and restoring the inode before returning
+    // the still-writable fd.
     if path.is_null() {
         return ret_or_errno(syscall4(
             SYS_OPENAT,
@@ -4892,37 +4884,64 @@ unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt)
 /// into "unable to open '/etc/sudoers.d/README.dpkg-new': Permission denied"
 /// while installing sudo (evidence 138). Widen the owner bit once and retry; the
 /// guest still reads back whatever mode it set itself.
-unsafe fn widen_owner_write(dirfd: CInt, path: *const CChar) -> bool {
+unsafe fn widen_owner_write(dirfd: CInt, path: *const CChar) -> Option<(CInt, CInt)> {
     if let Some(v) = env_lookup(b"NR_FAKE_UID") {
         if v != b"0" {
-            return false;
+            return None;
         }
     }
     let mut gp = [0u8; PATH_MAX];
     let n = match abs_guest(path, &mut gp) {
         Some(n) => n,
-        None => return false,
+        None => return None,
     };
     if ro_gp(&gp[..n]) {
-        return false;
+        return None;
     }
-    chmod_target(dirfd, path, 0o600, true) == 0
+
+    // Pin the inode first. The path may be swapped after the failed open; a
+    // second name lookup for chmod/restore would then touch a different file.
+    let fd = target_fd(dirfd, path, true).ok()?;
+    let mut st = [0u8; 128];
+    if syscall4(SYS_FSTAT, fd as usize, st.as_mut_ptr() as usize, 0, 0) < 0 {
+        rc::close(fd);
+        return None;
+    }
+    let original = (rd4u(st.as_ptr().add(16)) & 0o7777) as CInt;
+    if original & 0o200 != 0 {
+        rc::close(fd);
+        return None;
+    }
+    if chmod_pinned_fd(fd, original | 0o200) != 0 {
+        rc::close(fd);
+        return None;
+    }
+    Some((fd, original))
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt) -> CInt {
     let fresh = own_create_check(dirfd, path, flags);
     let mut r = openat_inner(dirfd, path, flags, mode);
-    if r < 0
-        && !path.is_null()
-        && flags & O_WRITEISH != 0
-        && *__errno_location() == EACCES
-        && widen_owner_write(dirfd, path)
-    {
-        if dbg_on() {
-            dbg_file(&[b"openat widened owner write ", bytes(path), b"\n"]);
+    if r < 0 && !path.is_null() && flags & O_WRITEISH != 0 && *__errno_location() == EACCES {
+        if let Some((pinned, original_mode)) = widen_owner_write(dirfd, path) {
+            if dbg_on() {
+                dbg_file(&[b"openat widened owner write ", bytes(path), b"\n"]);
+            }
+            r = openat_inner(dirfd, path, flags, mode);
+            // Permission is checked when open() installs the file description.
+            // Once that has happened, restore the inode mode immediately; the
+            // returned writable fd remains valid for the write dpkg is about to
+            // perform. This preserves the package's 0440 instead of leaving it
+            // widened to 0600 (evidence 138 §3).
+            if chmod_pinned_fd(pinned, original_mode) != 0 {
+                if r >= 0 {
+                    rc::close(r);
+                }
+                r = -1;
+            }
+            rc::close(pinned);
         }
-        r = openat_inner(dirfd, path, flags, mode);
     }
     if r >= 0 && fresh {
         own_note_fd(r);
@@ -5146,6 +5165,131 @@ pub unsafe extern "C" fn fstatat(
     ))
 }
 
+const R_OK: CInt = 4;
+const W_OK: CInt = 2;
+const X_OK: CInt = 1;
+
+/// `access(2)` is evaluated by the kernel against the real Android app uid.
+/// Under the identity fiction that is the wrong subject: a fake root cannot
+/// read a 0000 file, while a fake non-root user is always treated as the file
+/// owner. Resolve existence through the normal guest path walker, then evaluate
+/// the already-fetched mode against `FAKE_ID`.
+unsafe fn fake_access_mode(mode: CInt, st: *const u8) -> Result<(), CInt> {
+    if mode & !(R_OK | W_OK | X_OK) != 0 {
+        return Err(22); // EINVAL
+    }
+    let (uid, gid) = fake_id();
+    let m = rd4u(st.add(16));
+    if uid == 0 {
+        // CAP_DAC_OVERRIDE bypasses read/write and directory execute checks.
+        // A regular file still needs at least one execute bit for X_OK.
+        if mode & X_OK != 0 && m & S_IFMT != S_IFDIR && m & 0o111 == 0 {
+            return Err(13); // EACCES
+        }
+        return Ok(());
+    }
+    let bits = if uid == rd4u(st.add(24)) {
+        (m >> 6) & 7
+    } else if gid == rd4u(st.add(28)) {
+        (m >> 3) & 7
+    } else {
+        m & 7
+    };
+    if mode as u32 & !bits != 0 {
+        return Err(13); // EACCES
+    }
+    Ok(())
+}
+
+/// Check search permission on every directory from the guest root to the final
+/// object's parent. The final descriptor is already pinned, so resolving its
+/// host path cannot redirect the walk outside the guest root. Each parent is
+/// opened with O_NOFOLLOW and fstat'ed: the guest identity decides whether the
+/// directory's X bit grants search permission, not the real Android app uid.
+unsafe fn fake_access_parents(rootfd: CInt, final_fd: CInt) -> Result<(), CInt> {
+    let mut root = [0u8; PATH_MAX];
+    let root_len = fd_real_path(rootfd, &mut root).ok_or(13)?;
+    let mut real = [0u8; PATH_MAX];
+    let real_len = fd_real_path(final_fd, &mut real).ok_or(13)?;
+    if real_len < root_len
+        || &real[..root_len] != &root[..root_len]
+        || (real_len != root_len && real[root_len] != b'/')
+    {
+        return Err(13);
+    }
+
+    let parent_end = real[..real_len]
+        .iter()
+        .rposition(|c| *c == b'/')
+        .unwrap_or(root_len);
+    let mut prefix = [0u8; PATH_MAX];
+    prefix[..root_len].copy_from_slice(&root[..root_len]);
+    let mut n = root_len;
+    let mut at = root_len;
+    while at < parent_end {
+        while at < parent_end && real[at] == b'/' {
+            at += 1;
+        }
+        if at >= parent_end {
+            break;
+        }
+        let start = at;
+        while at < parent_end && real[at] != b'/' {
+            at += 1;
+        }
+        let component = &real[start..at];
+        if n + 1 + component.len() >= PATH_MAX {
+            return Err(36);
+        }
+        prefix[n] = b'/';
+        n += 1;
+        prefix[n..n + component.len()].copy_from_slice(component);
+        n += component.len();
+        prefix[n] = 0;
+
+        let fd = rc::openat(
+            AT_FDCWD,
+            &prefix[..n],
+            O_PATH | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC,
+            0,
+        )?;
+        let mut st = [0u8; 128];
+        let r = syscall4(SYS_FSTAT, fd as usize, st.as_mut_ptr() as usize, 0, 0);
+        rc::close(fd);
+        if r < 0 {
+            return Err(*__errno_location());
+        }
+        own_patch_stat(st.as_mut_ptr());
+        if rd4u(st.as_ptr().add(16)) & S_IFMT != S_IFDIR {
+            return Err(20); // ENOTDIR
+        }
+        fake_access_mode(X_OK, st.as_ptr())?;
+    }
+    Ok(())
+}
+
+unsafe fn fake_access_path(rootfd: CInt, path: &[u8], mode: CInt, flags: CInt) -> Result<(), CInt> {
+    if mode & !(R_OK | W_OK | X_OK) != 0 {
+        return Err(22); // EINVAL
+    }
+    if mode & W_OK != 0 && ro_gp(path) {
+        return Err(30); // EROFS
+    }
+    let follow = flags & AT_SYMLINK_NOFOLLOW == 0;
+    let fd = rc::resolve_final(rootfd, path, follow)?;
+    let mut st = [0u8; 128];
+    let r = syscall4(SYS_FSTAT, fd as usize, st.as_mut_ptr() as usize, 0, 0);
+    if r < 0 {
+        let e = *__errno_location();
+        rc::close(fd);
+        return Err(e);
+    }
+    own_patch_stat(st.as_mut_ptr());
+    let result = fake_access_parents(rootfd, fd).and_then(|()| fake_access_mode(mode, st.as_ptr()));
+    rc::close(fd);
+    result
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn access(path: *const CChar, mode: CInt) -> CInt {
     if path.is_null() {
@@ -5170,7 +5314,12 @@ pub unsafe extern "C" fn access(path: *const CChar, mode: CInt) -> CInt {
                 0,
             ));
         }
-        return match rc::resolve_access(rfd, &gp[..n], mode, 0) {
+        let result = if fake_root_on() {
+            fake_access_path(rfd, &gp[..n], mode, 0)
+        } else {
+            rc::resolve_access(rfd, &gp[..n], mode, 0)
+        };
+        return match result {
             Ok(()) => 0,
             Err(e) => set_errno(e),
         };
@@ -5499,6 +5648,18 @@ unsafe fn fd_proc_path(fd: CInt, out: &mut [u8; 32]) -> &[u8] {
     &out[..=at]
 }
 
+unsafe fn chmod_pinned_fd(fd: CInt, mode: CInt) -> CInt {
+    let mut pb = [0u8; 32];
+    let p = fd_proc_path(fd, &mut pb);
+    ret_or_errno(syscall4(
+        SYS_FCHMODAT,
+        AT_FDCWD as usize,
+        p.as_ptr() as usize,
+        mode as usize,
+        0,
+    ))
+}
+
 unsafe fn chmod_target(dirfd: CInt, path: *const CChar, mode: CInt, follow: bool) -> CInt {
     if ro_refuse_at(dirfd, path) {
         return -1;
@@ -5507,17 +5668,9 @@ unsafe fn chmod_target(dirfd: CInt, path: *const CChar, mode: CInt, follow: bool
         Ok(fd) => fd,
         Err(e) => return set_errno(e),
     };
-    let mut pb = [0u8; 32];
-    let p = fd_proc_path(fd, &mut pb);
-    let r = syscall4(
-        SYS_FCHMODAT,
-        AT_FDCWD as usize,
-        p.as_ptr() as usize,
-        mode as usize,
-        0,
-    );
+    let r = chmod_pinned_fd(fd, mode);
     rc::close(fd);
-    ret_or_errno(r)
+    r
 }
 
 unsafe fn chown_target(
@@ -10076,6 +10229,17 @@ unsafe fn fd_host_path(fd: CInt, buf: &mut [u8; 32]) -> usize {
 #[no_mangle]
 pub unsafe extern "C" fn fchown(fd: CInt, uid: u32, gid: u32) -> CInt {
     if fake_root_on() {
+        // `fchown(2)` is the fd form of `fchownat(fd, "", ..., AT_EMPTY_PATH)`.
+        // Returning 0 without recording made tar's metadata pass disappear:
+        // a package-owned daemon file later read back as root:root.
+        own_record_chown(
+            fd,
+            b"\0".as_ptr() as *const CChar,
+            uid,
+            gid,
+            true,
+            AT_EMPTY_PATH,
+        );
         return 0;
     }
     // AT_EMPTY_PATH + an empty name means "the file this descriptor is open on".
@@ -11156,6 +11320,17 @@ pub unsafe extern "C" fn faccessat(
     }
     if *path == 0 && flags & AT_EMPTY_PATH != 0 {
         let nofollow = flags & AT_SYMLINK_NOFOLLOW != 0;
+        if fake_root_on() {
+            let mut st = [0u8; 128];
+            if syscall4(SYS_FSTAT, dirfd as usize, st.as_mut_ptr() as usize, 0, 0) < 0 {
+                return -1;
+            }
+            own_patch_stat(st.as_mut_ptr());
+            return match fake_access_mode(mode, st.as_ptr()) {
+                Ok(()) => 0,
+                Err(e) => set_errno(e),
+            };
+        }
         return match rc::access_fd(dirfd, mode, nofollow) {
             Ok(()) => 0,
             Err(e) => set_errno(e),
@@ -11175,10 +11350,15 @@ pub unsafe extern "C" fn faccessat(
             let mut gp = [0u8; PATH_MAX];
             match resolve_dirfd_rel(dirfd, bytes(path), &mut gp) {
                 Ok(Some(n)) => {
-                    return match rc::resolve_access(rfd, &gp[..n], mode, flags) {
+                    let result = if fake_root_on() {
+                        fake_access_path(rfd, &gp[..n], mode, flags)
+                    } else {
+                        rc::resolve_access(rfd, &gp[..n], mode, flags)
+                    };
+                    return match result {
                         Ok(()) => 0,
                         Err(e) => set_errno(e),
-                    }
+                    };
                 }
                 Ok(None) => {}
                 Err(e) => return set_errno(e),
@@ -11201,7 +11381,12 @@ pub unsafe extern "C" fn faccessat(
         None => return set_errno(36),
     };
     if rfd >= 0 && !passthrough(&gp[..n]) {
-        return match rc::resolve_access(rfd, &gp[..n], mode, flags) {
+        let result = if fake_root_on() {
+            fake_access_path(rfd, &gp[..n], mode, flags)
+        } else {
+            rc::resolve_access(rfd, &gp[..n], mode, flags)
+        };
+        return match result {
             Ok(()) => 0,
             Err(e) => set_errno(e),
         };

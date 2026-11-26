@@ -86,6 +86,7 @@ want() {
     fi
 }
 
+want 'fdidentity|pathshim-fchown-owner|PASS|' 'path-shim 的 fchown 跨进程保留虚构所有者'
 want 'fdidentity|pathshim-v4l2-open-flags|PASS|' 'path-shim 的 V4L2 open 保留 O_CLOEXEC/O_NONBLOCK'
 want 'fdidentity|pathshim-netlink-socket-flags|PASS|' 'path-shim 的 netlink socket 保留 SOCK_CLOEXEC/SOCK_NONBLOCK'
 want 'fdidentity|v4l2-dup2-ordinary-over-fake|PASS|' 'V4L2 dup2 普通文件覆盖假 fd 后离开模拟层'

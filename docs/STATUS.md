@@ -26,6 +26,13 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 **仓库布局**：`runtime/crates/{path-shim,nr-tools,runtime-core,gpu-env}`（Rust）、`tools/loader/*.S`（裸汇编，仅入口与 hook）、
 `tools/device-tests/*.sh`、`docs/design/`（设计 + `evidence/` 原始记录）。
 
+**0.0.32 文件模式、所有权与 access 主体**：`O_CREAT` 不再偷偷追加 `0600`；dpkg 重开
+`0440` conffile 时只临时加 owner-write，返回 fd 前恢复原模式。`fchown(fd)` 现在会更新虚构
+所有权表，`fstat(fd)` 与后续进程的路径 `stat` 都读得到。`access/faccessat` 改按 guest 身份
+计算，并逐级检查父目录 X 权限；只读挂载上的 `W_OK` 仍为 `EROFS`（evidence 259）。完整门禁 A
+为 `PASS=38 FAIL=0`，coverage-sweep 1400 条无泄漏，dpkg `0440` conffile、V4L2、DRM 和
+fd identity 全通过。`make check` 检查 73 个 shell 脚本、284 个 Markdown 文件。
+
 **0.0.31 V4L2 假节点 open 标志**：path-shim 对 `/dev/video0` 返回的假 fd 现在保留
 `O_CLOEXEC` 与 `O_NONBLOCK`。旧 0.0.30 loader 的负对照是 `fdflags=0 fl=131074`，修后为
 `fdflags=1 fl=133122`（evidence 258）。同一轮把 netlink 的

@@ -385,6 +385,21 @@ netlink 是同类接口里的控制项，不是本轮缺陷：带 `SOCK_CLOEXEC 
 `socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE)` 在真机返回 `fdflags=1 fl=2050`，现已加入
 fd identity 门禁。跨进程 `SCM_RIGHTS`、真实 Camera2 长时间采集和多线程压力仍是 UNKNOWN。
 
+## 25 · 文件创建 mode、虚构所有权与 `access` 主体（2026-11-26）
+
+0.0.32 起，path-shim 不再给所有 `O_CREAT` 请求强制追加 `0600`；dpkg 重开 `0440` conffile
+所需的 owner-write 只在重开窗口内临时存在，返回可写 fd 前立即恢复原 `07777` 模式
+（evidence 259）。`fchown(fd)` 的结果也会写入虚构所有权表，同进程 `fstat` 和后续进程的路径
+`stat` 都能看到 guest 设置的 uid/gid。
+
+`access/faccessat` 不再把判断主体交给真实 Android app uid：假 root 按
+`CAP_DAC_OVERRIDE` 处理读写，普通文件执行仍要求至少一个 X 位；非 root 按虚构 owner/group/
+other 位计算，并逐级检查路径上的父目录 X 权限。只读模拟挂载上的 `W_OK` 仍返回 `EROFS`。
+
+**仍未验证的是**多线程目录替换、符号链接竞态与只读挂载组合下的持续压力，以及写放宽后的
+模式恢复失败分支。其他 Android 版本、16 KiB/64 KiB 真机和 Adreno 设备上的同一行为也是
+UNKNOWN。
+
 ## 23 · DRM 假节点的 O_CLOEXEC 与初始化失败（2026-11-26）
 
 0.0.30 起，path-shim 和 preload 返回的 DRM 假 fd 会保留调用方请求的 `O_CLOEXEC`；旧实现
