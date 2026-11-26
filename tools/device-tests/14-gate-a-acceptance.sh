@@ -22,10 +22,12 @@ trap 'rm -rf "$TMP"' EXIT
 cat > "$TMP/accept.sh" <<'GUEST'
 #!/bin/bash
 # Runs inside the guest as root. Every check prints one PASS/FAIL line.
-P=0; F=0
+P=0; F=0; S=0
 ok()  { P=$((P+1)); echo "  PASS  $1"; }
 bad() { F=$((F+1)); echo "  FAIL  $1"; }
+skip(){ S=$((S+1)); echo "  SKIP  $1"; }
 eq()  { [ "$2" = "$3" ] && ok "$1 ($3)" || bad "$1 (want '$2' got '$3')"; }
+re()  { printf '%s\n' "$3" | grep -Eq "$2" && ok "$1 ($3)" || bad "$1 (want /$2/ got '$3')"; }
 
 export NR_SIGSYS_LOG=/tmp/gate-a-sigsys.log
 : > /tmp/gate-a-sigsys.log 2>/dev/null || true
@@ -58,8 +60,16 @@ eq "useradd rc" "0" "$(useradd -u 1500 -g 1500 -m -s /bin/bash nrtest 2>&1; echo
 eq "chpasswd rc" "0" "$(echo 'nrtest:husk123' | chpasswd; echo $?)"
 eq "id resolves" "1500" "$(id -u nrtest)"
 eq "home created" "yes" "$([ -d /home/nrtest ] && echo yes || echo no)"
-eq "shadow hash" "sha512" "$(awk -F: '$1=="nrtest"{ if ($2 ~ /^\$6\$/) print "sha512"; else print "other" }' /etc/shadow)"
-eq "group entry" "nrtest" "$(getent group 1500 | cut -d: -f1)"
+# 这两条只读 /etc/shadow 和 /etc/group，用 cut/case 而不是 awk/getent：
+# 最小树里既可能没有 mawk 也可能没有 libc-bin（getent 在里面），2026-11-26 第一次
+# 在干净树上跑，两条都因为 `awk: not found` 拿到空串而报 FAIL —— 是断言依赖了
+# 树里的包，不是 usermgr 写错了。
+sh_line=$(grep -m1 '^nrtest:' /etc/shadow 2>/dev/null || true)
+case "$sh_line" in
+  *'$6$'*) eq "shadow hash" "sha512" "sha512" ;;
+  *)       bad "shadow hash (want sha512 got '${sh_line%%:*}' no-\$6\$)" ;;
+esac
+eq "group entry" "nrtest" "$(grep -m1 '^[^:]*:[^:]*:1500:' /etc/group | cut -d: -f1)"
 groupdel nrtest 2>/dev/null
 userdel -r nrtest 2>/dev/null
 eq "cleanup" "gone" "$(id nrtest >/dev/null 2>&1 && echo present || echo gone)"
@@ -91,16 +101,41 @@ else
   echo "  NOTE  no .deb on this tree (offline cache already removed) - reinstall checks skipped"
 fi
 eq "dpkg -C clean after" "0" "$(dpkg -C >/tmp/dpkgC.2 2>&1; wc -l < /tmp/dpkgC.2 | tr -d ' ')"
-eq "getfacl still runs" "ok" "$(getfacl --version >/dev/null 2>&1 && echo ok || echo fail)"
+# acl 是树里的包，不是运行时的能力：装了才断言，没装就 SKIP 并写清原因，
+# 不要把一个"树里没这个包"变成 FAIL（那会逼着人去放宽断言）。
+if dpkg-query -W -f='${Status}' acl 2>/dev/null | grep -q 'install ok installed'; then
+  eq "getfacl still runs" "ok" "$(getfacl --version >/dev/null 2>&1 && echo ok || echo fail)"
+else
+  skip "getfacl (this tree has no acl package)"
+fi
 
 echo "== apt =="
-eq "apt version" "2.8.3" "$(apt --version 2>/dev/null | awk '{print $2}')"
-pol=$(apt-cache policy acl 2>/dev/null | sed -n 's/^  Installed: //p')
-eq "policy knows acl" "yes" "$([ -n "$pol" ] && [ "$pol" != "(none)" ] && echo yes || echo no)"
-echo "  apt-cache policy acl -> Installed: ${pol:-<none>}"
-apt-get -s install --reinstall acl >/tmp/apt-dry.log 2>&1; eq "apt-get -s rc" "0" "$?"
-grep -qi 'cannot be downloaded\|Unable to fetch' /tmp/apt-dry.log \
-  && echo "  NOTE  apt-get -s needs a network index (offline cache has the deb): $(grep -m1 -i 'cannot be downloaded\|Unable to fetch' /tmp/apt-dry.log)"
+# 版本号写成正则：干净树装的是 noble-updates 的 2.8.4，写死 2.8.3 只在 11-25 那棵
+# 树上成立，换一棵树就变成假失败（2026-11-26 实测）。
+aptv=$(apt --version 2>/dev/null); aptv=${aptv#apt }; aptv=${aptv%% *}
+re "apt version" '^2\.8\.[0-9]+$' "$aptv"
+# apt-cache policy / apt-get -s 都要读包索引；离线树没有 /var/lib/apt/lists 时它们
+# 按设计失败，那是树的状态而不是运行时缺陷 —— 明确 SKIP 并打出原因。
+# "有索引"要按真的索引文件判：/var/lib/apt/lists 里通常只有一个 partial/ 目录，
+# 用 `ls -A` 判空会被它骗过去（2026-11-26 实测：ls -A 非空，但没有任何 *_Packages）。
+if ls /var/lib/apt/lists/*_Packages* >/dev/null 2>&1 || ls /var/lib/apt/lists/*InRelease* >/dev/null 2>&1; then
+  pol=$(apt-cache policy acl 2>/dev/null | sed -n 's/^  Installed: //p')
+  eq "policy knows acl" "yes" "$([ -n "$pol" ] && [ "$pol" != "(none)" ] && echo yes || echo no)"
+  echo "  apt-cache policy acl -> Installed: ${pol:-<none>}"
+  # apt-get -s 的退出码要分开读：离线树里"要下的 deb 不在本地"是树的状态
+  # （rc=100 + cannot be downloaded），求解器或运行时坏掉是另一回事。
+  apt-get -s install --reinstall acl >/tmp/apt-dry.log 2>&1
+  rc_s=$?
+  if [ "$rc_s" -eq 0 ]; then
+    ok "apt-get -s rc (0)"
+  elif grep -qi 'cannot be downloaded\|Unable to fetch\|Failed to fetch' /tmp/apt-dry.log; then
+    skip "apt-get -s (rc=$rc_s: no downloadable .deb on this offline tree)"
+  else
+    bad "apt-get -s rc (want '0' got '$rc_s')"
+  fi
+else
+  skip "apt-cache policy / apt-get -s (no package index in /var/lib/apt/lists)"
+fi
 
 echo "== host-path leak =="
 outside=$(env | grep '/data/user' | cut -d= -f1 | sort | tr '\n' ' ' | sed 's/ $//')
@@ -157,7 +192,7 @@ eq "real SIGSYS traps" "0" "${traps:-0}"
 [ -s /tmp/gate-a-sigsys.log ] && { echo "  log tail:"; tail -3 /tmp/gate-a-sigsys.log | sed 's/^/    /'; }
 
 echo
-echo "PASS=$P FAIL=$F"
+echo "PASS=$P FAIL=$F SKIP=$S"
 [ "$F" -eq 0 ]
 GUEST
 
@@ -203,4 +238,6 @@ adb -s "$DEV" shell "run-as $PKG cp /data/local/tmp/husk-accept.sh $ROOTFS/tmp/h
 adb -s "$DEV" shell "run-as $PKG chmod 755 $ROOTFS/tmp/husk-accept.sh"
 adb -s "$DEV" shell "run-as $PKG cp /data/local/tmp/husk-exec.sh $ROOTFS/tmp/husk-exec.sh"
 adb -s "$DEV" shell "run-as $PKG chmod 755 $ROOTFS/tmp/husk-exec.sh"
-adb -s "$DEV" shell "run-as $PKG env EXPECT_PKGS=${EXPECT_PKGS:-811} HUSK_PKG=$PKG sh $ROOTFS/tmp/husk-exec.sh $ROOTFS $LD usr/bin/bash /tmp/husk-accept.sh" 2>&1
+# EXPECT_PKGS_MIN 必须真的传进去：上一个版本只在 guest 里 `EXPECT_PKGS_MIN:-90`
+# 默认，宿主的 EXPECT_PKGS_MIN=... 被丢在半路，最小树于是永远报 FAIL（2026-11-26）。
+adb -s "$DEV" shell "run-as $PKG env EXPECT_PKGS=${EXPECT_PKGS:-811} EXPECT_PKGS_MIN=${EXPECT_PKGS_MIN:-90} HUSK_PKG=$PKG sh $ROOTFS/tmp/husk-exec.sh $ROOTFS $LD usr/bin/bash /tmp/husk-accept.sh" 2>&1

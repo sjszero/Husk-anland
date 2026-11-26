@@ -23,12 +23,30 @@ const COMPS: [&str; 2] = ["main", "universe"];
 
 /// What a husk needs to be usable: a shell, coreutils, dpkg/apt, and the few
 /// libraries Ubuntu splits out of them.
+///
+/// Four of these are not "nice to have", they are what a base tree is expected to
+/// contain and what the acceptance gate measures (measured 2026-11-26 on a tree
+/// built from the earlier list):
+///   * `libc-bin`  - getent/localedef/iconv live here; without it `getent group`
+///     and any locale generation are simply missing commands.
+///   * `locales`   - /usr/share/i18n/*; without it there is no zh_CN.UTF-8 to
+///     generate and `LANG=zh_CN.UTF-8` silently degrades to C.
+///   * `acl`       - getfacl/setfacl; without it the ACL path cannot be measured
+///     at all, and libacl1 alone does not install them.
+///   * `mawk`      - Ubuntu's `awk`; a base system without awk breaks a large
+///     number of shell scripts that assume it is there.
+///   * `libssl3t64` - libcrypto.so.3. coreutils on noble links `sort` (and
+///     `shuf`, `md5sum`'s random source) against libcrypto, so without it
+///     `sort` dies with "cannot open shared object file: libcrypto.so.3" and
+///     every pipeline that sorts silently returns nothing (measured 2026-11-26
+///     by gate A on a 66-package tree).
 const BASE: &str = "base-files base-passwd libc6 libgcc-s1 libcrypt1 libtinfo6 ncurses-base \
 ncurses-bin bash coreutils dash dpkg diffutils findutils grep sed tar gzip xz-utils zlib1g \
 libselinux1 libpcre2-8-0 libattr1 libacl1 libmd0 libbz2-1.0 liblzma5 libseccomp2 libcap2 \
 util-linux procps less apt libgnutls30t64 libgcrypt20 libgpg-error0 libidn2-0 libunistring5 \
 libp11-kit0 libffi8 libtasn1-6 libnettle8t64 libhogweed6t64 libgmp10 liblz4-1 libzstd1 \
-libsystemd0 libudev1 libxxhash0 libapt-pkg6.0t64 ubuntu-keyring";
+libsystemd0 libudev1 libxxhash0 libapt-pkg6.0t64 ubuntu-keyring \
+libc-bin locales acl mawk libssl3t64";
 
 fn die(msg: impl AsRef<str>) -> ! {
     eprintln!("{}", msg.as_ref());

@@ -595,6 +595,50 @@ fi
     echo "installed=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 } > "$OUT/.husk-install-state"
 
+# 2c-bis. locale archive。由包直接拼出来的树（`nr-tools rootfs`，或任何不是
+#     debootstrap 做出来的树）只有 /usr/share/i18n/*，没有
+#     /usr/lib/locale/locale-archive —— 那个文件是包的 postinst 生成的，手工解包
+#     永远不跑 postinst。缺了它 `LC_ALL=zh_CN.UTF-8 locale charmap` 是空的、每个
+#     中文程序静默回落 C，表现就是"进系统全是英文"（2026-11-26 在干净树上实测：
+#     同一棵树装完 66 个包，charmap 为空，生成 archive 后 charmap=UTF-8、
+#     %A=星期一，2.3 秒）。必须在设备上生成：localedef 是 aarch64 程序，构建机
+#     跑不了，所以这一步只能在安装时做。
+echo "== locale =="
+if [ -e "$DEST/usr/lib/locale/locale-archive" ]; then
+    echo "   locale-archive already present"
+elif [ -x "$DEST/usr/bin/localedef" ] && [ -f "$DEST/usr/share/i18n/locales/zh_CN" ]; then
+    printf 'zh_CN.UTF-8 UTF-8\nen_US.UTF-8 UTF-8\n' > "$DEST/etc/locale.gen"
+    _rc=0
+    set +e
+    for _l in zh_CN.UTF-8 en_US.UTF-8; do
+        guest_run usr/bin/localedef -i "${_l%%.*}" -f UTF-8 "$_l" > "$OUT/.husk-locale.log" 2>&1
+        _rc=$?
+        [ "$_rc" -eq 0 ] || break
+    done
+    set -e
+    if [ "$_rc" -ne 0 ]; then
+        echo "install-husk: localedef failed for ${_l:-?} (rc=$_rc) - do not ship this tree" >&2
+        sed 's/^/    /' "$OUT/.husk-locale.log" | head -5 >&2
+        exit 76
+    fi
+    rm -f "$OUT/.husk-locale.log"
+    # localedef 建出来的 archive 是 0600：非 root 的 guest 用户读不到，等于没生成。
+    [ -f "$DEST/usr/lib/locale/locale-archive" ] && chmod 644 "$DEST/usr/lib/locale/locale-archive"
+    echo "   generated zh_CN.UTF-8 + en_US.UTF-8 ($(ls -l "$DEST/usr/lib/locale/locale-archive" 2>/dev/null | cut -d' ' -f5) bytes)"
+    # 2b-2b' 那一步在生成之前判过一次，所以它只能记"没有 zh_CN.utf8，LANG 不动"。
+    # 现在有了，就把默认值写上——中文优先是产品默认，不是可选项。
+    mkdir -p "$DEST/etc/default"
+    printf 'LANG=zh_CN.UTF-8\nLANGUAGE=zh_CN:zh\n' > "$DEST/etc/default/locale"
+    echo "   wrote etc/default/locale (zh_CN.UTF-8)"
+else
+    echo "   (this tree has no locales data - locales package missing; no zh_CN.UTF-8)" >&2
+fi
+
+# 注意顺序：这一步必须排在 2d 之后。在 2d 之前跑会失败——树自带的（被 nr-tools
+# 打过 slot 补丁的）libc 下 shim 的路径改写没有生效，localedef 里每个 /usr/... 都
+# 落到宿主根上，报 `cannot create temporary file: /usr/lib/locale/locale-archive.*:
+# No such file or directory`（2026-11-26 实测：同一棵树，2d 之前跑 rc=1，2d 之后
+# 跑 rc=0 并生成 archive）。这就是这个块被放在这里的原因，别往前挪。
 # 2e. guest 工具替换：App 路径里这一步由资产步骤做（docs/RUNNING.md §1 的 2/4/5），
 #     独立安装（tarball + install-husk.sh）此前**完全没有做**，于是用它装出来的树里
 #     useradd / groupadd / passwd / su / ldconfig 全是发行版原版：
@@ -716,12 +760,20 @@ esac
 # The hard links pass 2 exists for must now be real, readable files. Test them
 # positively: a previous version grepped the combined transcript and matched the
 # "cannot access" error text, i.e. it passed exactly when the file was missing.
+#
+# 每个名字单独判，并且只在它"本该存在"时才判：早先两条 && 串在一起，任何一棵
+# 没装 perl 的树都会报 "hard links missing; pass 2 did not go through the shim"，
+# 而真实情况是 uncompress 好好地在（2026-11-26 在 66 包的干净树上实测：文件
+# 2346 字节、pass 2 成功，报告却是失败）。perl 只在装了 perl 的树上才检查。
 hl=$( cd "$DEST" && NR_ROOTFS=$DEST NR_LD=$LOADER "$LOADER" --library-path "$LIBS" usr/bin/env -i \
     PATH=/usr/bin:/bin NR_ROOTFS=$DEST NR_LD=$LOADER /bin/sh -c \
-    'test -s /usr/bin/perl5.38.2 && test -s /usr/bin/uncompress && echo yes || echo no' 2>&1 | tail -1 )
+    'miss=
+     for f in /usr/bin/uncompress; do [ -s "$f" ] || miss="$miss $f"; done
+     if [ -e /usr/bin/perl ]; then [ -s /usr/bin/perl5.38.2 ] || miss="$miss /usr/bin/perl5.38.2"; fi
+     echo "missing:${miss:-none}"' 2>&1 | tail -1 )
 case "$hl" in
-    yes) echo "== ok: hard links materialised (perl5.38.2 + uncompress are real files) ==" ;;
-    *)   echo "install-husk: warning - hard links missing; pass 2 did not go through the shim" >&2 ;;
+    *missing:none*) echo "== ok: hard links materialised (uncompress$([ -e "$DEST/usr/bin/perl" ] && echo ' + perl5.38.2') are real files) ==" ;;
+    *)   echo "install-husk: warning -$hl; pass 2 did not go through the shim" >&2 ;;
 esac
 
 # 4b. the check that would have caught both symlink bugs: a soname that only
