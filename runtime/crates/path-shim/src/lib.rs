@@ -229,6 +229,49 @@ unsafe fn c_strlen(p: *const CChar) -> usize {
     n
 }
 
+// xkbcommon 用 secure_getenv("XKB_CONFIG_ROOT") 决定键盘数据根目录。这个路径在
+// guest 里是 /usr/share/X11/xkb，但检查发生在 libxkbregistry 内部；没有可拦截的
+// stat/open GOT 槽时，它会拿宿主 /usr/share/X11/xkb 去判断，随后返回 NULL。
+// GNOME 46 的 libgnome-desktop 没有检查 NULL，直接把 context 交给
+// rxkb_context_parse()，在 Mali/Ubuntu 24.04 会话里表现为启动阶段 SIGSEGV。
+//
+// 和 GPU 默认值一样，这个值必须由 loader 提供，才能覆盖登录 shell、桌面 fork、
+// env -i 和嵌套 exec；用户自己设置的 XKB_CONFIG_ROOT 仍然优先。
+const XKB_CONFIG_ROOT_NAME: &[u8] = b"XKB_CONFIG_ROOT";
+const XKB_CONFIG_ROOT_SUFFIX: &[u8] = b"/usr/share/X11/xkb";
+static XKB_DEFAULT_STATE: AtomicU8 = AtomicU8::new(0);
+static mut XKB_DEFAULT: [u8; PATH_MAX] = [0; PATH_MAX];
+static mut XKB_DEFAULT_LEN: usize = 0;
+
+unsafe fn default_xkb_config_root() -> *mut CChar {
+    if XKB_DEFAULT_STATE.load(Ordering::Acquire) != 2 {
+        if XKB_DEFAULT_STATE
+            .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+        {
+            let _ = rootfd();
+            let root = guest_root();
+            let n = root.len().saturating_add(XKB_CONFIG_ROOT_SUFFIX.len());
+            if !root.is_empty() && n < PATH_MAX {
+                XKB_DEFAULT[..root.len()].copy_from_slice(root);
+                XKB_DEFAULT[root.len()..n].copy_from_slice(XKB_CONFIG_ROOT_SUFFIX);
+                XKB_DEFAULT[n] = 0;
+                XKB_DEFAULT_LEN = n;
+            }
+            XKB_DEFAULT_STATE.store(2, Ordering::Release);
+        } else {
+            while XKB_DEFAULT_STATE.load(Ordering::Acquire) != 2 {
+                core::hint::spin_loop();
+            }
+        }
+    }
+    if XKB_DEFAULT_LEN == 0 {
+        core::ptr::null_mut()
+    } else {
+        XKB_DEFAULT.as_mut_ptr() as *mut CChar
+    }
+}
+
 // ---------------------------------------------------------------- getenv ---
 //
 // Mesa 的 `os_get_option`、Vulkan loader 的 ICD 选择、以及一大票库都靠 `getenv`
@@ -259,7 +302,14 @@ pub unsafe extern "C" fn getenv(name: *const CChar) -> *mut CChar {
     if let Some(v) = env_lookup(n) {
         return v.as_ptr() as *mut CChar;
     }
-    gpuenv::default_value(n)
+    let default = gpuenv::default_value(n);
+    if !default.is_null() {
+        return default;
+    }
+    if n == XKB_CONFIG_ROOT_NAME {
+        return default_xkb_config_root();
+    }
+    core::ptr::null_mut()
 }
 
 /// glibc 语义：setuid 起动时一律不返回（`AT_SECURE`）。

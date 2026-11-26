@@ -54,6 +54,14 @@ guest `/etc/group` 自动得到 `[1500, 4242]`，`setgroups([4242])` 后为 `[42
 `strace` 为 `SKIP`，不能算通过（evidence 260）。**这不是已发布的 0.0.32 资产，发布前仍需
 按版本流程生成 0.0.33 包并重新上传 GitHub Release 资产。**
 
+**XKB 与 PanVK 加载器默认值（同一候选）**：loader 在 guest 未显式设置
+`XKB_CONFIG_ROOT` 时返回 `<rootfs>/usr/share/X11/xkb`，覆盖登录 shell、桌面 fork、
+`env -i` 和嵌套 exec；guest 内 `getenv`/`secure_getenv` 探针得到同一路径，显式值仍优先
+（evidence 272）。Mali 设备的 `/etc/husk/gpu-env` 即使还是旧格式、缺少
+`PANVK_DXVK_COMPAT`，loader 也会在内存中补 `0`；`/usr/bin/env`、`getenv` 和
+`secure_getenv` 都验证通过，显式 `=1` 仍优先（evidence 273）。同一候选真机门禁 A 为
+`PASS=38 FAIL=0`，coverage-probe PASS，`gl-probe fixed` 与 `gl-probe es3` 均 PASS。
+
 **会话 guard 清理真实性（同一候选）**：`marker_pids()` 的 `/proc` 扫描失败不再返回空
 列表冒充成功；最终无法确认时写 `remaining=UNKNOWN` 并以 70 退出，只有扫描成功、无跳过项
 且进程组消失才写 `clean=true`。guard 启动的 fd 3/4 映射改为先 `F_DUPFD_CLOEXEC` 复制，

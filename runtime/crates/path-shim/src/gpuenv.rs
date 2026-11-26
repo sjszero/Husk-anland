@@ -32,6 +32,14 @@ const MODE_FILL: u8 = 0;
 const MODE_FORCE: u8 = 1;
 const MODE_HIDE: u8 = 2;
 
+// PanVK's Bifrost kbase build enables a DXVK compatibility geometryShader path by
+// default. Zink's fixed-function emulation reaches it and can SIGSEGV on Mali-G77.
+// The gpu-env generator writes this line, but older App-generated files predate it.
+// Keep an in-loader fill default so those trees cannot crash solely because the
+// line is absent. A caller's explicit value, `!` force, or `-` hide still wins.
+const BUILTIN_PANVK_COMPAT_NAME: &[u8] = b"PANVK_DXVK_COMPAT";
+const BUILTIN_PANVK_COMPAT_VALUE: &[u8] = b"0";
+
 #[derive(Clone, Copy)]
 struct Slot {
     name: [u8; NAME_MAX],
@@ -176,6 +184,43 @@ fn truthy(v: &[u8]) -> bool {
     )
 }
 
+unsafe fn has_slot(name: &[u8]) -> bool {
+    let mut i = 0usize;
+    while i < SLOT_N {
+        let s = &SLOTS[i];
+        let nl = s.nlen as usize;
+        if nl == name.len() && &s.name[..nl] == name {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+unsafe fn push_fill(name: &[u8], value: &[u8]) {
+    if name.is_empty()
+        || name.len() >= NAME_MAX
+        || value.len() >= VALUE_MAX
+        || SLOT_N >= MAX_ENTRIES
+    {
+        return;
+    }
+    let s = &mut SLOTS[SLOT_N];
+    s.name[..name.len()].copy_from_slice(name);
+    s.nlen = name.len() as u16;
+    s.value[..value.len()].copy_from_slice(value);
+    s.value[value.len()] = 0;
+    s.vlen = value.len() as u16;
+    s.mode = MODE_FILL;
+    SLOT_N += 1;
+}
+
+unsafe fn add_builtin_defaults() {
+    if crate::plan::gpu_family() == crate::plan::GPU_MALI && !has_slot(BUILTIN_PANVK_COMPAT_NAME) {
+        push_fill(BUILTIN_PANVK_COMPAT_NAME, BUILTIN_PANVK_COMPAT_VALUE);
+    }
+}
+
 unsafe fn load() {
     // 逃逸开关先看，看命中就不必碰文件系统。
     if let Some(v) = crate::env_lookup(b"HUSK_GPU") {
@@ -191,23 +236,23 @@ unsafe fn load() {
         }
     }
     let fd = open_guest(ENV_FILE);
-    if fd < 0 {
-        return;
+    if fd >= 0 {
+        static mut BUF: [u8; READ_MAX] = [0; READ_MAX];
+        let n = crate::syscall4(
+            SYS_READ,
+            fd as usize,
+            core::ptr::addr_of_mut!(BUF) as usize,
+            READ_MAX,
+            0,
+        );
+        crate::syscall4(crate::SYS_CLOSE, fd as usize, 0, 0, 0);
+        if n > 0 {
+            let buf =
+                core::slice::from_raw_parts(core::ptr::addr_of!(BUF) as *const u8, n as usize);
+            parse(buf);
+        }
     }
-    static mut BUF: [u8; READ_MAX] = [0; READ_MAX];
-    let n = crate::syscall4(
-        SYS_READ,
-        fd as usize,
-        core::ptr::addr_of_mut!(BUF) as usize,
-        READ_MAX,
-        0,
-    );
-    crate::syscall4(crate::SYS_CLOSE, fd as usize, 0, 0, 0);
-    if n <= 0 {
-        return;
-    }
-    let buf = core::slice::from_raw_parts(core::ptr::addr_of!(BUF) as *const u8, n as usize);
-    parse(buf);
+    add_builtin_defaults();
 }
 
 unsafe fn ensure() {
