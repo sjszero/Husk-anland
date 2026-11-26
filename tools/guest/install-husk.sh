@@ -386,10 +386,16 @@ fi
 
 # 2b-2b-2. 壁纸预缩放脚本（evidence 195）：放进 rootfs，会话起来后由
 #         husk-session.sh 的看护进程调用。没有它壁纸上会缺一块（zink 右侧三角 32% 亮度）。
-if [ -f "$HERE/guest/husk-wallpaper-scale.js" ]; then
+_wallpaper_scale=
+for _ws in \
+    "$HERE/guest/wallpaper-scale" \
+    "$HERE/../../runtime/target/aarch64-unknown-linux-gnu/release/wallpaper-scale"; do
+    [ -x "$_ws" ] && { _wallpaper_scale=$_ws; break; }
+done
+if [ -n "$_wallpaper_scale" ]; then
     mkdir -p "$DEST/usr/local/share/linuxhub"
-    cp "$HERE/guest/husk-wallpaper-scale.js" "$DEST/usr/local/share/linuxhub/husk-wallpaper-scale.js"
-    chmod 644 "$DEST/usr/local/share/linuxhub/husk-wallpaper-scale.js"
+    cp "$_wallpaper_scale" "$DEST/usr/local/share/linuxhub/wallpaper-scale"
+    chmod 755 "$DEST/usr/local/share/linuxhub/wallpaper-scale"
 
     # The system bus config the desktop scripts point dbus-daemon at. Ubuntu's
     # own /usr/share/dbus-1/system.conf wants systemd activation and polkit;
@@ -406,9 +412,9 @@ if [ -f "$HERE/guest/husk-wallpaper-scale.js" ]; then
         echo "   WARNING: no guest-config/linuxhub-system-bus.conf next to the installer;" >&2
         echo "            the desktop session may fall back to GNOME security mode." >&2
     fi
-    echo "   wrote usr/local/share/linuxhub/husk-wallpaper-scale.js (wallpaper pre-scale)"
+    echo "   wrote usr/local/share/linuxhub/wallpaper-scale (Rust wallpaper pre-scale)"
 else
-    echo "   WARNING: no guest/husk-wallpaper-scale.js next to the installer;" >&2
+    echo "   WARNING: no guest/wallpaper-scale next to the installer;" >&2
     echo "            the wallpaper stays un-fitted (zink: right-side wedge at 32% brightness)." >&2
 fi
 # 看护脚本本身也必须装上：husk-session.sh 只会调用 $BASE/husk-wallpaper-fit.sh，

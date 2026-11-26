@@ -1,0 +1,9 @@
+[package]
+name = "audio-capture-probe"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+
+[[bin]]
+name = "audio-capture-probe"
+path = "src/main.rs"

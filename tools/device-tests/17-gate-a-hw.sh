@@ -23,6 +23,7 @@ ROOTFS_REL=${ROOTFS_REL:-files/rootfs-full}
 LOADER_REL=${LOADER_REL:-files/linux/libld.so}
 REPO_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 LOCATION_PROBE=${LOCATION_PROBE:-$REPO_ROOT/runtime/target/aarch64-unknown-linux-gnu/release/location-probe}
+AUDIO_CAPTURE_PROBE=${AUDIO_CAPTURE_PROBE:-$REPO_ROOT/runtime/target/aarch64-unknown-linux-gnu/release/audio-capture-probe}
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  PASS  $1"; }
 bad() { FAIL=$((FAIL+1)); echo "  FAIL  $1"; }
@@ -109,12 +110,21 @@ caps_has "caps|audio-in|present=yes" && ok "audio capture device present" \
 # grant the microphone permission. The probe is copied to the private rootfs
 # because `run-as` cannot execute a host file from /data/local/tmp.
 echo "== authorized microphone delivers PCM =="
-probe=/data/local/tmp/husk-audio-capture-probe.py
-adb -s "$DEV" push tools/probe/audio-capture-probe.py "$probe" >/dev/null 2>&1 || true
-adb_ "run-as $PKG sh -c 'cp $probe $ROOTFS_REL/root/audio-capture-probe.py && chmod 755 $ROOTFS_REL/root/audio-capture-probe.py && mkdir -p $ROOTFS_REL/tmp/husk-pulse && : > $ROOTFS_REL/tmp/husk-pulse/enabled-in'" >/dev/null 2>&1 || true
+probe=/data/local/tmp/husk-audio-capture-probe
+if [ ! -x "$AUDIO_CAPTURE_PROBE" ]; then
+    bad "missing $AUDIO_CAPTURE_PROBE (run tools/guest-config/build-guest-tools.sh)"
+    AUDIO_CAPTURE_PROBE=
+elif adb -s "$DEV" push "$AUDIO_CAPTURE_PROBE" "$probe" >/dev/null 2>&1; then
+    adb_ "run-as $PKG sh -c 'cp $probe $ROOTFS_REL/root/audio-capture-probe && chmod 755 $ROOTFS_REL/root/audio-capture-probe && mkdir -p $ROOTFS_REL/tmp/husk-pulse && : > $ROOTFS_REL/tmp/husk-pulse/enabled-in'" >/dev/null 2>&1 || true
+else
+    bad "could not push audio capture probe"
+    AUDIO_CAPTURE_PROBE=
+fi
 sleep 2
 audio=$(
-  adb_ "run-as $PKG sh -c 'R=\$PWD/$ROOTFS_REL; L=\$PWD/$LOADER_REL; cd \"\$R\" && NR_ROOTFS=\"\$R\" NR_LD=\"\$L\" HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \"\$L\" --library-path \"\$R/lib/aarch64-linux-gnu:\$R/usr/lib/aarch64-linux-gnu\" ./usr/bin/python3 ./root/audio-capture-probe.py /run/husk/audio-in.sock 1'" 2>&1 || true
+  if [ -n "$AUDIO_CAPTURE_PROBE" ]; then
+    adb_ "run-as $PKG sh -c 'R=\$PWD/$ROOTFS_REL; L=\$PWD/$LOADER_REL; cd \"\$R\" && NR_ROOTFS=\"\$R\" NR_LD=\"\$L\" HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \"\$L\" --library-path \"\$R/lib/aarch64-linux-gnu:\$R/usr/lib/aarch64-linux-gnu\" ./root/audio-capture-probe /run/husk/audio-in.sock 1'" 2>&1 || true
+  fi
 )
 printf '%s\n' "$audio" | grep -E '^capture-probe\|PASS|^CAPTURE_OK' | sed 's/^/  NOTE  /' || true
 if printf '%s' "$audio" | grep -q '^capture-probe|PASS|'; then

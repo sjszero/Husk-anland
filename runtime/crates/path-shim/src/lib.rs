@@ -18,6 +18,7 @@ use runtime_core as rc;
 
 type CChar = i8;
 type CInt = i32;
+type CLong = i64;
 type CSizet = usize;
 type Ssize = isize;
 
@@ -5117,6 +5118,7 @@ unsafe fn widen_owner_write(dirfd: CInt, path: *const CChar) -> Option<(CInt, CI
 
 #[no_mangle]
 pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt) -> CInt {
+    let entry_errno = *__errno_location();
     let fresh = own_create_check(dirfd, path, flags);
     let mut r = openat_inner(dirfd, path, flags, mode);
     if r < 0 && !path.is_null() && flags & O_WRITEISH != 0 && *__errno_location() == EACCES {
@@ -5172,6 +5174,9 @@ pub unsafe extern "C" fn openat(dirfd: CInt, path: *const CChar, flags: CInt, mo
                 b"\n",
             ]);
         }
+    }
+    if r >= 0 {
+        *__errno_location() = entry_errno;
     }
     r
 }
@@ -5514,8 +5519,7 @@ unsafe fn fake_access_path(rootfd: CInt, path: &[u8], mode: CInt, flags: CInt) -
     result
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn access(path: *const CChar, mode: CInt) -> CInt {
+unsafe fn access_inner(path: *const CChar, mode: CInt) -> CInt {
     if path.is_null() {
         return set_errno(14);
     }
@@ -5596,6 +5600,16 @@ pub unsafe extern "C" fn access(path: *const CChar, mode: CInt) -> CInt {
         mode as usize,
         0,
     ))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn access(path: *const CChar, mode: CInt) -> CInt {
+    let entry_errno = *__errno_location();
+    let r = access_inner(path, mode);
+    if r == 0 {
+        *__errno_location() = entry_errno;
+    }
+    r
 }
 
 // ---------------------------------------------------------------------------
@@ -9471,6 +9485,7 @@ unsafe fn statvfs_common(path: *const CChar, out: *mut u8) -> CInt {
     if out.is_null() {
         return set_errno(14);
     }
+    let entry_errno = *__errno_location();
     // asm-generic struct statfs: every field is a 64-bit long except f_fsid
     // (two ints) -- f_type f_bsize f_blocks f_bfree f_bavail f_files f_ffree
     // f_fsid f_namelen f_frsize f_flags f_spare[4].
@@ -9501,7 +9516,47 @@ unsafe fn statvfs_common(path: *const CChar, out: *mut u8) -> CInt {
     *o.add(11) = 0;
     *o.add(12) = 0;
     *o.add(13) = 0;
+    *__errno_location() = entry_errno;
     0
+}
+
+/// `pathconf(3)` is a glibc wrapper whose internal path resolution does not
+/// pass through a PLT slot. Without this export a guest asking about `/root`
+/// asks the Android host instead and gets ENOENT. Translate the path once with
+/// the same pinned resolver used by statfs/statvfs, then implement the Linux
+/// values this filesystem can answer without a second lookup.
+#[no_mangle]
+pub unsafe extern "C" fn pathconf(path: *const CChar, name: CInt) -> CLong {
+    if path.is_null() {
+        return set_errno(14) as CLong;
+    }
+    // A successful pathconf() must not leak errno changes made while the path
+    // was resolved. target_fd() deliberately probes several paths before it
+    // finds the pinned object, so a successful call otherwise returned the
+    // right value with a stale ENOENT in errno (measured: v=255 errno=2).
+    let entry_errno = *__errno_location();
+    // asm-generic struct statfs; f_namelen is slot 8 on aarch64.
+    let mut sf = [0u64; 15];
+    let r = xattr_pinned(path, |p| {
+        syscall4(SYS_STATFS, p as usize, sf.as_mut_ptr() as usize, 0, 0)
+    });
+    if r != 0 {
+        if r == -1 {
+            return -1;
+        }
+        return ret_or_errno(r) as CLong;
+    }
+    let value = match name {
+        3 => sf[8] as CLong, // _PC_NAME_MAX
+        4 => 4096,           // _PC_PATH_MAX
+        5 => 4096,           // _PC_PIPE_BUF
+        6 => 1,              // _PC_CHOWN_RESTRICTED
+        7 => 1,              // _PC_NO_TRUNC
+        8 => 0,              // _PC_VDISABLE
+        _ => return set_errno(22) as CLong,
+    };
+    *__errno_location() = entry_errno;
+    value
 }
 
 /// The loader-level defaults have to survive an explicit `execve(..., envp)`,

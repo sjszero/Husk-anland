@@ -35,7 +35,7 @@ check:
 # Measured 2026-11-26 (evidence 293): injected E0308 in audio-relay -> the 12-crate
 # list exited 0, --workspace failed. Same rule as .github/workflows/ci.yml.
 	cargo check --manifest-path $(MANIFEST) --target $(TARGET) --workspace
-	cargo test --manifest-path $(MANIFEST) -p gpu-env -p session-env -p usermgr -p nr-tools
+	cargo test --manifest-path $(MANIFEST) -p gpu-env -p session-env -p usermgr -p nr-tools -p location-probe -p audio-capture-probe
 # No --all-targets: path-shim is no_std and its test harness collides with the
 # crate's own panic handler (duplicate lang item). Warnings there are tracked
 # separately; this gate fails on errors.
@@ -332,7 +332,8 @@ dist:
 	   tools/guest/husk-desktop.sh tools/guest/husk-ding-fallback.sh \
 	   tools/guest/husk-wallpaper-fit.sh tools/guest/husk-system-services.sh dist/
 	@mkdir -p dist/guest dist/guest-config
-	cp tools/guest/husk-wallpaper-scale.js dist/guest/
+	cp $(PROFILE_DIR)/wallpaper-scale dist/guest/
+	@chmod 755 dist/guest/wallpaper-scale
 	cp tools/guest-config/husk-gpu-defaults.sh tools/guest-config/husk-look.override \
 	   tools/guest-config/husk-locale.sh tools/guest-config/fcitx5-profile \
 	   tools/guest-config/pulse-client-no-shm.conf \
@@ -403,7 +404,7 @@ dist:
 # 0.0.6 补的三条断言：这几个文件少了不会报错，只会让装出来的树缺一件东西
 # （husk-session.sh 的 `[ -x ... ]` 判假、pulse 客户端静默丢掉 enable-shm=no）。
 	@for f in husk-desktop.sh husk-ding-fallback.sh husk-wallpaper-fit.sh \
-	          husk-window-wait guest/husk-wallpaper-scale.js guest-config/pulse-client-no-shm.conf; do \
+	          husk-window-wait guest/wallpaper-scale guest-config/pulse-client-no-shm.conf; do \
 	    tar tzf dist/husk-arm64.tar.gz | grep -qx "$$f" || \
 	        { echo "dist: bundle is missing $$f" >&2; exit 1; }; \
 	done

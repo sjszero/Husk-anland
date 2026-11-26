@@ -29,7 +29,7 @@ LIBS="$ROOTFS/lib/aarch64-linux-gnu:$ROOTFS/usr/lib/aarch64-linux-gnu"
 [ -d "$ROOTFS/usr/lib/aarch64-linux-gnu/mutter-14" ] && LIBS="$LIBS:$ROOTFS/usr/lib/aarch64-linux-gnu/mutter-14"
 [ -d "$ROOTFS/usr/lib/gnome-shell" ] && LIBS="$LIBS:$ROOTFS/usr/lib/gnome-shell"
 
-SCALE_JS=/usr/local/share/linuxhub/husk-wallpaper-scale.js
+SCALE_BIN=/usr/local/share/linuxhub/wallpaper-scale
 SCHEMA=org.gnome.desktop.background
 
 g() {
@@ -91,7 +91,7 @@ g usr/bin/mkdir -p "$CACHE" || exit 0
 if [ -s "$ROOTFS$OUT" ] && [ "$ROOTFS$OUT" -nt "$ROOTFS$SRC" ]; then
     :
 else
-    g usr/bin/gjs "$SCALE_JS" "$SRC" "$OUT" "$W" "$H"
+    g "$SCALE_BIN" "$SRC" "$OUT" "$W" "$H"
     # 3 = 源图本来就等于屏幕尺寸：没有可写的，也就不要改 picture-uri
     [ $? -eq 0 ] || exit 0
 fi

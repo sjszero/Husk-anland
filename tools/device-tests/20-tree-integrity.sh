@@ -43,10 +43,10 @@ if have etc/husk/gpu-env; then ok "etc/husk/gpu-env present"; else bad "etc/husk
 for f in etc/profile.d/husk-gpu.sh etc/profile.d/husk-locale.sh; do
     if have "$f"; then ok "$f present"; else bad "$f missing: login shells get no GPU/locale defaults"; fi
 done
-if have usr/local/share/linuxhub/husk-wallpaper-scale.js; then
-    ok "usr/local/share/linuxhub/husk-wallpaper-scale.js present"
+if have usr/local/share/linuxhub/wallpaper-scale; then
+    ok "usr/local/share/linuxhub/wallpaper-scale present"
 else
-    bad "usr/local/share/linuxhub/husk-wallpaper-scale.js missing"
+    bad "usr/local/share/linuxhub/wallpaper-scale missing"
 fi
 
 echo "== image loaders =="

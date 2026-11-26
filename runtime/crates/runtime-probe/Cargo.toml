@@ -1,0 +1,13 @@
+[package]
+name = "runtime-probe"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Guest-side Path Shim semantic and race probes"
+
+[[bin]]
+name = "runtime-probe"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"

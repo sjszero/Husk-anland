@@ -14,6 +14,8 @@ APPDIR=${APPDIR:-/data/data/$PKG/files/linux}
 ROOTFS=${ROOTFS:-$APPDIR/distributions/ubuntu-24.04/rootfs}
 LD=${LD:-$APPDIR/husk/libld.so}
 HERE=$(cd "$(dirname "$0")" && pwd)
+REPO_ROOT=$(cd "$HERE/../.." && pwd)
+RUNTIME_PROBE=${RUNTIME_PROBE:-$REPO_ROOT/runtime/target/aarch64-unknown-linux-gnu/release/runtime-probe}
 SESS=${SESS:-/data/local/tmp/husk-session.sh}
 
 # The Makefile invocation passes workspace-relative device paths. Normalize them
@@ -29,23 +31,14 @@ device_path() {
 ROOTFS=$(device_path "$ROOTFS")
 LD=$(device_path "$LD")
 
-# A distribution tree is not required to ship a compiler. The probe is a
-# compatibility audit, not a build gate: skip it explicitly when gcc is absent
-# instead of turning an optional package into a runtime failure.
-if ! adb -s "$DEV" shell "run-as $PKG test -x $ROOTFS/usr/bin/gcc" >/dev/null 2>&1; then
-    echo '--- coverage-probe: SKIP  (rootfs 里没有 /usr/bin/gcc；这不是运行时缺陷)'
+[ -x "$RUNTIME_PROBE" ] || {
+    echo "--- coverage-probe: SKIP (missing $RUNTIME_PROBE; run tools/guest-config/build-guest-tools.sh)" >&2
     exit 0
-fi
-
+}
 adb -s "$DEV" push "$HERE/../guest/husk-session.sh" "$SESS" >/dev/null
-adb -s "$DEV" push "$HERE/coverage-probe.c" /data/local/tmp/coverage-probe.c >/dev/null
-adb -s "$DEV" shell "run-as $PKG sh -c 'cp /data/local/tmp/coverage-probe.c $ROOTFS/root/coverage-probe.c'"
-if ! BUILD=$(adb -s "$DEV" shell "run-as $PKG env NR_LD=$LD sh $SESS $ROOTFS -- /usr/bin/gcc -O1 -o /root/p /root/coverage-probe.c" 2>&1); then
-    echo '--- coverage-probe: compile failed' >&2
-    echo "$BUILD" >&2
-    exit 1
-fi
-if ! OUT=$(adb -s "$DEV" shell "run-as $PKG env NR_LD=$LD sh $SESS $ROOTFS -- /root/p" 2>&1); then
+adb -s "$DEV" push "$RUNTIME_PROBE" /data/local/tmp/husk-runtime-probe >/dev/null
+adb -s "$DEV" shell "run-as $PKG sh -c 'cp /data/local/tmp/husk-runtime-probe $ROOTFS/root/runtime-probe && chmod 755 $ROOTFS/root/runtime-probe'"
+if ! OUT=$(adb -s "$DEV" shell "run-as $PKG env NR_LD=$LD sh $SESS $ROOTFS -- /root/runtime-probe coverage" 2>&1); then
     echo '--- coverage-probe: execution failed' >&2
     echo "$OUT" >&2
     exit 1
@@ -67,15 +60,16 @@ want '^CTL_UNLINK rc=0 errno=0 exists_after=0'      'unlink 翻译（对照组�
 want '^REMOVE rc=0 errno=0 exists_after=0'         'remove(3) 翻译（glibc 内部调用点）'
 want '^INOTIFY fd=[0-9]* wd=[0-9]* errno=0'        'inotify_add_watch 翻译（GIO 文件监视）'
 want '^INOTIFY_EVENT n=[1-9]'                      'inotify 事件真的送到 guest'
-want '^FREOPEN ok=1'                               'freopen 翻译'
-want '^PATHCONF v=255'                              'pathconf 翻译'
+want '^FREOPEN ok=1 errno=0'                       'freopen 翻译且成功不污染 errno'
+want '^PATHCONF v=255 errno=0'                      'pathconf 翻译且成功不污染 errno'
+want '^STATVFS rc=0 errno=0 bsize=[0-9]* namemax=255' 'statvfs 翻译且成功不污染 errno'
 want '^TRUNCATE64 rc=0 errno=0 size=3'             'truncate64 别名'
 want '^UTIME rc=0 errno=0'                          'utime(3) 翻译'
 want '^HARDLINK_STDIO link_rc=0 link_errno=0 content=AAABBB' '硬链接复制后备跟随 stdio fclose'
-want '^CREATE_MODE open_fd=[0-9]* errno=[0-9]* mode=440 write=1 expected=440' 'O_CREAT 保留 caller 请求的模式'
-want '^ACCESS_ROOT read=0/[0-9]* write=0/[0-9]* exec0=-1/13 exec5=0/[0-9]*' '假 root 的 access 读写与执行位语义'
-want '^ACCESS_USER parent=-1/13 owned=0/[0-9]*' '非 root 的 access 检查父目录与虚构 owner'
-want '^OWNER_RESTORE open_fd=[0-9]* errno=[0-9]* mode_open=440 write=1 mode_final=440' '假 root 写放宽后恢复原文件模式'
+want '^CREATE_MODE open_fd=[0-9]* errno=0 mode=440 write=1 expected=440' 'O_CREAT 保留 caller 请求的模式且成功不污染 errno'
+want '^ACCESS_ROOT read=0/0 write=0/0 exec0=-1/13 exec5=0/0' '假 root 的 access 读写与执行位语义'
+want '^ACCESS_USER parent=-1/13 owned=0/0' '非 root 的 access 检查父目录与虚构 owner'
+want '^OWNER_RESTORE open_fd=[0-9]* errno=0 mode_open=440 write=1 mode_final=440' '假 root 写放宽后恢复原文件模式且成功不污染 errno'
 want '^NETLINK_DUP before=[0-9]* opened=[0-9]* families=16,16,16,16 dup=16,16,16 final=16,16,16 after=[0-9]*' \
      'netlink dup/dup2/fcntl 在逐级关闭后仍是 AF_NETLINK'
 want '^CLOSE_RANGE_NETLINK before=[0-9]* opened=[0-9]* rc=0 errno=0 after=[0-9]*' \
@@ -101,6 +95,8 @@ if [ -n "$nl" ]; then
     fi
 fi
 
+adb -s "$DEV" shell "run-as $PKG rm -f $ROOTFS/root/runtime-probe" || true
+adb -s "$DEV" shell 'rm -f /data/local/tmp/husk-runtime-probe' || true
 if [ "$fail" -ne 0 ]; then
     echo '--- coverage-probe: FAIL' >&2
     exit 1

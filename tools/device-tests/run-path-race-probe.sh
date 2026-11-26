@@ -3,22 +3,23 @@
 # from the guest root to an App-private host file outside the rootfs.
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
+REPO_ROOT=$(cd "$HERE/../.." && pwd)
 DEV=${DEV:?usage: DEV=<serial> sh run-path-race-probe.sh}
 PKG=${PKG:-com.linuxhub.husk}
 ROOTFS=${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs}
 LD=${LD:-files/linux/husk/libld.so}
+SESS=${SESS:-/data/local/tmp/husk-session.sh}
+RUNTIME_PROBE=${RUNTIME_PROBE:-$REPO_ROOT/runtime/target/aarch64-unknown-linux-gnu/release/runtime-probe}
 
-# The race probe is compiled inside the guest. A distro tree without a compiler
-# is valid; skip with an explicit reason instead of failing the runtime gate.
-if ! adb -s "$DEV" shell "run-as $PKG test -x $ROOTFS/usr/bin/gcc" >/dev/null 2>&1; then
-    echo '--- path-race-probe: SKIP  (rootfs 里没有 /usr/bin/gcc；这不是运行时缺陷)'
+[ -x "$RUNTIME_PROBE" ] || {
+    echo "--- path-race-probe: SKIP (missing $RUNTIME_PROBE; run tools/guest-config/build-guest-tools.sh)" >&2
     exit 0
-fi
-
+}
 APP=$(adb -s "$DEV" shell "run-as $PKG pwd" | tr -d '\r')
 SENTINEL=$APP/files/husk-path-race-sentinel
 cleanup() {
-    adb -s "$DEV" shell "run-as $PKG rm -f '$SENTINEL'" >/dev/null 2>&1 || true
+    adb -s "$DEV" shell "run-as $PKG rm -f '$SENTINEL' '$ROOTFS/root/runtime-probe'" >/dev/null 2>&1 || true
+    adb -s "$DEV" shell 'rm -f /data/local/tmp/husk-runtime-probe' >/dev/null 2>&1 || true
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -26,9 +27,15 @@ adb -s "$DEV" shell "run-as $PKG sh -c 'printf HOST_SENTINEL_DO_NOT_TOUCH > \"$S
 before_meta=$(adb -s "$DEV" shell "run-as $PKG stat -c '%a:%s:%Y' '$SENTINEL'" | tr -d '\r')
 before_hash=$(adb -s "$DEV" shell "run-as $PKG sha256sum '$SENTINEL'" | awk '{print $1}')
 
-out=$(DEV="$DEV" PKG="$PKG" ROOTFS="$ROOTFS" LD="$LD" \
-    ENV="HOST_SENTINEL=$SENTINEL,NR_FAKE_ROOT=0" EXTRA=../probe/path-race-probe.c \
-    sh "$HERE/run-guest.sh" audit-path-race.sh)
+adb -s "$DEV" push "$HERE/../guest/husk-session.sh" "$SESS" >/dev/null
+adb -s "$DEV" push "$RUNTIME_PROBE" /data/local/tmp/husk-runtime-probe >/dev/null
+adb -s "$DEV" shell "run-as $PKG sh -c 'cp /data/local/tmp/husk-runtime-probe $ROOTFS/root/runtime-probe && chmod 755 $ROOTFS/root/runtime-probe'"
+
+if ! out=$(adb -s "$DEV" shell "run-as $PKG env NR_LD=$LD NR_FAKE_ROOT=0 sh $SESS $ROOTFS -- /root/runtime-probe path-race '$SENTINEL'" 2>&1); then
+    printf '%s\n' "$out" >&2
+    echo '--- path-race-probe: execution failed' >&2
+    exit 1
+fi
 printf '%s\n' "$out"
 
 printf '%s\n' "$out" | grep -q 'PASS host-sentinel-not-visible' \

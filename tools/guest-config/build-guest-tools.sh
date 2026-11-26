@@ -66,10 +66,10 @@ FLAGS="-C linker=$NDK/bin/clang \
        -C link-arg=-fuse-ld=$NDK/bin/ld.lld \
        -C link-arg=-Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 \
        -C link-arg=-Wl,-z,max-page-size=65536"
-for pkg in usermgr ldconfig husk-rd husk-su husk-symlinks husk-window-wait gl-probe ipc-probe gpu-probe location-probe; do
+for pkg in usermgr ldconfig husk-rd husk-su husk-symlinks husk-window-wait gl-probe ipc-probe gpu-probe location-probe audio-capture-probe runtime-probe wallpaper-scale; do
   RUSTFLAGS="$FLAGS" cargo build --release -p "$pkg" --target aarch64-unknown-linux-gnu
 done
-for b in husk-usermgr husk-ldconfig husk-rd husk-su husk-symlinks husk-window-wait gl-probe ipc-probe gpu-probe location-probe; do
+for b in husk-usermgr husk-ldconfig husk-rd husk-su husk-symlinks husk-window-wait gl-probe ipc-probe gpu-probe location-probe audio-capture-probe runtime-probe wallpaper-scale; do
   printf '%s  ' "$b"
   "$NDK/bin/llvm-readelf" -h "target/aarch64-unknown-linux-gnu/release/$b" | awk -F: '/Entry point/{print "entry" $2}'
 done
@@ -82,4 +82,7 @@ ls -l target/aarch64-unknown-linux-gnu/release/husk-usermgr \
       target/aarch64-unknown-linux-gnu/release/gl-probe \
       target/aarch64-unknown-linux-gnu/release/ipc-probe \
       target/aarch64-unknown-linux-gnu/release/gpu-probe \
-      target/aarch64-unknown-linux-gnu/release/location-probe
+      target/aarch64-unknown-linux-gnu/release/location-probe \
+      target/aarch64-unknown-linux-gnu/release/audio-capture-probe \
+      target/aarch64-unknown-linux-gnu/release/runtime-probe \
+      target/aarch64-unknown-linux-gnu/release/wallpaper-scale

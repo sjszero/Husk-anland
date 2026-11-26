@@ -1,0 +1,13 @@
+[package]
+name = "wallpaper-scale"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Guest-side GdkPixbuf wallpaper zoom-fill scaler"
+
+[[bin]]
+name = "wallpaper-scale"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"

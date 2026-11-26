@@ -3,6 +3,10 @@
 version = 4
 
 [[package]]
+name = "audio-capture-probe"
+version = "0.1.0"
+
+[[package]]
 name = "audio-probe"
 version = "0.1.0"
 
@@ -263,6 +267,13 @@ name = "runtime-core"
 version = "0.1.0"
 
 [[package]]
+name = "runtime-probe"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -412,6 +423,13 @@ dependencies = [
 [[package]]
 name = "vulkan-probe"
 version = "0.1.0"
+
+[[package]]
+name = "wallpaper-scale"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "zmij"

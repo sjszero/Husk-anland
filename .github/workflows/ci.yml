@@ -80,6 +80,7 @@ jobs:
       - run: >
           cargo test --manifest-path runtime/Cargo.toml
           -p gpu-env -p session-env -p usermgr -p nr-tools
+          -p location-probe -p audio-capture-probe
           -p video-protocol -p husk-va-driver
 
   preloads:

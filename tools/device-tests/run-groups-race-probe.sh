@@ -1,5 +1,7 @@
 #!/bin/sh
 # Stress getgroups()/setgroups() while a signal handler re-enters getgroups().
+# The probe is a cross-built Rust guest binary; the former in-guest GCC source
+# was only needed to reach the same libc entry points.
 set -eu
 DEV=${DEV:-${1:-}}
 [ -n "$DEV" ] || { echo "usage: $0 <device-serial>" >&2; exit 1; }
@@ -10,6 +12,8 @@ LD=${LD:-$APPDIR/husk/libld.so}
 SESS=${SESS:-/data/local/tmp/husk-session.sh}
 ROUNDS=${ROUNDS:-20}
 HERE=$(cd "$(dirname "$0")" && pwd)
+REPO_ROOT=$(cd "$HERE/../.." && pwd)
+RUNTIME_PROBE=${RUNTIME_PROBE:-$REPO_ROOT/runtime/target/aarch64-unknown-linux-gnu/release/runtime-probe}
 
 device_path() {
     case "$1" in
@@ -21,22 +25,14 @@ device_path() {
 ROOTFS=$(device_path "$ROOTFS")
 LD=$(device_path "$LD")
 
-# This is a runtime semantic probe, not a requirement that every distro tree
-# bundles a compiler. Keep the gate honest and actionable when gcc is absent.
-if ! adb -s "$DEV" shell "run-as $PKG test -x $ROOTFS/usr/bin/gcc" >/dev/null 2>&1; then
-    echo '--- groups-race-probe: SKIP  (rootfs 里没有 /usr/bin/gcc；这不是运行时缺陷)'
+[ -x "$RUNTIME_PROBE" ] || {
+    echo "--- groups-race-probe: SKIP (missing $RUNTIME_PROBE; run tools/guest-config/build-guest-tools.sh)" >&2
     exit 0
-fi
-
+}
 adb -s "$DEV" push "$HERE/../guest/husk-session.sh" "$SESS" >/dev/null
-adb -s "$DEV" push "$HERE/../probe/groups-race-probe.c" /data/local/tmp/groups-race-probe.c >/dev/null
-adb -s "$DEV" shell "run-as $PKG sh -c 'cp /data/local/tmp/groups-race-probe.c $ROOTFS/root/groups-race-probe.c'"
-if ! BUILD=$(adb -s "$DEV" shell "run-as $PKG env NR_LD=$LD sh $SESS $ROOTFS -- /usr/bin/gcc -O2 -pthread -o /root/groups-race /root/groups-race-probe.c" 2>&1); then
-    echo '--- groups-race-probe: compile failed' >&2
-    echo "$BUILD" >&2
-    exit 1
-fi
-if ! OUT=$(adb -s "$DEV" shell "run-as $PKG env NR_LD=$LD sh $SESS $ROOTFS -- /usr/bin/bash -c 'f=0; for i in \$(seq 1 $ROUNDS); do o=\$(/root/groups-race 2>&1) || { printf \"%s\\n\" \"\$o\"; f=\$((f+1)); }; done; echo GROUPS_RACE rounds=$ROUNDS fails=\$f'" 2>&1); then
+adb -s "$DEV" push "$RUNTIME_PROBE" /data/local/tmp/husk-runtime-probe >/dev/null
+adb -s "$DEV" shell "run-as $PKG sh -c 'cp /data/local/tmp/husk-runtime-probe $ROOTFS/root/runtime-probe && chmod 755 $ROOTFS/root/runtime-probe'"
+if ! OUT=$(adb -s "$DEV" shell "run-as $PKG env NR_LD=$LD sh $SESS $ROOTFS -- /usr/bin/bash -c 'f=0; for i in \$(seq 1 $ROUNDS); do o=\$(/root/runtime-probe groups-race 2>&1) || { printf \"%s\\n\" \"\$o\"; f=\$((f+1)); }; done; echo GROUPS_RACE rounds=$ROUNDS fails=\$f'" 2>&1); then
     echo '--- groups-race-probe: execution failed' >&2
     echo "$OUT" >&2
     exit 1
@@ -46,6 +42,6 @@ echo "$OUT" | grep -qx "GROUPS_RACE rounds=$ROUNDS fails=0" || {
     echo '--- groups-race-probe: FAIL' >&2
     exit 1
 }
-adb -s "$DEV" shell "run-as $PKG rm -f $ROOTFS/root/groups-race-probe.c $ROOTFS/root/groups-race" || true
-adb -s "$DEV" shell 'rm -f /data/local/tmp/groups-race-probe.c' || true
+adb -s "$DEV" shell "run-as $PKG rm -f $ROOTFS/root/runtime-probe" || true
+adb -s "$DEV" shell 'rm -f /data/local/tmp/husk-runtime-probe' || true
 echo '--- groups-race-probe: PASS'

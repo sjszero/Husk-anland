@@ -20,6 +20,7 @@ PKG=${PKG:-com.linuxhub.husk}
 ROOTFS=${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs}
 LD=${LD:-files/linux/libld.so}
 HERE=$(cd "$(dirname "$0")" && pwd)
+GL_PROBE=${GL_PROBE:-$HERE/../../runtime/target/aarch64-unknown-linux-gnu/release/gl-probe}
 PASS=0; FAIL=0; SKIP=0
 ok()   { PASS=$((PASS+1)); echo "  PASS  $1"; }
 bad()  { FAIL=$((FAIL+1)); echo "  FAIL  $1"; }
@@ -32,8 +33,8 @@ push() { # push <local> <guest-relative-in-tree>
 
 renderer() { # renderer <tag> [env assignments...]
     tag=$1; shift
-    out=$(adb_ "run-as $PKG sh $ROOTFS/tmp/husk-exec.sh $ROOTFS $LD usr/bin/env $* usr/bin/python3 /tmp/readback.py 16 16 $tag" 2>&1)
-    printf '%s\n' "$out" | sed -n 's/^TAG .*GL_RENDERER=//p' | sed -n 's/  GL_VERSION=.*//p' | head -1
+    out=$(adb_ "run-as $PKG sh $ROOTFS/tmp/husk-exec.sh $ROOTFS $LD usr/bin/env $* ./root/gl-probe readback 16x16" 2>&1)
+    printf '%s\n' "$out" | sed -n 's/^renderer=//p' | head -1
 }
 
 echo "== tree =="
@@ -73,7 +74,14 @@ if [ "$have_driver" = true ]; then
 fi
 
 echo "== push probe =="
-push "$HERE/husk-exec.sh" tmp/husk-exec.sh && push "$HERE/probes/readback.py" tmp/readback.py && ok "probe pushed"
+if [ ! -x "$GL_PROBE" ]; then
+    bad "missing $GL_PROBE (run tools/guest-config/build-guest-tools.sh)"
+else
+    push "$HERE/husk-exec.sh" tmp/husk-exec.sh &&
+        push "$GL_PROBE" root/gl-probe &&
+        adb_ "run-as $PKG sh -c 'chmod 755 $ROOTFS/root/gl-probe'" >/dev/null &&
+        ok "probe pushed"
+fi
 
 echo "== loader defaults, no GPU env of any kind =="
 r=$(renderer plain)

@@ -112,6 +112,7 @@ const GL_FRAMEBUFFER_COMPLETE: c_uint = 0x8CD5;
 const GL_RGBA8: c_int = 0x8058;
 const GL_COLOR_BUFFER_BIT: c_uint = 0x4000;
 const GL_TRIANGLE_STRIP: c_uint = 0x0005;
+const GL_TRIANGLES: c_uint = 0x0004;
 const GL_TEXTURE0: c_uint = 0x84C0;
 const GL_DEPTH_TEST: c_uint = 0x0B71;
 const GL_UNPACK_ALIGNMENT: c_uint = 0x0CF5;
@@ -334,6 +335,23 @@ struct LegacyGl {
     rotatef: unsafe extern "C" fn(f32, f32, f32, f32),
     lightfv: unsafe extern "C" fn(c_uint, c_uint, *const f32),
     color_material: unsafe extern "C" fn(c_uint, c_uint),
+    gen_textures: unsafe extern "C" fn(c_int, *mut c_uint),
+    bind_texture: unsafe extern "C" fn(c_uint, c_uint),
+    tex_image_2d: unsafe extern "C" fn(
+        c_uint,
+        c_int,
+        c_int,
+        c_int,
+        c_int,
+        c_int,
+        c_uint,
+        c_uint,
+        *const c_void,
+    ),
+    gen_framebuffers: unsafe extern "C" fn(c_int, *mut c_uint),
+    bind_framebuffer: unsafe extern "C" fn(c_uint, c_uint),
+    framebuffer_texture_2d: unsafe extern "C" fn(c_uint, c_uint, c_uint, c_uint, c_int),
+    check_framebuffer_status: unsafe extern "C" fn(c_uint) -> c_uint,
     begin: unsafe extern "C" fn(c_uint),
     end: unsafe extern "C" fn(),
     normal3f: unsafe extern "C" fn(f32, f32, f32),
@@ -367,6 +385,13 @@ impl LegacyGl {
                 rotatef: cast(p("glRotatef")),
                 lightfv: cast(p("glLightfv")),
                 color_material: cast(p("glColorMaterial")),
+                gen_textures: cast(p("glGenTextures")),
+                bind_texture: cast(p("glBindTexture")),
+                tex_image_2d: cast(p("glTexImage2D")),
+                gen_framebuffers: cast(p("glGenFramebuffers")),
+                bind_framebuffer: cast(p("glBindFramebuffer")),
+                framebuffer_texture_2d: cast(p("glFramebufferTexture2D")),
+                check_framebuffer_status: cast(p("glCheckFramebufferStatus")),
                 begin: cast(p("glBegin")),
                 end: cast(p("glEnd")),
                 normal3f: cast(p("glNormal3f")),
@@ -388,6 +413,214 @@ impl LegacyGl {
         unsafe { std::ffi::CStr::from_ptr(p) }
             .to_string_lossy()
             .into_owned()
+    }
+}
+
+fn legacy_surfaceless_context(egl: &Egl) -> Option<(*mut Display, Context)> {
+    let display = unsafe {
+        let d = (egl.get_platform_display)(
+            EGL_PLATFORM_SURFACELESS_MESA,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        );
+        if d.is_null() {
+            (egl.get_display)(std::ptr::null_mut())
+        } else {
+            d
+        }
+    };
+    if display.is_null() {
+        say!("FAIL eglGetDisplay(desktop GL fixedgl)");
+        return None;
+    }
+    let (mut major, mut minor) = (0, 0);
+    if unsafe { (egl.initialize)(display, &mut major, &mut minor) } == 0 {
+        say!("FAIL eglInitialize(desktop GL fixedgl)");
+        return None;
+    }
+    if unsafe { (egl.bind_api)(EGL_OPENGL_API) } == 0 {
+        say!("FAIL eglBindAPI(OpenGL) err={:#x}", unsafe {
+            (egl.get_error)()
+        });
+        return None;
+    }
+    let config_attrs = [
+        EGL_SURFACE_TYPE,
+        EGL_PBUFFER_BIT,
+        EGL_RENDERABLE_TYPE,
+        EGL_OPENGL_BIT,
+        EGL_RED_SIZE,
+        8,
+        EGL_GREEN_SIZE,
+        8,
+        EGL_BLUE_SIZE,
+        8,
+        EGL_ALPHA_SIZE,
+        8,
+        EGL_NONE,
+    ];
+    let mut config: Config = std::ptr::null_mut();
+    let mut count = 0;
+    if unsafe { (egl.choose_config)(display, config_attrs.as_ptr(), &mut config, 1, &mut count) }
+        == 0
+        || count < 1
+    {
+        say!("RESULT UNSUPPORTED (no desktop-GL fixedgl config)");
+        return None;
+    }
+    let context =
+        unsafe { (egl.create_context)(display, config, std::ptr::null_mut(), std::ptr::null()) };
+    if context.is_null() {
+        say!("FAIL eglCreateContext(fixedgl) err={:#x}", unsafe {
+            (egl.get_error)()
+        });
+        return None;
+    }
+    if unsafe { (egl.make_current)(display, std::ptr::null_mut(), std::ptr::null_mut(), context) }
+        == 0
+    {
+        say!("FAIL eglMakeCurrent(fixedgl) err={:#x}", unsafe {
+            (egl.get_error)()
+        });
+        return None;
+    }
+    Some((display, context))
+}
+
+fn run_fixedgl(width: u32, height: u32, seconds: u64, tag: &str, lit: bool) -> i32 {
+    let Some(egl) = Egl::load() else {
+        say!("FAIL dlopen EGL");
+        return 2;
+    };
+    let Some((display, context)) = legacy_surfaceless_context(&egl) else {
+        return 2;
+    };
+    let Some(gl) = LegacyGl::load() else {
+        say!("RESULT UNSUPPORTED (desktop libGL symbols missing)");
+        return 2;
+    };
+
+    say!(
+        "TAG {} GL_RENDERER={} GL_VERSION={}",
+        tag,
+        gl.string(GL_RENDERER),
+        gl.string(GL_VERSION)
+    );
+    let mut texture = 0u32;
+    let mut framebuffer = 0u32;
+    unsafe {
+        (gl.gen_textures)(1, &mut texture);
+        (gl.bind_texture)(GL_TEXTURE_2D, texture);
+        (gl.tex_image_2d)(
+            GL_TEXTURE_2D,
+            0,
+            GL_RGBA8,
+            width as c_int,
+            height as c_int,
+            0,
+            GL_RGBA,
+            GL_UNSIGNED_BYTE,
+            std::ptr::null(),
+        );
+        (gl.gen_framebuffers)(1, &mut framebuffer);
+        (gl.bind_framebuffer)(GL_FRAMEBUFFER, framebuffer);
+        (gl.framebuffer_texture_2d)(
+            GL_FRAMEBUFFER,
+            GL_COLOR_ATTACHMENT0,
+            GL_TEXTURE_2D,
+            texture,
+            0,
+        );
+    }
+    if unsafe { (gl.check_framebuffer_status)(GL_FRAMEBUFFER) } != GL_FRAMEBUFFER_COMPLETE {
+        say!("FATAL fbo incomplete");
+        return 2;
+    }
+    unsafe {
+        (gl.viewport)(0, 0, width as c_int, height as c_int);
+        if lit {
+            (gl.enable)(GL_LIGHTING);
+            (gl.enable)(GL_LIGHT0);
+            (gl.enable)(GL_DEPTH_TEST);
+            (gl.enable)(GL_NORMALIZE);
+            (gl.enable)(GL_COLOR_MATERIAL);
+            (gl.shade_model)(GL_SMOOTH);
+            let position = [0.5f32, 5.0, 5.0, 0.0];
+            (gl.lightfv)(GL_LIGHT0, GL_POSITION, position.as_ptr());
+            (gl.matrix_mode)(GL_PROJECTION);
+            (gl.load_identity)();
+            (gl.matrix_mode)(GL_MODELVIEW);
+            say!("MODE lit (lighting + smooth shading + depth test)");
+        } else {
+            say!("MODE plain");
+        }
+    }
+
+    let start = std::time::Instant::now();
+    let mut frames = 0u64;
+    let mut errors = 0u64;
+    while start.elapsed().as_secs_f64() < seconds as f64 {
+        let phase = (frames % 60) as f32 / 60.0;
+        unsafe {
+            (gl.clear_color)(phase, 0.2, 1.0 - phase, 1.0);
+            (gl.clear)(GL_COLOR_BUFFER_BIT);
+            if lit {
+                (gl.load_identity)();
+                (gl.rotatef)((frames % 360) as f32, 0.0, 1.0, 0.0);
+                (gl.begin)(GL_TRIANGLES);
+                for i in 0..60 {
+                    let angle = i as f32 * 6.0 * std::f32::consts::PI / 180.0;
+                    let x = 0.8 * angle.cos();
+                    let y = 0.8 * angle.sin();
+                    (gl.normal3f)(x, y, 0.6);
+                    (gl.color3f)(
+                        0.2 + 0.4 * (i % 5) as f32 / 4.0,
+                        0.6,
+                        0.9 - 0.4 * (i % 3) as f32 / 2.0,
+                    );
+                    (gl.vertex3f)(x * 0.6, y * 0.6, 0.0);
+                    (gl.vertex3f)(x, y, 0.0);
+                    (gl.vertex3f)(x * 0.5 + 0.1, y * 0.5 - 0.1, 0.0);
+                }
+                (gl.end)();
+            } else {
+                (gl.begin)(GL_TRIANGLES);
+                (gl.vertex3f)(-0.6, -0.5, 0.0);
+                (gl.vertex3f)(0.6, -0.5, 0.0);
+                (gl.vertex3f)(0.0, 0.6, 0.0);
+                (gl.end)();
+            }
+            (gl.finish)();
+        }
+        frames += 1;
+        if unsafe { (gl.get_error)() } != GL_NO_ERROR {
+            errors += 1;
+        }
+    }
+    let fps = frames as f64 / start.elapsed().as_secs_f64().max(1e-9);
+    say!(
+        "DONE {} {}x{} frames={} fps={:.1} errors={}",
+        tag,
+        width,
+        height,
+        frames,
+        fps,
+        errors
+    );
+    unsafe {
+        (egl.make_current)(
+            display,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        );
+        (egl.destroy_context)(display, context);
+        (egl.terminate)(display);
+    }
+    if errors == 0 {
+        0
+    } else {
+        1
     }
 }
 
@@ -1845,6 +2078,519 @@ fn run_readback(width: u32, height: u32) -> i32 {
     0
 }
 
+fn proc_rss_kb() -> u64 {
+    let Ok(status) = std::fs::read_to_string("/proc/self/status") else {
+        return 0;
+    };
+    status
+        .lines()
+        .find_map(|line| line.strip_prefix("VmRSS:"))
+        .and_then(|value| value.split_whitespace().next())
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0)
+}
+
+fn proc_fd_counts() -> (u64, u64) {
+    let mut total = 0u64;
+    let mut mali = 0u64;
+    let Ok(entries) = std::fs::read_dir("/proc/self/fd") else {
+        return (0, 0);
+    };
+    for entry in entries.flatten() {
+        total += 1;
+        if std::fs::read_link(entry.path())
+            .map(|path| path.to_string_lossy().contains("/dev/mali0"))
+            .unwrap_or(false)
+        {
+            mali += 1;
+        }
+    }
+    (total, mali)
+}
+
+/// GPU soak: report per-second frame progress, RSS and device fds. This keeps the
+/// Python probe's leak signal while using the same EGL/GLES loader path as the
+/// rest of the Rust GPU tools.
+fn run_soak(width: u32, height: u32, seconds: u64, tag: &str) -> i32 {
+    let Some(egl) = Egl::load() else {
+        say!("FAIL dlopen EGL");
+        return 1;
+    };
+    unsafe {
+        let display = (egl.get_platform_display)(
+            EGL_PLATFORM_SURFACELESS_MESA,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        );
+        if display.is_null() {
+            say!("FAIL eglGetPlatformDisplay(surfaceless)");
+            return 1;
+        }
+        let (mut major, mut minor) = (0, 0);
+        if (egl.initialize)(display, &mut major, &mut minor) == 0 {
+            say!("FAIL eglInitialize");
+            return 1;
+        }
+        if (egl.bind_api)(EGL_OPENGL_ES_API) == 0 {
+            say!("FAIL eglBindAPI(GL_ES) err={:#x}", (egl.get_error)());
+            return 1;
+        }
+        let config_attrs = [
+            EGL_RENDERABLE_TYPE,
+            EGL_OPENGL_ES2_BIT,
+            EGL_RED_SIZE,
+            8,
+            EGL_GREEN_SIZE,
+            8,
+            EGL_BLUE_SIZE,
+            8,
+            EGL_ALPHA_SIZE,
+            8,
+            EGL_SURFACE_TYPE,
+            EGL_PBUFFER_BIT,
+            EGL_NONE,
+        ];
+        let mut config: Config = std::ptr::null_mut();
+        let mut count = 0;
+        if (egl.choose_config)(display, config_attrs.as_ptr(), &mut config, 1, &mut count) == 0
+            || count < 1
+        {
+            say!("FAIL eglChooseConfig n={count}");
+            return 1;
+        }
+        let surface_attrs = [EGL_WIDTH, width as i32, EGL_HEIGHT, height as i32, EGL_NONE];
+        let surface = (egl.create_pbuffer_surface)(display, config, surface_attrs.as_ptr());
+        if surface.is_null() {
+            say!("FAIL eglCreatePbufferSurface err={:#x}", (egl.get_error)());
+            return 1;
+        }
+        let ctx_attrs = [EGL_CONTEXT_MAJOR_VERSION, 2, EGL_NONE];
+        let context =
+            (egl.create_context)(display, config, std::ptr::null_mut(), ctx_attrs.as_ptr());
+        if context.is_null() {
+            say!("FAIL eglCreateContext err={:#x}", (egl.get_error)());
+            return 1;
+        }
+        if (egl.make_current)(display, surface, surface, context) == 0 {
+            say!("FAIL eglMakeCurrent err={:#x}", (egl.get_error)());
+            return 1;
+        }
+        let Some(gl) = Gl::load() else {
+            say!("FAIL dlopen GLESv2");
+            return 1;
+        };
+        say!("TAG {tag} GL_RENDERER={}", gl.string(GL_RENDERER));
+        (gl.viewport)(0, 0, width as c_int, height as c_int);
+
+        let (base_fd, base_mali) = proc_fd_counts();
+        let base_rss = proc_rss_kb();
+        say!(
+            "START {tag} {width}x{height} for {seconds}s rss={base_rss}kB fd={base_fd} mali_fd={base_mali}"
+        );
+
+        let started = std::time::Instant::now();
+        let mut last = started;
+        let mut frames_total = 0u64;
+        let mut frames_second = 0u64;
+        let mut peak_fps = 0u64;
+        let mut errors = 0u64;
+        while started.elapsed() < std::time::Duration::from_secs(seconds) {
+            let phase = (frames_total * 7 % 256) as f32 / 255.0;
+            (gl.clear_color)(phase, 0.25, 1.0 - phase, 1.0);
+            (gl.clear)(GL_COLOR_BUFFER_BIT);
+            (gl.finish)();
+            frames_total += 1;
+            frames_second += 1;
+            if (gl.get_error)() != 0 {
+                errors += 1;
+            }
+            if last.elapsed() >= std::time::Duration::from_secs(1) {
+                let (fd, mali) = proc_fd_counts();
+                say!(
+                    "SEC {:4} fps={:4} rss={}kB fd={fd} mali_fd={mali} errors={errors}",
+                    started.elapsed().as_secs(),
+                    frames_second,
+                    proc_rss_kb()
+                );
+                peak_fps = peak_fps.max(frames_second);
+                frames_second = 0;
+                last = std::time::Instant::now();
+            }
+        }
+        let (fd, mali) = proc_fd_counts();
+        let elapsed = started.elapsed().as_secs_f64();
+        say!(
+            "DONE {tag} frames={frames_total} avg_fps={:.1} peak_fps={peak_fps} rss={}kB (start {base_rss}kB) fd={fd} (start {base_fd}) mali_fd={mali} (start {base_mali}) errors={errors}",
+            frames_total as f64 / elapsed.max(1e-9),
+            proc_rss_kb()
+        );
+        if errors == 0 {
+            0
+        } else {
+            1
+        }
+    }
+}
+
+fn readback_pattern(x: usize, y: usize) -> [u8; 4] {
+    [
+        (x * 7 + 3) as u8,
+        (y * 11 + 5) as u8,
+        ((x * 13 + y * 17) % 251) as u8,
+        255,
+    ]
+}
+
+fn drain_gl_errors(gl: &Gl) -> Vec<u32> {
+    let mut seen = Vec::new();
+    for _ in 0..8 {
+        let error = unsafe { (gl.get_error)() };
+        if error == 0 {
+            break;
+        }
+        seen.push(error);
+    }
+    seen
+}
+
+/// Round-5 readback suite: width boundaries, canary tails, whole-block reads,
+/// and the row-by-row shape used by screenshots.
+fn run_readback_suite() -> i32 {
+    let Some(egl) = Egl::load() else {
+        say!("FAIL dlopen EGL");
+        return 1;
+    };
+    unsafe {
+        let display = (egl.get_platform_display)(
+            EGL_PLATFORM_SURFACELESS_MESA,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        );
+        if display.is_null() {
+            say!("FAIL eglGetPlatformDisplay(surfaceless)");
+            return 1;
+        }
+        let (mut major, mut minor) = (0, 0);
+        if (egl.initialize)(display, &mut major, &mut minor) == 0 {
+            say!("FAIL eglInitialize");
+            return 1;
+        }
+        if (egl.bind_api)(EGL_OPENGL_ES_API) == 0 {
+            say!("FAIL eglBindAPI(GL_ES) err={:#x}", (egl.get_error)());
+            return 1;
+        }
+        let config_attrs = [
+            EGL_SURFACE_TYPE,
+            EGL_PBUFFER_BIT,
+            EGL_RENDERABLE_TYPE,
+            EGL_OPENGL_ES3_BIT,
+            EGL_RED_SIZE,
+            8,
+            EGL_GREEN_SIZE,
+            8,
+            EGL_BLUE_SIZE,
+            8,
+            EGL_ALPHA_SIZE,
+            8,
+            EGL_NONE,
+        ];
+        let mut config: Config = std::ptr::null_mut();
+        let mut count = 0;
+        if (egl.choose_config)(display, config_attrs.as_ptr(), &mut config, 1, &mut count) == 0
+            || count < 1
+        {
+            say!("FAIL eglChooseConfig n={count}");
+            return 1;
+        }
+        let surface_attrs = [EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE];
+        let surface = (egl.create_pbuffer_surface)(display, config, surface_attrs.as_ptr());
+        if surface.is_null() {
+            say!("FAIL eglCreatePbufferSurface err={:#x}", (egl.get_error)());
+            return 1;
+        }
+        let ctx_attrs = [EGL_CONTEXT_MAJOR_VERSION, 3, EGL_NONE];
+        let context =
+            (egl.create_context)(display, config, std::ptr::null_mut(), ctx_attrs.as_ptr());
+        if context.is_null() {
+            say!("FAIL eglCreateContext err={:#x}", (egl.get_error)());
+            return 1;
+        }
+        if (egl.make_current)(display, surface, surface, context) == 0 {
+            say!("FAIL eglMakeCurrent err={:#x}", (egl.get_error)());
+            return 1;
+        }
+
+        let Some(gl) = Gl::load() else {
+            say!("FAIL dlopen GLESv2");
+            return 1;
+        };
+        say!(
+            "TAG renderer={} version={}",
+            gl.string(GL_RENDERER),
+            gl.string(GL_VERSION)
+        );
+
+        let mut texture = 0u32;
+        (gl.gen_textures)(1, &mut texture);
+        (gl.bind_texture)(GL_TEXTURE_2D, texture);
+        (gl.tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        (gl.tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        let mut framebuffer = 0u32;
+        (gl.gen_framebuffers)(1, &mut framebuffer);
+        (gl.bind_framebuffer)(GL_FRAMEBUFFER, framebuffer);
+        (gl.pixel_storei)(GL_UNPACK_ALIGNMENT, 1);
+        (gl.pixel_storei)(GL_PACK_ALIGNMENT, 4);
+        (gl.pixel_storei)(GL_PACK_ROW_LENGTH, 0);
+
+        let frame = |w: usize, h: usize| -> Result<(), String> {
+            let mut pixels = vec![0u8; w * h * 4];
+            for y in 0..h {
+                for x in 0..w {
+                    let offset = (y * w + x) * 4;
+                    pixels[offset..offset + 4].copy_from_slice(&readback_pattern(x, y));
+                }
+            }
+            (gl.tex_image_2d)(
+                GL_TEXTURE_2D,
+                0,
+                GL_RGBA8,
+                w as c_int,
+                h as c_int,
+                0,
+                GL_RGBA,
+                GL_UNSIGNED_BYTE,
+                pixels.as_ptr() as *const c_void,
+            );
+            (gl.framebuffer_texture_2d)(
+                GL_FRAMEBUFFER,
+                GL_COLOR_ATTACHMENT0,
+                GL_TEXTURE_2D,
+                texture,
+                0,
+            );
+            let status = (gl.check_framebuffer_status)(GL_FRAMEBUFFER);
+            if status != GL_FRAMEBUFFER_COMPLETE {
+                return Err(format!("FBO incomplete for {w}x{h}: {status:#x}"));
+            }
+            (gl.viewport)(0, 0, w as c_int, h as c_int);
+            Ok(())
+        };
+
+        let read1 = |x: usize, y: usize| -> [u8; 4] {
+            let mut pixel = [0u8; 4];
+            (gl.read_pixels)(
+                x as c_int,
+                y as c_int,
+                1,
+                1,
+                GL_RGBA,
+                GL_UNSIGNED_BYTE,
+                pixel.as_mut_ptr() as *mut c_void,
+            );
+            pixel
+        };
+        let read_rows = |w: usize, h: usize, extra: usize| -> Vec<u8> {
+            let mut out = vec![0xAAu8; w * h * 4 + extra];
+            let base = out.as_mut_ptr();
+            for y in 0..h {
+                (gl.read_pixels)(
+                    0,
+                    y as c_int,
+                    w as c_int,
+                    1,
+                    GL_RGBA,
+                    GL_UNSIGNED_BYTE,
+                    base.add(y * w * 4) as *mut c_void,
+                );
+            }
+            out
+        };
+        let read_block = |w: usize, h: usize, extra: usize| -> Vec<u8> {
+            let mut out = vec![0xAAu8; w * h * 4 + extra];
+            (gl.read_pixels)(
+                0,
+                0,
+                w as c_int,
+                h as c_int,
+                GL_RGBA,
+                GL_UNSIGNED_BYTE,
+                out.as_mut_ptr() as *mut c_void,
+            );
+            out
+        };
+
+        let mut passed = 0u32;
+        let mut failed = 0u32;
+        let mut passed_case = |message: String| {
+            passed += 1;
+            say!("  PASS  {message}");
+        };
+        let mut failed_case = |message: String| {
+            failed += 1;
+            say!("  FAIL  {message}");
+        };
+
+        say!("== T1 row-wise readback, width boundaries ==");
+        for (w, h) in [
+            (1usize, 3usize),
+            (2, 3),
+            (3, 3),
+            (4, 3),
+            (5, 3),
+            (7, 3),
+            (8, 4),
+            (15, 3),
+            (16, 4),
+            (17, 3),
+            (63, 2),
+            (64, 2),
+            (65, 2),
+        ] {
+            if let Err(e) = frame(w, h) {
+                failed_case(format!("W={w} H={h}: {e}"));
+                continue;
+            }
+            let mut want = Vec::with_capacity(w * h * 4);
+            let mut uploaded = Vec::with_capacity(w * h * 4);
+            for y in 0..h {
+                for x in 0..w {
+                    want.extend_from_slice(&read1(x, y));
+                    uploaded.extend_from_slice(&readback_pattern(x, y));
+                }
+            }
+            if want != uploaded {
+                failed_case(format!(
+                    "W={w} H={h}: 1x1 reads do not match the uploaded pattern"
+                ));
+                continue;
+            }
+            let early = drain_gl_errors(&gl);
+            if !early.is_empty() {
+                say!("  INFO  W={w} H={h}: setup raised {early:x?} before the read (drained)");
+            }
+            let got = read_rows(w, h, 0);
+            let error = (gl.get_error)();
+            if got == want && error == 0 {
+                passed_case(format!(
+                    "W={w} H={h}: {} bytes exact, glGetError=0",
+                    got.len()
+                ));
+            } else {
+                let different = got
+                    .iter()
+                    .zip(&want)
+                    .filter(|(left, right)| left != right)
+                    .count();
+                failed_case(format!(
+                    "W={w} H={h}: {different} byte(s) differ, glGetError={error:#x}"
+                ));
+            }
+        }
+
+        say!("== T2 canary: row-wise read must not touch the tail ==");
+        for (w, h) in [(5usize, 3usize), (17, 3), (65, 2)] {
+            if let Err(e) = frame(w, h) {
+                failed_case(format!("W={w} H={h}: {e}"));
+                continue;
+            }
+            let mut want = Vec::with_capacity(w * h * 4);
+            for y in 0..h {
+                for x in 0..w {
+                    want.extend_from_slice(&read1(x, y));
+                }
+            }
+            let tail = 4_096usize;
+            drain_gl_errors(&gl);
+            let got = read_rows(w, h, tail);
+            let head = &got[..w * h * 4];
+            let beyond = &got[w * h * 4..];
+            let overrun = beyond.iter().filter(|byte| **byte != 0xAA).count();
+            if head == want && overrun == 0 {
+                passed_case(format!(
+                    "W={w} H={h}: head exact, {tail}-byte tail untouched"
+                ));
+            } else {
+                failed_case(format!(
+                    "W={w} H={h}: head {}, tail written in {overrun} byte(s)",
+                    if head == want { "exact" } else { "WRONG" }
+                ));
+            }
+        }
+
+        say!("== T3 whole-block read: exact bytes and canary ==");
+        for (w, h) in [(16usize, 16usize), (65, 4)] {
+            if let Err(e) = frame(w, h) {
+                failed_case(format!("W={w} H={h}: {e}"));
+                continue;
+            }
+            let mut want = Vec::with_capacity(w * h * 4);
+            for y in 0..h {
+                for x in 0..w {
+                    want.extend_from_slice(&read1(x, y));
+                }
+            }
+            let tail = 8_192usize;
+            drain_gl_errors(&gl);
+            let got = read_block(w, h, tail);
+            let error = (gl.get_error)();
+            let head = &got[..w * h * 4];
+            let beyond = &got[w * h * 4..];
+            let overrun = beyond.iter().filter(|byte| **byte != 0xAA).count();
+            if head == want && overrun == 0 && error == 0 {
+                passed_case(format!(
+                    "W={w} H={h}: whole-block exact, {tail}-byte tail untouched, glGetError=0"
+                ));
+            } else {
+                let different = head
+                    .iter()
+                    .zip(&want)
+                    .filter(|(left, right)| left != right)
+                    .count();
+                failed_case(format!(
+                    "W={w} H={h}: {different}/{len} bytes differ, tail written in {overrun} byte(s), glGetError={error:#x}",
+                    len = want.len()
+                ));
+            }
+        }
+
+        say!("== T4 screenshot path: row loop into W*H*4 ==");
+        let (w, h) = (240usize, 135usize);
+        if let Err(e) = frame(w, h) {
+            failed_case(format!("W={w} H={h}: {e}"));
+        } else {
+            let mut want = Vec::with_capacity(w * h * 4);
+            for y in 0..h {
+                for x in 0..w {
+                    want.extend_from_slice(&read1(x, y));
+                }
+            }
+            drain_gl_errors(&gl);
+            let got = read_rows(w, h, 0);
+            if got == want {
+                passed_case(format!(
+                    "{w}x{h}: {} bytes byte-identical to ground truth",
+                    got.len()
+                ));
+            } else {
+                let different = got
+                    .iter()
+                    .zip(&want)
+                    .filter(|(left, right)| left != right)
+                    .count();
+                failed_case(format!("{w}x{h}: {different}/{} bytes differ", want.len()));
+            }
+        }
+
+        say!("");
+        say!("PASS={passed} FAIL={failed}");
+        if failed == 0 {
+            0
+        } else {
+            1
+        }
+    }
+}
+
 /// Windowed EGL: real X11 window at `width`x`height`, `frames` clear+swap
 /// frames, then a 1x1 readback. Defaults (640x480, 60) are the numbers the
 /// evidence files were taken with; other sizes are how the presentation cost
@@ -2191,6 +2937,23 @@ fn main() {
                 .unwrap_or(60);
             run_fixed(frames)
         }
+        Some("fixedgl") => {
+            let size = args.get(1).map(String::as_str).unwrap_or("640x480");
+            let seconds = args
+                .get(2)
+                .and_then(|value| value.parse::<u64>().ok())
+                .filter(|value| (1..=86_400).contains(value))
+                .unwrap_or(10);
+            let tag = args.get(3).map(String::as_str).unwrap_or("fixed");
+            let lit = matches!(args.get(4).map(String::as_str), Some("lit"));
+            match parse_size(size) {
+                Some((width, height)) => run_fixedgl(width, height, seconds, tag, lit),
+                None => {
+                    eprintln!("gl-probe fixedgl: bad size {size:?} (want WxH, e.g. 640x480)");
+                    2
+                }
+            }
+        }
         Some("window") => {
             let size = args.get(1).map(String::as_str).unwrap_or("640x480");
             let frames = args
@@ -2266,9 +3029,26 @@ fn main() {
                 }
             }
         }
+        Some("readback-suite") => run_readback_suite(),
+        Some("soak") => {
+            let size = args.get(1).map(String::as_str).unwrap_or("2400x1080");
+            let seconds = args
+                .get(2)
+                .and_then(|value| value.parse::<u64>().ok())
+                .filter(|value| (1..=86_400).contains(value))
+                .unwrap_or(180);
+            let tag = args.get(3).map(String::as_str).unwrap_or("soak");
+            match parse_size(size) {
+                Some((w, h)) => run_soak(w, h, seconds, tag),
+                None => {
+                    eprintln!("gl-probe soak: bad size {size:?} (want WxH, e.g. 2400x1080)");
+                    2
+                }
+            }
+        }
         Some("root") => run_root(),
         _ => {
-            eprintln!("usage: gl-probe <es3 | fixed [frames] | window [WxH [frames]] | pbuf [WxH [frames]] | xput [WxH [frames]] | fill [WxH [passes [frames]]] | readback [WxH] | root [out.ppm]>");
+            eprintln!("usage: gl-probe <es3 | fixed [frames] | fixedgl [WxH [seconds [tag [plain|lit]]]] | window [WxH [frames]] | pbuf [WxH [frames]] | xput [WxH [frames]] | fill [WxH [passes [frames]]] | readback [WxH] | readback-suite | soak [WxH [seconds [tag]]] | root [out.ppm]>");
             2
         }
     };
