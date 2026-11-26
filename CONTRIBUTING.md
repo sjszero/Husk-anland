@@ -64,33 +64,43 @@ make loader
 
 ## 发布
 
-版本号只有一个来源：仓库根的 `VERSION`，内容是**三段式 SemVer**（`0.0.x`）。写 `0.02` 这种
-两段式不是合法 SemVer，工具和 release 页面都会对不上，不要用。`./husk --version`、
-`CHANGELOG.md` 最新一节、release tag 三处由 `make version-check` 强制对齐。
+版本号只有一个来源：仓库根的 `VERSION`，内容是**三段式 SemVer**（`X.Y.Z`），每个分量只能是
+`0..99`。发布序号按 **100 进位**，所以不存在 `0.0.100`：
 
-**每发一版，patch 位加一：0.0.1 → 0.0.2 → 0.0.3 …**（不跳号、不回填；`0.0.x` 阶段不承诺
-任何接口稳定）。**已经发出去的 tag 不改名、不移动**——否则下载同一个链接的人会拿到不同的
-东西；唯一的例外是刚发布当天就发现版本号本身写错，那种情况要当场改完，并在 CHANGELOG 里
-留一行说明。发版流程（下面以 `0.0.3` 为例）：
+```text
+0.0.98 -> 0.0.99 -> 0.1.0
+0.99.99 -> 1.0.0
+```
+
+每次发版先运行 `make version-bump`，不要手改数字。`./husk --version`、APK `versionName`、
+`CHANGELOG.md` 最新一节、release tag 和徽章由 `make version-check` 强制对齐。
+
+**已经发出去的 tag 不改名、不移动**——否则下载同一个链接的人会拿到不同的东西。只有刚发布
+当天就发现版本号本身写错，才允许当场修正，并在 CHANGELOG 留一行说明。发版流程（下面以
+`0.0.33` 为例）：
 
 ```sh
 # 1. 版本与变更
-printf '0.0.3\n' > VERSION
-#    在 CHANGELOG.md 顶部加一节 ## [0.0.3] - YYYY-MM-DD，并把链接改成
-#    [0.0.3]: https://github.com/xishanp/Husk/releases/tag/v0.0.3
+make version-bump              # 0.0.32 -> 0.0.33
+# 在 CHANGELOG.md 顶部加一节 ## [0.0.33] - YYYY-MM-DD，并把链接改成
+# [0.0.33]: https://github.com/xishanp/Husk/releases/tag/v0.0.33
 make check                     # 含 version-check
 LIBC=<pristine glibc 2.39 libc.so.6> NDK=<ndk>/prebuilt make dist
 # 产出 dist/husk-arm64.tar.gz + SHA256SUMS
 
 # 2. 打标签、推、建 release（annotated tag，不要轻量标签）
-git tag -a v0.0.3 -m "Husk 0.0.3"
-git push origin main && git push origin v0.0.3
-gh release create v0.0.3 dist/husk-arm64.tar.gz dist/SHA256SUMS \
-  --title "Husk 0.0.3" --notes-file <(sed -n '/## \[0.0.3\]/,/## \[/p' CHANGELOG.md)
+git tag -a v0.0.33 -m "Husk 0.0.33"
+git push origin main && git push origin v0.0.33
+notes=$(mktemp)
+sh tools/ci/release-notes.sh > "$notes"
+gh release create v0.0.33 dist/husk-arm64.tar.gz dist/SHA256SUMS \
+  --title "Husk 0.0.33" --notes-file "$notes"
+rm "$notes"
 ```
 
-release notes 里必须写：本版修了什么（带 evidence 编号）、已知问题、产物 sha256。
-**没在设备上验过的东西，不写进 release notes。**
+GitHub Release 的标题只写 `Husk X.Y.Z`，不拼主题或一句介绍。正文从本版结论开始，不再用
+`# Husk X.Y.Z`、`## Husk X.Y.Z` 或 `## [X.Y.Z] - 日期` 重复标题。正文必须写：本版修了什么
+（带 evidence 编号）、已知问题、产物 sha256。**没在设备上验过的东西，不写进 release notes。**
 
 ## 报告 bug
 

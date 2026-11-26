@@ -138,6 +138,8 @@ fork/exec 不经翻译层；I/O 直落内核）、**代价**（生态成熟度�
 规则：端点必须真实存在（先建 workflow 再放徽章）；禁止静态假状态、禁止已失效的第三方 CI 徽章、
 禁止"star 数""下载量"这类装饰性徽章。徽章之间用空格分隔，不换行堆叠。
 
+首屏只放标题、图标和徽章。定位语、项目介绍、版本说明都从首个正文章节开始，不能塞进标题区。
+
 #### C4 · 不打包 App 也能用（对外可用性）
 
 交付 `husk` 独立分发：arm64 启动器（无 JVM / 无 Python / 无 Termux 依赖）+ rootfs 包 +
@@ -165,6 +167,7 @@ fork/exec 不经翻译层；I/O 直落内核）、**代价**（生态成熟度�
   `0.99.99` 的下一版是 `1.0.0`，不存在 `0.0.100`。用 `make version-bump` 推进，不要手改。
 - annotated tag `vX.Y.Z`；`husk --version`、APK `versionName`、徽章与 CHANGELOG 保持一致。
 - GitHub Release 标题只写 `Husk X.Y.Z`；主题和说明只放正文，不拼进标题。
+- Release 正文第一行直接写本版结论，不重复 `# Husk X.Y.Z`、`## Husk X.Y.Z` 或日期标题。
 - 每个 release：CHANGELOG 一节 + GitHub Release（产物 + SHA256SUMS + 已知问题）。
 
 ## 3 · 品牌

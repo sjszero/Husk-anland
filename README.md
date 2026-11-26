@@ -1,12 +1,10 @@
-<!-- 首屏：标题一行，图标下一格。GitHub 只在空行处结束 HTML 块，两段必须分开，
-     否则标题会退回左对齐。 -->
+<!-- 首屏只放标题、图标和徽章。GitHub 只在空行处结束 HTML 块，各段必须分开，
+     否则标题会退回左对齐。项目介绍从下面的“概览”开始。 -->
 <h1 align="center">Husk</h1>
 
 <p align="center">
   <img src="docs/assets/brand/husk-mark-hexagon-h-512.png" width="128" alt="Husk">
 </p>
-
-<p align="center">让 Linux 用户态以普通应用进程的身份，直接跑在 Android 内核上。</p>
 
 <p align="center">
   <a href="https://github.com/xishanp/Husk/releases"><img alt="Release" src="https://img.shields.io/github/v/release/xishanp/Husk?style=flat-square&color=EA580C"></a>
@@ -16,6 +14,10 @@
   <img alt="Rust 1.75+" src="https://img.shields.io/badge/Rust-1.75%2B-DEA584?style=flat-square&logo=rust&logoColor=white">
   <a href="CONTRIBUTING.md"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-0F766E?style=flat-square"></a>
 </p>
+
+## 概览
+
+让 Linux 用户态以普通应用进程的身份，直接跑在 Android 内核上。
 
 Husk 在 Android 上跑一个真实的 Linux 用户态：glibc、包管理器、编译器、shell 和服务都是普通
 `untrusted_app` 进程，直接使用 Android 内核的系统调用。路径改写只在装载时做一次（改每个对象的
@@ -49,7 +51,8 @@ sh husk-session.sh files/linux/distributions/<发行版>/rootfs -- /usr/bin/true
 
 ## 目录
 
-- [能跑起来的前提](#能跑起来的前提) · [为什么是 Husk](#为什么是-husk) · [和容器、虚拟机的区别](#和容器虚拟机的区别)
+- [概览](#概览) · [能跑起来的前提](#能跑起来的前提) · [为什么是 Husk](#为什么是-husk)
+- [和容器、虚拟机的区别](#和容器虚拟机的区别)
 - [硬件接口](#硬件接口) · [特性](#特性) · [快速开始](#快速开始)
 - [工作原理](#工作原理) · [性能](#性能) · [兼容性](#兼容性)
 - [从源码构建](#从源码构建) · [仓库结构](#仓库结构) · [文档](#文档)
