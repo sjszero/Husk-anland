@@ -1,127 +1,121 @@
-# 硬件接口地图：直连 / 中转 / 不需要 / 权限或厂商限制
+# 硬件接口地图
 
-> 唯一目标机：RMX3357（Android 13 / kernel 4.19.191 / 4 KiB 页 / Mali-G77 MC9 /
-> `untrusted_app`，无 root、无 Shizuku）。状态列只写这台机器的实测。
-> 逐类的取舍理由在 [`device-interface-choices.md`](device-interface-choices.md)，
-> 后端协议在 [`husk-backend-interface.md`](husk-backend-interface.md)。
-
-## 1. 四类口径
-
-每个接口必须落进且只落进其中一类，没有第五类，也不允许写「未做」：
+Husk 的目标不是给某个 Linux 应用单独开洞，而是把 Android 宿主能力映射成稳定的 Linux 接口。
+每个接口只归入四类之一：
 
 | 分类 | 定义 |
 |---|---|
-| **直连** | guest 能安全打开的真实设备节点或标准内核接口，中间没有我们的代码 |
-| **中转** | 必须经过 Android 服务 / NDK 的标准接口；guest 看到的是标准 Linux 接口，后端是宿主 |
-| **不需要** | 对 Linux 用户态本来就无意义，或实现出来只能和 Android 抢同一份硬件 |
-| **权限或厂商限制** | 想做但被宿主挡住；必须贴具体错误串，不许写「未做」 |
+| **直连** | guest 进程直接打开真实设备节点，应用侧不参与数据路径 |
+| **中转** | guest 看到标准 Linux 接口，后端经明确协议转到 Android 服务或 NDK |
+| **不需要** | 对 Linux 用户态没有可复用的标准语义，或实现只会与 Android 抢夺同一交互 |
+| **权限或厂商限制** | 接口方向成立，但当前应用权限或回调模型不够 |
 
-下面 1.1 是实测的接法，1.2 是能映射但还没做的，1.3 是明确不需要的，1.4 是被挡住的。
+参考验证环境是 arm64 Android 13、kernel 4.19.191、4 KiB 页、Mali-G77 MC9、
+`untrusted_app`。机型只是证据条件，不是运行时产品绑定。
 
-### 1.1 已接上的（直连 / 中转）
+## 1. 当前矩阵
 
-| 设备类 | guest 看到的接口 | 接法 | 实测 | 证据 |
+| 能力 | 分类 | guest 接口 | Android 后端 | 当前状态 |
 |---|---|---|---|---|
-| GPU | Vulkan / EGL（`/dev/mali0` + kbase，PanVK 后端） | **直连**：guest 进程自己开设备节点，应用侧一行不参与 | `Mali-G77 MC9` 枚举、compute、离屏回读、Zink、X11 窗口呈现；canonical ICD 与 loader 级 `env -i` 默认值已复跑；0.0.34 当前 GNOME 与 Nautilus 进程均为 zink 环境、持有两个 `/dev/mali0`、maps 已加载 PanVK；`make gpu-audit` 又通过嵌套 GTK 应用验证继承链。GTK4 仍默认 `GSK_RENDERER=cairo`，不能把 UI 绘制说成硬件加速；当前仍不是窗口内容到 X server 的零拷贝（DRI3 未通） | 156、165、167、241、242、243、244、245、278 |
-| 相机 | V4L2 `/dev/videoN` facade | **中转**：guest 看到标准 V4L2 ioctl/read，后端经 socket 到 Camera2 NDK；`open()` 是 memfd，不是真节点 | 前后摄自动启动并取流；NV12/YUYV 的 `read`、`readv`、mmap 均通过；拍照 / 30 秒录像，硬件 H.264 编码。无 DMABUF / controls | 93、240、282 |
-| 音频 | PulseAudio（`module-pipe-sink` / `module-pipe-source`） | **中转**：Rust `audio-relay` → AAudio | 48 kHz 双声道 610 秒；反证：guest 里 `/dev/snd` 是 `Permission denied`，根本没有声卡节点 | 62 |
-| 视频解码 | VA-API（`vaGetDisplayDRM` / `vaCreateSurfaces`） | **中转**：Rust VA driver + `video-bridge` ↔ MediaCodec，AHB 交接 | H.264 1080p30 连续 600 秒，`dropped=0` | 80–87 |
-| 传感器 | IIO sysfs `/sys/bus/iio/devices/iio:deviceN/*` | **中转**：Rust NDK `ASensorManager_*` 事件线程 → app 私有 IIO 影子树；guest 不读真实 sysfs | 加速度、磁力、陀螺仪、环境光、距离五类全部 `READY`；guest 经 `/sys/bus/iio/devices`、`/sys/class/iio`、`/sys/subsystem/iio` 读取成功并可枚举节点；数值随真实事件更新。`iio-sensor-proxy` 未安装，未宣称其 D-Bus 输出通过 | 302 |
+| GPU | 直连 | `/dev/mali0` + Vulkan/EGL | PanVK + Zink（Mali/kbase） | Mali-G77 已真机验证；Adreno/KGSL 仅有适配代码，真机 UNKNOWN |
+| 相机 | 中转 | V4L2 `/dev/videoN` facade | Camera2 NDK / `AImageReader` | 前后摄 `read`、`readv`、mmap、拍照、录像已验证；DMABUF/controls 未支持 |
+| 音频输出 | 中转 | PulseAudio | Rust relay → AAudio | 真实 PCM 输出已验证 |
+| 音频采集 | 中转 | PulseAudio source | Rust relay → AAudio | 196,608 PCM bytes、peak=285 已验证 |
+| 视频解码 | 中转 | VA-API | Rust VA driver → MediaCodec | H.264 1080p30 600 秒，dropped=0 |
+| 传感器 | 中转 | IIO sysfs 影子树 | NDK `ASensorManager_*` | 加速度、磁力、陀螺仪、环境光、距离五类可读；D-Bus 消费端未验 |
+| 显示 | 应用侧中转 | AHB / dma-buf | `SurfaceControl` | 3-buffer ring 与 `SYNC_FD` 10,000 帧；仅代表应用侧接管段 |
+| 输入 | 窗口层 | 宿主 window/X11 事件 | Android 输入事件 | bridge 已实现；端到端依赖宿主窗口系统 |
+| 定位 | 权限或厂商限制 | Location 接口（候选） | Java `LocationManager` | 持续定位需要 Java 回调类；可接受 last-known 子集或加最小垫片 |
+| USB | 权限或厂商限制 | libusb（候选） | `UsbManager` + Intent | 首次授权需要广播接收器；需要最小 Java 垫片 |
+| 蓝牙 | 权限或厂商限制 | BlueZ（候选） | `BluetoothAdapter` | Android 12+ 权限与回调模型需要 Java 垫片 |
+| NFC | 不需要 | — | 前台 Activity tag dispatch | 没有可复用的标准 POSIX NFC 设备接口 |
+| 指纹 | 不需要 | — | `BiometricPrompt` | 认证绑定可见 Activity，guest 没有可复用的凭据流 |
 
-### 1.2 有标准接口可以映射、当前尚未接入的中转项
+**直连只有 GPU。** 相机、音频、视频、传感器和显示都是中转。不能宣传成“全部直连”。
 
-| 接口 | 分类 | 宿主侧接口 | 现在卡在哪 |
-|---|---|---|---|
-| 定位 | 中转（受限） | 无 NDK API；`LocationManager` 是平台类，JNI 可以取 `getLastKnownLocation()` | 持续定位需要 `LocationListener` 实现类，`hasCode=false` 造不出来。要么接受「只给 last-known」，要么单独设计一个极小的 Java 类 |
-| USB | 中转 + 权限对话框 | `UsbManager`（Java）拿到 `UsbDeviceConnection` 的 fd 后，可以交给 guest 的 `libusb` | 首次插拔必须弹系统授权，需要 `Intent` + 广播接收器，同样卡在 `hasCode=false` |
-| 蓝牙 | 中转 + 运行时权限 | 只有 Java `BluetoothAdapter`，NDK 没有 API | 监听器 / 接收器同上；Android 12+ 还要 `BLUETOOTH_CONNECT`、`BLUETOOTH_SCAN` |
+## 2. GPU 直连
 
-### 1.3 不需要的
+参考机的真实节点：
 
-| 接口 | 理由 |
-|---|---|
-| NFC | Linux 用户态没有标准 POSIX NFC 接口。Android 的 NFC 只在 Java 侧由前台 Activity 派发 tag，guest 没有能承接一次刷卡交互的可信窗口。硬做只能和 Android 抢同一张卡。 |
-| 指纹 | 认证语义绑定「可见 Activity 上的用户交互」，`BiometricPrompt` 要求真实窗口。guest 能拿到的只有「已认证」这个结论，拿不到可用的凭据流。 |
+```text
+/dev/mali0  crw-rw-rw- root root 10,33
+```
 
-### 1.4 被宿主挡住的（贴原始结果）
+guest 进程直接打开该节点，PanVK 走 kbase 后端，Zink 提供 OpenGL/GLES。默认环境由 loader 从
+`/etc/husk/gpu-env` 注入：
 
-| 节点 / 能力 | 实际结果 |
-|---|---|
-| `/dev/snd` | `Permission denied`（`untrusted_app`）—— 所以音频只能中转 |
-| `/sys/bus/iio/devices` | `Permission denied` —— 所以传感器只能走 NDK，不能直读 sysfs |
-| `/dev/gps*` | `No such file or directory` —— 没有字符设备，只能走定位服务 |
-| `/dev/dri/renderD128` | 不存在（只有 `card0`，`226,0`，`system:system 0660`）—— DRI3 因此不通，呈现只能回读加拷贝 |
+```text
+VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/husk_panvk_guest.json
+VK_DRIVER_FILES=/usr/share/vulkan/icd.d/husk_panvk_guest.json
+MESA_LOADER_DRIVER_OVERRIDE=zink
+GALLIUM_DRIVER=zink
+```
 
-> **跨 SoC 代码状态**：GPU 按节点分族。Mali/kbase 的本机实测见上表；Adreno/KGSL 的
-> render-node → 真实 KGSL fd 适配器代码已落地（evidence 233），但本仓库没有 Adreno 真机，
-> 所以 Adreno 的打开、Vulkan 枚举、ioctl/mmap、Turnip 和桌面全部是 **UNKNOWN**，不能算通过。
+实测：
 
-两类不在这一根轴上，单列免得被算错：
+```text
+plain renderer: zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))
+NR_GPU_DEFAULT_OFF=1 -> llvmpipe
+HUSK_GPU=llvmpipe -> llvmpipe
+GPU_LOADER_DEFAULTS PASS=9 FAIL=0 SKIP=0
+```
 
-| 项 | 说明 |
-|---|---|
-| 显示 | `dma-buf → AHardwareBuffer → SurfaceControl`，**这一段是零拷贝**（3-buffer ring + 真实 `SYNC_FD`，submitted=10 000 / completed=10 000，evidence 59） |
-| 输入 | 走窗口层注入（mutter → `RemoteDesktop`/EIS），不是设备参数；`/dev/input` + libinput + udev 那条路需要设备节点和 udev，本机不通（evidence 148、180） |
+边界：
 
-接口状态（四类口径，不另造状态）：
+- `PANVK_DXVK_COMPAT=1` 的 geometry shader 崩溃是已知支持边界，默认规避不是修复。
+- GLES 3.2 依赖 `MESA_GLES_VERSION_OVERRIDE`，真实应用覆盖不足。
+- Adreno/KGSL 没有参考真机，状态 UNKNOWN。
+- 窗口内容进入宿主 X server 仍不是零拷贝。
 
-| 项 | 状态 | 为什么 |
-|---|---|---|
-| 视频编码 | 中转 | MediaCodec 编码器存在；VA-API encode 后端的协议尚未接入 |
-| 定位 | 中转（受限） | 持续位置需要极小 Java 回调类；当前可选路径只有 last-known 子集 |
-| USB | 中转 + 权限对话框 | 需要 Java `UsbManager` + Intent/Receiver 承接授权，再把 connection fd 交给 guest libusb |
-| 蓝牙 | 中转 + 运行时权限 | 需要 Java `BluetoothAdapter` 回调；Android 12+ 另需 CONNECT / SCAN 权限 |
-| NFC | 不需要 | Linux 用户态没有可对应的标准 POSIX NFC 设备接口，强行实现只会和前台 Android 卡片交互冲突 |
-| 指纹 | 不需要 | 认证绑定可见 Activity 的用户交互；guest 没有可复用的凭据流 |
+## 3. 相机、音频、视频和传感器
 
-## 2. 为什么「直连」只对 GPU 成立
+这些能力需要 Android 应用身份，因此不能把宿主 fd 直接冒充成内核设备：
 
-`untrusted_app` 能开的节点是有限的，这一条决定了接法，不是设计偏好。2026-11-25 在应用域
-（`u:r:runas_app`）里实测的布局：
+- **相机**：guest `open("/dev/videoN")` 返回 shim 的 memfd；V4L2 ioctl 和 buffer 协议由 Rust
+  shim 承接，帧由 Camera2 NDK 产生。`read`、`readv`、mmap 已验证。
+- **音频**：`/dev/snd` 在应用域不可打开；guest 使用 PulseAudio，Rust relay 转成 AAudio。
+- **视频**：guest 使用 VA-API；Rust driver 和 bridge 把帧转到 MediaCodec / AHardwareBuffer。
+- **传感器**：NDK `ASensorManager_*` 产生事件，写入应用私有 IIO 影子树；guest 通过标准
+  `/sys/bus/iio/devices/iio:deviceN/*` 读取。
 
-| 节点 | 结果 |
-|---|---|
-| `/dev/mali0` | 存在，`crw-rw-rw- root root 10,33`，能打开——**这就是 GPU 直连的物理基础** |
-| `/dev/video0` / `/dev/video1` | guest 里由 V4L2 shim 报告为 `81,0` / `81,1`；实际帧来自 Camera2，不是把 App 的 V4L2 fd 交给 guest |
-| `/dev/dri/card0` | 存在，`system:system 0660`，应用打不开；`renderD128` **不存在** |
-| `/dev/dma_heap` | 不存在 |
-| `/dev/snd` | 打不开（`Permission denied`）——所以音频只能中转 |
-| `/dev/kgsl-3d0` | 不存在（那是高通的节点） |
+这些接口的好处是应用侧无需改代码；代价是协议、同步和格式能力受 Android 后端限制。测试数字
+分别见 evidence 309、310、302、80。
 
-**结论**：能直开的 GPU 使用真实节点和 fd；相机虽然给 guest 标准 V4L2 接口，但 `open()` 返回
-shim 的 memfd，帧经 socket 由 Camera2 产生，所以归入中转；声音、编解码、传感器同样走明确的
-宿主接口或 socket，数据在应用侧过一次。定位、USB、蓝牙的接口形态也是中转，但还需要最小
-Java 垫片才能承接系统回调；NFC 与指纹归“不需要”。
+## 4. 显示与输入
 
-## 3. 默认值也属于接口的一部分
+显示链需要分成两段：
 
-驱动只部署一份、配置只写一次，是这套接法的前提。默认值不放在 `/etc/profile.d`
-（那只对登录 shell 生效），而是由**加载器**在程序自己没设置时补：
+```text
+guest 渲染 / X client -> 宿主 X server    # 可能发生回读与 SHM 拷贝
+X 合成结果 -> AHB/dma-buf -> SurfaceControl # 已实现的应用侧零拷贝段
+```
 
-- 数据来自 `/etc/husk/gpu-env`（安装器写，ICD 文件名在安装时解析）；第一行 `@GPU_FAMILY=`
-  记录生成时的设备族，rootfs 搬到另一族设备时加载器不会注入错误家族的 ICD/驱动；
-- 程序自己 `export` 的永远优先；
-- 逃逸开关 `HUSK_GPU=llvmpipe` / `NR_GPU_DEFAULT_OFF=1`；
-- 实测（evidence 182）：`env -i` 起 `gl-probe es3` → `zink Vulkan 1.3(Mali-G77 MC9)`；
-  0.0.17 又在 App 管理的 rootfs 上复验了 canonical ICD + `/etc/husk/gpu-env` 的自动生成
-  （evidence 242），并确认 `HUSK_GPU=llvmpipe` 的进程级回退仍优先；0.0.18 将生成逻辑抽成
-  `gpu-env` crate，并补上 Adreno 启动分支和回退传递（evidence 243）；0.0.19 让默认值穿透
-  真实 `setenv(..., 0)` 和显式 `execve(..., envp)`（evidence 244）。本次 807 包干净树 +
-  最新 loader 再次实测 `GPU_LOADER_DEFAULTS PASS=9 FAIL=0`，plain renderer 为
-  `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`（evidence 304）。
+当前发行资产不包含 X server。GNOME/X11 桌面启动属于宿主 App 集成，不能把其他 App 或旧
+PRoot 树的 socket 算进 Husk。证据见 evidence 312。
 
-## 4. 能说什么、不能说什么
+输入走窗口层：Android MotionEvent/KeyEvent 进入 App，再注入宿主窗口系统。它不是一个可直接
+直开的 `/dev/input` 设备路径。
+
+## 5. 定位、USB、蓝牙、NFC、指纹
+
+- **定位、USB、蓝牙**方向上是中转，但 Android API 需要 Java listener、Intent 或广播接收器。
+  当前 App 保持 `hasCode=false`，因此要么增加一个极小的 Java 类，要么明确只支持功能子集。
+- **NFC、指纹**归类为不需要。它们依赖前台 Activity 的可见交互或安全认证语义，Linux 用户态
+  没有可复用的标准设备接口。
+
+## 6. 可以说什么
 
 可以说：
 
-- 硬件按 **Linux 标准接口**整块接进来，不是给某个应用单独开洞；
-- 应用侧一行代码不改，驱动只部署一份，配置只写一次；
-- 直连的 GPU **绕过中间层**，应用身份那一侧不参与；相机是标准 V4L2 facade，后端明确走 Camera2。
+- 能直开的设备节点使用真实 fd；
+- 必须经过 Android 服务的能力，向 guest 暴露标准 Linux 接口；
+- 驱动和 GPU 默认配置只部署一份，所有 guest 进程共享；
+- 应用侧一行代码不改。
 
 不能说：
 
-- 「全部直连」——相机、音频、视频都是明确的中转；相机更不是真实 V4L2 内核节点；
-- 「零拷贝」不加限定——显示那一段是零拷贝，**窗口内容 → X server 那一段不是**
-  （代价与原因见 [`../LIMITATIONS.md`](../LIMITATIONS.md) §7）。
-- 「PanVK 编译器已修」——0.0.19 只是默认关闭会触发内部 GS 的 DXVK 兼容路径；显式开启仍会复现
-  Bifrost 崩溃，依赖 GS 的 DXVK 程序需要自己 opt-in（evidence 244）。
+- “所有硬件都是直连”；
+- “整条显示链零拷贝”；
+- “Adreno 已支持”；
+- “GNOME 桌面由 Husk 独立启动”；
+- “Husk 是恶意代码安全沙箱”。

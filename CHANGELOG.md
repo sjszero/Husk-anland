@@ -7,7 +7,7 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
-## [0.0.36] - 2026-11-26
+## [0.0.36] - 2026-11-27
 
 这一版把「检查」和「事实」两件事补上：CI 不再只检查 8 个 crate，DRM 假 fd 的身份判定从
 子串匹配改成精确名字，硬件能力表从「直连 / 中转 / 未做」改成四分类。运行时的默认行为动了两处：
@@ -184,6 +184,24 @@
   桌面树里也没有 `usr/bin/Xorg`，而 2.0 包的 `:x11` 从本应用 uid 连是 `EPERM`（跨应用 unix
   socket）。以前"桌面 zink / GLX 600 秒"的记录用的都是 2.0 的 X server。要选一条路：把 X server
   搬进 guest，或在 APK 里带一个 bionic X server。`glxgears` 因此本轮没有重测。
+
+### 发行前复验（2026-11-27）
+
+- 从空目录安装最终树：`INSTALL_RC=0`、Tree Integrity `23/0`、Gate A `34/0/1`、
+  A-hw `11/0`、GPU loader defaults `9/0/0`（evidence 308–310）。
+- 修复 gdk-pixbuf loader cache 路径；最终树注册 14 个 loader，GTK 不再报
+  `Unrecognized image file format`（evidence 308）。
+- 把 `files/rootfs-full` 切到 `release-tree-final/root` 后，App bridge 与最终树统一；
+  麦克风真实 PCM 为 `196,608 bytes / peak=285`，不是设备枚举冒充采集（evidence 310）。
+- 相机前后摄、Camera2 V4L2 `read`/`readv`/mmap 与 GStreamer 复验通过
+  （evidence 309）；Adreno/KGSL 仍无真机证据。
+- 与 PRoot 的同机单次复核照实记录：路径密集负载 Husk 更快，`/bin/true × 50`
+  本轮 Husk 慢 `2.19×`（evidence 311）。
+- 文档按 Linux 运行环境收口：直连只写 GPU，相机/音频/视频/传感器写中转；
+  X11/桌面明确为宿主 App 能力，不把其他 App 的 X socket 当作 Husk 结果
+  （evidence 312）。
+- App 能力矩阵同步真实状态：音频采集不再写“需要 `install -g`”，GPU 不再把宿主 X11
+  结果写成 Husk 独立能力，传感器与外围设备按“已中转 / 需要 Java 回调 / 不需要”区分。
 
 ## [0.0.35] - 2026-11-26
 
@@ -1637,7 +1655,7 @@ GTK 应用都走同一套 Mali/PanVK 设备运行时”。
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.35...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.36...HEAD
 [0.0.36]: https://github.com/xishanp/Husk/releases/tag/v0.0.36
 [0.0.35]: https://github.com/xishanp/Husk/releases/tag/v0.0.35
 [0.0.34]: https://github.com/xishanp/Husk/releases/tag/v0.0.34

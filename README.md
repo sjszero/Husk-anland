@@ -60,49 +60,28 @@ sh husk-session.sh files/linux/distributions/<发行版>/rootfs -- /usr/bin/true
 
 ## 为什么是 Husk
 
-同一台手机、同一份 rootfs、同一个 shell，只换运行器。5 轮中位数，2026-11-24 实测
-（[`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)）：
+同一台手机、同一份 rootfs、同一个 workload，只换运行器。2026-11-24 的 5 轮轮转中位数见
+[`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)：
 
 | 工作量 | Husk | proot | 倍率 |
 |---|---:|---:|---:|
+| `stat` × 20 000 | 650 ms | 3 734 ms | **5.7×** |
 | `open` + `close` × 20 000 | 1 252 ms | 8 481 ms | **6.8×** |
 | `make -j4`，200 目标链接 | 5 194 ms | 24 182 ms | **4.7×** |
 | 顺序写 256 MB | 1 294 ms | 1 321 ms | 1.0× |
-| 打开「设置」到首个窗口（桌面） | 4 462 ms | 5 353 ms | 1.2× |
 
-前两行是路径与 syscall 密集的活，要付 proot 每条 syscall 的 `ptrace` 往返；第三行是大块写，
-不经过被翻译的路径，所以两者持平。
+2026-11-27 在最终发行树上又做了一次独立现场探针，确认优势方向仍在路径密集型调用；这组数字
+是单次采样，不和上面的 5 轮表混算：
 
-> [!NOTE]
-> 图形这一维也测了，但只有 Husk 这边有对象：桌面会话冷启动 8–9 s、X 根窗口 2400×1080
-> 非黑像素 100%、帧率 640×480 clear+swap 是 **131 fps**，而同一台机器上软件渲染（llvmpipe）
-> 是 300 fps。这一格 Husk 落后：把窗口 swap 拆开量过，GPU 渲染只要 1.3 ms，
-> 其余是 GPU→CPU 回读再加进 X server 的拷贝（呈现约 24.8 ms/兆像素，DRI3 未通）。不是 GPU 算力。
-> proot 侧没有可比的桌面，凡是「不可比」的格子是真的没有对象，不是我们没测。
-> 完整条件、样本数与代价见 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)。
+| 工作量 | Husk | PRoot | 结果 |
+|---|---:|---:|---|
+| `stat` × 20 000 | 741.2 ms | 2 338.7 ms | Husk 快 3.16× |
+| `open` + `close` × 20 000 | 980.9 ms | 5 676.3 ms | Husk 快 5.79× |
+| shell 循环 × 1 000 | 18.2 ms | 51.5 ms | Husk 快 2.84× |
+| `/bin/true` × 50 | 708.5 ms | 323.6 ms | **Husk 慢 2.19×** |
 
-### GPU 原生的实际加速
-
-同一台机、同一份二进制（`gl-probe`），2400×1080 是本机日常分辨率：
-
-| 负载 | GPU（zink → PanVK → Mali-G77） | 软件（llvmpipe） | 倍率 |
-|---|---:|---:|---:|
-| 着色器型：每像素 48 次 `sin`，2 遍，2400×1080 | 23.8 ms/帧（41.9 fps） | 266.7 ms/帧（3.7 fps） | **GPU 快 11.2×** |
-| 同上，1280×720 | 14.9 ms/帧（67.1 fps） | 101.9 ms/帧（9.8 fps） | **GPU 快 6.8×** |
-| 清屏 + 窗口呈现，2400×1080 | 50.2 ms/帧（19.9 fps） | 20.1 ms/帧（49.7 fps） | 软件快 2.5×，照实记录 |
-
-第三行的原因是可拆的（2400×1080，ms/帧）：
-
-| | GPU 渲染 | X 传输（`XPutImage`） | GPU→CPU 回读 | 实测合计 |
-|---|---:|---:|---:|---:|
-| zink | 2.25 | 17.66 | 30.27 | 50.18 |
-| llvmpipe | 2.01 | 18.12 | 0（像素本来就在内存里） | 20.12 |
-
-**算得动的活 GPU 快一个数量级；搬像素的活现在比软件慢**——每帧都要把 GPU 表面回读成线性
-像素再交给 X server。要消掉这一段只能走 dma-buf 直传（DRI3），而本机的 X server 跑在应用
-自己的进程里（bionic Xorg），`untrusted_app` 拿不到 `/dev/dri`、也没有 `/dev/dma_heap`，
-DRI3 只能停在 `Could not get DRI3 device`。逐条数字与做法见
-[evidence 174](docs/design/evidence/174-present-cost-split-20261125.md)。
+最后一行的代价来自每次短进程启动都要重新装载并完成 GOT 改写；它不是 syscall 拦截，但仍是
+真实的启动成本。大块顺序 I/O 也不占优：数据成块进内核时，两种运行器都没有可翻译的路径。
 
 ## 和容器、虚拟机的区别
 
@@ -124,61 +103,39 @@ DRI3 只能停在 `Could not get DRI3 device`。逐条数字与做法见
 
 ## 硬件接口
 
-这是 Husk 和翻译层方案最实质的区别：**能用真实内核节点的路径使用真实 fd，必须经过 Android
-应用身份的那部分由应用内后端提供标准 Linux 接口**。不把 facade 冒充成真设备节点，边界写在
-[`docs/design/husk-backend-interface.md`](docs/design/husk-backend-interface.md)。
+Husk 不按应用逐个开洞。能直接使用的内核节点就直接交给 guest；必须经过 Android 应用身份的
+能力，则提供标准 Linux 接口，并明确标注为 facade 或中转。
 
-接法只有一根轴，不要混着说：
-
-- **直连**——guest 进程自己开设备节点，应用侧一行代码都不参与（GPU）；
-- **中转**——guest 看到标准 Linux 接口，后端经一条明确的 socket 协议到应用侧（相机、音频、视频）。
-
-逐类的节点实测、理由，以及「能说什么、不能说什么」，写在
-[`docs/design/hardware-interface-map.md`](docs/design/hardware-interface-map.md)。
-
-> [!IMPORTANT]
-> 表里写的是**验证到什么程度**，不是「功能已完成」。GPU 只到「能开、能算」，没到「能上线」：
-> 窗口呈现（WSI）已经通了，但客户端的帧是经 SHM 拷贝进 X server 的，dmabuf 直传还没接
-> （`docs/LIMITATIONS.md` §7）。fixed-function GL 的 PanVK/Bifrost GS 崩溃已有默认规避，600 帧
-> 探针通过；真实 X11 `glxgears` 也已连续跑 600 秒（平均 248.352 FPS，evidence 245）。
-> 0.0.34 起 GNOME、Nautilus 与嵌套 GTK 应用都在 zink + `/dev/mali0` 上跑（evidence 278），
-> `make gpu-audit` 为 `PASS=3 FAIL=0`；GTK4 仍默认 `GSK_RENDERER=cairo`，UI 绘制不算硬件加速。
-> 相机、视频、音频都是
-> 「有一条能跑的链路」，不是产品级的稳定性承诺。
-
-| 能力 | 接法 | 用户态里的路径 | 实测 |
+| 能力 | 接法 | 用户态接口 | 当前验收 |
 |---|---|---|---|
-| GPU | 直连 | 直开 `/dev/mali0`，kbase 后端的 PanVK | 枚举到 `Mali-G77 MC9`、compute 与离屏 graphics 回读通过；GL renderer `zink Vulkan 1.3(Mali-G77 MC9)`（evidence 156）；PanVK ICD 由 canonical guest 相对 manifest 选择，独立验证树已复跑 `vulkan-probe` / `gl-probe es3` 通过（evidence 241）。**X11 窗口呈现已通**（`stage 7→10`、60 swap，evidence 165），GNOME 桌面在 zink/PanVK 上出帧、X 根窗口非黑像素 100%（evidence 165/168）；默认值由 App 按真实 `/dev/mali0` 门控生成，并由加载器从 `/etc/husk/gpu-env` 注入；`env -i`、登录/非登录执行都吃得到（evidence 167、182、241、242）；0.0.18 起 App 与 loader 共用 `gpu-env` crate（evidence 243）。0.0.19 默认关闭 PanVK 的 DXVK 兼容 GS，并把默认值穿透真实 `setenv` 和 `execve`（evidence 244）：fixed-function 600 帧 `PASS`（588.5 fps），显式 `PANVK_DXVK_COMPAT=1` 仍以 `fa=0x21` 崩溃。0.0.20 在现有 X11 server 上用独立 guest 客户端复验硬件窗口：`glxgears` 连续 600 秒，119 个 5 秒窗口、147872 帧、215.779–299.303 FPS、平均 248.352 FPS，进程实际持有 `/dev/mali0`（evidence 245）；0.0.34 起 GNOME / Nautilus / 嵌套 GTK 均在 zink + `/dev/mali0` 上（evidence 278）。上限 GLES 3.2（靠 `MESA_GLES_VERSION_OVERRIDE`，真实应用未验），呈现仍是 SHM 拷贝；**硬件 GNOME 桌面、多应用并发和其他 fixed-function 程序仍是 UNKNOWN** |
-| 显示 | 应用侧，零拷贝 | `AHardwareBuffer` → dma-buf → `SurfaceControl` | 3-buffer ring + 真实 `SYNC_FD`：submitted=10 000 / completed=10 000（evidence 59） |
-| 视频解码 | 中转 | MediaCodec `c2.mtk.avc.decoder` + AHB 三平面 | H.264 1080p30 连续 600 秒，`dropped=0`（evidence 80） |
-| 相机 | 中转（标准 V4L2 facade） | guest `/dev/videoN` → Rust V4L2 shim → Camera2 NDK / `AImageReader` | `open()` 返回 memfd，不是真实 V4L2 fd；QUERYCAP、REQBUFS、DQBUF、`read`、`readv` 和 mmap 均可用，前后摄自动启动、无测试 marker（evidence 240、282）。真实 Camera2 的 NV12 `read`/`readv` 实测约 9 fps，mmap 约 11.7 fps；拍照 JPEG + 30 秒录像与硬件 H.264 编码见 evidence 93。DMABUF 和 controls 仍不支持 |
-| 音频 | 中转 | PulseAudio → Rust relay → AAudio | 48 kHz 双声道连续会话通过（evidence 62，10 秒级，不是长稳） |
-| 传感器 | 中转（标准 IIO facade） | NDK `ASensorManager_*` → app 私有 IIO 影子树 → guest `/sys/bus/iio/devices/iio:deviceN/*` | 加速度、磁力、陀螺仪、环境光、距离五类 `READY`；guest 经 `/sys/bus/iio/devices`、`/sys/class/iio`、`/sys/subsystem/iio` 读取和枚举节点成功，数值随真实事件更新（evidence 302）。`iio-sensor-proxy` 未安装，D-Bus 输出未验 |
-| 输入 | 窗口层 | 触摸事件注入到用户态的窗口系统 | 触摸 → JNI → XI2，点哪落哪（evidence 148） |
+| GPU | **直连** | `/dev/mali0`，PanVK + Zink | Mali-G77 枚举、compute、离屏 graphics、EGL/GL 均通过；默认环境由 loader 注入，登录与非登录进程一致。Adreno/KGSL 有适配代码，但没有真机证据，状态为 UNKNOWN |
+| 相机 | **中转** | 标准 V4L2 `/dev/videoN` facade | 前后摄可启动；`read`、`readv`、`mmap`、拍照和录像通过。`open()` 返回 shim 的 memfd，不是真实 V4L2 内核 fd；DMABUF 与 controls 未支持 |
+| 音频 | **中转** | PulseAudio → Rust relay → AAudio | 输出与采集均有真实 PCM 数据；`/dev/snd` 在应用域不可直接打开 |
+| 视频解码 | **中转** | VA-API → Rust bridge → MediaCodec | H.264 1080p30 连续 600 秒，`dropped=0` |
+| 传感器 | **中转** | IIO sysfs 影子树 ← NDK `ASensorManager_*` | 加速度、磁力、陀螺仪、环境光、距离五类可读，数值随真实事件更新 |
+| 显示 | **应用侧中转** | `AHardwareBuffer` → dma-buf → `SurfaceControl` | 3-buffer ring 与真实 `SYNC_FD` 跑过 10,000 帧；这一段是应用侧零拷贝 |
+| 输入 | **窗口层** | Android 输入事件 → 宿主 window/X11 | bridge 已实现；端到端结果取决于宿主是否提供窗口系统 |
 
-这张表的口径：**能直开的设备使用真实 fd；必须经过应用身份的仍给标准 Linux 接口，但明确标注
-facade 与中转**。按这一版实测：直连 1 类（GPU），中转 4 类（相机、音频、视频、传感器），
-显示那一段零拷贝、输入走窗口层。定位 / USB / 蓝牙同属中转，当前还缺承接系统回调的最小 Java
-垫片；NFC 与指纹不需要。所有硬件都落在四类口径里，不用「未做」代替分类。
-逐条理由与被宿主挡住的原始错误串见
+口径必须写清：**GPU 是直连，相机、音频、视频和传感器是中转，显示只在其应用侧接管段为零拷贝。**
+定位、USB、蓝牙属于中转，但还需要最小 Java 回调垫片；NFC 与指纹对 Linux 用户态不是必需的
+设备接口。逐项理由、被宿主拒绝时的原始错误串和“不能说什么”见
 [`docs/design/hardware-interface-map.md`](docs/design/hardware-interface-map.md)。
 
-GPU 默认值按设备节点分族，而不是按机型名写死：Mali/kbase 走 PanVK + Zink，Adreno/KGSL
-把 guest 的 `/dev/dri/renderD128` 接成真实 `/dev/kgsl-3d0` fd，再交给 Turnip/freedreno。
-App 冷启动用独立的纯 Rust `gpu-env` crate 生成初始环境和 loader 随后读取的配置（evidence 243）。
-Mali 路径已在本机验证；发行包现在固定携带 FristOneRR PanVK 1.2.0 快照、guest 相对 ICD
-和 MIT 许可证，安装器只在 `/dev/mali0` 可用且树里没有 PanVK 驱动时解压。该快照从 rootfs tar
-干净重装后通过树体检、GPU 默认值、门禁 A 和读回套（evidence 306）。Adreno 适配器代码和主机侧
-测试已落地，但**没有 Adreno 真机证据，状态是 UNKNOWN**，不能写成已经支持（evidence 233、243）。
+GPU 默认值属于运行时接口的一部分。ICD、GL 驱动和 GLES 上限写在 `/etc/husk/gpu-env`，由
+loader 在程序没有显式设置时注入，因此登录 shell、非登录进程和 `env -i` 看到同一套渲染器；
+程序自己的环境变量永远优先。Mali/kbase 的 PanVK 快照随发行包安装，安装器会校验设备节点与
+驱动 SHA-256。Adreno/KGSL 目前没有真机证据，不能写成已经支持。
 
-图形默认值也属于接口的一部分：ICD、GL 驱动、GLES 上限写在 `/etc/husk/gpu-env` 里，由**加载器**
-在程序自己没设置时补，所以登录 shell、cron、桌面 fork 出来的进程、`env -i` 看到的是同一套
-渲染器；程序自己 `export` 的永远优先（evidence 182）。发生 `execve` 时，默认值会物化进真实
-`environ`，让不经过 `getenv` GOT 的库也能看到；`setenv(..., 0)` 同样遵守这套优先级（evidence 244）。
-文件首行的 `@GPU_FAMILY` 会阻止把
-Mali 的 ICD/驱动配置带到一个 Adreno rootfs 上；登录 shell 仍按当前设备节点重新探测；App 侧
-通过 `gpu-env` crate 生成 loader 要读取的配置，`env -i` 也由 loader 注入；软件回退会显式
-传递 `HUSK_GPU=llvmpipe`（evidence 242、243）。
+同一份 `gl-probe`、同一台参考机上的 GPU 与 llvmpipe 对比：
+
+| 负载 | GPU | 软件 | 结果 |
+|---|---:|---:|---|
+| 2400×1080，每像素 48 次 `sin`，2 遍 | 23.8 ms/帧（41.9 fps） | 266.7 ms/帧（3.7 fps） | **GPU 快 11.2×** |
+| 1280×720，同一负载 | 14.9 ms/帧（67.1 fps） | 101.9 ms/帧（9.8 fps） | **GPU 快 6.8×** |
+
+窗口内容进入宿主 X server 仍是回读与 SHM 拷贝，DRI3 在本机应用域的结构性限制下不可达；
+这段不属于 Linux 用户态运行时，也不能宣传成零拷贝。详见
+[`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) §7。
 
 ## 特性
 
@@ -188,11 +145,11 @@ Mali 的 ICD/驱动配置带到一个 Adreno rootfs 上；登录 shell 仍按当
   `nodejs`、`python3-numpy`（evidence 154）。
 - **工具链完整。** `gcc`、200 目标工程的 `make -j4`、`git clone`、`python3` + `numpy`
   （evidence 155）。
-- **会话服务齐全。** polkit 授权、at-spi 无障碍总线、gvfs、RandR 都能在用户态里直接用
-  （evidence 151、152）。
+- **系统服务可用。** dbus、polkit、at-spi、gvfs 与 RandR 能在 Linux 用户态里直接启动；
+  它们是否需要桌面会话由宿主决定（evidence 151、152）。
 - **不需要任何特权。** 跑在普通应用沙箱里，机器可以是原厂状态。
-- **图形默认值在加载器里，不在登录脚本里。** 非登录执行（cron、systemd user unit、桌面 fork
-  出来的进程、`env -i`）也不会掉回软件渲染；程序自己设的变量永远优先（evidence 182）。
+- **GPU 默认值在加载器里，不在登录脚本里。** 非登录执行、嵌套 `exec` 和 `env -i`
+  也不会掉回软件渲染；程序自己设的变量永远优先（evidence 182）。
 - **对比可以自己重跑。** `tools/bench/` 一条命令把同一份 rootfs 交给三个运行器，
   原始日志在仓库里。
 
