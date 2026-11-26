@@ -15,13 +15,15 @@ RMX3357 / MT6893 / Mali-G77 MC9 / Android 13 / kernel 4.19.191 / 4 KiB 页。
 | H2 | `make check` 只查 39 个 crate 里的 12 个，类型错误看不见 | 已修 | 注入 E0308 到 `audio-relay`：旧列表 rc=0，`--workspace` rc=1 |
 | H3 | 单测只有 3 个 crate 进 CI；`nr-tools` 的测试从未跑过，`video-protocol` 一个测试都没有 | 已修 | 本地 14 项全绿；CI 新增 `-p nr-tools -p video-protocol -p husk-va-driver` |
 | H4 | 发布命名契约只有"要 gh 的联网半"，离线可验证的规则从没进过 CI | 已修 | 拆出 `tools/ci/audit-release-offline.sh`，进 CI + `make check`；3 个负向用例全红 |
+| H7 | `video-protocol` 的 `commit()` 不校验 `write_seq`：空环上 `commit(1)` 成功并把 `read_seq` 推到 1，环从此永远"满"（`u64::MAX >= slots`） | 已修 | 新单测 `oversized_and_out_of_order_writes_are_refused` 修前 `unwrap_err()` 拿到 `Ok(())` 而 panic |
+| H8 | libc 门禁的钉子是错的：它下载 8.12、期望 `69ceef37`，而**没有任何产物**是这个值 | 已修 | 本地两次重跑逐字节相同：8.5 → `19554f27`（= 树里那份），8.12 → `2ed8771f`；钉子改钉 8.5 |
 
 - **FACT**：两条判据（白名单外任意 crate 塞类型错误 CI 必红；干净 clone 只跑 gradlew 必红）
   都在本轮实测到修前失败、修后通过，命令与输出见 §1、§2。
-- **UNVERIFIED**：`video-protocol` 与 `husk-va-driver` 的单测在 macOS 上**链接不进去**
-  （它们调 `libc::memfd_create`，macOS 的 libc crate 没有这个符号），所以本地只验证了
-  "编译到 linux 目标"，执行交给 CI 的 ubuntu runner。本轮的 docker 本地复核失败：
-  `apt-get install build-essential` 在容器里 6 分钟没装完，已弃用（§4）。
+- **FACT**（真机执行，不是编译通过）：`video-protocol` 5 项、`husk-va-driver` 2 项，
+  交叉编成 `aarch64-unknown-linux-musl` **静态**二进制后推到真机跑，7/7 通过。
+  macOS 上它们仍然链接不了（`libc::memfd_create` 在 macOS 的 libc crate 里没有符号），
+  所以 `make check` 里没有它们，CI 的 ubuntu runner 跑（§5）。
 - **FACT**：`make check` 现在是 `rc=0`，14 个单测全绿（gpu-env 6 / nr-tools 1 / session-env 4 / usermgr 3）。
 
 ## 1 · H1：干净 clone 只跑 gradlew 打空壳 APK
@@ -213,21 +215,69 @@ release offline audit: PASS (version=0.0.36)
 CI 侧给了 `fetch-depth: 0`，否则 checkout 没有 tag，序列检查会打 `SKIP` 而不是通过
 ——这个 `SKIP` 是显式打印的，不会被当成绿灯。
 
-## 5 · 本地复核失败的部分（照写）
+## 5 · 这七项单测是怎么执行的（不靠"编译通过"充数）
 
-想在 docker 里复跑一遍 Linux 侧的 `cargo test -p husk-va-driver`：
+macOS 上 `cargo test -p video-protocol` 连链接都过不去：它调 `libc::memfd_create`，
+而 macOS 的 libc crate 没有这个符号。所以本轮用真机执行：
 
 ```
-$ docker run --rm -v "$PWD":/w -w /w/runtime ubuntu:24.04 bash -lc \
-    'apt-get install -y curl build-essential && curl -sSf https://sh.rustup.rs | sh -s -- -y ...'
-# 6 分钟卡在 `apt-get install -y -qq curl build-essential`，容器被 kill
-$ docker pull rust:1.92-slim      # 3 分钟没有下载出任何层
+$ cd runtime
+$ CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \
+    cargo test -p video-protocol --target aarch64-unknown-linux-musl --no-run
+  Executable unittests src/lib.rs (.../video_protocol-ed779cb1)
+$ file .../video_protocol-ed779cb1
+ELF 64-bit LSB executable, ARM aarch64, statically linked
+$ adb push .../video_protocol-ed779cb1 /data/local/tmp/vp-test && adb shell '/data/local/tmp/vp-test'
+running 5 tests
+test tests::layout_rejects_out_of_range_and_is_aligned ... ok
+test tests::hex_round_trips_and_refuses_junk ... ok
+test tests::oversized_and_out_of_order_writes_are_refused ... ok
+test tests::ring_is_fifo_and_reports_full ... ok
+test tests::empty_ring_blocks_instead_of_returning_garbage ... ok
+test result: ok. 5 passed; 0 failed
+
+$ ... adb shell '/data/local/tmp/va-test'
+running 2 tests
+test h264::tests::rejects_short_picture_buffer ... ok
+test h264::tests::builds_high_profile_sps_and_pps ... ok
+test result: ok. 2 passed; 0 failed
 ```
 
-**UNVERIFIED**：`video-protocol` 的 5 个新测试与 `husk-va-driver` 的 1 个既有测试，
-在本机（macOS）上只能做到 `cargo check --target aarch64-unknown-linux-gnu` 通过，
-**没有在本地执行过**；它们进 CI 之后由 ubuntu runner 执行，以那次运行结果为准。
-不得把"编译通过"当成"测试通过"。
+**FACT**：7/7 在真机 aarch64 Linux 上通过。musl 与 glibc 的差别不影响这七项（全是纯内存逻辑，
+没有 libc 调用路径差异）。
+
+**流程记账**：第一次推送时这两组测试在 CI 里是**红的**（`ring_is_fifo_and_reports_full`、
+`oversized_and_out_of_order_writes_are_refused`），两个原因都记在案：
+
+1. 我写测时假设"未 commit 前可以按 seq 依次读多条"，实现只允许重复读队头（`seq == read+1`）。
+   是测错了 → 改成"队头可重复读、越队读必拒"，并把语义写进注释。
+2. `commit()` 在空环上会成功并推进 `read_seq` → 环永久满。**这是代码的真缺陷**（H7），
+   修在 `runtime/crates/video-protocol/src/lib.rs` 的 `commit()`：先看 `read >= write` 就
+   `WouldBlock`。唯一调用方 `app-rs/src/video/bridge.rs:456` 是在"读到了记录、且已 queueInputBuffer
+   成功"之后才 commit，不受影响。
+
+顺带记一笔失败尝试：想在 docker 里复核，`apt-get install build-essential` 卡了 6 分钟、
+`docker pull rust:1.92-slim` 三分钟没下出任何层，已放弃；真机执行比它更接近目标环境。
+
+## 6 · H8：libc 门禁的钉子钉错了版本
+
+CI 的 `libc patch artifact asserts` 作业从第一个版本起就是红的（run 45821262322 起连续红），
+原因不是环境，是钉子和产物对不上。本轮把它量清楚了（本地各跑两次，逐字节相同）：
+
+| 输入 | 工具 | 输出 sha256 | 这是什么 |
+|---|---|---|---|
+| `libc6 2.39-0ubuntu8.5`（launchpad，deb `510ef3d3…`） | 当前 `nr-tools libc-patch` | **`19554f27…`** | 装出来的树里那份；`.husk-install-state` 的 `libc_sha256` 也是它 |
+| `libc6 2.39-0ubuntu8.12`（ports，deb `2578bc27…`） | 同上 | `2ed8771f…` | 旧钉子下载的输入，CI 造出来的就是这份 |
+| — | — | `69ceef37…` | 旧钉子期望的值，**没有任何产物等于它** |
+
+也就是说这条门禁自称在断言"发布要发的那份字节"，实际断言的是一个不存在的值 —— 它红得
+毫无信息量，而真正该保护的事（发布字节可复现）没人看。
+
+修法：钉子改钉**真正产出发行字节的 8.5**（URL 换到 launchpad，因为 ports 只留最新 security
+修订；deb 与输出两个 sha256 都钉住）。门禁现在断言的是：`8.5 + 当前工具 = 树里那份 = 19554f27`。
+
+**OPEN（H8 的第二半，不在本轮）**：8.12 是更新的安全修订，要不要把发行 libc 升到 8.12 是
+一次**会影响所有已验证行为**的改动，必须重跑设备验收，不能在门禁轮里顺手换。
 
 ## 6 · 本轮改动文件
 
@@ -238,7 +288,9 @@ $ docker pull rust:1.92-slim      # 3 分钟没有下载出任何层
 | `.github/workflows/ci.yml` | test 作业加 `nr-tools`/`video-protocol`/`husk-va-driver`；`scripts` 作业加离线发布审计 + `fetch-depth: 0`（H3/H4） |
 | `tools/ci/audit-release-offline.sh` | 新文件：发布契约离线半 |
 | `tools/ci/audit-release-names.sh` | 删掉重复的本地规则块，改为调用离线半，只保留联网半 |
-| `runtime/crates/video-protocol/src/lib.rs` | 新增 5 个单元测试 |
+| `runtime/crates/video-protocol/src/lib.rs` | 新增 5 个单元测试；`commit()` 补空环校验（H7） |
+| `.github/workflows/ci.yml`（libc 作业） | libc 钉子从 8.12/`69ceef37` 改成 8.5/`19554f27`，输入换 launchpad（H8） |
+| `.github/workflows/ci.yml`（apk / android 作业） | NDK 路径自己解析（`ANDROID_NDK_LATEST_HOME` 在 ubuntu-latest 上不存在，拼出来是 `/toolchains/...`，两个作业必红） |
 
 ## 7 · 下一步（第 3 轮入口，不在本轮范围）
 

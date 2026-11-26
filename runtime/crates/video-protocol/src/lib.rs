@@ -317,6 +317,15 @@ impl MappedRing {
     pub fn commit(&self, seq: u64) -> io::Result<()> {
         let h = self.header();
         let read = h.read_seq.load(Ordering::Acquire);
+        let write = h.write_seq.load(Ordering::Acquire);
+        // 空 ring 上的 commit 必须被拒。以前这里只比对 read_seq，于是空 ring 上
+        // commit(1) 会成功并把 read_seq 推到 1 —— write_seq 还停在 0，
+        // `write.wrapping_sub(read)` 变成 u64::MAX >= slots，环从此永远"满"，
+        // 生产者再写一条就是永久 WouldBlock。这是第 2 轮新单测抓到的死锁
+        // （evidence 293 §3，缺陷账本 H7）。
+        if read >= write {
+            return Err(io::Error::new(io::ErrorKind::WouldBlock, "ring empty"));
+        }
         if seq != read + 1 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -510,8 +519,18 @@ mod tests {
         assert_eq!(meta.flags, 1);
         assert_eq!(meta.len, 5);
         assert_eq!(&out[..], b"first");
-        // read_into 不推进 read_seq：没 commit 之前同一槽还能再读一次。
-        assert!(ring.read_into(2, &mut out).is_ok());
+        // read_into 不推进 read_seq，所以未 commit 前只能重复读队头那一条：
+        // 同一条再读一次可以，越过队头读下一条必须被拒（否则消费者会跳过一拍）。
+        assert!(
+            ring.read_into(1, &mut out).is_ok(),
+            "head record is re-readable"
+        );
+        let err = ring.read_into(2, &mut out).unwrap_err();
+        assert_eq!(
+            err.kind(),
+            io::ErrorKind::InvalidData,
+            "cannot skip the head"
+        );
         ring.commit(1).unwrap();
 
         let mut out = Vec::new();
@@ -549,9 +568,14 @@ mod tests {
         let err = ring.write_sample(2, 0, 0, 0, b"skipped").unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
 
-        // 空 ring 上 commit 一个不存在的序号也必须被拒。
+        // 空 ring 上 commit 必须是 WouldBlock，且绝不能推进 read_seq：一旦推进，
+        // write_seq - read_seq 会下溢成巨大的数，环就永远"满"了（H7 死锁）。
         let err = ring.commit(1).unwrap_err();
-        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
-        assert_eq!(ring.sequences(), (0, 0));
+        assert_eq!(err.kind(), io::ErrorKind::WouldBlock);
+        assert_eq!(
+            ring.sequences(),
+            (0, 0),
+            "failed commit must not move read_seq"
+        );
     }
 }
