@@ -67,12 +67,12 @@ make loader
 版本号只有一个来源：仓库根的 `VERSION`，内容是**三段式 SemVer**（`X.Y.Z`），每个分量只能是
 `0..99`。版本在四处出现，数字必须完全相同，但格式各有固定写法：
 
-| 位置 | 固定格式 | 当前示例 |
-|---|---|---|
-| `VERSION`、`husk --version`、正文 | `X.Y.Z` | `0.0.32` |
-| annotated git tag | `vX.Y.Z` | `v0.0.32` |
-| GitHub Release 标题 | `Husk X.Y.Z` | `Husk 0.0.32` |
-| `CHANGELOG.md` 小节 | `[X.Y.Z] - YYYY-MM-DD` | `[0.0.32] - 2026-11-26` |
+| 位置 | 固定格式 |
+|---|---|
+| `VERSION`、`husk --version`、正文 | `X.Y.Z` |
+| annotated git tag | `vX.Y.Z` |
+| GitHub Release 标题 | `Husk X.Y.Z` |
+| `CHANGELOG.md` 小节 | `[X.Y.Z] - YYYY-MM-DD` |
 
 `v` 只属于 git tag。Release 标题不能写成 `Husk vX.Y.Z`，也不能把主题拼在后面；
 主题只放正文。每个 annotated tag 的说明首行也必须严格写成 `Husk X.Y.Z`，不能让 tag 页显示
@@ -91,24 +91,25 @@ make loader
 **已经发出去的 tag 不改名，也不移动提交目标**——否则下载同一个链接的人会拿到不同的东西。
 只有 tag 的 annotation 显示文字可以统一为 `Husk X.Y.Z`，且必须保留原 commit、Release 和
 附件不变。只有刚发布当天就发现版本号本身写错，才允许修正版本号，并在 CHANGELOG 留一行说明。
-发版流程（下面以 `0.0.33` 为例）：
+发版流程（命令从 `VERSION` 读取版本，不手写当前版本）：
 
 ```sh
 # 1. 版本与变更
-make version-bump              # 0.0.32 -> 0.0.33
-# 在 CHANGELOG.md 顶部加一节 ## [0.0.33] - YYYY-MM-DD，并把链接改成
-# [0.0.33]: https://github.com/xishanp/Husk/releases/tag/v0.0.33
+make version-bump
+version=$(cat VERSION)
+# 在 CHANGELOG.md 顶部加一节 ## [$version] - YYYY-MM-DD，并把链接改成
+# [$version]: https://github.com/xishanp/Husk/releases/tag/v$version
 make check                     # 含 version-check
 LIBC=<pristine glibc 2.39 libc.so.6> NDK=<ndk>/prebuilt make dist
 # 产出 dist/husk-arm64.tar.gz + SHA256SUMS
 
 # 2. 打标签、推、建 release（annotated tag，不要轻量标签）
-git tag -a v0.0.33 -m "Husk 0.0.33"
-git push origin main && git push origin v0.0.33
+git tag -a "v$version" -m "Husk $version"
+git push origin main && git push origin "v$version"
 notes=$(mktemp)
 sh tools/ci/release-notes.sh > "$notes"
-gh release create v0.0.33 dist/husk-arm64.tar.gz dist/SHA256SUMS \
-  --title "Husk 0.0.33" --notes-file "$notes"
+gh release create "v$version" dist/husk-arm64.tar.gz dist/SHA256SUMS \
+  --title "Husk $version" --notes-file "$notes"
 rm "$notes"
 
 # 3. 回读发布页，检查 tag、Release 标题和正文首行
