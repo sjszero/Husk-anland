@@ -174,16 +174,29 @@ if [ -n "$dec" ]; then
     rm -f "$OUT/.husk-pass1.tar"
 fi
 sed 's/^/   /' "$OUT/.husk-pass1.log"
-# Hard links inside app data fail with EACCES/EPERM because SELinux refuses
-# link(2); pass 2 materialises those names through the shim. That is the *only*
-# tolerated failure. A pipe used to hide tar's exit status here, so a truncated
-# or corrupt archive could "succeed" on an os-release check alone.
+# Two entry classes cannot be created by the *host* tar and are expected:
+#
+#  - hard links: SELinux refuses link(2) inside app data (EACCES/EPERM);
+#  - symlinks whose target is absolute ("<entry> <target> not under <DEST>"):
+#    the host tar resolves the target against the *host* / and refuses to write
+#    outside the destination. Inside the guest the very same target is inside
+#    the root, so pass 2 creates it, and step 2c then rewrites it to a relative
+#    link. A stock Ubuntu base tarball is full of these
+#    (/etc/alsa/conf.d/* -> /usr/share/alsa/alsa.conf.d/*, /etc/alternatives/*),
+#    so refusing them made "install a normal distribution tarball" impossible:
+#    measured 2026-11-26, a stock ubuntu-base/24.04 tree aborted here with 552
+#    absolute links and the installer reported "this archive is not usable".
+#
+# Everything else still aborts. A pipe used to hide tar's exit status here, so a
+# truncated or corrupt archive could "succeed" on an os-release check alone.
 if [ "$rc" -ne 0 ]; then
-    if grep -vi 'link' "$OUT/.husk-pass1.log" | grep -qiE 'error|cannot|denied|corrupt|unexpected'; then
+    if grep -Eiv 'not under|link|had errors' "$OUT/.husk-pass1.log" \
+        | grep -qiE 'error|cannot|denied|corrupt|unexpected'; then
         echo "install-husk: pass 1 failed (tar rc=$rc); this archive is not usable" >&2
         exit 68
     fi
-    echo "   (pass 1 reported link errors only; pass 2 rewrites those names)"
+    echo "   (pass 1 could not create hard links or absolute-target symlinks;"
+    echo "    pass 2 recreates those names through the shim)"
 fi
 rm -f "$OUT/.husk-pass1.log"
 [ -d "$DEST/bin" ] || { echo "install-husk: pass 1 produced no /bin - bad tarball?" >&2; exit 66; }
@@ -261,8 +274,13 @@ else
 fi
 # 看护脚本本身也必须装上：husk-session.sh 只会调用 $BASE/husk-wallpaper-fit.sh，
 # 之前只装了 .js，于是"拟合"这一步在真实安装里从来没跑过（壁纸要么不缩放、要么整张缺失）。
-if [ -f "$HERE/guest/husk-wallpaper-fit.sh" ]; then
-    cp "$HERE/guest/husk-wallpaper-fit.sh" "$DEST/usr/local/share/linuxhub/husk-wallpaper-fit.sh"
+# 这个脚本在发行包里放在顶层（husk-session.sh 按 $BASE/husk-wallpaper-fit.sh 找它），
+# 而安装器原先只认 guest/ 下的位置，于是每装一次就多一条 WARNING、并少装一个文件。
+for _wf in "$HERE/guest/husk-wallpaper-fit.sh" "$HERE/husk-wallpaper-fit.sh"; do
+    [ -f "$_wf" ] && { _wf_src=$_wf; break; }
+done
+if [ -n "${_wf_src:-}" ]; then
+    cp "$_wf_src" "$DEST/usr/local/share/linuxhub/husk-wallpaper-fit.sh"
     chmod 755 "$DEST/usr/local/share/linuxhub/husk-wallpaper-fit.sh"
     echo "   wrote usr/local/share/linuxhub/husk-wallpaper-fit.sh (wallpaper fit + 兜底)"
 else
@@ -563,6 +581,63 @@ fi
     echo "loader_sha256=$(sha256sum "$LOADER" | cut -d' ' -f1)"
     echo "installed=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 } > "$OUT/.husk-install-state"
+
+# 2e. guest 工具替换：App 路径里这一步由资产步骤做（docs/RUNNING.md §1 的 2/4/5），
+#     独立安装（tarball + install-husk.sh）此前**完全没有做**，于是用它装出来的树里
+#     useradd / groupadd / passwd / su / ldconfig 全是发行版原版：
+#
+#       * shadow 的 lckpwdf() 用 link(2) 判断数据库是否被占用，本 SELinux 域拒绝
+#         link(2)，所以 groupadd 永远回 "lock file already used (nlink: 1)"、rc=10，
+#         useradd 再回 "group '1500' does not exist"、rc=6，凡是 postinst 建号的包
+#         全部装不上。实测 2026-11-26：gate A 的 user management 8 项全红，根因
+#         就在这里（不是 husk-usermgr 的问题，是它根本没被装进来）。
+#       * ldconfig 会用发行版自己的库重写 ld.so.cache，把 loader 的搜索路径写坏。
+#
+# 原文件一律保留成 <name>.shadow / ldconfig.ubuntu，永不删除：装坏了还能换回去。
+echo "== guest tools (useradd/groupadd/passwd/su/ldconfig) =="
+HSBIN="$DEST/usr/sbin"
+mkdir -p "$HSBIN"
+_tool_missing=
+for t in husk-usermgr husk-su husk-ldconfig; do
+    if [ -f "$HERE/$t" ]; then
+        cp "$HERE/$t" "$HSBIN/$t" && chmod 755 "$HSBIN/$t"
+    else
+        echo "   WARNING: no $t next to the installer" >&2
+        _tool_missing="$_tool_missing $t"
+    fi
+done
+if [ -x "$HSBIN/husk-usermgr" ]; then
+    for c in useradd groupadd usermod userdel groupdel chpasswd passwd chfn chsh; do
+        for d in usr/sbin usr/bin sbin bin; do
+            p="$DEST/$d/$c"
+            [ -e "$p" ] || continue
+            [ -L "$p" ] && continue
+            mv "$p" "$p.shadow" || { echo "install-husk: cannot move $d/$c" >&2; exit 76; }
+            echo "   $d/$c -> husk-usermgr (distro binary kept as $c.shadow)"
+        done
+        ln -sf husk-usermgr "$HSBIN/$c" || { echo "install-husk: cannot link $c" >&2; exit 77; }
+        # /usr/sbin 已经覆盖 PATH；/sbin 与 /usr/sbin 在 usrmerge 树里是同一个目录。
+        [ -L "$DEST/sbin" ] || ln -sf husk-usermgr "$DEST/sbin/$c" 2>/dev/null || true
+    done
+    # su: 发行版走 PAM，本域里 PAM 会话建立不起来（husk-su 的注释里有原始错误）。
+    for d in usr/bin bin; do
+        p="$DEST/$d/su"
+        [ -e "$p" ] && [ ! -L "$p" ] && { mv "$p" "$p.shadow"; echo "   $d/su -> husk-su (distro binary kept as su.shadow)"; }
+    done
+    ln -sf husk-su "$DEST/usr/bin/su" 2>/dev/null || true
+fi
+if [ -x "$HSBIN/husk-ldconfig" ]; then
+    for d in usr/sbin sbin; do
+        p="$DEST/$d/ldconfig"
+        [ -e "$p" ] || continue
+        [ -L "$p" ] && continue
+        mv "$p" "$p.ubuntu" && echo "   $d/ldconfig -> husk-ldconfig (distro binary kept as ldconfig.ubuntu)"
+    done
+    ln -sf husk-ldconfig "$HSBIN/ldconfig"
+fi
+_unreplaced=$(ls "$DEST"/usr/sbin/{useradd,groupadd,chpasswd} 2>/dev/null | while read -r f; do [ -L "$f" ] || echo "$f"; done)
+[ -z "$_unreplaced" ] || { echo "install-husk: these are still the distro tools:" >&2; echo "$_unreplaced" | sed 's/^/    /' >&2; exit 78; }
+echo "   ok: useradd/groupadd/usermod/userdel/groupdel/chpasswd/passwd/chfn/chsh -> husk-usermgr"
 
 # 3. session script + launcher, both in the parent of the rootfs. Absolute paths
 #    are baked in: $0 inside the launcher is the launcher, not the rootfs.

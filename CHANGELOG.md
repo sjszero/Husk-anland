@@ -68,7 +68,36 @@
   但任何失败都会报错，不再静默。新增 3 个宿主单测：暂存失败不落盘、内容与模式都到位、
   成功后不留 `.husk.tmp`。
 
+- **符号链接递归深度按 Linux 语义改成 40 层**（`runtime/crates/runtime-core/src/lib.rs`，
+  evidence 286）。修前 17 层就回 `ELOOP`；而且不能只改数字——`resolve_at` 每跟一层链接递归
+  一次、每帧 4 个 4096 字节栈数组，40 层要 ~640 KiB 栈，64 KiB 线程栈直接 SIGSEGV（实测）。
+  现在 `resolve_at` 是迭代的，栈占用与深度无关；新增 `LINK_MAX = 40`，计数只在真正跟随链接时
+  检查（放循环顶部会让第 40 层解析完却因"下一轮"被判 ELOOP，第一版补丁正是这么错的）。
+  设备实测 `#checks=20 fail=0`：16/17/40 层可解析、41 层 ELOOP、40 层链在 64 KiB 栈上也过。
+- **一个 stock Ubuntu tarball 能装了**（`tools/guest/install-husk.sh`，evidence 286 §2）。
+  pass 1 以前把"目标为绝对路径的符号链接"（`tar: ... not under <DEST>`）当致命错误：ubuntu-base
+  24.04.3 里有 552 条，于是**任何正常发行版 tarball 都装不上**（`rc=68`，`this archive is not
+  usable`）。现在只容忍硬链接与这一类，其余 error 仍然中止；这两类都由 pass 2 通过 shim 重建，
+  再由 2c 改写成相对链接。
+- **独立安装补上 guest 工具替换**（同上，evidence 286 §3）。`install-husk.sh` 里
+  `grep usermgr` 本来 0 命中——`husk-usermgr`/`husk-su`/`husk-ldconfig` 只由 App 资产流程安装，
+  tarball 路径完全没有，于是发行版的 shadow 工具在这个域里必然失败
+  （`lock file already used (nlink: 1)`、`rc=10`）。现在安装器装这三个工具并把九个账号命令
+  与 `su`/`ldconfig` 换成链接，原文件保留为 `*.shadow`/`ldconfig.ubuntu`，装完立刻断言。
+  gate A 同一棵 base rootfs：`PASS=22 FAIL=14` → `PASS=29 FAIL=7`，再从**新发行的 tarball**
+  干净目录重装并装 `locales`+`acl` 后到 `PASS=35 FAIL=1`（只剩"包数 ≥ 700"，那是发行桌面树
+  的门槛，base 树 93 个包）。
+- **gate A 的 `ps` 泄漏检查写死旧包名**（`tools/device-tests/14-gate-a-acceptance.sh`，evidence
+  286 §4）。排除的是 `com.linuxhub.myth.husk`，现役包是 `com.linuxhub.husk`，于是**我们自己**
+  被算成"其他 App 泄漏"。改成从 `HUSK_PKG` 取当前包名，并打印命中的行。
+- **发行包不再带 AppleDouble**（`Makefile`）。macOS bsdtar 会把扩展属性写成 `._husk-su` 之类
+  的伴生项，上一版 `dist/husk-arm64.tar.gz` 里就有 4 个。改成 `COPYFILE_DISABLE=1` 并加断言：
+  包内出现 `._*` 直接失败。同时 `husk-wallpaper-fit.sh` 的位置不一致也修了（打包在顶层、
+  安装器只找 `guest/`，于是每装一次都少装一个文件并打 WARNING）。
+
 ### 文档
+
+
 
 - **硬件接口地图改成四分类**（`docs/design/hardware-interface-map.md`）：直连 / 中转 /
   不需要 / 权限或厂商限制。删掉标题里的「未做」。

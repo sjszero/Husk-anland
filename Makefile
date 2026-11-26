@@ -283,13 +283,20 @@ dist:
 	else \
 	    echo "dist: no tools/langpack/husk-lang-zh.tar.gz; UI text will stay English" >&2; \
 	fi
-	tar czf dist/husk-arm64.tar.gz -C dist \
+	COPYFILE_DISABLE=1 tar czf dist/husk-arm64.tar.gz -C dist \
 	    libld.so libc.so.6 husk-ldconfig husk-usermgr husk-su husk-symlinks \
 	    guest guest-config install-husk.sh husk-session.sh husk-desktop.sh \
 	    husk-ding-fallback.sh husk-wallpaper-fit.sh husk-lang-zh.tar.gz VERSION
 # The installer writes /etc/profile.d/husk-gpu.sh from guest-config/, and skips it
 # silently when the file is not next to it: a bundle without it installs a tree
 # with no GPU defaults and no error. Asserted on the tarball, not on dist/.
+# macOS 的 bsdtar 会把每个文件的扩展属性写成 AppleDouble 伴生项（._husk-su 之类），
+# 它们也跟着发出去：解开后是 163 字节的垃圾，`tar tzf | wc -l` 直接多出 4 项。实测
+# 2026-11-26 的 dist 里就有 4 个。COPYFILE_DISABLE=1 关掉它，并在这里断言没有漏网。
+	@if tar tzf dist/husk-arm64.tar.gz | grep -qE '(^|/)\._'; then \
+	    echo "dist: AppleDouble entries in the bundle:" >&2; \
+	    tar tzf dist/husk-arm64.tar.gz | grep -E '(^|/)\._' | sed 's/^/    /' >&2; exit 1; \
+	fi
 	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/husk-gpu-defaults.sh' || \
 	    { echo "dist: bundle is missing guest-config/husk-gpu-defaults.sh" >&2; exit 1; }
 # 少了 locale 默认值，装出来的树不会报错，只是桌面回到英文界面、中文按日文字形渲染。

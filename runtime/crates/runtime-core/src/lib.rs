@@ -294,6 +294,21 @@ impl Drop for Walk {
     }
 }
 
+/// Maximum number of symlinks Linux will follow while resolving one pathname
+/// (`MAXSYMLINKS` / 40). The 41st link fails with `ELOOP`.
+pub const LINK_MAX: u32 = 40;
+
+/// Walk an absolute guest path from `root`, following symlinks with chroot
+/// semantics: an absolute target restarts at the root, and the host `/` is
+/// never reachable.
+///
+/// The walk is iterative on purpose. It used to recurse once per symlink and
+/// every recursion frame carried four `PATH_MAX` (4 KiB) buffers plus a
+/// `Walk`, so a 40-link chain needed roughly 640 KiB of stack — more than a
+/// guest thread with a 64 KiB pthread stack can pay, which turns "raise the
+/// limit to 40" into "trade ELOOP for SIGSEGV". All buffers now live in this
+/// single frame and only one directory fd is alive at a time, so the stack
+/// cost is constant regardless of link depth.
 unsafe fn resolve_at(
     root: CInt,
     _base: CInt,
@@ -304,120 +319,148 @@ unsafe fn resolve_at(
     dir_buf: *mut u8,
     dir_len: *mut usize,
 ) -> Result<CInt, CInt> {
-    if depth > 16 {
+    if depth >= LINK_MAX {
         return Err(ELOOP);
     }
-    let mut walk = Walk::new(root)?;
-    let mut gpath = [0u8; PATH_MAX];
-    let mut glen = 1usize;
-    gpath[0] = b'/';
-    let mut it = path
-        .split(|c| *c == b'/')
-        .filter(|c| !c.is_empty())
-        .peekable();
-    while let Some(comp) = it.next() {
-        let last = it.peek().is_none();
-        if is_dot(comp) {
-            continue;
-        }
-        if is_dotdot(comp) {
-            // `..` is opened from the current directory descriptor; the guest
-            // path stack decides when we are at the root and must clamp. This
-            // avoids keeping one fd per component (the old fixed 32-fd stack
-            // rejected valid paths sent by build tools and package managers).
-            if glen > 1 {
-                let fd = openat(walk.cur, b"..", O_PATH | O_DIRECTORY | O_CLOEXEC, 0)?;
-                walk.replace(fd);
-                glen = pop_component(&gpath, glen);
-            }
-            continue;
-        }
-        let mut link = [0u8; PATH_MAX];
-        let n = readlinkat(walk.cur, comp, &mut link).unwrap_or(0);
-        if n == link.len() {
-            return Err(ENAMETOOLONG);
-        }
-        if n > 0 && (!last || follow) {
-            // Compose the new absolute guest path, then re-walk from the root.
-            let target = &link[..n];
-            let mut raw = [0u8; PATH_MAX];
-            let mut rn = if target[0] == b'/' {
-                if target.len() >= PATH_MAX {
-                    return Err(ENAMETOOLONG);
-                }
-                raw[..target.len()].copy_from_slice(target);
-                target.len()
-            } else {
-                if glen + 1 + target.len() >= PATH_MAX {
-                    return Err(ENAMETOOLONG);
-                }
-                raw[..glen].copy_from_slice(&gpath[..glen]);
-                let mut rn = glen;
-                raw[rn] = b'/';
-                rn += 1;
-                raw[rn..rn + target.len()].copy_from_slice(target);
-                rn += target.len();
-                rn
-            };
-            for c in it.by_ref() {
-                if rn + 1 + c.len() >= PATH_MAX {
-                    return Err(ENAMETOOLONG);
-                }
-                raw[rn] = b'/';
-                rn += 1;
-                raw[rn..rn + c.len()].copy_from_slice(c);
-                rn += c.len();
-            }
-            let mut np = [0u8; PATH_MAX];
-            let nn = norm(&raw[..rn], &mut np);
-            drop(walk);
-            return resolve_at(
-                root,
-                root,
-                &np[..nn],
-                name,
-                depth + 1,
-                follow,
-                dir_buf,
-                dir_len,
-            );
-        }
-        if last {
-            if comp.len() >= name.len() {
-                return Err(ENAMETOOLONG);
-            }
-            name[..comp.len()].copy_from_slice(comp);
-            if !dir_buf.is_null() && !dir_len.is_null() {
-                core::ptr::copy_nonoverlapping(gpath.as_ptr(), dir_buf, glen);
-                *dir_len = glen;
-            }
-            return Ok(walk.finish());
-        }
-        let fd = openat(
-            walk.cur,
-            comp,
-            O_PATH | O_NOFOLLOW | O_DIRECTORY | O_CLOEXEC,
-            0,
-        )?;
-        walk.replace(fd);
-        if glen + 1 + comp.len() >= PATH_MAX {
-            return Err(ENAMETOOLONG);
-        }
-        gpath[glen] = b'/';
-        glen += 1;
-        gpath[glen..glen + comp.len()].copy_from_slice(comp);
-        glen += comp.len();
-    }
-    if name.len() < 2 {
+    if path.len() >= PATH_MAX {
         return Err(ENAMETOOLONG);
     }
-    name[0] = b'.';
-    name[1] = 0;
-    if !dir_buf.is_null() && !dir_len.is_null() {
-        core::ptr::copy_nonoverlapping(gpath.as_ptr(), dir_buf, glen);
-        *dir_len = glen;
+    // `cur` is the path being walked. A symlink replaces it with the composed
+    // target plus the components that had not been consumed yet.
+    let mut cur = [0u8; PATH_MAX];
+    let mut next = [0u8; PATH_MAX];
+    let mut normed = [0u8; PATH_MAX];
+    let mut gpath = [0u8; PATH_MAX];
+    let mut link = [0u8; PATH_MAX];
+    let mut cur_len = path.len();
+    cur[..cur_len].copy_from_slice(path);
+    let mut depth = depth;
+    'outer: loop {
+        let mut walk = Walk::new(root)?;
+        let mut glen = 1usize;
+        gpath[0] = b'/';
+        let mut pos = 0usize;
+        loop {
+            while pos < cur_len && cur[pos] == b'/' {
+                pos += 1;
+            }
+            if pos >= cur_len {
+                break;
+            }
+            let start = pos;
+            while pos < cur_len && cur[pos] != b'/' {
+                pos += 1;
+            }
+            let comp = &cur[start..pos];
+            // Where the next component starts, which also decides whether
+            // `comp` is the final one (trailing slashes do not count).
+            let mut after = pos;
+            while after < cur_len && cur[after] == b'/' {
+                after += 1;
+            }
+            let last = after >= cur_len;
+            if is_dot(comp) {
+                pos = after;
+                continue;
+            }
+            if is_dotdot(comp) {
+                // `..` is opened from the current directory descriptor; the guest
+                // path stack decides when we are at the root and must clamp. This
+                // avoids keeping one fd per component (the old fixed 32-fd stack
+                // rejected valid paths sent by build tools and package managers).
+                if glen > 1 {
+                    let fd = openat(walk.cur, b"..", O_PATH | O_DIRECTORY | O_CLOEXEC, 0)?;
+                    walk.replace(fd);
+                    glen = pop_component(&gpath, glen);
+                }
+                pos = after;
+                continue;
+            }
+            let n = readlinkat(walk.cur, comp, &mut link).unwrap_or(0);
+            if n == link.len() {
+                return Err(ENAMETOOLONG);
+            }
+            if n > 0 && (!last || follow) {
+                // Compose the new absolute guest path, then restart the walk
+                // from the root with it. This is the step that used to be a
+                // recursive call.
+                if depth >= LINK_MAX {
+                    return Err(ELOOP);
+                }
+                let target = &link[..n];
+                let mut rn;
+                if target[0] == b'/' {
+                    if target.len() >= PATH_MAX {
+                        return Err(ENAMETOOLONG);
+                    }
+                    next[..target.len()].copy_from_slice(target);
+                    rn = target.len();
+                } else {
+                    if glen + 1 + target.len() >= PATH_MAX {
+                        return Err(ENAMETOOLONG);
+                    }
+                    next[..glen].copy_from_slice(&gpath[..glen]);
+                    rn = glen;
+                    next[rn] = b'/';
+                    rn += 1;
+                    next[rn..rn + target.len()].copy_from_slice(target);
+                    rn += target.len();
+                }
+                if !last {
+                    let rest = &cur[after..cur_len];
+                    if rn + 1 + rest.len() >= PATH_MAX {
+                        return Err(ENAMETOOLONG);
+                    }
+                    next[rn] = b'/';
+                    rn += 1;
+                    next[rn..rn + rest.len()].copy_from_slice(rest);
+                    rn += rest.len();
+                }
+                let nn = norm(&next[..rn], &mut normed);
+                cur_len = nn;
+                cur[..nn].copy_from_slice(&normed[..nn]);
+                depth += 1;
+                drop(walk);
+                continue 'outer;
+            }
+            if last {
+                if comp.len() >= name.len() {
+                    return Err(ENAMETOOLONG);
+                }
+                name[..comp.len()].copy_from_slice(comp);
+                if !dir_buf.is_null() && !dir_len.is_null() {
+                    core::ptr::copy_nonoverlapping(gpath.as_ptr(), dir_buf, glen);
+                    *dir_len = glen;
+                }
+                return Ok(walk.finish());
+            }
+            let fd = openat(
+                walk.cur,
+                comp,
+                O_PATH | O_NOFOLLOW | O_DIRECTORY | O_CLOEXEC,
+                0,
+            )?;
+            walk.replace(fd);
+            if glen + 1 + comp.len() >= PATH_MAX {
+                return Err(ENAMETOOLONG);
+            }
+            gpath[glen] = b'/';
+            glen += 1;
+            gpath[glen..glen + comp.len()].copy_from_slice(comp);
+            glen += comp.len();
+            pos = after;
+        }
+        if name.len() < 2 {
+            return Err(ENAMETOOLONG);
+        }
+        name[0] = b'.';
+        name[1] = 0;
+        if !dir_buf.is_null() && !dir_len.is_null() {
+            core::ptr::copy_nonoverlapping(gpath.as_ptr(), dir_buf, glen);
+            *dir_len = glen;
+        }
+        return Ok(walk.finish());
     }
-    Ok(walk.finish())
 }
 
 pub unsafe fn resolve_open(
@@ -435,9 +478,6 @@ pub unsafe fn resolve_open(
     let mut current_len = path.len();
     let mut depth = 0u32;
     loop {
-        if depth > 16 {
-            return Err(ELOOP);
-        }
         let mut name = [0u8; 256];
         let (parent, dir, dir_len) =
             resolve_parent_with_dir(rootfd, &current[..current_len], &mut name, false)?;
@@ -472,11 +512,17 @@ pub unsafe fn resolve_open(
                     Ok(v) if v < link.len() => v,
                     Ok(_) => return Err(ENAMETOOLONG),
                     Err(22) => {
+                        if depth >= LINK_MAX {
+                            return Err(ELOOP);
+                        }
                         depth += 1;
                         continue;
                     }
                     Err(_) => return Err(e),
                 };
+                if depth >= LINK_MAX {
+                    return Err(ELOOP);
+                }
                 current_len =
                     compose_symlink_target(&dir[..dir_len], &link[..link_len], &mut current)?;
                 depth += 1;
@@ -508,9 +554,6 @@ pub unsafe fn resolve_final(rootfd: CInt, path: &[u8], follow: bool) -> Result<C
     let mut current_len = path.len();
     let mut depth = 0u32;
     loop {
-        if depth > 16 {
-            return Err(ELOOP);
-        }
         let mut name = [0u8; 256];
         let (parent, dir, dir_len) =
             resolve_parent_with_dir(rootfd, &current[..current_len], &mut name, false)?;
@@ -549,6 +592,9 @@ pub unsafe fn resolve_final(rootfd: CInt, path: &[u8], follow: bool) -> Result<C
             Ok(_) => return Err(ENAMETOOLONG),
             Err(e) => return Err(e),
         };
+        if depth >= LINK_MAX {
+            return Err(ELOOP);
+        }
         current_len = compose_symlink_target(&dir[..dir_len], &link[..link_len], &mut current)?;
         depth += 1;
     }
@@ -636,9 +682,6 @@ pub unsafe fn resolve_access(
     let mut current_len = path.len();
     let mut depth = 0u32;
     loop {
-        if depth > 16 {
-            return Err(ELOOP);
-        }
         let mut name = [0u8; 256];
         let (parent, dir, dir_len) =
             resolve_parent_with_dir(rootfd, &current[..current_len], &mut name, false)?;
@@ -673,6 +716,9 @@ pub unsafe fn resolve_access(
             Ok(_) => return Err(ENAMETOOLONG),
             Err(e) => return Err(e),
         };
+        if depth >= LINK_MAX {
+            return Err(ELOOP);
+        }
         current_len = compose_symlink_target(&dir[..dir_len], &link[..link_len], &mut current)?;
         depth += 1;
     }

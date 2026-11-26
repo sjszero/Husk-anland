@@ -36,6 +36,23 @@ fn check(dirfd: c_int, path: &str, mode: c_int, flags: c_int, want: bool, name: 
     got == want
 }
 
+/// Build a chain of `n` symlinks under `base`: `<tag>1 -> <tag>2 -> ... -> <terminal>`.
+/// Returns the path of the first link. Existing links are replaced so one probe
+/// binary can place 16, 17, 40 and 41 links in the same directory.
+fn build_chain(base: &str, tag: char, n: usize, terminal: &str) -> String {
+    for i in 1..=n {
+        let link = format!("{base}/{tag}{i}");
+        let _ = std::fs::remove_file(&link);
+        let target = if i == n {
+            terminal.to_string()
+        } else {
+            format!("{tag}{}", i + 1)
+        };
+        symlink(&target, &link).unwrap();
+    }
+    format!("{base}/{tag}1")
+}
+
 fn main() {
     let base = "/tmp/husk-access-probe";
     let _ = std::fs::remove_dir_all(base);
@@ -99,8 +116,64 @@ fn main() {
         unsafe { close(dfd) };
     }
 
+    // --- symlink depth: Linux follows 40 links, the 41st is ELOOP -----------
+    // Two shapes, because they reach different resolver code:
+    //   * final-component chains (f1 -> f2 -> ... -> target) are walked by the
+    //     loop in resolve_access/resolve_open/resolve_final;
+    //   * middle-component chains (m1 -> m2 -> ... -> midend) are walked by
+    //     resolve_at, which used to recurse once per link and carried 16 KiB of
+    //     stack per frame.
+    let dbase = "/tmp/husk-depth-probe";
+    let _ = std::fs::remove_dir_all(dbase);
+    std::fs::create_dir_all(dbase).unwrap();
+    std::fs::write(format!("{dbase}/target"), b"x").unwrap();
+    std::fs::create_dir_all(format!("{dbase}/midend")).unwrap();
+    std::fs::write(format!("{dbase}/midend/file"), b"x").unwrap();
+    let mut checks = 8usize;
+    for n in [16usize, 17, 40, 41] {
+        let want = n <= 40;
+        let f = build_chain(dbase, 'f', n, "target");
+        ok &= check(AT_FDCWD, &f, 0, 0, want, &format!("depth-final-{n}"));
+        checks += 1;
+        let m = build_chain(dbase, 'm', n, "midend");
+        let mp = format!("{m}/file");
+        ok &= check(AT_FDCWD, &mp, 0, 0, want, &format!("depth-mid-{n}"));
+        checks += 1;
+    }
+    // A 40-link chain has to resolve on a small guest thread stack. The old
+    // resolver needed ~640 KiB of stack to walk that far, so the same call
+    // turned a path-length answer into a SIGSEGV. The threshold is measured,
+    // not assumed: the probe prints which stack size breaks.
+    // The 16/17/40/41 loop above leaves m1 pointing at a 41-link chain, so the
+    // stack tests rebuild the exact 40-link case they are named after.
+    let path40 = build_chain(dbase, 'm', 40, "midend") + "/file";
+    for kib in [64usize, 128, 256, 1024] {
+        let p = path40.clone();
+        let res = std::thread::Builder::new()
+            .stack_size(kib * 1024)
+            .spawn(move || {
+                let ok = call(AT_FDCWD, &p, 0, 0);
+                (ok, std::io::Error::last_os_error().raw_os_error())
+            })
+            .unwrap()
+            .join();
+        let (got, err) = match res {
+            Ok(v) => v,
+            Err(_) => (false, None),
+        };
+        println!(
+            "{} depth-40-on-{kib}k-stack got={} errno={:?}",
+            if got { "PASS" } else { "FAIL" },
+            got,
+            err
+        );
+        ok &= got;
+        checks += 1;
+    }
+    let _ = std::fs::remove_dir_all(dbase);
+
     let _ = std::fs::remove_dir_all(base);
-    println!("#checks=8 fail={}", if ok { 0 } else { 1 });
+    println!("#checks={checks} fail={}", if ok { 0 } else { 1 });
     if !ok {
         std::process::exit(1);
     }

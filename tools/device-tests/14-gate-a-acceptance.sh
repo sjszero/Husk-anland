@@ -108,9 +108,16 @@ eq "host paths only in internal NR_ vars" "0" \
 # proved nothing and was changed on 2026-11-24. What must never happen is the
 # guest seeing *another* Android app: our own package (and its :x11 process) is
 # expected - it is the container - anything else is a leak.
-eq "ps exposes no Android app other than this one" "0" \
-  "$(ps -e -o args= 2>/dev/null | grep -oE 'com\.[a-z0-9_.]+' \
-     | grep -v '^com\.linuxhub\.myth\.husk$' | sort -u | wc -l | tr -d ' ')"
+# The exclusion has to name the package under test, not the one this script was
+# first written against. Hard-coding com.linuxhub.myth.husk made *our own*
+# processes count as a leak on com.linuxhub.husk (measured 2026-11-26: the count
+# was 1 on a tree with no other app running at all). HUSK_PKG comes from the host
+# invocation; the old name stays excluded so an old install still reads clean.
+own=${HUSK_PKG:-com.linuxhub.husk}
+leaked=$(ps -e -o args= 2>/dev/null | grep -oE 'com\.[a-z0-9_.]+' \
+           | grep -v -x -e "$own" -e com.linuxhub.myth.husk | sort -u || true)
+[ -n "$leaked" ] && { echo "  offenders:"; printf '%s\n' "$leaked" | head -5 | sed 's/^/    /'; }
+eq "ps exposes no Android app other than this one" "0" "$(printf '%s' "$leaked" | grep -c . || true)"
 # 把命中的行打出来：只报一个计数的话，出现 1 的时候没法判断是宿主泄漏还是
 # 我们自己的进程被误计（2026-11-25 第一次跑 0.0.11 门禁时就是这种情况）。
 # 注意：这条检查自己的 grep 命令行里就带着上面那几个 pattern，`ps` 会把它列出来，
@@ -190,4 +197,4 @@ adb -s "$DEV" shell "run-as $PKG cp /data/local/tmp/husk-accept.sh $ROOTFS/tmp/h
 adb -s "$DEV" shell "run-as $PKG chmod 755 $ROOTFS/tmp/husk-accept.sh"
 adb -s "$DEV" shell "run-as $PKG cp /data/local/tmp/husk-exec.sh $ROOTFS/tmp/husk-exec.sh"
 adb -s "$DEV" shell "run-as $PKG chmod 755 $ROOTFS/tmp/husk-exec.sh"
-adb -s "$DEV" shell "run-as $PKG env EXPECT_PKGS=${EXPECT_PKGS:-811} sh $ROOTFS/tmp/husk-exec.sh $ROOTFS $LD usr/bin/bash /tmp/husk-accept.sh" 2>&1
+adb -s "$DEV" shell "run-as $PKG env EXPECT_PKGS=${EXPECT_PKGS:-811} HUSK_PKG=$PKG sh $ROOTFS/tmp/husk-exec.sh $ROOTFS $LD usr/bin/bash /tmp/husk-accept.sh" 2>&1
