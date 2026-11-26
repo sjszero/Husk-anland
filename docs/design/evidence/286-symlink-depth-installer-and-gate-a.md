@@ -231,3 +231,30 @@ ps -e -o args= | grep -oE 'com\.[a-z0-9_.]+' | grep -v '^com\.linuxhub\.myth\.hu
 | installed packages | 93 < 700 | 内容：这是 base 树，不是发行桌面树 |
 | Adreno/KGSL、16/64 KiB 真机、相机前后摄、GStreamer | 未跑 | UNVERIFIED，第 4/7/8 轮 |
 | 桌面（GNOME/X11）在本轮的新树上 | 未装、未跑 | base 树没有桌面栈 |
+
+---
+
+## 9 · 追加：`05-mount-audit.sh` 在修好的完整树上 15/3（新缺陷 A-20，未修）
+
+跑在 `rootfs-broken-20261126`（usrmerge 修好之后、带 python3 的那棵树）上：
+
+```
+PASS=15 FAIL=3
+FAIL  store directories left behind            (B-02)
+mount: /mnt/mid: mount(2) system call failed: No space left on device.
+FAIL  chain stopped after one hop              (B-04)
+umount: /mnt/ro: must be superuser to unmount.
+```
+
+两条读法（FACT）：
+
+1. B-04 的 `No space left on device` 不是内核 ENOSPC，是**shim 自己的挂载表满了**：
+   B-03 先放了 8 条（`PASS 8 entries stored`），B-04 再挂就失败。
+2. 表排不空的原因是 `umount` **根本没走到 `umount2`**：util-linux 的 `umount`
+   在用户态就拒绝了（`must be superuser to unmount`）。`geteuid`/`getresuid` 在 shim 里
+   是有的（`lib.rs:6416`、`7380`），所以要么它看的是 capabilities 而不是 euid，
+   要么看的是 `/run/mount/utab` 的属主——**根因 UNKNOWN，本轮没改**。
+   表只进不出，于是 `store directories left behind` 也一起出现。
+
+这两条记为新缺陷 A-20（挂载表只进不出 + `umount` 在 guest 里不可用），归属第 3 轮挂载语义，
+下一轮开工先解它。
