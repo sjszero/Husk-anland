@@ -28,6 +28,35 @@ device_path() {
 ROOTFS=$(device_path "$ROOTFS")
 LD=$(device_path "$LD")
 
+# The probe must exercise the loader that was just built. Three copies of
+# libld.so exist on the device (the APK's native lib dir, files/linux/, and
+# files/linux/husk/) and this script's default $LD is the third one. Writing a
+# fresh loader into the second copy made a fixed bug look unfixed for hours
+# while every run was really still executing the 19:04 build (evidence 294 §1).
+# Refuse to run at all when the bytes differ; a probe result is only worth
+# something when you know which loader produced it.
+local_sha() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        shasum -a 256 "$1" | awk '{print $1}'
+    fi
+}
+LOCAL_LD="$(cd "$HERE/../.." && pwd)/tools/loader/ld-embedded.so"
+if [ -f "$LOCAL_LD" ]; then
+    want_sha=$(local_sha "$LOCAL_LD")
+    got_sha=$(adb -s "$DEV" shell "run-as $PKG sha256sum $LD" 2>/dev/null | awk '{print $1}' | tr -d '\r')
+    if [ "$want_sha" != "$got_sha" ]; then
+        echo "--- loader mismatch: refusing to run" >&2
+        echo "    device $LD" >&2
+        echo "      sha256=$got_sha" >&2
+        echo "    built  $LOCAL_LD" >&2
+        echo "      sha256=$want_sha" >&2
+        exit 1
+    fi
+    echo "# loader under test: $LD sha256=$got_sha (matches local build)"
+fi
+
 if [ -z "${NDK:-}" ]; then
     if [ -n "${ANDROID_NDK_HOME:-}" ]; then
         NDK=$ANDROID_NDK_HOME
@@ -104,6 +133,11 @@ want 'fdidentity|drm-preload-openat-create-mode|PASS|' 'drm preload 的 openat �
 want 'fdidentity|drm-preload-open-cloexec|PASS|' 'drm preload 的 DRM open 保留 O_CLOEXEC'
 want 'fdidentity|drm-preload-mmap-failure-errno|PASS|' 'drm preload 的 mmap 失败返回 MAP_FAILED 并保留 errno'
 want 'fdidentity|drm-preload-ioctl-failure-errno|PASS|' 'drm preload 的普通 fd ioctl 失败保留 ENOTTY'
+# 第 3 轮的两条：没有状态的假 DRM fd 必须 EOPNOTSUPP（不是 EBADF、不是伪成功），
+# 假 V4L2 的名字必须整串匹配（越界下标/尾巴不对/拿了 DRM 的名字都不认领）。
+want 'fdidentity|pathshim-drm-fake-fd-identity-lost|PASS|' '无状态假 DRM fd 明确回 EOPNOTSUPP'
+want 'fdidentity|v4l2-name-grammar-exact|PASS|' '假 V4L2 fd 名字整串匹配，越界与脏尾巴不认领'
+want 'fdidentity|pathshim-drm-fake-fd-identity-lost-preload|PASS|' 'preload 在场时同一条件仍是显式拒绝（不是 ENOTTY）'
 
 adb -s "$DEV" shell "run-as $PKG rm -f $ROOTFS/root/fd-identity-probe $ROOTFS/root/libhusk_drm.so" || true
 adb -s "$DEV" shell 'rm -f /data/local/tmp/fd-identity-probe /data/local/tmp/libhusk_drm.so' || true

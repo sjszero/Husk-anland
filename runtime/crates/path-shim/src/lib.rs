@@ -13275,11 +13275,17 @@ unsafe fn fd_is_our_memfd(fd: CInt) -> bool {
     if r <= 0 {
         return false;
     }
-    let s = &out[..r as usize];
-    if s == b"/memfd:husk-drm" {
-        return true;
-    }
-    s.len() >= 17 && &s[..17] == b"/memfd:husk-v4l2-"
+    // 精确语法在 husk-fd-identity 里（只有一份，带单测）：`/dev/mali0`、
+    // `/memfd:husk-drm`、`/memfd:husk-v4l2-<N>`。旧实现这里用 `s[..17] ==
+    // "/memfd:husk-v4l2-"` 做前缀匹配，于是
+    //   * DRM 的 `/memfd:husk-drm` 被 v4l2 前缀吃进来（串台），
+    //   * `/memfd:husk-v4l2-99999` 这种越界下标也算"我们的"，
+    //   * unlink 之后的 `" (deleted)"` 后缀没剥，身份直接丢失 ——
+    //     而那正是下面那段"绝不能静默退软件"想挡住的情况。
+    matches!(
+        husk_fd_identity::classify(&out[..r as usize]),
+        Some(husk_fd_identity::FakeFd::Drm)
+    )
 }
 
 static mut ORPHAN_LOGGED: bool = false;
@@ -13327,9 +13333,14 @@ pub unsafe extern "C" fn ioctl(fd: CInt, request: u64, arg: *mut u8) -> CInt {
     if drm_ioc_type(request) && fd_is_our_memfd(fd) {
         if !ORPHAN_LOGGED {
             ORPHAN_LOGGED = true;
-            dbg(&[b"nrshim drm: fake fd without state (SCM_RIGHTS across processes); refusing with EBADF\n"]);
+            dbg(&[b"nrshim drm: fake fd without state (SCM_RIGHTS across processes); refusing with EOPNOTSUPP\n"]);
         }
-        return set_errno(9); // EBADF
+        // EOPNOTSUPP（95），不是 EBADF。fd 本身是好的 —— 它是我们自己的假节点，
+        // 只是这个进程没有它的 kbase 状态（跨进程 SCM_RIGHTS 把 fd 号带过来了，
+        // 状态带不过来）。EBADF 会告诉调用方"描述符无效"，那是假话，而且会把
+        // 排障引到错误的树上。第 3 轮的判据就是这一条：要么恢复身份表，要么
+        // 明确说"这个能力不支持"，不许伪成功也不许伪失败。
+        return set_errno(95); // EOPNOTSUPP
     }
     ret_or_errno(syscall4(
         SYS_IOCTL,

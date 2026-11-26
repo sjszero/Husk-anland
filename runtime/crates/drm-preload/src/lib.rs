@@ -193,12 +193,13 @@ unsafe fn is_fake(fd: i32) -> bool {
 ///
 /// `readlink` appends `" (deleted)"` when the name has been unlinked; the
 /// identity survives that, so the suffix is stripped before comparing.
+/// The grammar lives in `husk-fd-identity` (one copy, unit-tested), so the
+/// preload layer and the loader-embedded shim cannot drift apart.
 fn classify_fd_target(link: &[u8]) -> bool {
-    let s = match link.strip_suffix(b" (deleted)".as_slice()) {
-        Some(stripped) => stripped,
-        None => link,
-    };
-    s == b"/dev/mali0" || s == b"/memfd:husk-drm"
+    matches!(
+        husk_fd_identity::classify(link),
+        Some(husk_fd_identity::FakeFd::Drm)
+    )
 }
 
 unsafe fn cstr_len(p: *const u8) -> usize {

@@ -55,6 +55,7 @@ name = "drm-preload"
 version = "0.1.0"
 dependencies = [
  "drm-shim",
+ "husk-fd-identity",
 ]
 
 [[package]]
@@ -90,6 +91,10 @@ version = "0.1.0"
 [[package]]
 name = "guest-bench"
 version = "0.2.0"
+
+[[package]]
+name = "husk-fd-identity"
+version = "0.1.0"
 
 [[package]]
 name = "husk-init"
@@ -226,6 +231,7 @@ name = "path-shim"
 version = "0.1.0"
 dependencies = [
  "drm-shim",
+ "husk-fd-identity",
  "runtime-core",
  "v4l2-shim",
 ]
@@ -369,6 +375,9 @@ dependencies = [
 [[package]]
 name = "v4l2-shim"
 version = "0.1.0"
+dependencies = [
+ "husk-fd-identity",
+]
 
 [[package]]
 name = "v4l2-test"

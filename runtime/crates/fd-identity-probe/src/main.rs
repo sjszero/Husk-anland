@@ -25,6 +25,15 @@ const AF_NETLINK: libc::c_int = 16;
 const NETLINK_ROUTE: libc::c_int = 0;
 const COPY_FD: RawFd = 73;
 
+/// A memfd whose kernel-side name is exactly `name` (readlink shows
+/// `/memfd:<name>`). Short name on purpose: the identity grammar is matched
+/// against the kernel's target string, so the name is the thing under test.
+fn memfd(name: &str) -> RawFd {
+    const SYS_MEMFD_CREATE: libc::c_long = 279;
+    let c = CString::new(name).expect("memfd name");
+    unsafe { libc::syscall(SYS_MEMFD_CREATE, c.as_ptr(), 0u32) as RawFd }
+}
+
 fn errno() -> i32 {
     std::io::Error::last_os_error().raw_os_error().unwrap_or(0)
 }
@@ -869,54 +878,169 @@ fn test_drm_is_fake_exactness() {
     );
 }
 
-/// Identity that gets lost when the fd leaves the process.
+/// Identity that is lost when a descriptor number is not in our table.
 ///
-/// `FAKE_FDS` is keyed by fd number. Any fd that points at the same memfd but
-/// was not handed out by the shim - the receiver of an `SCM_RIGHTS` transfer is
-/// the real case - has no table entry. Before this change such an fd fell
-/// through to the memfd and answered ENOTTY, which clients read as "not a GPU"
-/// and silently drop to software rendering.
+/// `FAKE_FDS` is keyed by fd number, and a number is process-local: after an
+/// `SCM_RIGHTS` transfer the receiver holds the same memfd under a number we
+/// never registered. A raw `/memfd:husk-drm` reproduces that shape exactly - the
+/// kernel target is ours, the table has nothing - and so does `dup` of it.
 ///
-/// `/proc/self/fd/N` reproduces the same shape in one process: same memfd, new
-/// number, no registration. Expected: EBADF, not ENOTTY.
+/// The answer must be an explicit `EOPNOTSUPP`, never the memfd's own `ENOTTY`:
+/// clients read `ENOTTY` as "this is not a GPU" and drop to software rendering
+/// with nothing in any log. Until round 3 this answered `EBADF(9)`, which is a
+/// lie about a descriptor that is perfectly valid.
+///
+/// Deliberately *not* built on `open("/dev/dri/renderD128")` plus
+/// `/proc/self/fd/N` any more: the shim opens that node afresh and re-registers
+/// identity, so the case under test never happened - the ioctl was answered by
+/// the DRM emulation instead (ENOSYS), and the old probe could not tell the
+/// difference on a device that has no `renderD128` at all.
 fn test_fake_fd_identity_lost() {
     const NAME: &str = "pathshim-drm-fake-fd-identity-lost";
     const DRM_MAGIC_IOCTL: u64 = 0x64b1; // _IOC_TYPE == 'd'
 
-    let file = match OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open("/dev/dri/renderD128")
-    {
-        Ok(f) => f,
-        Err(e) => {
-            line(NAME, false, format!("open /dev/dri/renderD128: {e}"));
-            return;
-        }
-    };
-    let registered = file.as_raw_fd();
+    let plain = memfd("husk-drm");
+    if plain < 0 {
+        line(
+            NAME,
+            false,
+            format!("memfd_create(husk-drm): errno {}", errno()),
+        );
+        return;
+    }
+    let copied = unsafe { libc::dup(plain) };
 
-    let alias_path = format!("/proc/self/fd/{registered}");
-    let alias = match OpenOptions::new().read(true).write(true).open(&alias_path) {
-        Ok(f) => f,
-        Err(e) => {
-            line(NAME, false, format!("open {alias_path}: {e}"));
-            return;
-        }
-    };
-    let orphan = alias.as_raw_fd();
-
-    let on_registered = unsafe { libc::ioctl(registered, DRM_MAGIC_IOCTL as _, 0usize) };
-    let registered_errno = errno();
-    let on_orphan = unsafe { libc::ioctl(orphan, DRM_MAGIC_IOCTL as _, 0usize) };
-    let orphan_errno = errno();
+    let on_memfd = unsafe { libc::ioctl(plain, DRM_MAGIC_IOCTL as _, 0usize) };
+    let memfd_errno = errno();
+    let on_copy = unsafe { libc::ioctl(copied, DRM_MAGIC_IOCTL as _, 0usize) };
+    let copy_errno = errno();
 
     line(
         NAME,
-        on_orphan == -1 && orphan_errno == 9,
+        on_memfd == -1 && memfd_errno == 95 && on_copy == -1 && copy_errno == 95,
         format!(
-            "registered_fd={registered} rc={on_registered} errno={registered_errno} | orphan_fd={orphan} rc={on_orphan} errno={orphan_errno} (want -1/EBADF=9)"
+            "memfd_fd={plain} rc={on_memfd} errno={memfd_errno} | dup_fd={copied} rc={on_copy} errno={copy_errno} (want -1/EOPNOTSUPP=95 both)"
         ),
+    );
+    unsafe {
+        libc::close(copied);
+        libc::close(plain);
+    }
+}
+
+/// Same condition, but with the LD_PRELOAD DRM layer already live in this
+/// process: `/memfd:husk-drm` is then claimed by that layer, whose emulation has
+/// no state for this descriptor and answers `ENOSYS(38)`, while path-shim's own
+/// branch answers `EOPNOTSUPP(95)`.
+///
+/// The invariant that must hold in both worlds is "explicit refusal": never 0,
+/// and never `ENOTTY(25)` - that is what makes clients discard the GPU. The
+/// exact errno is recorded rather than asserted, because unifying 38 and 95 has
+/// not been done and is not provable from this side alone.
+fn test_fake_fd_identity_lost_with_preload() {
+    const NAME: &str = "pathshim-drm-fake-fd-identity-lost-preload";
+    const DRM_MAGIC_IOCTL: u64 = 0x64b1;
+
+    let fd = memfd("husk-drm");
+    if fd < 0 {
+        line(
+            NAME,
+            false,
+            format!("memfd_create(husk-drm): errno {}", errno()),
+        );
+        return;
+    }
+    let rc = unsafe { libc::ioctl(fd, DRM_MAGIC_IOCTL as _, 0usize) };
+    let e = errno();
+    unsafe { libc::close(fd) };
+    line(
+        NAME,
+        rc == -1 && e != 25,
+        format!("rc={rc} errno={e} (want explicit refusal: rc=-1, errno!=ENOTTY=25)"),
+    );
+}
+
+/// A forged memfd name must not buy camera emulation.
+///
+/// Two things are checked, and they need different oracles:
+///
+/// * a *v4l2* name that is not legal grammar must be unclaimed, which means it
+///   has to answer exactly like a neutral-name memfd from the same process. The
+///   oracle cannot be "errno == ENOTTY": on the reference device the kernel
+///   answers `EACCES(13)` for any ioctl on a memfd (SELinux ioctl xperm), so the
+///   earlier "not ENOTTY means claimed" assertion reported a claim that did not
+///   exist;
+/// * `/memfd:husk-drm` is legitimately claimed - by the *DRM* layer. The v4l2
+///   layer must not answer it with a working camera, so the only thing asserted
+///   here is "no success"; the errno belongs to whichever DRM layer is live.
+///
+/// The positive direction - a descriptor the shim really issued is claimed - is
+/// covered by the QUERYCAP cases above, which see `husk` as the card name.
+fn test_v4l2_name_grammar() {
+    const NAME: &str = "v4l2-name-grammar-exact";
+
+    let control = memfd("husk-ctl");
+    if control < 0 {
+        line(
+            NAME,
+            false,
+            format!("memfd_create(husk-ctl): errno {}", errno()),
+        );
+        return;
+    }
+    let control_rc = unsafe { libc::ioctl(control, QUERYCAP as _, 0usize) };
+    let control_errno = errno();
+    unsafe { libc::close(control) };
+
+    let mut problems: Vec<String> = Vec::new();
+    let cases: [(&str, &str); 3] = [
+        ("husk-v4l2-0x", "trailing junk"),
+        ("husk-v4l2-99", "index out of range"),
+        ("husk-v4l2-", "no index at all"),
+    ];
+    for (name, why) in cases {
+        let fd = memfd(name);
+        if fd < 0 {
+            problems.push(format!("memfd_create({name}): errno {}", errno()));
+            continue;
+        }
+        let rc = unsafe { libc::ioctl(fd, QUERYCAP as _, 0usize) };
+        let e = errno();
+        if rc != control_rc || e != control_errno {
+            problems.push(format!(
+                "{name}: rc={rc} errno={e} differs from unclaimed control rc={control_rc} errno={control_errno} ({why})"
+            ));
+        }
+        unsafe { libc::close(fd) };
+    }
+
+    // DRM's memfd: claimed by DRM, never by v4l2. Only "no camera" is provable here.
+    let mut drm_note = String::from("husk-drm: not measured");
+    let fd = memfd("husk-drm");
+    if fd >= 0 {
+        let rc = unsafe { libc::ioctl(fd, QUERYCAP as _, 0usize) };
+        let e = errno();
+        if rc == 0 {
+            problems.push(format!(
+                "husk-drm: QUERYCAP succeeded (rc=0) - the v4l2 layer answered a DRM memfd"
+            ));
+        }
+        drm_note = format!("husk-drm rc={rc} errno={e} (refused, not a camera)");
+        unsafe { libc::close(fd) };
+    } else {
+        problems.push(format!("memfd_create(husk-drm): errno {}", errno()));
+    }
+
+    line(
+        NAME,
+        problems.is_empty(),
+        if problems.is_empty() {
+            format!(
+                "junk names unclaimed (=control rc={control_rc} errno={control_errno}); {drm_note}"
+            )
+        } else {
+            problems.join(" | ")
+        },
     );
 }
 
@@ -924,6 +1048,9 @@ fn main() {
     let rootfs = std::env::var("NR_ROOTFS").unwrap_or_else(|_| "/".into());
     line("start", true, format!("rootfs={rootfs}"));
 
+    // 先跑：此时进程里还没有 dlopen 过 DRM preload 层，drm_api() 为空，答案由
+    // path-shim 自己的"无状态假 fd"分支给出（生产里没预载 preload 的情形）。
+    test_fake_fd_identity_lost();
     test_pathshim_drm_open_cloexec();
     test_pathshim_fchown_owner();
     test_v4l2_open_flags(&rootfs);
@@ -937,5 +1064,6 @@ fn main() {
     test_netlink_dup_preserved();
     test_drm_preload();
     test_drm_is_fake_exactness();
-    test_fake_fd_identity_lost();
+    test_fake_fd_identity_lost_with_preload();
+    test_v4l2_name_grammar();
 }

@@ -89,9 +89,8 @@ const BUFFER_OFFSET_SHIFT: u32 = 24;
 const SCRATCH_BYTES: usize = 1920 * 1080 * 3 / 2 + 4096;
 const READV_BYTES: usize = 1920 * 1080 * 2 + 4096;
 
-/// Every guest-facing fd is a memfd whose name carries the device index, so an
-/// fd can be identified from the kernel alone, whoever opened it.
-const MEMFD_PREFIX: &[u8] = b"/memfd:husk-v4l2-";
+// 每个 guest 侧 fd 都是一个命名带上设备下标的 memfd，所以 fd 的身份可以由内核
+// 单独判出来 —— 谁打开的都不影响。规则本身在 husk-fd-identity 里（只写一遍）。
 
 /// Failure tracing: the preload/shim run before any logging facility exists, so
 /// failures go to fd 2 as fixed strings. Cheap and only on error paths.
@@ -181,21 +180,16 @@ unsafe fn fd_dev_of_kernel(fd: i32) -> Option<usize> {
     if r <= 0 {
         return None;
     }
-    let t = &buf[..r as usize];
-    if !t.starts_with(MEMFD_PREFIX) {
-        return None;
+    // 名字规则只写一遍（runtime/crates/fd-identity）：必须是 `/memfd:husk-v4l2-<N>`
+    // 完整匹配，N 在 0..MAX_DEVS。旧实现只吃前缀 + 数字前缀，于是
+    // `/memfd:husk-v4l2-12abc` 会被当成 12 号（再被 MAX_DEVS 挡掉，纯属运气），
+    // `/memfd:husk-drm` 也会被同一个前缀吞进来。
+    match husk_fd_identity::classify(&buf[..r as usize]) {
+        Some(husk_fd_identity::FakeFd::V4l2(index)) if (index as usize) < MAX_DEVS => {
+            Some(index as usize)
+        }
+        _ => None,
     }
-    let mut k = MEMFD_PREFIX.len();
-    let mut idx = 0usize;
-    let start = k;
-    while k < t.len() && t[k].is_ascii_digit() {
-        idx = idx * 10 + (t[k] - b'0') as usize;
-        k += 1;
-    }
-    if k == start || idx >= MAX_DEVS {
-        return None;
-    }
-    Some(idx)
 }
 
 #[derive(Clone, Copy)]

@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 drm-shim = { path = "../drm-shim" }
+husk-fd-identity = { path = "../fd-identity" }
 
 [profile.release]
 panic = "abort"

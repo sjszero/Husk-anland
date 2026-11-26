@@ -8,6 +8,7 @@ license.workspace = true
 runtime-core = { path = "../runtime-core" }
 drm-shim = { path = "../drm-shim" }
 v4l2-shim = { path = "../v4l2-shim" }
+husk-fd-identity = { path = "../fd-identity" }
 
 [lib]
 crate-type = ["cdylib"]
