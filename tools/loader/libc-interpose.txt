@@ -62,6 +62,7 @@ mkostemp
 mkostemps
 mkdtemp
 mount
+umount
 umount2
 getxattr
 lgetxattr

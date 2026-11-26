@@ -3043,8 +3043,13 @@ pub unsafe extern "C" fn mount(
     0
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn umount2(target: *const CChar, _flags: CInt) -> CInt {
+/// Shared body of `umount`/`umount2`: drop one entry from the mount table and,
+/// for a tmpfs entry, the store directory it owns.
+///
+/// `by_src` also matches on the recorded source. The one-argument `umount()`
+/// has accepted either the mount point or the device since V7, and util-linux's
+/// `umount /dev/x` still relies on that.
+unsafe fn mnt_drop_one(target: *const CChar, by_src: bool) -> CInt {
     let rfd = rootfd();
     if rfd < 0 {
         return set_errno(1);
@@ -3063,24 +3068,35 @@ pub unsafe extern "C" fn umount2(target: *const CChar, _flags: CInt) -> CInt {
     let mut was_tmpfs = false;
     let mut found = false;
     mnt_lock();
-    let mut i = 0usize;
-    while i < MNT_N {
-        let tl = MNT[i].tlen as usize;
-        if tl == n && &MNT[i].tgt[..tl] == &gp[..n] {
-            sn = MNT[i].slen as usize;
-            src[..sn].copy_from_slice(&MNT[i].src[..sn]);
-            was_tmpfs = MNT[i].tmpfs != 0;
-            let mut k = i;
-            while k + 1 < MNT_N {
-                MNT[k] = MNT[k + 1];
-                k += 1;
+    let mut pass = 0usize;
+    while pass < 2 && !found {
+        let match_src = pass == 1 && by_src;
+        let mut i = 0usize;
+        while i < MNT_N {
+            let tl = MNT[i].tlen as usize;
+            let sl = MNT[i].slen as usize;
+            let hit = if match_src {
+                sl == n && &MNT[i].src[..sl] == &gp[..n]
+            } else {
+                tl == n && &MNT[i].tgt[..tl] == &gp[..n]
+            };
+            if hit {
+                sn = sl;
+                src[..sn].copy_from_slice(&MNT[i].src[..sn]);
+                was_tmpfs = MNT[i].tmpfs != 0;
+                let mut k = i;
+                while k + 1 < MNT_N {
+                    MNT[k] = MNT[k + 1];
+                    k += 1;
+                }
+                MNT_N -= 1;
+                mnt_save();
+                found = true;
+                break;
             }
-            MNT_N -= 1;
-            mnt_save();
-            found = true;
-            break;
+            i += 1;
         }
-        i += 1;
+        pass += 1;
     }
     mnt_unlock();
     if !found {
@@ -3093,6 +3109,23 @@ pub unsafe extern "C" fn umount2(target: *const CChar, _flags: CInt) -> CInt {
         rm_rf_guest(&src[..sn], 0);
     }
     0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn umount2(target: *const CChar, _flags: CInt) -> CInt {
+    mnt_drop_one(target, false)
+}
+
+/// The legacy one-argument `umount()`. glibc expands it to an inline
+/// `umount2(target, 0)` syscall, so it neither calls the `umount2` symbol nor
+/// goes through anything we interpose - libmount's no-flag path calls exactly
+/// this, which is why `umount <dir>` answered EPERM straight from the kernel
+/// while `umount -l` (flags set, real `umount2` call) reached the shim and
+/// worked. Two interposition points are needed because the two libc entry
+/// points are two different pieces of code.
+#[no_mangle]
+pub unsafe extern "C" fn umount(target: *const CChar) -> CInt {
+    mnt_drop_one(target, true)
 }
 
 // --------------------------------------------------------- POSIX mqueues ---

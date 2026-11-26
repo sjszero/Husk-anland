@@ -10,9 +10,31 @@
 ## [0.0.36] - 2026-11-26
 
 这一版把「检查」和「事实」两件事补上：CI 不再只检查 8 个 crate，DRM 假 fd 的身份判定从
-子串匹配改成精确名字，硬件能力表从「直连 / 中转 / 未做」改成四分类。运行时的默认行为不变。
+子串匹配改成精确名字，硬件能力表从「直连 / 中转 / 未做」改成四分类。运行时的默认行为只动了
+一处：`umount <目录>` 从回 EPERM 变成真的卸载（见下）。
 
 ### 修复
+
+- **`umount <目录>` 在 guest 里能用了**（`path-shim` `umount` 导出 + `BODY_PATCH` +
+  `libc-interpose.txt`，evidence 287）。libmount 在**没有 flag** 时调的是旧接口
+  `umount()`，glibc 把它展开成内联 `umount2(2)` 系统调用，**根本不经过 `umount2` 符号**，
+  所以只 interpose `umount2` 覆盖不到它：`untrusted_app` 域直接回 EPERM，libmount 把 EPERM
+  翻成 `must be superuser to unmount`（rc=32）。后果是表只进不出——实测 `run/husk/t*`
+  存储目录**累积 240 个**、表里 26 条死项，加到 64 条上限后连普通 mount 都开始报
+  `No space left on device`（那是 shim 自己的表满，不是内核 ENOSPC）。`umount -l` 走
+  `umount2` 一直是好的，这就是「一个 flag 之差、一个成功一个失败」的原因。
+  现在两个 libc 入口都落到同一段表操作，旧接口按历史语义同时接受挂载点和源设备。
+  `05-mount-audit` 16/2 → **18/0**，新增 `16-umount-legacy.sh` **12/0**。
+- **`make libc-patch` 不再把树弄坏**（`Makefile`）。`husk-session` 发现 guest libc 与安装记录
+  不符会拒启动（防 `apt upgrade` 覆盖 libc），但它建议的修法原来只换 libc、不同步
+  `rootfs/../libc.so.6` 与 `.husk-install-state`，照做之后树仍然拒启动（exit 74）。
+  三处一起改：同步 bundle、改写 `libc_sha256`、新增 `STOCK=<原始 libc>`
+  （安装器发的 libc 已打过补丁，拿它当输入会报 `no clone3 site left`），并删掉「把当前
+  libc 存成 `.stock`」那一步——它存的是打过补丁的副本。
+- **门禁 A 的包数下限按树给**（`tools/device-tests/14-gate-a-acceptance.sh`）。写死的
+  `>=700` 是完整桌面发行树的量，`ubuntu-base` tarball 只有 93 个包，同一套门禁跑在干净树
+  上必然假红。改成 base 树默认 90、桌面树显式 `EXPECT_PKGS_MIN=700`，包数照原样打印。
+  干净树 35/1 → **36/0**。
 
 - **CI 覆盖整个 workspace**（`.github/workflows/ci.yml`）。此前 `cargo check` 与 `cargo clippy`
   各自只带 8 个 `-p`，39 个 crate 里另外 31 个（音频、视频、相机、会话守卫、全部探针）编译
