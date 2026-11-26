@@ -43,6 +43,8 @@
 | H-35 | GPU/DRM | `libdrm_preload.so` 把 fd 号码记在私有表里；`dup2` 用普通文件覆盖假 DRM fd 后仍认成 DRM，并把普通文件 ioctl 错误路由进 GPU 模拟层 | 254 |
 | H-36 | GPU/DRM | `libdrm_preload.so` 的 `openat` 把 glibc 已返回的 `-1` 当成原始 `-errno`，`ENOENT` 被改写成 `EPERM` | 255 |
 | H-37 | GPU/DRM | `libdrm_preload.so` 的 `open` / `open64` / `openat` / `openat64` 丢弃创建 mode，`O_CREAT` 文件创建成 000（再套 umask） | 255 |
+| H-38 | GPU/DRM | `libdrm_preload.so` 的 `mmap` 失败返回 `NULL` 而不是 `MAP_FAILED`，并把 `EBADF` 改写成 `EPERM`；调用方可能把失败当成功地址 | 256 |
+| H-39 | GPU/DRM | `libdrm_preload.so` 的普通 fd `ioctl` 透传把 `ENOTTY` 改写成 `EPERM`；同时 DRM 回调收到的是 glibc `-1` 而不是原始 `-errno` | 256 |
 
 ## 2 · 记录在案、不修或不完全修的（L）
 

@@ -97,6 +97,8 @@ want 'fdidentity|drm-preload-dup2-fake-preserved|PASS|' 'drm preload 的假 fd �
 want 'fdidentity|drm-preload-open-failure-abi|PASS|' 'drm preload 的 open 失败保持 -1/errno ABI'
 want 'fdidentity|drm-preload-openat-failure-errno|PASS|' 'drm preload 的 openat 失败不把 ENOENT 改写成 EPERM'
 want 'fdidentity|drm-preload-openat-create-mode|PASS|' 'drm preload 的 openat 创建文件保留请求 mode'
+want 'fdidentity|drm-preload-mmap-failure-errno|PASS|' 'drm preload 的 mmap 失败返回 MAP_FAILED 并保留 errno'
+want 'fdidentity|drm-preload-ioctl-failure-errno|PASS|' 'drm preload 的普通 fd ioctl 失败保留 ENOTTY'
 
 adb -s "$DEV" shell "run-as $PKG rm -f $ROOTFS/root/fd-identity-probe $ROOTFS/root/libhusk_drm.so" || true
 adb -s "$DEV" shell 'rm -f /data/local/tmp/fd-identity-probe /data/local/tmp/libhusk_drm.so' || true

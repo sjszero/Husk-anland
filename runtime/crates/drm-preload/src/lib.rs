@@ -69,8 +69,25 @@ fn set_errno(e: i32) {
     unsafe { *__errno_location() = e }
 }
 
+#[inline]
+unsafe fn raw_syscall3(num: i64, a: i64, b: i64, c: i64) -> i64 {
+    let ret: i64;
+    core::arch::asm!(
+        "svc 0",
+        in("x8") num,
+        in("x0") a,
+        in("x1") b,
+        in("x2") c,
+        lateout("x0") ret,
+        options(nostack)
+    );
+    ret
+}
+
 fn ioctl_raw(fd: i32, req: u64, arg: *mut u8) -> i64 {
-    unsafe { syscall(SYS_IOCTL, fd as i64, req, arg as i64, 0i64) as i64 }
+    // DrmCtx expects raw kernel-style negative errno values. glibc's syscall()
+    // returns -1 and stores errno, which DrmCtx would misread as -EPERM.
+    unsafe { raw_syscall3(SYS_IOCTL, fd as i64, req as i64, arg as i64) }
 }
 
 fn open_raw(path: &[u8], flags: i32, mode: i32) -> i32 {
@@ -351,9 +368,10 @@ pub(crate) unsafe fn ioctl_impl(fd: i32, request: u64, arg: *mut u8) -> i32 {
         set_errno(25);
         return -1;
     }
-    let r = ioctl_raw(fd, request, arg);
-    if r < 0 && r > -4096 {
-        set_errno((-r) as i32);
+    // Ordinary descriptors stay ordinary: glibc's syscall wrapper has already
+    // written the real errno. Reinterpreting -1 as -errno changed ENOTTY to EPERM.
+    let r = syscall(SYS_IOCTL, fd as i64, request, arg as i64, 0i64);
+    if r < 0 {
         return -1;
     }
     r as i32
@@ -368,8 +386,8 @@ unsafe fn do_mmap(addr: *mut u8, len: usize, prot: i32, flags: i32, fd: i32, off
     let (real, close_after) = if is_fake(fd) {
         let m = open_raw(b"/dev/mali0\0", O_RDWR, 0);
         if m < 0 {
-            set_errno(2);
-            return core::ptr::null_mut();
+            // open_raw already set errno. mmap failure is MAP_FAILED, not NULL.
+            return usize::MAX as *mut u8;
         }
         (m, true)
     } else {
@@ -388,8 +406,10 @@ unsafe fn do_mmap(addr: *mut u8, len: usize, prot: i32, flags: i32, fd: i32, off
         syscall(SYS_CLOSE, real as i64);
     }
     if r < 0 {
-        set_errno((-r) as i32);
-        return core::ptr::null_mut();
+        // glibc syscall() has already set errno. Interpreting -1 as a raw
+        // -errno changed EBADF to EPERM, and returning NULL made callers miss
+        // the failure because the mmap ABI reports failure as MAP_FAILED.
+        return usize::MAX as *mut u8;
     }
     r as *mut u8
 }

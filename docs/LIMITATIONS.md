@@ -375,6 +375,15 @@ STREAMON/DQBUF 与多线程压力仍未验证，UNKNOWN。
 通过 `SCM_RIGHTS` 把假 DRM fd 交给另一进程后的表身份恢复仍未实现；多线程同时
 `dup2`/`dup3`/`close` 的长时压力也仍是 UNKNOWN。
 
+## 22 · DRM preload 的 mmap / ioctl 失败语义（2026-11-26）
+
+0.0.29 起，`libdrm_preload.so` 的 `mmap` 失败按 ABI 返回 `MAP_FAILED`，并保留内核给出的
+`EBADF`、`EINVAL` 等 errno；普通 fd 的 `ioctl` 失败也不再被改写成 `EPERM`。DRM 回调改用原始
+系统调用，`DrmCtx` 仍能收到负 errno（evidence 256）。
+
+**仍未证明的是**：preload 在路径 shim 之外直接处理非 DRM 路径时的完整翻译与隔离，以及
+Adreno/KGSL 真机上的失败路径。
+
 ## 21 · DRM preload 的 open ABI（2026-11-26）
 
 0.0.28 起，`libdrm_preload.so` 的 `openat` 失败会保留 glibc 给出的真实 errno；`open`、

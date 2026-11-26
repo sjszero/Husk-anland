@@ -7,6 +7,34 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.29] - 2026-11-26
+
+> 主题：**修掉 `libdrm_preload.so` 的 `mmap` 失败返回值和 `ioctl` errno 语义**。
+> 这一版只改失败路径与 DRM 回调的 errno 传递，不改变成功路径或 GPU 后端。
+
+### 修复
+
+- **`mmap` 失败返回 `MAP_FAILED`**（evidence 256）。旧实现返回 `NULL`，调用方会把它当成地址 0
+  的成功映射；现在按 ABI 返回 `(void *)-1`。
+- **`mmap` 失败保留真实 errno**（evidence 256）。`syscall()` 已设置 `EBADF`，旧实现又按原始
+  `-errno` 换算成 `EPERM`；现在不再覆盖。
+- **普通 fd 的 `ioctl` 透传保留 errno**（evidence 256）。`ENOTTY(25)` 不再被改写成 `EPERM(1)`。
+- **DRM 回调重新拿到原始负 errno**（evidence 256）。`DrmCtx` 的 `ioctl` 回调改走原始系统调用，
+  避免把 glibc 的 `-1` 误读成 `-EPERM`。
+- **fd identity 门禁新增两项**：`mmap(-1)` 和普通 `/dev/null` `ioctl(0)` 的失败 ABI。
+
+### 验证
+
+- 旧 0.0.28 负对照：`mmap` 为 `rc=0 errno=1`，`ioctl` 为 `rc=-1 errno=1`。
+- 修后真机：`mmap` 为 `rc=-1 errno=9 (EBADF)`，`ioctl` 为 `rc=-1 errno=25 (ENOTTY)`。
+- 完整门禁 A、`make check` 与发布构建结果见 evidence 256。
+
+### 边界
+
+- FACT：动态证据来自 RMX3357 / MT6893 / Mali-G77 / Android 13 / kernel 4.19.191 / 4 KiB。
+- UNKNOWN：非 DRM 路径的完整翻译与隔离仍不在本版证明范围内。
+- UNKNOWN：Adreno/KGSL 真机上的同路径。
+
 ## [0.0.28] - 2026-11-26
 
 > 主题：**修掉 `libdrm_preload.so` 的 `openat` errno 改写与创建 mode 丢失**。
@@ -1181,7 +1209,8 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.28...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.29...HEAD
+[0.0.29]: https://github.com/xishanp/Husk/releases/tag/v0.0.29
 [0.0.28]: https://github.com/xishanp/Husk/releases/tag/v0.0.28
 [0.0.27]: https://github.com/xishanp/Husk/releases/tag/v0.0.27
 [0.0.26]: https://github.com/xishanp/Husk/releases/tag/v0.0.26

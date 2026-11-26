@@ -413,6 +413,26 @@ fn test_drm_preload() {
         unsafe { std::mem::transmute(open_sym) };
     let preload_openat: unsafe extern "C" fn(i32, *const libc::c_char, i32, i32) -> RawFd =
         unsafe { std::mem::transmute(openat_sym) };
+    let mmap_sym = unsafe { libc::dlsym(handle, b"mmap\0".as_ptr() as *const libc::c_char) };
+    if mmap_sym.is_null() {
+        line(NAME, false, "missing mmap");
+        return;
+    }
+    let preload_mmap: unsafe extern "C" fn(
+        *mut c_void,
+        usize,
+        i32,
+        i32,
+        RawFd,
+        i64,
+    ) -> *mut c_void = unsafe { std::mem::transmute(mmap_sym) };
+    let ioctl_sym = unsafe { libc::dlsym(handle, b"ioctl\0".as_ptr() as *const libc::c_char) };
+    if ioctl_sym.is_null() {
+        line(NAME, false, "missing ioctl");
+        return;
+    }
+    let preload_ioctl: unsafe extern "C" fn(RawFd, libc::c_ulong, *mut c_void) -> i32 =
+        unsafe { std::mem::transmute(ioctl_sym) };
 
     let victim = unsafe { fake_open() };
     if victim < 0 {
@@ -490,6 +510,43 @@ fn test_drm_preload() {
         rc == -1 && error == libc::ENOENT,
         format!("rc={rc} errno={error} expected=-1/{}", libc::ENOENT),
     );
+
+    const MMAP_FAILURE: &str = "drm-preload-mmap-failure-errno";
+    let mapped = unsafe {
+        preload_mmap(
+            std::ptr::null_mut(),
+            4096,
+            libc::PROT_READ,
+            libc::MAP_PRIVATE,
+            -1,
+            0,
+        )
+    };
+    let mmap_error = errno();
+    line(
+        MMAP_FAILURE,
+        mapped as isize == -1 && mmap_error == libc::EBADF,
+        format!(
+            "rc={} errno={} expected=-1/{}",
+            mapped as isize,
+            mmap_error,
+            libc::EBADF
+        ),
+    );
+
+    const IOCTL_FAILURE: &str = "drm-preload-ioctl-failure-errno";
+    match OpenOptions::new().read(true).open("/dev/null") {
+        Ok(dev_null) => {
+            let rc = unsafe { preload_ioctl(dev_null.as_raw_fd(), 0, std::ptr::null_mut()) };
+            let error = errno();
+            line(
+                IOCTL_FAILURE,
+                rc == -1 && error == libc::ENOTTY,
+                format!("rc={} errno={} expected=-1/{}", rc, error, libc::ENOTTY),
+            );
+        }
+        Err(e) => line(IOCTL_FAILURE, false, format!("open /dev/null: {e}")),
+    }
 
     const OPENAT_FAILURE: &str = "drm-preload-openat-failure-errno";
     let missing_at = CString::new("/definitely-missing-husk-drm-openat").unwrap();
