@@ -41,6 +41,16 @@
   仍保持 `hasCode=false`。**这一条尚未在真机上验收**：权限弹窗、拒绝、重新授权、升级保留
   四类都要跑过才算完成（evidence 282 的 `install -g` 依赖也未解除）。
 
+- **账户数据库改成先全部暂存再统一换入**（`runtime/crates/usermgr/src/main.rs`）。
+  `save()` 原先逐个 `write_atomic`：四个文件各自 `fsync` 后 `rename`，而
+  `f.sync_all().ok()` 与 `fs::set_permissions(...).ok()` 把失败吞掉了。于是
+  「chmod `/etc/shadow` 失败」和「fsync 失败」都会报成功，中途崩溃还会留下
+  `passwd` 是新的、`group` 是旧的半套库。现在：先写四个 `.husk.tmp` 并逐个 fsync
+  → 全部成功才逐个 rename（失败时清掉未换入的暂存）→ 最后 fsync `/etc` 目录。
+  仍然不是真正的事务（没有 journal），窗口从「四次写入期间」缩到「四次 rename 之间」，
+  但任何失败都会报错，不再静默。新增 3 个宿主单测：暂存失败不落盘、内容与模式都到位、
+  成功后不留 `.husk.tmp`。
+
 ### 文档
 
 - **硬件接口地图改成四分类**（`docs/design/hardware-interface-map.md`）：直连 / 中转 /

@@ -271,16 +271,51 @@ impl Db {
         }
     }
 
+    /// Stage all four databases, then swap them in.
+    ///
+    /// Before this, the four files were written and renamed one by one and
+    /// `sync_all` / `set_permissions` errors were dropped with `.ok()`. Two
+    /// consequences: a denied chmod or a failed fsync still reported success,
+    /// and a crash between two renames left a *mixed* database - new `passwd`,
+    /// old `group` - with nobody told.
+    ///
+    /// This is not a real transaction (there is no journal), but it narrows the
+    /// window from "during four writes" to "between four renames" and, more
+    /// importantly, every failure is now surfaced. Callers hold `lock_pwdb()`,
+    /// so the renames cannot interleave with another husk-usermgr.
     fn save(&self) -> R<()> {
-        write_atomic(&PASSWD, &render_lines(&self.passwd, |p| p.render()), 0o644)?;
-        write_atomic(&SHADOW, &render_lines(&self.shadow, |s| s.render()), 0o640)?;
-        write_atomic(&GROUP, &render_lines(&self.group, |g| g.render()), 0o644)?;
-        write_atomic(
-            &GSHADOW,
-            &render_lines(&self.gshadow, |g| g.render()),
-            0o640,
-        )?;
-        Ok(())
+        let items: [(&str, String, u32); 4] = [
+            (PASSWD, render_lines(&self.passwd, |p| p.render()), 0o644),
+            (SHADOW, render_lines(&self.shadow, |s| s.render()), 0o640),
+            (GROUP, render_lines(&self.group, |g| g.render()), 0o644),
+            (GSHADOW, render_lines(&self.gshadow, |g| g.render()), 0o640),
+        ];
+
+        let mut staged: Vec<(&str, String)> = Vec::with_capacity(items.len());
+        for (path, body, mode) in items.iter() {
+            match write_tmp(path, body, *mode) {
+                Ok(tmp) => staged.push((*path, tmp)),
+                Err(e) => {
+                    for (_, tmp) in staged.iter() {
+                        let _ = fs::remove_file(tmp);
+                    }
+                    return Err(e);
+                }
+            }
+        }
+
+        for (index, (path, tmp)) in staged.iter().enumerate() {
+            if let Err(e) = fs::rename(tmp, path) {
+                for (_, rest) in staged.iter().skip(index) {
+                    let _ = fs::remove_file(rest);
+                }
+                return Err(format!("cannot rename {tmp} -> {path}: {e}"));
+            }
+        }
+
+        // The directory entry changes are the part a crash can lose even after
+        // the file contents are durable.
+        fsync_dir(PASSWD)
     }
 
     fn pw(&self, name: &str) -> Option<&Pw> {
@@ -339,7 +374,7 @@ impl Db {
     }
 }
 
-fn write_atomic(path: &str, content: &str, mode: u32) -> R<()> {
+fn write_tmp(path: &str, content: &str, mode: u32) -> R<String> {
     let tmp = format!("{path}.husk.tmp");
     {
         let mut f = OpenOptions::new()
@@ -351,11 +386,27 @@ fn write_atomic(path: &str, content: &str, mode: u32) -> R<()> {
             .map_err(|e| format!("cannot open {tmp}: {e}"))?;
         f.write_all(content.as_bytes())
             .map_err(|e| format!("cannot write {tmp}: {e}"))?;
-        f.sync_all().ok();
+        // fsync before rename: a renamed-but-partial file after a crash is
+        // worse than a stale one, and the old code ignored this failure.
+        f.sync_all()
+            .map_err(|e| format!("cannot fsync {tmp}: {e}"))?;
     }
-    fs::set_permissions(&tmp, fs::Permissions::from_mode(mode)).ok();
-    fs::rename(&tmp, path).map_err(|e| format!("cannot rename {tmp} -> {path}: {e}"))?;
-    Ok(())
+    fs::set_permissions(&tmp, fs::Permissions::from_mode(mode))
+        .map_err(|e| format!("cannot chmod {tmp}: {e}"))?;
+    Ok(tmp)
+}
+
+fn fsync_dir(of: &str) -> R<()> {
+    let dir = match of.rfind('/') {
+        Some(0) => "/",
+        Some(i) => &of[..i],
+        None => ".",
+    };
+    let f = OpenOptions::new()
+        .read(true)
+        .open(dir)
+        .map_err(|e| format!("cannot open {dir} for fsync: {e}"))?;
+    f.sync_all().map_err(|e| format!("cannot fsync {dir}: {e}"))
 }
 
 // ------------------------------------------------------------------ locking --
@@ -792,7 +843,8 @@ fn create_home(home: &str, skel: &str, mode: u32, uid: u32, gid: u32) -> R<()> {
         }
     }
     fs::create_dir(p).map_err(|e| format!("cannot create directory {home}: {e}"))?;
-    fs::set_permissions(p, fs::Permissions::from_mode(mode)).ok();
+    fs::set_permissions(p, fs::Permissions::from_mode(mode))
+        .map_err(|e| format!("cannot chmod {home}: {e}"))?;
     let sk = Path::new(skel);
     if sk.is_dir() {
         copy_dir(sk, p).map_err(|e| format!("warning: cannot copy {skel}: {e}"))?;
@@ -809,7 +861,8 @@ fn append_mail_spool(user: &str) -> R<()> {
     }
     if !Path::new(&m).exists() {
         File::create(&m).map_err(|e| format!("cannot create {m}: {e}"))?;
-        fs::set_permissions(&m, fs::Permissions::from_mode(0o660)).ok();
+        fs::set_permissions(&m, fs::Permissions::from_mode(0o660))
+            .map_err(|e| format!("cannot chmod {m}: {e}"))?;
     }
     Ok(())
 }
@@ -1977,4 +2030,76 @@ fn main() {
         }
     };
     std::process::exit(code);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn tmpdir(tag: &str) -> String {
+        let d = format!("/tmp/husk-usermgr-test-{tag}-{}", std::process::id());
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// The old code ended this call with `.ok()`, so a refused open looked like
+    /// success and the caller went on to rename a file that did not exist.
+    #[test]
+    fn write_tmp_reports_open_failure() {
+        let d = tmpdir("open");
+        let path = format!("{d}/passwd");
+        // A directory squatting on the staging name makes open(O_CREAT) fail.
+        fs::create_dir_all(format!("{path}.husk.tmp")).unwrap();
+        let err = write_tmp(&path, "root:x:0:0::/root:/bin/bash\n", 0o644).unwrap_err();
+        assert!(err.contains("cannot open"), "unexpected error: {err}");
+        assert!(
+            !Path::new(&path).exists(),
+            "staging failure must not create {path}"
+        );
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    /// Contents and mode both have to land; the previous version ignored a
+    /// failed chmod, which left /etc/shadow world-readable if it ever failed.
+    #[test]
+    fn staged_swap_lands_content_and_mode() {
+        let d = tmpdir("swap");
+        let path = format!("{d}/shadow");
+        fs::write(&path, "old\n").unwrap();
+        let tmp = write_tmp(&path, "new\n", 0o640).unwrap();
+        fs::rename(&tmp, &path).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "new\n");
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o640, "mode drifted to {mode:o}");
+        fsync_dir(&path).unwrap();
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    /// Nothing is renamed before every file is staged, so a failure on the
+    /// third database leaves the first two untouched.
+    #[test]
+    fn staging_all_four_leaves_no_tmp_behind_on_success() {
+        let d = tmpdir("stage");
+        let names = ["passwd", "shadow", "group", "gshadow"];
+        let mut staged = Vec::new();
+        for n in names.iter() {
+            staged.push((
+                format!("{d}/{n}"),
+                write_tmp(&format!("{d}/{n}"), "x\n", 0o644).unwrap(),
+            ));
+        }
+        for (path, tmp) in staged.iter() {
+            fs::rename(tmp, path).unwrap();
+        }
+        for n in names.iter() {
+            assert!(Path::new(&format!("{d}/{n}")).exists(), "{n} missing");
+            assert!(
+                !Path::new(&format!("{d}/{n}.husk.tmp")).exists(),
+                "{n}.husk.tmp left behind"
+            );
+        }
+        let _ = fs::remove_dir_all(&d);
+    }
 }

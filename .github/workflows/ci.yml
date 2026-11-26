@@ -74,7 +74,7 @@ jobs:
       # compile-checked by the `check` job and exercised on a device instead.
       - run: >
           cargo test --manifest-path runtime/Cargo.toml
-          -p gpu-env -p session-env
+          -p gpu-env -p session-env -p usermgr
 
   android:
     name: app-rs cross compile (aarch64-linux-android)

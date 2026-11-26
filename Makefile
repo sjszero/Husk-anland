@@ -31,7 +31,7 @@ check:
 	cargo fmt --all --check --manifest-path $(MANIFEST)
 	cargo check --manifest-path $(MANIFEST) --target $(TARGET) \
 		-p runtime-core -p nr-tools -p ldconfig -p path-shim -p gpu-env -p session-env -p v4l2-preload -p v4l2-ref-probe -p v4l2-test -p camera-fixture -p fd-identity-probe -p drm-preload
-	cargo test --manifest-path $(MANIFEST) -p gpu-env -p session-env
+	cargo test --manifest-path $(MANIFEST) -p gpu-env -p session-env -p usermgr
 # No --all-targets: path-shim is no_std and its test harness collides with the
 # crate's own panic handler (duplicate lang item). Warnings there are tracked
 # separately; this gate fails on errors.
