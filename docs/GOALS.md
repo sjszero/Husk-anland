@@ -113,8 +113,8 @@ fork/exec 不经翻译层；I/O 直落内核）、**代价**（生态成熟度�
 
 #### C2 · README 结构（顺序固定）
 
-1. 居中 logo（`docs/assets/brand/husk-mark-hexagon-h-512.png`）+ 项目名 + 一句话定位 + 徽章行
-2. 定位段：≤60 词，说清「是什么 / 跑在哪 / 凭什么不同」
+1. 居中项目名；下一格放 logo（`docs/assets/brand/husk-mark-hexagon-h-512.png`）；再下一格放徽章行
+2. 项目介绍不进入标题区；从 `## 概览` 开始，首段 ≤60 词，说清「是什么 / 跑在哪 / 凭什么不同」
 3. 目录（Table of Contents，锚点链接）
 4. **Why Husk**：3 行对比数字（链到 BENCHMARKS 锚点），不放形容词
 5. Features：≤8 条 bullet，每条一句话，必要时括号给出证据编号
@@ -157,7 +157,7 @@ fork/exec 不经翻译层；I/O 直落内核）、**代价**（生态成熟度�
 - 术语表统一：loader / path-shim / guest / rootfs / runner 的使用方式写进 `CONTRIBUTING.md`。
 - 禁用词：极致、革命性、颠覆、完美、零成本（除非有实测支撑）；
   禁用句式：「我们正在努力」「即将支持」。
-- 双语：英文为主，中文镜像同结构、同数字；两版 `git diff` 结构应一致。
+- 双语：中文为主，英文镜像同结构、同数字；两版 `git diff` 结构应一致。
 
 #### C6 · 版本与提交
 
@@ -168,7 +168,8 @@ fork/exec 不经翻译层；I/O 直落内核）、**代价**（生态成熟度�
 - annotated tag `vX.Y.Z`，说明首行只写 `Husk X.Y.Z`；`husk --version`、APK `versionName`、
   徽章与 CHANGELOG 保持一致。
 - GitHub Release 标题只写 `Husk X.Y.Z`；主题和说明只放正文，不拼进标题。
-- Release 正文第一行直接写本版结论，不重复 `# Husk X.Y.Z`、`## Husk X.Y.Z` 或日期标题。
+- Release 正文第一行固定为 `## 概要`，下面只写本版结论；不复制项目总介绍，不使用
+  `> 主题：**…**` 页头，不重复 `# Husk X.Y.Z`、`## Husk X.Y.Z` 或日期标题。
 - 每个 release：CHANGELOG 一节 + GitHub Release（产物 + SHA256SUMS + 已知问题）。
 
 ## 3 · 品牌

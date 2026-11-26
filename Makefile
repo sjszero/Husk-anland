@@ -41,6 +41,7 @@ check:
 	sh tools/ci/check-shell.sh
 	sh tools/ci/audit-readme-header.sh
 	sh tools/ci/test-version-bump.sh
+	sh tools/ci/test-release-notes.sh
 	@$(MAKE) --no-print-directory tools
 	$(HUSK_TOOLS) check-links
 	@$(MAKE) --no-print-directory version-check
@@ -197,8 +198,8 @@ version-bump:
 	@sh tools/ci/version-bump.sh
 
 # Network-backed: requires an authenticated gh CLI. Checks the README hero,
-# contiguous base-100 tags, Release titles, duplicate tag aliases, and repeated
-# version headings in bodies.
+# contiguous base-100 tags, tag annotations, Release titles, and the canonical
+# `## 概要` body contract on every published release.
 release-audit:
 	@sh tools/ci/audit-release-names.sh
 

@@ -3,7 +3,8 @@
 #
 # This is a network-backed release gate, not part of ordinary CI: it requires an
 # authenticated `gh` CLI. It catches duplicate/non-version tags and title drift
-# that a local VERSION/CHANGELOG check cannot see.
+# that a local VERSION/CHANGELOG check cannot see. It also enforces the canonical
+# version-page body: `## 概要`, version-specific summary, level-two sections.
 set -eu
 cd "$(dirname "$0")/../.."
 
@@ -139,7 +140,14 @@ while IFS= read -r tag; do
 done < "$tmp/tag-names"
 
 gh api "repos/$repo/releases?per_page=100" \
-    --jq '.[] | [.tag_name, .name, (.body | split("\n")[0])] | @tsv' \
+    --jq '.[] | [
+        .tag_name,
+        .name,
+        ((.body // "") | split("\n") | map(select(test("\\S"))) | .[0] // ""),
+        ((.body // "") | split("\n") | map(select(test("\\S"))) | .[1] // ""),
+        ([(.body // "") | split("\n")[] | select(test("^### "))] | length),
+        ((.body // "") | test("(?m)^#{1,6}[[:space:]]+(Husk[[:space:]]+)?v?[0-9]+\\.[0-9]+\\.[0-9]+([^0-9.]|$)"))
+    ] | @tsv' \
     > "$tmp/releases.tsv"
 cut -f1 "$tmp/releases.tsv" | sort -u > "$tmp/release-tags"
 
@@ -151,7 +159,7 @@ if [ -s "$tmp/tag-release-diff" ]; then
 fi
 
 release_count=0
-while IFS="$(printf '\t')" read -r tag name first_line; do
+while IFS="$(printf '\t')" read -r tag name first_line second_line h3_count duplicate_version; do
     [ -n "$tag" ] || continue
     release_count=$((release_count + 1))
     case "$tag" in
@@ -168,15 +176,29 @@ while IFS="$(printf '\t')" read -r tag name first_line; do
         fail=1
     fi
 
-    version_heading='^#{1,6}[[:space:]]+(Husk[[:space:]]+)?v?[0-9]+\.[0-9]+\.[0-9]+([^0-9.]|$)'
-    if printf '%s\n' "$first_line" | grep -Eq "$version_heading"; then
-        echo "release body repeats a version heading: $tag: $first_line" >&2
+    if [ "$first_line" != "## 概要" ]; then
+        echo "release body must start with '## 概要': $tag has '$first_line'" >&2
         fail=1
     fi
 
-    expected_first="Husk ${tag#v}"
-    if [ "$first_line" = "$expected_first" ]; then
-        echo "release body repeats the release title: $tag" >&2
+    if [ -z "$second_line" ]; then
+        echo "release body has no version-specific summary: $tag" >&2
+        fail=1
+    fi
+
+    case "$second_line" in
+        'Husk 在 Android 上'*|'Husk 是'*|'Linux 运行环境'*|'> 主题：'*)
+            echo "release body starts with a project introduction or theme banner: $tag" >&2
+            fail=1
+            ;;
+    esac
+
+    if [ "$h3_count" -ne 0 ]; then
+        echo "release body uses level-three headings: $tag ($h3_count)" >&2
+        fail=1
+    fi
+    if [ "$duplicate_version" != "false" ]; then
+        echo "release body repeats a version heading: $tag" >&2
         fail=1
     fi
 done < "$tmp/releases.tsv"

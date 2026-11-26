@@ -40,6 +40,10 @@
 
 ### 发布工程
 
+- **32 个 Release 正文统一为版本页格式**（evidence 276）。所有页面现在固定从 `## 概要` 开始，
+  只写本版结论；删除了历史页头里的项目总介绍和 `> 主题：**…**` 横幅，所有章节统一为二级
+  标题。`tools/ci/release-notes.sh` 同步按该格式生成正文，`make check` 增加生成器契约测试，
+  `make release-audit` 回读远端检查全部 Release。tag、Release 标题、ID、发布状态和附件未变。
 - **Git tag 显示名全部统一**（evidence 275）。32 个历史 tag 已全部改为 annotated tag，
   说明首行严格写成 `Husk X.Y.Z`；其中 21 个原来混有主题、冒号、`release:` 或作者前缀，
   `v0.0.11`/`v0.0.12` 原来是轻量 tag。逐项核对 `^{commit}` 后，32 个提交目标和全部
