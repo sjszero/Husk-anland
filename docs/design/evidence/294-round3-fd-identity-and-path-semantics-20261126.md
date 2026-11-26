@@ -142,3 +142,42 @@ PASS=18 FAIL=0
   `/tmp/05.sh: 75: Bad substitution`，也就是说 **B-03…B-08 五组检查从来没有跑完过**。
   改成 `#!/bin/bash` 并注明原因后，整份 18/18。
   这一条不改运行时代码，但它决定了上面那张表值不值得信。
+
+## 7 · 门禁 A 在这棵树上跑：24/12 → 31/5，剩下的 5 条都不是本轮代码
+
+回归网要能证明"这轮改动没弄坏别的"，所以把 `14-gate-a-acceptance.sh` 指向我正在用的
+测试树 `files/linux/distributions/ubuntu-24.04/rootfs` + `files/linux/husk/libld.so`。
+
+第一次：**PASS=24 FAIL=12**。逐条看下来，12 条全在一类东西上：
+
+| 失败项 | 真实原因 |
+|---|---|
+| `groupadd rc=10`、`useradd: group '1500' does not exist`、`chpasswd rc=1`、`id resolves`、`home created`、`shadow hash`、`group entry`（7 条） | 这棵树里 **没有装 husk-usermgr 包装**：`usr/sbin/useradd` 还是发行版原版（2024-05-30 那个 142 KB 的 ELF）。发行版 shadow 在本域里本来就跑不起来（`lckpwdf()` 要的 `link(2)` 被拒绝，见 `tools/guest/install-husk.sh` 头部注释） |
+| `zh_CN charmap` / `zh_CN weekday`（2 条） | 这棵树的 locale 只生成了 `C`/`C.utf8`/`POSIX`；`/usr/share/i18n/locales/zh_CN` 在，但没跑过 `locale-gen` |
+| `dpkg -C clean before/after`（2 条） | `dpkg -C` 报 1722 行，全部是"missing the list control file"；见下面 P1 |
+| `apt-get -s rc=100`（1 条） | 离线树，`/var/lib/apt/lists/` 里没有索引；`apt-get -s` 解析不了重装 |
+
+然后按 `install-husk.sh` 的做法把这棵树补成"真实安装后的样子"（`usr/sbin/husk-usermgr`
++ `useradd/groupadd/usermod/userdel/groupdel/chpasswd/passwd/chfn/chsh` 软链，原文件留成 `.shadow`），
+再跑一次：**PASS=31 FAIL=5**。
+
+- **FACT**：7 条用户管理项全部转绿 —— 这是 `husk-usermgr` 第一次通过**真实入口**
+  （`argv[0]` 是 `useradd`/`groupadd`/`chpasswd` 的软链）在真机上被验证，
+  比 evidence 295 里直接调 `/usr/local/bin/husk-usermgr` 更接近产品路径。
+- **FACT**：剩下 5 条（locale 2 + dpkg 2 + apt 1）是**这棵树的装配方式**问题，不是本轮改动。
+  本轮改的 fd 身份、路径语义、usermgr 都不在这 5 条里。
+
+### P1（第 3 轮发现，第 4 轮修）：用解包 deb 拼出来的树没有 dpkg 文件清单
+
+```
+status 里 Status: install ok installed 的包：862
+/var/lib/dpkg/info/*.list 的个数：92
+```
+
+**FACT**：770 个包没有 `.list`。后果：`dpkg -L <pkg>` 返回空，`apt purge`/`dpkg -r`
+删不掉这些包的文件，`dpkg -C` 永远 1722 行"脏"。
+
+根因是这棵树由 `nr-tools rootfs` 直接解包 deb 拼出来的（`dpkg -C` 的说明文字里
+写着 "staged by nr-tools rootfs"），只写了 `status` 和 `md5sums`，没有按包生成
+文件清单。修法有两条，第 4 轮选：解包时从 `data.tar.*` 直接生成 `<pkg>.list`，
+或者改成 `dpkg --unpack` 本地 deb 让 dpkg 自己写。
