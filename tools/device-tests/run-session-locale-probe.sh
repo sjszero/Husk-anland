@@ -21,15 +21,23 @@ run_env() {
 }
 
 default_out=$(run_env "NR_LD=$LD_ABS")
+explicit_lang_out=$(run_env "LANG=en_US.UTF-8 NR_LD=$LD_ABS")
 explicit_out=$(run_env "LANG=en_US.UTF-8 LANGUAGE=en_US:en NR_LD=$LD_ABS")
 
 printf '%s\n' "$default_out" | grep -qx 'LANG=zh_CN.UTF-8' \
   || { echo "FAIL default LANG"; printf '%s\n' "$default_out" | tail -20; exit 1; }
 printf '%s\n' "$default_out" | grep -qx 'LANGUAGE=zh_CN:zh' \
   || { echo "FAIL default LANGUAGE"; printf '%s\n' "$default_out" | tail -20; exit 1; }
+printf '%s\n' "$explicit_lang_out" | grep -qx 'LANG=en_US.UTF-8' \
+  || { echo "FAIL explicit LANG"; printf '%s\n' "$explicit_lang_out" | tail -20; exit 1; }
+if printf '%s\n' "$explicit_lang_out" | grep -qx 'LANGUAGE=zh_CN:zh'; then
+  echo "FAIL explicit LANG was overridden by Chinese LANGUAGE"
+  printf '%s\n' "$explicit_lang_out" | tail -20
+  exit 1
+fi
 printf '%s\n' "$explicit_out" | grep -qx 'LANG=en_US.UTF-8' \
   || { echo "FAIL explicit LANG not preserved"; printf '%s\n' "$explicit_out" | tail -20; exit 1; }
 printf '%s\n' "$explicit_out" | grep -qx 'LANGUAGE=en_US:en' \
   || { echo "FAIL explicit LANGUAGE not preserved"; printf '%s\n' "$explicit_out" | tail -20; exit 1; }
 
-echo "PASS default=zh_CN.UTF-8 explicit=en_US.UTF-8"
+echo "PASS default=zh_CN.UTF-8 explicit=en_US.UTF-8 explicit-lang-only=not-zh"

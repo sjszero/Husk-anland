@@ -13,6 +13,10 @@ rootfs 内已有的 `zh_CN.UTF-8` locale 不一致，也解释了为什么同一
 FACT：修后，默认启动会话得到 `LANG=zh_CN.UTF-8`、`LANGUAGE=zh_CN:zh`；调用方显式传入
 `LANG=en_US.UTF-8 LANGUAGE=en_US:en` 时两项保持原值，没有被默认逻辑覆盖。
 
+FACT：进一步负对照发现，只显式传入 `LANG=en_US.UTF-8` 时，旧默认逻辑仍会补上
+`LANGUAGE=zh_CN:zh`。由于 gettext 中 `LANGUAGE` 优先于 `LANG`，这会让显式英文环境仍显示
+中文。修后只设置英文 `LANG` 时不再合成中文 `LANGUAGE`。
+
 ## 1 · 修前原始输出（FACT）
 
 ```text
@@ -20,6 +24,13 @@ HOME=/root
 USER=root
 LANG=C.UTF-8
 ```
+
+```text
+LANG=en_US.UTF-8
+LANGUAGE=zh_CN:zh
+```
+
+第二组是只显式指定英文 `LANG` 时的负对照：旧逻辑仍把 `LANGUAGE` 写成中文。
 
 ## 2 · 修复内容
 
@@ -29,7 +40,7 @@ LANG=C.UTF-8
 - 调用方显式给出的 `LANG`/`LANGUAGE` 保留。
 - `LANG` 为空或是 `POSIX`、`C`、`C.UTF-8` 时，rootfs 有 locale archive 或
   `zh_CN.utf8` 目录则使用 `zh_CN.UTF-8`，否则回退 `C.UTF-8`。
-- 未显式给出 `LANGUAGE` 时使用 `zh_CN:zh`。
+- 未显式给出 `LANGUAGE` 时，只有本次实际选择中文默认值才使用 `zh_CN:zh`。
 - 两个值通过 `env -i` 明确传入，保证登录 shell、桌面和普通子进程拿到同一环境。
 
 新增 `tools/device-tests/run-session-locale-probe.sh`，并接入 `make gate-a`。探针不是检查
@@ -38,7 +49,7 @@ LANG=C.UTF-8
 ## 3 · 修后原始输出（FACT）
 
 ```text
-PASS default=zh_CN.UTF-8 explicit=en_US.UTF-8
+PASS default=zh_CN.UTF-8 explicit=en_US.UTF-8 explicit-lang-only=not-zh
 ```
 
 同一轮探针还逐行断言：
@@ -50,7 +61,7 @@ LANG=en_US.UTF-8
 LANGUAGE=en_US:en
 ```
 
-完整门禁 A 同轮通过：`PASS=38 FAIL=0`。`make check` 通过：75 个 shell 脚本、286 个
+完整门禁 A 同轮通过：`PASS=38 FAIL=0`。`make check` 通过：75 个 shell 脚本、287 个
 Markdown 文件、0 个坏链，版本检查为 `0.0.32`。`coverage-sweep` 仍因 rootfs 没有 `strace`
 为 `SKIP`，不能算 PASS。
 

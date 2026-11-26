@@ -126,8 +126,16 @@ case "${LANG:-}" in
         fi ;;
     *) SESSION_LANG=$LANG ;;
 esac
-: "${LANGUAGE:=zh_CN:zh}"
-SESSION_LANGUAGE=$LANGUAGE
+# LANGUAGE takes precedence over LANG in gettext. Only synthesize the Chinese
+# value when we also selected the Chinese default; an explicit LANG=en_US must
+# not silently come back as Chinese just because LANGUAGE was left unset.
+if [ -n "${LANGUAGE:-}" ]; then
+    SESSION_LANGUAGE=$LANGUAGE
+elif [ "$SESSION_LANG" = zh_CN.UTF-8 ]; then
+    SESSION_LANGUAGE=zh_CN:zh
+else
+    SESSION_LANGUAGE=
+fi
 
 # GPU: when the tree carries the kbase-backed PanVK ICD, point Vulkan at it and
 # send GL through Zink, so EGL/GL calls execute on the Mali GPU instead of
