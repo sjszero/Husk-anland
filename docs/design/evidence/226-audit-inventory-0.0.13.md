@@ -47,6 +47,7 @@
 | H-39 | GPU/DRM | `libdrm_preload.so` 的普通 fd `ioctl` 透传把 `ENOTTY` 改写成 `EPERM`；同时 DRM 回调收到的是 glibc `-1` 而不是原始 `-errno` | 256 |
 | H-40 | GPU/DRM | path-shim 与 preload 打开 DRM 假节点时忽略 `O_CLOEXEC`；带该标志打开的 fd 仍是 `FD_CLOEXEC=0`，会泄漏进 `exec` 子进程 | 257 |
 | H-41 | GPU/DRM | path-shim 忽略 kbase `DrmCtx::init` 失败并仍标记 ready；preload 初始化失败既不关闭 mali fd，也不把负 errno 返回给调用方 | 257 |
+| H-42 | V4L2 | path-shim 打开假 `/dev/video0` 时丢弃 `O_CLOEXEC` 与 `O_NONBLOCK`；相机 fd 可泄漏进 `exec` 子进程，非阻塞采集语义失效 | 258 |
 
 ## 2 · 记录在案、不修或不完全修的（L）
 

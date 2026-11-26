@@ -375,6 +375,16 @@ STREAMON/DQBUF 与多线程压力仍未验证，UNKNOWN。
 通过 `SCM_RIGHTS` 把假 DRM fd 交给另一进程后的表身份恢复仍未实现；多线程同时
 `dup2`/`dup3`/`close` 的长时压力也仍是 UNKNOWN。
 
+## 24 · V4L2 假节点的 `O_CLOEXEC` / `O_NONBLOCK`（2026-11-26）
+
+0.0.31 起，path-shim 对 `/dev/video0` 返回的 memfd 会保留调用方请求的 `O_CLOEXEC` 和
+`O_NONBLOCK`。旧 0.0.30 loader 两项都会丢：相机 fd 可泄漏进 `exec` 子进程，非阻塞采集也会
+退化成普通 fd 语义；修后真机为 `fdflags=1 fl=133122`（evidence 258）。
+
+netlink 是同类接口里的控制项，不是本轮缺陷：带 `SOCK_CLOEXEC | SOCK_NONBLOCK` 的
+`socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE)` 在真机返回 `fdflags=1 fl=2050`，现已加入
+fd identity 门禁。跨进程 `SCM_RIGHTS`、真实 Camera2 长时间采集和多线程压力仍是 UNKNOWN。
+
 ## 23 · DRM 假节点的 O_CLOEXEC 与初始化失败（2026-11-26）
 
 0.0.30 起，path-shim 和 preload 返回的 DRM 假 fd 会保留调用方请求的 `O_CLOEXEC`；旧实现

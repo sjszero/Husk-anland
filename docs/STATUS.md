@@ -26,6 +26,12 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 **仓库布局**：`runtime/crates/{path-shim,nr-tools,runtime-core,gpu-env}`（Rust）、`tools/loader/*.S`（裸汇编，仅入口与 hook）、
 `tools/device-tests/*.sh`、`docs/design/`（设计 + `evidence/` 原始记录）。
 
+**0.0.31 V4L2 假节点 open 标志**：path-shim 对 `/dev/video0` 返回的假 fd 现在保留
+`O_CLOEXEC` 与 `O_NONBLOCK`。旧 0.0.30 loader 的负对照是 `fdflags=0 fl=131074`，修后为
+`fdflags=1 fl=133122`（evidence 258）。同一轮把 netlink 的
+`SOCK_CLOEXEC | SOCK_NONBLOCK` 加入 fd identity 门禁，真机结果 `fdflags=1 fl=2050`，核过不是
+缺陷。完整门禁 A 为 `PASS=38 FAIL=0`，fd identity 17/17；V4L2 修复进入发布包 `libld.so`。
+
 **0.0.30 DRM 假节点 O_CLOEXEC**：path-shim 与 preload 对 `/dev/dri/renderD128` 的假 fd
 现在保留调用方传入的 `O_CLOEXEC`。旧 loader 的负对照是 `fdflags=0`，修后真机两项都是
 `fdflags=1`（evidence 257）。同一轮修复了 kbase 初始化失败时的 mali fd 泄漏和 errno

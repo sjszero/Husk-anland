@@ -139,6 +139,7 @@ const O_PATH: CInt = 0o10000000;
 const O_NOFOLLOW: CInt = 0o100000; // AArch64 UAPI
 const O_DIRECTORY: CInt = 0o40000; // AArch64 UAPI, not asm-generic 0o200000
 const O_CLOEXEC: CInt = 0o2000000;
+const O_NONBLOCK: CInt = 0o4000;
 const O_RDONLY0: CInt = 0;
 
 const SYS_WRITE: usize = 64;
@@ -148,6 +149,8 @@ const SYS_GETDENTS64: usize = 61;
 const SYS_FCNTL: usize = 25;
 const SYS_DUP: usize = 23;
 const F_GETFD: usize = 1;
+const F_GETFL: usize = 3;
+const F_SETFL: usize = 4;
 const F_DUPFD_CLOEXEC: usize = 1030;
 const ROOTFD_FLOOR: usize = 1024;
 const SYS_PREAD64: usize = 67;
@@ -2988,7 +2991,6 @@ const MQ_BASE: &[u8] = b"/dev/mqueue/.q\0";
 const MQ_FLAGS_CREAT: CInt = 0o100;
 const MQ_FLAGS_EXCL: CInt = 0o200;
 const MQ_FLAGS_NONBLOCK: CInt = 0o4000;
-const F_GETFL: CInt = 3;
 
 unsafe fn mq_mkdirs() {
     mkdirat(AT_FDCWD, MQ_ROOT.as_ptr() as *const CChar, 0o1777);
@@ -4759,7 +4761,7 @@ unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt)
                 ));
             }
             if let Some(vn) = video_index(&gp[..n]) {
-                match v4l2_open(vn) {
+                match v4l2_open(vn, flags) {
                     Some(Ok(fd)) => return fd,
                     Some(Err(e)) => return set_errno(e),
                     None => {}
@@ -4850,7 +4852,7 @@ unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt)
         ));
     }
     if let Some(vn) = video_index(&buf[..bl]) {
-        match v4l2_open(vn) {
+        match v4l2_open(vn, flags) {
             Some(Ok(fd)) => return fd,
             Some(Err(e)) => return set_errno(e),
             None => {}
@@ -12926,10 +12928,38 @@ unsafe fn v4l2_nonblock(fd: CInt, on: bool) {
     v4l2_unlock();
 }
 
+unsafe fn fd_set_nonblock(fd: CInt) -> Result<(), CInt> {
+    let old = syscall4(SYS_FCNTL, fd as usize, F_GETFL, 0, 0);
+    if old < 0 {
+        return Err((-old) as CInt);
+    }
+    let r = syscall4(
+        SYS_FCNTL,
+        fd as usize,
+        F_SETFL,
+        (old as usize) | O_NONBLOCK as usize,
+        0,
+    );
+    if r < 0 {
+        return Err((-r) as CInt);
+    }
+    Ok(())
+}
+
+unsafe fn apply_v4l2_open_flags(fd: CInt, flags: CInt) -> Result<(), CInt> {
+    if flags & O_CLOEXEC != 0 {
+        fd_set_cloexec(fd)?;
+    }
+    if flags & O_NONBLOCK != 0 {
+        fd_set_nonblock(fd)?;
+    }
+    Ok(())
+}
+
 /// open("/dev/videoN")：给一个 memfd，登记在 v4l2 表里。
 /// `None` = not our device (fall through to the normal path); `Some(Err(e))` =
 /// ours but the open failed, and the guest must see that errno.
-unsafe fn v4l2_open(n: u32) -> Option<Result<CInt, CInt>> {
+unsafe fn v4l2_open(n: u32, flags: CInt) -> Option<Result<CInt, CInt>> {
     v4l2_lock();
     let out = if let Some(t) = v4l2_api() {
         let f: V4l2Open = core::mem::transmute(*t);
@@ -12946,15 +12976,26 @@ unsafe fn v4l2_open(n: u32) -> Option<Result<CInt, CInt>> {
         }
     };
     v4l2_unlock();
-    out
+    match out {
+        Some(Ok(fd)) => {
+            if let Err(e) = apply_v4l2_open_flags(fd, flags) {
+                v4l2_forget(fd);
+                syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+                return Some(Err(e));
+            }
+            if flags & O_NONBLOCK != 0 {
+                v4l2_nonblock(fd, true);
+            }
+            Some(Ok(fd))
+        }
+        other => other,
+    }
 }
 
 /// fcntl: 只跟踪 O_NONBLOCK，其余原样走。glibc 的 fcntl 是可变参，第三个参数
 /// 按 usize 接（F_GETFD/F_GETFL/F_SETFD 不带参数，不会用到它）。
 #[no_mangle]
 pub unsafe extern "C" fn fcntl(fd: CInt, cmd: CInt, arg: usize) -> CInt {
-    const F_GETFL: CInt = 3;
-    const F_SETFL: CInt = 4;
     let r = syscall4(SYS_FCNTL, fd as usize, cmd as usize, arg, 0);
     const F_DUPFD: CInt = 0;
     const F_DUPFD_CLOEXEC: CInt = 1030;
@@ -12963,9 +13004,9 @@ pub unsafe extern "C" fn fcntl(fd: CInt, cmd: CInt, arg: usize) -> CInt {
         adreno_inherit(fd, r as CInt);
     }
     if r >= 0 && v4l2_is_fake(fd) {
-        if cmd == F_SETFL {
+        if cmd == F_SETFL as CInt {
             v4l2_nonblock(fd, (arg & 0o4000) != 0); // O_NONBLOCK
-        } else if cmd == F_GETFL {
+        } else if cmd == F_GETFL as CInt {
             v4l2_nonblock(fd, (r as usize & 0o4000) != 0);
         }
     }

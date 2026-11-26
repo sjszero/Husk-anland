@@ -7,6 +7,36 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.31] - 2026-11-26
+
+> 主题：**补齐 V4L2 假节点的 open 标志语义，并把 netlink 标志加入真机回归**。
+> 修复进入实际发布的 `libld.so`，不是实验 preload 或桌面补丁。
+
+### 修复
+
+- **path-shim 的 V4L2 假节点保留 `O_CLOEXEC` 与 `O_NONBLOCK`**（evidence 258）。旧 loader
+  对 `/dev/video0` 返回的 memfd 会丢掉这两个打开标志：相机 fd 可泄漏进 `exec` 子进程，
+  非阻塞采集语义也会失效；现在按调用方 flags 设置，失败则关闭 fd 并返回真实 errno。
+- **netlink 标志加入 fd identity 门禁**（evidence 258）。真机确认
+  `socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK, NETLINK_ROUTE)` 当前两项
+  标志均保留；这条没有对应代码改动，作为防止后续回归的固定断言。
+
+### 验证
+
+- 修前真机负对照：`pathshim-v4l2-open-flags|FAIL|fdflags=0 fl=131074`。
+- 修后真机：`pathshim-v4l2-open-flags|PASS|fdflags=1 fl=133122`。
+- 完整门禁 A：`PASS=38 FAIL=0`；coverage-sweep 1400 条无泄漏。
+- `fd-identity-probe`：17/17 条断言通过。
+- 发布包哈希与 loader 差异见 evidence 258。
+
+### 边界
+
+- FACT：动态证据来自 RMX3357 / MT6893 / Mali-G77 / Android 13 / kernel 4.19.191 / 4 KiB。
+- FACT：V4L2 修复进入 `libld.so`；独立 `libv4l2_preload.so` 不在发布 tar 中。
+- UNKNOWN：真实 Camera2 后端在高 fd、长时间 STREAMON 和多线程压力下的表现。
+- UNKNOWN：跨进程 `SCM_RIGHTS` 传递假 V4L2/netlink fd 的完整语义。
+- UNVERIFIED：V4L2 标志设置失败分支没有在真机上注入故障。
+
 ## [0.0.30] - 2026-11-26
 
 > 主题：**补齐 DRM 假节点的 `O_CLOEXEC` 语义，并清理 kbase 初始化失败路径**。
@@ -1239,7 +1269,8 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.30...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.31...HEAD
+[0.0.31]: https://github.com/xishanp/Husk/releases/tag/v0.0.31
 [0.0.30]: https://github.com/xishanp/Husk/releases/tag/v0.0.30
 [0.0.29]: https://github.com/xishanp/Husk/releases/tag/v0.0.29
 [0.0.28]: https://github.com/xishanp/Husk/releases/tag/v0.0.28

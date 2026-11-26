@@ -59,6 +59,47 @@ fn test_pathshim_drm_open_cloexec() {
     }
 }
 
+fn test_v4l2_open_flags(rootfs: &str) {
+    const NAME: &str = "pathshim-v4l2-open-flags";
+    let sock_path = PathBuf::from(rootfs).join("run/husk/camera.sock");
+    let (server, ready) = match camera_server(sock_path.clone()) {
+        Ok(v) => v,
+        Err(e) => {
+            line(NAME, false, e);
+            return;
+        }
+    };
+    let video = match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NONBLOCK)
+        .open("/dev/video0")
+    {
+        Ok(v) => v,
+        Err(e) => {
+            line(NAME, false, format!("open /dev/video0: {e}"));
+            return;
+        }
+    };
+    if ready.recv_timeout(Duration::from_secs(8)) != Ok(Ok(())) {
+        line(NAME, false, "camera INFO handshake failed");
+        return;
+    }
+    let fd = video.as_raw_fd();
+    let fdflags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+    let fl = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    line(
+        NAME,
+        fdflags >= 0 && fdflags & libc::FD_CLOEXEC != 0 && fl >= 0 && fl & libc::O_NONBLOCK != 0,
+        format!("fd={fd} fdflags={fdflags} fl={fl} expected_cloexec=1 expected_nonblock=1"),
+    );
+    drop(video);
+    if let Err(e) = finish_camera(server) {
+        line(&format!("{NAME}-socket"), false, e);
+    }
+    let _ = std::fs::remove_file(sock_path);
+}
+
 fn open_video() -> Result<File, String> {
     OpenOptions::new()
         .read(true)
@@ -301,6 +342,31 @@ fn open_netlink() -> Result<File, String> {
         Err(format!("socket(AF_NETLINK) errno={}", errno()))
     } else {
         Ok(unsafe { File::from_raw_fd(fd) })
+    }
+}
+
+fn test_netlink_socket_flags() {
+    const NAME: &str = "pathshim-netlink-socket-flags";
+    let sock = unsafe {
+        libc::socket(
+            AF_NETLINK,
+            libc::SOCK_RAW | libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK,
+            NETLINK_ROUTE,
+        )
+    };
+    if sock < 0 {
+        line(NAME, false, format!("socket errno={}", errno()));
+        return;
+    }
+    let fdflags = unsafe { libc::fcntl(sock, libc::F_GETFD) };
+    let fl = unsafe { libc::fcntl(sock, libc::F_GETFL) };
+    line(
+        NAME,
+        fdflags >= 0 && fdflags & libc::FD_CLOEXEC != 0 && fl >= 0 && fl & libc::O_NONBLOCK != 0,
+        format!("fd={sock} fdflags={fdflags} fl={fl} expected_cloexec=1 expected_nonblock=1"),
+    );
+    unsafe {
+        libc::close(sock);
     }
 }
 
@@ -646,6 +712,8 @@ fn main() {
     line("start", true, format!("rootfs={rootfs}"));
 
     test_pathshim_drm_open_cloexec();
+    test_v4l2_open_flags(&rootfs);
+    test_netlink_socket_flags();
     test_v4l2_overwrite(&rootfs, false, "v4l2-dup2-ordinary-over-fake");
     test_v4l2_overwrite(&rootfs, true, "v4l2-dup3-ordinary-over-fake");
     test_v4l2_dup_preserved(&rootfs);
