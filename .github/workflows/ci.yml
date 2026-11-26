@@ -265,23 +265,18 @@ jobs:
       # The two sha256 values below are the pin: change them only with a libc
       # bump, and only after `make libc-patch` on the device.
       #
-      # 2026-11-26 (evidence 293 §8): the pin used to download 2.39-0ubuntu8.12
-      # and expect 69ceef37 — a value that no artifact ever had. Measured on the
-      # dev box, twice, byte-identical both times:
-      #   2.39-0ubuntu8.5  (launchpad)  -> 19554f27 = 装出来的树里那份、
-      #                                  .husk-install-state 记录的 libc_sha256
-      #   2.39-0ubuntu8.12 (ports)      -> 2ed8771f = 现在这份 job 造出来的
-      # 也就是说这条门禁一直是红的，而它自称在断言"发布要发的那份字节"。改成
-      # 钉住真正产出发行字节的 8.5，并留下"8.12 是更新的安全修订、要不要升是
-      # 另一件事"的记账（缺陷账本 H8）。
+      # 2026-11-27 (evidence 315): the runtime and the package database are now
+      # both on 2.39-0ubuntu8.12. The old 8.5 pin was left behind after the
+      # package metadata had already advanced, so a tree could claim 8.12 while
+      # loading 8.5-patched bytes. These pins are the clean-install artifact.
       - name: rebuild the guest libc from the pinned stock package
         run: |
           set -eu
-          DEB=libc6_2.39-0ubuntu8.5_arm64.deb
-          WANT_DEB=510ef3d30fa679a36f472df4eefc5d5408c82a17d98b45de36bb490c55582db6
-          WANT_OUT=19554f2783e2f824f7774085194d57b8c054f52e7a950bb54e58cc8fa0be9fcd
-          # 8.5 已经从 ports 的 pool 里被 8.12 顶掉（ubuntu 只留最新 security 修订），
-          # 旧修订只在 launchpad 的 +files 里取原包；hash 钉住，URL 变了就当失败。
+          DEB=libc6_2.39-0ubuntu8.12_arm64.deb
+          WANT_DEB=2578bc27d4e077f5e93c283d2502bc693c516d9590a20a27840b548a4d436820
+          WANT_OUT=2ed8771f220ba55ed0c224e114c83a30cb9d34fb333d375fc690f7267bd138bb
+          # Launchpad keeps the exact input bytes; both the deb and transformed
+          # output are pinned so a mirror or URL change fails closed.
           curl -fsSL --retry 3 -o "$DEB" \
             "https://launchpad.net/ubuntu/+archive/primary/+files/$DEB"
           echo "$WANT_DEB  $DEB" | sha256sum -c -

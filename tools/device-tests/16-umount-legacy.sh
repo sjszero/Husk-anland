@@ -18,13 +18,24 @@ bad() { F=$((F+1)); echo "  FAIL  $1"; }
 eq()  { [ "$2" = "$3" ] && ok "$1 ($3)" || bad "$1 (want '$2' got '$3')"; }
 T=/run/husk/mounts
 lines() { wc -l < "$T" 2>/dev/null | tr -d ' ' || echo 0; }
+# Table format is: kind<TAB>ro<TAB>target<TAB>source.  Do not use awk:
+# the release tree can be valid without an /usr/bin/awk symlink (mawk itself is
+# present), and that made this gate fail before it exercised umount at all.
+mount_source_for() {
+    want=$1
+    tab=$(printf '\t')
+    while IFS="$tab" read -r kind ro target source rest; do
+        [ "$target" = "$want" ] && { printf '%s\n' "$source"; return 0; }
+    done < "$T"
+    return 1
+}
 [ -f "$T" ] || : > "$T"
 
 mkdir -p /mnt/u1 /mnt/u2
 
 echo "== umount by mount point (the libmount no-flag path) =="
 mount -t tmpfs tmpfs /mnt/u1 >/dev/null 2>&1; eq "mount rc" 0 $?
-src=$(awk -F'\t' '$3=="/mnt/u1"{print $4}' "$T")
+src=$(mount_source_for /mnt/u1 || true)
 eq "table has the entry" yes "$([ -n "$src" ] && echo yes || echo no)"
 eq "store dir exists" yes "$([ -n "$src" ] && [ -d "$src" ] && echo yes || echo no)"
 out=$(umount /mnt/u1 2>&1); rc=$?
@@ -35,7 +46,7 @@ eq "store dir removed" no "$([ -n "$src" ] && [ -d "$src" ] && echo yes || echo 
 
 echo "== umount by source path (legacy one-argument semantics) =="
 mount -t tmpfs tmpfs /mnt/u2 >/dev/null 2>&1; eq "mount rc" 0 $?
-src=$(awk -F'\t' '$3=="/mnt/u2"{print $4}' "$T")
+src=$(mount_source_for /mnt/u2 || true)
 eq "umount <source> rc" 0 "$(umount "$src" >/dev/null 2>&1; echo $?)"
 eq "entry removed" 0 "$(lines)"
 

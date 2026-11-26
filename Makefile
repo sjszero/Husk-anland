@@ -79,8 +79,8 @@ DEV_LIBC   := $(DEV_ROOTFS)/usr/lib/aarch64-linux-gnu/libc.so.6
 # install recorded, and restores it from the copy that sits next to the rootfs.
 # Both therefore have to move together with the patch, or the repair the error
 # message recommends ("re-run make libc-patch") leaves a tree that then refuses
-# to start - measured 2026-11-26: libc 19554f2783e2, recorded 69ceef3759f4,
-# exit 74.
+# to start. The release input is glibc 2.39-0ubuntu8.12; its patched output is
+# 2ed8771f... after the current 101/106-hook transform (evidence 315).
 BUNDLED_LIBC := $(patsubst %/rootfs,%,$(DEV_ROOTFS))/libc.so.6
 INSTALL_STATE := $(patsubst %/rootfs,%,$(DEV_ROOTFS))/.husk-install-state
 LIBCTMP    := runtime/target/libc-patch
