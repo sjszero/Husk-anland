@@ -137,12 +137,13 @@ DRI3 只能停在 `Could not get DRI3 device`。逐条数字与做法见
 > 表里写的是**验证到什么程度**，不是「功能已完成」。GPU 只到「能开、能算」，没到「能上线」：
 > 窗口呈现（WSI）已经通了，但客户端的帧是经 SHM 拷贝进 X server 的，dmabuf 直传还没接
 > （`docs/LIMITATIONS.md` §7）。fixed-function GL 的 PanVK/Bifrost GS 崩溃已有默认规避，600 帧
-> 探针通过；但真实 X11 `glxgears` 和桌面长跑仍未验证。相机、视频、音频都是「有一条能跑的
-> 链路」，不是产品级的稳定性承诺。
+> 探针通过；真实 X11 `glxgears` 也已连续跑 600 秒（平均 248.352 FPS，evidence 245），但当前 2.0
+> 拉起的 GNOME 仍显式走 llvmpipe，硬件桌面尚未验证。相机、视频、音频都是
+> 「有一条能跑的链路」，不是产品级的稳定性承诺。
 
 | 能力 | 接法 | 用户态里的路径 | 实测 |
 |---|---|---|---|
-| GPU | 直连 | 直开 `/dev/mali0`，kbase 后端的 PanVK | 枚举到 `Mali-G77 MC9`、compute 与离屏 graphics 回读通过；GL renderer `zink Vulkan 1.3(Mali-G77 MC9)`（evidence 156）；PanVK ICD 由 canonical guest 相对 manifest 选择，独立验证树已复跑 `vulkan-probe` / `gl-probe es3` 通过（evidence 241）。**X11 窗口呈现已通**（`stage 7→10`、60 swap，evidence 165），GNOME 桌面在 zink/PanVK 上出帧、X 根窗口非黑像素 100%（evidence 165/168）；默认值由 App 按真实 `/dev/mali0` 门控生成，并由加载器从 `/etc/husk/gpu-env` 注入；`env -i`、登录/非登录执行都吃得到（evidence 167、182、241、242）；0.0.18 起 App 与 loader 共用 `gpu-env` crate（evidence 243）。0.0.19 默认关闭 PanVK 的 DXVK 兼容 GS，并把默认值穿透真实 `setenv` 和 `execve`（evidence 244）：fixed-function 600 帧 `PASS`（588.5 fps），显式 `PANVK_DXVK_COMPAT=1` 仍以 `fa=0x21` 崩溃。上限 GLES 3.2（靠 `MESA_GLES_VERSION_OVERRIDE`，真实应用未验），呈现仍是 SHM 拷贝；**真实 X11 `glxgears`、桌面长跑和其他 fixed-function 程序仍是 UNKNOWN** |
+| GPU | 直连 | 直开 `/dev/mali0`，kbase 后端的 PanVK | 枚举到 `Mali-G77 MC9`、compute 与离屏 graphics 回读通过；GL renderer `zink Vulkan 1.3(Mali-G77 MC9)`（evidence 156）；PanVK ICD 由 canonical guest 相对 manifest 选择，独立验证树已复跑 `vulkan-probe` / `gl-probe es3` 通过（evidence 241）。**X11 窗口呈现已通**（`stage 7→10`、60 swap，evidence 165），GNOME 桌面在 zink/PanVK 上出帧、X 根窗口非黑像素 100%（evidence 165/168）；默认值由 App 按真实 `/dev/mali0` 门控生成，并由加载器从 `/etc/husk/gpu-env` 注入；`env -i`、登录/非登录执行都吃得到（evidence 167、182、241、242）；0.0.18 起 App 与 loader 共用 `gpu-env` crate（evidence 243）。0.0.19 默认关闭 PanVK 的 DXVK 兼容 GS，并把默认值穿透真实 `setenv` 和 `execve`（evidence 244）：fixed-function 600 帧 `PASS`（588.5 fps），显式 `PANVK_DXVK_COMPAT=1` 仍以 `fa=0x21` 崩溃。0.0.20 在现有 X11 server 上用独立 guest 客户端复验硬件窗口：`glxgears` 连续 600 秒，119 个 5 秒窗口、147872 帧、215.779–299.303 FPS、平均 248.352 FPS，进程实际持有 `/dev/mali0`（evidence 245）；但当前 2.0 拉起的 GNOME 仍被 session 脚本显式固定为 llvmpipe，约 1.0–1.2 FPS。上限 GLES 3.2（靠 `MESA_GLES_VERSION_OVERRIDE`，真实应用未验），呈现仍是 SHM 拷贝；**硬件 GNOME 桌面、多应用并发和其他 fixed-function 程序仍是 UNKNOWN** |
 | 显示 | 应用侧，零拷贝 | `AHardwareBuffer` → dma-buf → `SurfaceControl` | 3-buffer ring + 真实 `SYNC_FD`：submitted=10 000 / completed=10 000（evidence 59） |
 | 视频解码 | 中转 | MediaCodec `c2.mtk.avc.decoder` + AHB 三平面 | H.264 1080p30 连续 600 秒，`dropped=0`（evidence 80） |
 | 相机 | 中转（标准 V4L2 facade） | guest `/dev/videoN` → Rust V4L2 shim → Camera2 NDK / `AImageReader` | `open()` 返回 memfd，不是真实 V4L2 fd；QUERYCAP / REQBUFS / DQBUF 可用，前后摄自动启动、无测试 marker；最终 0.0.15 构建复跑为 12.26–17.42 fps（evidence 240）。拍照 JPEG + 30 秒录像与硬件 H.264 编码见 evidence 93；不支持 DMABUF / read / controls |

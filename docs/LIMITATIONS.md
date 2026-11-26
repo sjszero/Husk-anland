@@ -163,8 +163,13 @@ PanVK 的 DXVK 兼容开关默认暴露 `geometryShader`；0.0.19 在 Mali 的�
 `PANVK_DXVK_COMPAT=0`，并让 loader 把这个默认值物化到真实 `setenv`/`execve` 环境。默认配置下
 fixed-function 探针 600 帧 `PASS`（588.5 fps），ES3 和 Vulkan 回归也通过；显式
 `PANVK_DXVK_COMPAT=1` 仍在 `fa=0x21` SIGSEGV。**这不是 PanVK 编译器修复**；依赖 geometryShader
-的 DXVK 程序必须自己显式开启，当前默认不保证 DXVK 可用。真实 X11 `glxgears`、桌面长跑、
-其他 fixed-function 程序仍是 UNKNOWN，单程序回退仍是 `HUSK_GPU=llvmpipe`。
+的 DXVK 程序必须自己显式开启，当前默认不保证 DXVK 可用。0.0.20 已在真实 X11 窗口里把
+`glxgears` 连续跑满 600 秒，119 个 5 秒窗口、147872 帧、215.779–299.303 FPS、平均
+248.352 FPS；进程实际持有 `/dev/mali0` 并映射 PanVK/GLX 驱动
+（evidence 245）。但这只证明 **Husk 的 guest GLX 路径**，当前 2.0 拉起的 GNOME 仍显式设置
+`GALLIUM_DRIVER=llvmpipe`、`MESA_LOADER_DRIVER_OVERRIDE=swrast`、
+`LIBGL_ALWAYS_SOFTWARE=1`，约 1.0–1.2 FPS。硬件 GNOME 桌面、多应用并发和其他
+fixed-function 程序仍是 UNKNOWN，单程序回退仍是 `HUSK_GPU=llvmpipe`。
 
 ### 7.1 这三条路各自落在哪一层（能不能只改 Linux 运行层）
 

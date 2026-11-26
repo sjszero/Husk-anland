@@ -7,6 +7,32 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.20] - 2026-11-26
+
+> 主题：**真实 X11 窗口里的 Zink/PanVK 路径已经跑通，并把“Husk GPU 路径”与“2.0 当前软件桌面”
+> 明确分开**。这一版不把当前 2.0 GNOME 会话说成全局 GPU，也不把 `glxgears` 的数字冒充桌面性能。
+> 原始输出见 evidence 245。
+
+### 验证
+
+- **真实 X11 硬件 GLX**（evidence 245）。guest 内 `glxinfo -B` 报 `Accelerated: yes`，
+  renderer 为 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`；进程实际持有两个 `/dev/mali0`
+  fd，并加载 `libvulkan_panfrost_x11.so` 与 `libGLX_mesa.so`。
+- **`glxgears` 连续 600 秒**（evidence 245）。在 2400×1080 的现有 X11 桌面上跑了 119 个 5 秒窗口，
+  共 147872 帧，215.779–299.303 FPS，平均 248.352 FPS；最后 `RC=124` 是外部 `timeout` 到点，
+  不是程序崩溃。
+- **当前 2.0 会话的环境边界**（evidence 245）。由 2.0 拉起的 `gnome-shell` 仍显式带有
+  `GALLIUM_DRIVER=llvmpipe`、`MESA_LOADER_DRIVER_OVERRIDE=swrast`、
+  `LIBGL_ALWAYS_SOFTWARE=1`，应用日志约为 1.0–1.2 FPS、`0/0 present copies offloaded to GPU`。
+
+### 边界
+
+- 当前 2.0 GNOME 不是 GPU 桌面。2.0 的 `linuxhub-sessiond` 仍有意把 Mutter 固定在 llvmpipe；
+  改成硬件会话后的稳定性、帧率、主题/窗口损坏情况都还是 UNKNOWN。
+- X11 窗口内容进入 X server 仍是 SHM 回读加拷贝，不是端到端零拷贝（evidence 228）。
+- `glxgears` 只验证窗口化 GLX 的简单 fixed-function 路径；硬件 GNOME、浏览器、视频、游戏、多应用并发和
+  Adreno/KGSL 真机仍是 UNKNOWN。
+
 ## [0.0.19] - 2026-11-26
 
 > 主题：**fixed-function OpenGL 的 PanVK/Bifrost GS 崩溃增加默认规避，并让 loader 默认值穿透
@@ -910,7 +936,8 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.19...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.20...HEAD
+[0.0.20]: https://github.com/xishanp/Husk/releases/tag/v0.0.20
 [0.0.19]: https://github.com/xishanp/Husk/releases/tag/v0.0.19
 [0.0.18]: https://github.com/xishanp/Husk/releases/tag/v0.0.18
 [0.0.17]: https://github.com/xishanp/Husk/releases/tag/v0.0.17

@@ -9,7 +9,7 @@
 
 | 设备类 | guest 看到的接口 | 接法 | 实测 | 证据 |
 |---|---|---|---|---|
-| GPU | Vulkan / EGL（`/dev/mali0` + kbase，PanVK 后端） | **直连**：guest 进程自己开设备节点，应用侧一行不参与 | `Mali-G77 MC9` 枚举、compute、离屏回读、Zink、X11 窗口呈现；canonical ICD 与 loader 级 `env -i` 默认值已复跑；App 用 `gpu-env` crate 生成配置，loader 读取；0.0.19 默认关闭 DXVK 兼容 GS，fixed-function 600 帧通过，显式开启仍可复现 Bifrost 崩溃 | 156、165、167、241、242、243、244 |
+| GPU | Vulkan / EGL（`/dev/mali0` + kbase，PanVK 后端） | **直连**：guest 进程自己开设备节点，应用侧一行不参与 | `Mali-G77 MC9` 枚举、compute、离屏回读、Zink、X11 窗口呈现；canonical ICD 与 loader 级 `env -i` 默认值已复跑；App 用 `gpu-env` crate 生成配置，loader 读取；0.0.19 默认关闭 DXVK 兼容 GS，fixed-function 600 帧通过，显式开启仍可复现 Bifrost 崩溃；0.0.20 真实 X11 `glxgears` 连续 600 秒，119 个窗口平均 248.352 FPS，进程持有 `/dev/mali0`。当前 2.0 拉起的 GNOME 仍显式走 llvmpipe，硬件桌面未验 | 156、165、167、241、242、243、244、245 |
 | 相机 | V4L2 `/dev/videoN` facade | **中转**：guest 看到标准 V4L2 ioctl，后端经 socket 到 Camera2 NDK；`open()` 是 memfd，不是真节点 | 前后摄自动启动并取流；拍照 / 30 秒录像，硬件 H.264 编码。无 DMABUF / read / controls | 93、240 |
 | 音频 | PulseAudio（`module-pipe-sink` / `module-pipe-source`） | **中转**：Rust `audio-relay` → AAudio | 48 kHz 双声道 610 秒；反证：guest 里 `/dev/snd` 是 `Permission denied`，根本没有声卡节点 | 62 |
 | 视频解码 | VA-API（`vaGetDisplayDRM` / `vaCreateSurfaces`） | **中转**：Rust VA driver + `video-bridge` ↔ MediaCodec，AHB 交接 | H.264 1080p30 连续 600 秒，`dropped=0` | 80–87 |
