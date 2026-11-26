@@ -26,6 +26,8 @@ extern "C" {
     fn __errno_location() -> *mut CInt;
     fn fdopendir(fd: CInt) -> *mut u8;
     fn fdopen(fd: CInt, mode: *const CChar) -> *mut u8;
+    fn fflush(stream: *mut u8) -> CInt;
+    fn fileno(stream: *mut u8) -> CInt;
     // dlmopen 不再从这里声明：shim 自己导出了同名钩子，外部调用会解析到自己身上。
     // 原版地址由 `real_dlmopen_addr()` 从 link map 里按「跳过自己的地址」取。
     fn fork() -> CInt;
@@ -4605,6 +4607,68 @@ unsafe fn alias_refresh(fd: CInt) {
         }
         i += 1;
     }
+}
+
+/// glibc's own `fclose`; the exported wrapper below is also in our GOT patch
+/// table, so resolving by name without skipping ourselves would recurse.
+type FcloseFn = unsafe extern "C" fn(*mut u8) -> CInt;
+static REAL_FCLOSE: AtomicUsize = AtomicUsize::new(0);
+static REAL_FCLOSE_LOCK: AtomicU8 = AtomicU8::new(0);
+
+unsafe fn real_fclose_addr() -> usize {
+    let v = REAL_FCLOSE.load(Ordering::Acquire);
+    if v != 0 {
+        return v;
+    }
+    if REAL_FCLOSE_LOCK
+        .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        let mut i = 0u32;
+        while i < 200_000 {
+            let v = REAL_FCLOSE.load(Ordering::Acquire);
+            if v != 0 {
+                return v;
+            }
+            i += 1;
+            core::hint::spin_loop();
+        }
+        return 0;
+    }
+    let m = boot::nr_get_main_map();
+    let a = boot::nr_resolve_name_skip(
+        m,
+        b"fclose\0".as_ptr() as usize,
+        b"fclose".len(),
+        fclose as usize,
+    );
+    if a != 0 {
+        REAL_FCLOSE.store(a, Ordering::Release);
+    }
+    REAL_FCLOSE_LOCK.store(0, Ordering::Release);
+    a
+}
+
+/// Flush a stdio stream before glibc closes its descriptor, then refresh every
+/// emulated hard-link alias for that inode. Without this, `fopen`/`fputs`/
+/// `fclose` writes after `link()` stay in the source copy forever because
+/// glibc's `fclose` reaches `__close_nocancel` internally and never calls our
+/// exported `close`.
+#[no_mangle]
+pub unsafe extern "C" fn fclose(stream: *mut u8) -> CInt {
+    if !stream.is_null() && fflush(stream) == 0 {
+        let fd = fileno(stream);
+        if fd >= 0 {
+            alias_refresh(fd);
+        }
+    }
+    let a = real_fclose_addr();
+    if a == 0 {
+        *__errno_location() = 38; // ENOSYS: do not pretend the stream closed
+        return -1;
+    }
+    let real: FcloseFn = core::mem::transmute(a);
+    real(stream)
 }
 
 #[no_mangle]

@@ -7,6 +7,34 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.21] - 2026-11-26
+
+> 主题：**修掉 stdio 写入后硬链接复制后备不刷新的兼容性缺口**。这一版只改 path-shim 的
+> `fclose` 处理，不把 emulated hard link 说成真正的内核硬链接。
+
+### 修复
+
+- **stdio `fclose` 刷新硬链接别名**（evidence 246）。Android app 数据目录拒绝 `link(2)`，
+  Husk 用复制兜底并登记源 inode。旧实现只钩 `close(2)`，而 glibc 的 `fclose` 内部走
+  `__close_nocancel`，所以 `fopen`/`fputs`/`fclose` 写入后别名文件仍停留在旧内容。
+  现在导出 `fclose`：先 flush 流，再用 `fileno` 找到源 fd，刷新别名，最后调用真实 libc
+  `fclose`；真实函数从 link map 解析并跳过 shim 自己，避免递归。
+
+### 验证
+
+- coverage-probe 真机新增 `HARDLINK_STDIO`，输出
+  `link_rc=0 link_errno=0 content=AAABBB`。
+- 同一枚 loader 跑完整门禁 A：`PASS=38 FAIL=0`；coverage-probe 全部 PASS；
+  coverage-sweep 因 rootfs 没有 `strace` 按规则记为 `SKIP`。
+- `make check` 全绿；`make test` 仍是 host-only 目标，macOS 的 aarch64 Linux 链接参数失败，
+  照实记录，不写成通过。
+
+### 边界
+
+- 仍然不是内核级硬链接：`st_nlink`、共享 inode、跨进程即时共享都没有恢复。
+- 只覆盖经导出 `fclose()` 的 stdio 路径；绕过该入口的 glibc 内部关闭路径仍是 UNKNOWN。
+- 本版没有改 2.0 源码，没有改变 X11/SHM 呈现路径，也没有宣称桌面端到端零拷贝。
+
 ## [0.0.20] - 2026-11-26
 
 > 主题：**真实 X11 窗口里的 Zink/PanVK 路径已经跑通，并把“Husk GPU 路径”与“2.0 当前软件桌面”
@@ -936,7 +964,8 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.20...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.21...HEAD
+[0.0.21]: https://github.com/xishanp/Husk/releases/tag/v0.0.21
 [0.0.20]: https://github.com/xishanp/Husk/releases/tag/v0.0.20
 [0.0.19]: https://github.com/xishanp/Husk/releases/tag/v0.0.19
 [0.0.18]: https://github.com/xishanp/Husk/releases/tag/v0.0.18

@@ -299,15 +299,15 @@ Cached Apps Freezer 会把它的全部线程 SIGSTOP；X server 住在应用进�
 都返回空、状态保持 0，看上去像"没起来"，其实是"没有输入上下文可切"。必须给一个焦点窗口，
 看到状态从 0 变 2、再把提交的字符从应用里读回来，才算验过。
 
-## 13 · 硬链接模拟与挂载表的两条边界（2026-11-25 实测）
+## 13 · 硬链接模拟与挂载表的边界（2026-11-26 更新）
 
-**硬链接只做「复制 + 登记」，且刷新只对程序自己 `close(2)` 的写入生效。** app 数据目录里
-`link(2)` 被 SELinux 拒绝，shim 的回退是复制一份并把源 inode 记进别名表，源 fd `close()`
-时再重刷一次。实测 `echo AAA > a; ln a b; echo BBB >> a` 之后 `cat b` 仍是 `AAA`
-（evidence 221 §3）——因为 `close(2)` 只有程序经 PLT 调用才被钩到，glibc 内部的
-`fclose → __close_nocancel` 是直接调用。tar、dpkg 这类自己 `write()`+`close()` 的刷新生效；
-经 stdio 写入的不生效。**不要把硬链接模拟当完全等价**：link count、共享 inode 本来就丢了，
-现在连「后续写入会同步」这一点也是有限定条件的。
+**硬链接只做「复制 + 登记」。** app 数据目录里 `link(2)` 被 SELinux 拒绝，shim 的回退是
+复制一份并把源 inode 记进别名表，源 fd `close()` 时再重刷一次。程序自己 `write()` +
+`close()` 的刷新生效；`fopen` / `fputs` / `fclose` 的 stdio 路径在 0.0.21 起也会在真实
+`fclose` 前先 `fflush`，再用 `fileno` 刷新别名（evidence 246）。这修掉了旧版
+`echo AAA > a; ln a b; echo BBB >> a; cat b` 只看到 `AAA` 的常见缺口。**仍然不要把硬链接
+模拟当完全等价**：link count、共享 inode、跨进程即时共享本来就丢了；绕过导出 `fclose`
+的 glibc 内部关闭路径仍是 UNKNOWN。
 
 **挂载表默认每次重读，`NR_MNT_REFRESH=0` 可关。** 表是
 `rootfs/run/husk/mounts` 这个跨进程共享的文件；以前每进程只读一次，于是另一个进程刚做的

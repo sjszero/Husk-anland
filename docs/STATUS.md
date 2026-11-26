@@ -27,6 +27,12 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 **仓库布局**：`runtime/crates/{path-shim,nr-tools,runtime-core,gpu-env}`（Rust）、`tools/loader/*.S`（裸汇编，仅入口与 hook）、
 `tools/device-tests/*.sh`、`docs/design/`（设计 + `evidence/` 原始记录）。
 
+**0.0.21 stdio 硬链接刷新**：`fclose()` 已接入 path-shim 的硬链接别名刷新。应用调用
+`fopen` / `fputs` / `fclose` 写入时，先 flush 流，再按 `fileno` 刷新复制后备，最后调用真实
+libc `fclose`。coverage-probe 输出 `content=AAABBB`，完整门禁 A 为 `PASS=38 FAIL=0`，
+coverage-sweep 因 rootfs 没有 `strace` 记为 `SKIP`（evidence 246）。硬链接仍不是内核级语义，
+link count / 共享 inode / 跨进程即时共享仍未恢复；绕过导出 `fclose` 的内部路径仍是 UNKNOWN。
+
 **0.0.20 真实 X11 GPU 验证**：在同一台机的现有 X11 server 上，用独立 guest 客户端复验
 `glxinfo` / `glxgears`：`Accelerated: yes`、renderer `zink Vulkan 1.3(Mali-G77 MC9)`，
 进程实际持有 `/dev/mali0` fd；`glxgears` 连续 600 秒，119 个 5 秒窗口、147872 帧，
@@ -231,7 +237,7 @@ sudo/PAM 一条按"不需要"结案：`husk-su` 已覆盖提权路径，PAM 的 
 | ld.so.cache | 自研 Rust writer（1.1 格式），glibc 自己的静态阅读器接受 | 109 |
 | 嵌套 exec 的库路径 | `NR_LIBRARY_PATH` 由 launcher 传给 shim，所有 nested exec 复用同一份完整 `--library-path`；只设 `NR_ROOTFS`/`NR_LD` 时走内置多目录 fallback。旧行为只重建 `<rootfs>/usr/lib/aarch64-linux-gnu`，`systemd` 私有目录在第二层进程消失（`libsystemd-shared-255.so` 找不到） | 133 |
 | `posix_spawn` 的 NULL pid | glibc 允许 `pid == NULL`（`spawni.c` 只非空才回写），Ubuntu `localedef` 正是这样把 `.gz` charmap 交给 `gzip -d -c`；shim 原先把 NULL 当 EFAULT，导致所有压缩 charmap 报"not found" | 134 |
-| 硬链接的 copy 模拟 | 本域 `link(2)` 被拒（EACCES），一直 copy 兜底；但"发布后再写"的模式（glibc 的 locale-archive：mkstemp→mmap→link→unlink→继续写原 fd）会丢掉全部后续写入。现在 copy 后登记"源 inode→目标绝对路径"，`close()` 时经 `/proc/self/fd/<fd>` 重同步 | 134 |
+| 硬链接的 copy 模拟 | 本域 `link(2)` 被拒（EACCES），一直 copy 兜底；`close()` 已能经 `/proc/self/fd/<fd>` 重同步，0.0.21 起导出 `fclose` 后也会先 flush 再刷新 stdio 写入。仍然不是内核级硬链接，link count / 共享 inode / 跨进程即时共享没有恢复 | 134 / 246 |
 | locale | `locale-gen` 全量生成 `zh_CN.utf8`/`zh_SG.utf8` 进 `/usr/lib/locale/locale-archive`，`LC_ALL=zh_CN.UTF-8 locale charmap` → `UTF-8` | 134 |
 | 门禁 A（干净重跑 + 验收） | APK 自带的 ubuntu-base tar → 新目录 → 资产里的包 → `dpkg --configure -a`：`RC=0`、`dpkg -C` 空、status 811/811 installed、`zh_CN.utf8`/`zh_SG.utf8` 生成、真实 SIGSYS trap 0 次。随后验收 `tools/device-tests/14-gate-a-acceptance.sh` **36/36 PASS**（bash 6、locale 3、用户管理 9、dpkg 7 含 force-overwrite 重装、apt 4、宿主路径 5、trap 1）与 `12-supervisor.sh` **8/8 PASS**；两个脚本已参数化（`PKG`/`ROOTFS`/`LD`）。已知不是门禁失败的项：`/proc/self/exe` 与 argv 暴露宿主 loader 路径（同 uid，无权限跨界）。清单里 165 个 deb 资产里没有（原现场也没有），已记账。App UI 流程当时仍未在干净目录上跑 | 135 / 136 |
 | **门禁 A（App 自己跑）** | APK 自带的 ubuntu-base tar → 空 checkpoint → **全程 UI 点击**：`EXTRACT_SYSTEM → CREATE_CONTAINER → CREATE_USER → CONFIGURE_SUDO → INITIALIZE_ENVIRONMENT → SAVE_CONFIGURATION` 全部 DONE，`INITIALIZATION COMPLETE`，522.7 s。同一棵树上：`dpkg -C` 空、814 装、0 unpacked、窗口内 `error processing package` 0 次、`Bad system call` 0 次，1202 条 seccomp trap 全被 handler 接住（1182 `name_to_handle_at` / 19 `fchmodat2`）；`14-gate-a-acceptance.sh` **34/34**、`12-supervisor.sh` **8/8**。噪声全部定性：62 条 dpkg 符号链接尺寸警告、python3 两条 pre-dependency 由后续轮次补上（末态 `ii`）、libpxbackend 的 RUNPATH 缺口、dconf 的 `SCM_CREDENTIALS` | 140 |

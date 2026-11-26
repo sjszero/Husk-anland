@@ -65,7 +65,20 @@ int main(void)
       errno = 0; int r = utime("/root/.p-trunc", &ub);
       printf("UTIME rc=%d errno=%d\n", r, errno); }
 
-    /* 6 raw syscall：已知绕过，作对照 */
+    /* 6 硬链接复制后备：stdio 追加后再 fclose，别名必须看到新内容 */
+    { const char *dir = "/root/.p-hardlink";
+      const char *a = "/root/.p-hardlink/a";
+      const char *b = "/root/.p-hardlink/b";
+      char got[32] = {0};
+      mkdir(dir, 0700); unlink(a); unlink(b);
+      FILE *f = fopen(a, "w"); if (f) { fputs("AAA", f); fclose(f); }
+      errno = 0; int lr = link(a, b); int le = errno;
+      f = fopen(a, "a"); if (f) { fputs("BBB", f); fclose(f); }
+      f = fopen(b, "r"); if (f) { fgets(got, sizeof got, f); fclose(f); }
+      printf("HARDLINK_STDIO link_rc=%d link_errno=%d content=%s\n", lr, le, got);
+      unlink(a); unlink(b); rmdir(dir); }
+
+    /* 7 raw syscall：已知绕过，作对照 */
     { errno = 0;
       int fd = (int)syscall(SYS_openat, AT_FDCWD, "/root/.p-rawopen", O_WRONLY | O_CREAT, 0644);
       printf("RAW_OPENAT fd=%d errno=%d\n", fd, errno); if (fd >= 0) close(fd); }

@@ -62,6 +62,7 @@ want '^FREOPEN ok=1'                               'freopen 翻译'
 want '^PATHCONF v=255'                              'pathconf 翻译'
 want '^TRUNCATE64 rc=0 errno=0 size=3'             'truncate64 别名'
 want '^UTIME rc=0 errno=0'                          'utime(3) 翻译'
+want '^HARDLINK_STDIO link_rc=0 link_errno=0 content=AAABBB' '硬链接复制后备跟随 stdio fclose'
 want '^RAW_OPENAT fd=-1 errno=2'                   'raw syscall 仍然绕过（已知边界，不是 bug）'
 want '^SCANDIRAT n=[1-9][0-9]* errno=0'             'scandirat 翻译（自己实现的扫描体）'
 
