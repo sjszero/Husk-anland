@@ -266,11 +266,42 @@ umount: /mnt/ro: must be superuser to unmount.
 不会重演注释里那次两线程写同一块 static 的事故）。重跑同一个脚本：**15/3 → 16/2**，
 B-04 的 `No space left on device` 消失。
 
-### 新缺陷 A-21（FACT，未修）
+### A-21：EBADF —— 是我自己在 §9 那次改动里关了两遍同一个 fd（FACT，已修）
 
-剩下的两项里，`resolution errors: EBADF: '/usr/bin/bash'` 现在**稳定复现**
-（连跑两次都是同样三条：`/usr/bin/bash`、`/usr/bin/bash`、`usr/bin/bash`），只在
-B-05/B-06 的「多线程解析 + 挂载 churn」下出现，普通路径解析不复现。
-`/usr/bin/bash` 不是被 churn 的路径，所以嫌疑在 `rootfd()` 的高位 fd 重新验证/重开那条
-路径（`lib.rs:1335` `rootfd_alive`、`:1566` `rootfd`）：多线程同时判定失效并重开时，
-可能有一个线程把另一个正在用的号关掉。下一轮从这里查。
+先前的现象：`resolution errors: EBADF '/usr/bin/bash'`，只在 B-05/B-06 的并发 churn 下复现，
+第一版猜成了 `rootfd()` 的高位 fd 换号竞争。**这个猜测是错的**，下面是把它证伪并找到真因的记录。
+
+判别实验（FACT）：同一个脚本，只关掉挂载表刷新：
+
+```
+NR_MNT_REFRESH=0 ... bash /tmp/05-mount-audit.sh   -> PASS  no resolution errors
+默认（刷新开）                                      -> FAIL  EBADF '/usr/bin/bash' ×3
+```
+
+刷新开着才错 → 问题在 `mnt_read_file()`。把 `NR_DEBUG=1` 打开看 `rootfd` 是否被判死：
+`ROOTFD-DEAD` 计数 **0** —— root fd 从来没死过，所以不是它。
+
+真因（FACT）：把表容量从 8 改 64 时，`mnt_read_file()` 里我**多写了一行
+`syscall4(SYS_CLOSE, fd)`**。原代码在读完之后已经关过这个 fd，我加的第二条 close 关的是
+**同一个 fd 号**——而这个号在两次 close 之间会被别的线程立刻复用，于是被理解成
+"关掉别人的描述符"，下一个 `open('/usr/bin/bash')` 就拿到 EBADF。删掉重复的 close 之后：
+
+```
+== B-05/B-06 resolution is safe under concurrency and mount churn ==
+  PASS  no resolution errors
+PASS=16 FAIL=2
+```
+
+同一次改动里另外两处防御性修改保留（它们不是这次 EBADF 的原因，但都是真实竞争）：
+`rootfd()` 的重置从 `store(0)` 改成 `compare_exchange(2, 0)`，重开成功后用 `dup3` 把新 fd
+搬回**原来那个号**（号一分配就不再变，别的线程可能正把它当 dirfd 用）。
+
+回归：同一台设备用新 loader 重跑 `14-gate-a-acceptance.sh`（`files/linux2` 全新装）仍是
+`PASS=35 FAIL=1`，`path-probe` 仍 `#checks=20 fail=0`。
+
+### 还剩下的两项（FACT）
+
+| 项 | 现状 | 判断 |
+|---|---|---|
+| `store directories left behind` | `/run/husk/t*` 在 umount 之后留下来 | A-20 的同伴：`umount` 走不到 `umount2`，表里的条目和它的 store 目录都没人清 |
+| `truncate (got: Traceback ...)` | 断言抓到的 stderr 是 churn 线程的 python traceback | 门禁自身的捕获问题（并发线程的 stderr 混进 `$(...)`），不是 truncate 语义错 |

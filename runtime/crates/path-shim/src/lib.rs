@@ -1569,8 +1569,14 @@ unsafe fn rootfd() -> CInt {
         if rootfd_alive(ROOTFD) {
             return ROOTFD;
         }
+        // Only the thread that wins 2 -> 0 reopens. A plain `store(0)` let two
+        // threads both "reset" and then both claim the init slot, each opening
+        // its own fd and each writing ROOTFD — whichever wrote second won, and
+        // the other thread's caller walked away with a number that was about to
+        // be replaced (evidence 286 §9: EBADF on open('/usr/bin/bash') under
+        // concurrent mount churn).
+        let _ = ROOT_STATE.compare_exchange(2, 0, Ordering::AcqRel, Ordering::Acquire);
         ROOT_IDENTITY_VALID.store(0, Ordering::Release);
-        ROOT_STATE.store(0, Ordering::Release);
     }
     if ROOT_STATE
         .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
@@ -1587,7 +1593,27 @@ unsafe fn rootfd() -> CInt {
             ROOT_ENV[..n].copy_from_slice(&r[..n]);
             ROOT_ENV_LEN = n;
             if let Ok(fd) = rc::openat(AT_FDCWD, r, O_PATH | O_DIRECTORY | O_CLOEXEC, 0) {
+                // ROOTFD 的**号**一旦分配就不再变。别的线程随时可能正把它当
+                // dirfd 传给 openat/fstat；重开时换一个新号，等于在它们脚下把
+                // 描述符抽走。所以重开成功后用 dup3 把新 fd 搬回原来那个号。
                 let high = move_root_high(fd);
+                let high = if ROOTFD >= 0 && high != ROOTFD {
+                    let d = syscall4(
+                        SYS_DUP3,
+                        high as usize,
+                        ROOTFD as usize,
+                        0o2000000, // O_CLOEXEC
+                        0,
+                    );
+                    if d >= 0 {
+                        rc::close(high);
+                        ROOTFD
+                    } else {
+                        high
+                    }
+                } else {
+                    high
+                };
                 if let Some((dev, ino)) = root_identity(high) {
                     ROOTFD = high;
                     ROOT_DEV = dev;
@@ -2301,7 +2327,6 @@ unsafe fn mnt_read_file() {
     let nn = (n as usize).min(CAP);
     if nn < CAP {
         // 整张表都在这个 4 KiB 栈缓冲里，解析不必持锁读文件。
-        syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
         let buf = core::slice::from_raw_parts(base as *const u8, nn);
         mnt_lock();
         mnt_parse(buf);
@@ -2310,7 +2335,9 @@ unsafe fn mnt_read_file() {
     }
     // 表 ≥ 4 KiB（多于 15 条）：重新从 0 读，边读边落到 static 缓冲，并在
     // MNT_LOCK 里完成「读 + 解析」。这是慢路径，只有大表才会走到。
-    syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+    // 上面那个 fd 已经在读完之后关掉了，这里**不能**再关一次：fd 号会被立刻
+    // 复用给别的线程，重复 close 等于把别人的描述符关掉（实测 286 §9 的
+    // EBADF 就是这么来的，只在挂载表刷新开着时出现）。
     let fd = mnt_open_table(0, 0);
     if fd < 0 {
         return;
