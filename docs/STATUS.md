@@ -26,6 +26,12 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 **仓库布局**：`runtime/crates/{path-shim,nr-tools,runtime-core,gpu-env}`（Rust）、`tools/loader/*.S`（裸汇编，仅入口与 hook）、
 `tools/device-tests/*.sh`、`docs/design/`（设计 + `evidence/` 原始记录）。
 
+**App 直接 PTY（同一候选）**：`Term::spawn()` 已和 shell session 共用 locale 选择规则，
+不再硬编码 `LANG=C.UTF-8`；`argv`/`envp` 指针数组在 `fork()` 前构建，避免多线程 App
+在子进程里分配内存导致 fork+exec 死锁。`make check`、新静态门禁和真机门禁 A 已通过；
+仓库 APK 已完整链接构建，但当前设备上的 `com.linuxhub.myth.husk` 不能安全覆盖为
+`com.linuxhub.husk`，App 直接 PTY 的动态验证仍为 `UNVERIFIED`（evidence 263）。
+
 **0.0.32 文件模式、所有权与 access 主体**：`O_CREAT` 不再偷偷追加 `0600`；dpkg 重开
 `0440` conffile 时只临时加 owner-write，返回 fd 前恢复原模式。`fchown(fd)` 现在会更新虚构
 所有权表，`fstat(fd)` 与后续进程的路径 `stat` 都读得到。`access/faccessat` 改按 guest 身份

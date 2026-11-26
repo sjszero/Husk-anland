@@ -70,6 +70,20 @@ fn gpu_env(rootfs: &str) -> Vec<String> {
     )
 }
 
+fn session_locale(rootfs: &str) -> (String, String) {
+    let has_zh_locale = std::path::Path::new(rootfs)
+        .join("usr/lib/locale/locale-archive")
+        .is_file()
+        || std::path::Path::new(rootfs)
+            .join("usr/lib/locale/zh_CN.utf8")
+            .is_dir();
+    session_env::choose_session_locale(
+        std::env::var("LANG").ok().as_deref(),
+        std::env::var("LANGUAGE").ok().as_deref(),
+        has_zh_locale,
+    )
+}
+
 pub struct Term {
     pub fd: i32,
     pub pid: i32,
@@ -297,6 +311,7 @@ impl Term {
             bash_c.clone(),
             CString::new("-i").ok()?,
         ];
+        let (session_lang, session_language) = session_locale(rootfs);
         let mut env = vec![
             format!("NR_ROOTFS={rootfs}"),
             "GLIBC_TUNABLES=glibc.pthread.rseq=0".to_string(),
@@ -304,7 +319,8 @@ impl Term {
             "SHELL=/usr/bin/bash".to_string(),
             format!("HOME={rootfs}/root"),
             "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin".to_string(),
-            "LANG=C.UTF-8".to_string(),
+            format!("LANG={session_lang}"),
+            format!("LANGUAGE={session_language}"),
             "USER=root".to_string(),
             format!("NR_SESSION_ID={session_id}"),
             // diagnostics for the seccomp policy of the ROM under test
@@ -317,6 +333,16 @@ impl Term {
             .iter()
             .filter_map(|s| CString::new(s.as_str()).ok())
             .collect();
+        // fork() duplicates a multi-threaded process. Only async-signal-safe
+        // calls are legal until execve(), so the argv/envp pointer arrays must
+        // be allocated here, before the fork. Building them in the child could
+        // deadlock on the allocator lock held by another App thread.
+        let mut argv_ptrs: Vec<*const core::ffi::c_char> =
+            argv_s.iter().map(|c| c.as_ptr()).collect();
+        argv_ptrs.push(core::ptr::null());
+        let mut env_ptrs: Vec<*const core::ffi::c_char> =
+            env_s.iter().map(|c| c.as_ptr()).collect();
+        env_ptrs.push(core::ptr::null());
 
         // The lease belongs to the App, not to the guest. Starting the guard
         // before the guest closes the only bad ordering: App death after fork()
@@ -379,13 +405,7 @@ impl Term {
                     fd += 1;
                 }
                 let _ = chdir(root_c.as_ptr());
-                let mut argv: Vec<*const core::ffi::c_char> =
-                    argv_s.iter().map(|c| c.as_ptr()).collect();
-                argv.push(core::ptr::null());
-                let mut envp: Vec<*const core::ffi::c_char> =
-                    env_s.iter().map(|c| c.as_ptr()).collect();
-                envp.push(core::ptr::null());
-                execve(loader_c.as_ptr(), argv.as_ptr(), envp.as_ptr());
+                execve(loader_c.as_ptr(), argv_ptrs.as_ptr(), env_ptrs.as_ptr());
                 _exit(127);
             }
         }

@@ -15,6 +15,7 @@ members = [
     "crates/drm-preload",
     "crates/gpu-probe",
     "crates/gpu-env",
+    "crates/session-env",
     "crates/nr-tools",
     "crates/path-shim",
     "crates/logd",

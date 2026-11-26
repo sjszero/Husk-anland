@@ -55,6 +55,8 @@
 | H-47 | 会话形态 | `husk-session.sh` 在 `env -i` 边界硬编码 `LANG=C.UTF-8`，带中文 locale 的 rootfs 仍以英文环境启动 | 261 |
 | H-48 | 会话形态 | 只显式设置 `LANG=en_US.UTF-8` 时仍强制注入 `LANGUAGE=zh_CN:zh`；gettext 的语言优先级会让英文覆盖失效 | 261 |
 | H-49 | 会话形态 | `husk-desktop.sh` 与 `/etc/profile.d/husk-locale.sh` 重复了同一个 `LANGUAGE` 覆盖错误，修了 session 仍会在登录 shell/桌面侧复现 | 261 |
+| H-50 | App PTY | App 直接启动 `Term::spawn()` 绕过 `husk-session.sh`，并在 `execve()` 前硬编码 `LANG=C.UTF-8`；rootfs 有中文 locale 时仍可能拿到英文 | 263 |
+| H-51 | App PTY | `Term::spawn()` 在 `fork()` 后的子进程里构建 `argv`/`envp` 的 `Vec`；多线程 App 下可能卡在分配器锁，无法到达 `execve` | 263 |
 
 ## 2 · 记录在案、不修或不完全修的（L）
 

@@ -26,6 +26,11 @@
 
 ### 验证
 
+- **App 直接 PTY 的 locale 和 fork 安全**（evidence 263）。`Term::spawn()` 不再在
+  `execve()` 前硬编码 `LANG=C.UTF-8`，而是和 shell session 共用 Rust locale 选择器；
+  显式英文仍保持英文，有 `zh_CN` locale 时默认中文。`argv`/`envp` 指针数组改为在
+  `fork()` 前构建，子进程只走 async-signal-safe 路径。新增静态门禁和 4 个 locale 单测。
+
 - **最终 symlink 并发替换纳入门禁 A**（evidence 262）。探针在 guest 内把最终 symlink
   持续切到 guest 文件和 App 私有宿主绝对路径，同时并发执行 `chmod`、`utimensat`、`chown`、
   `open` 和 `lstat`。真机完成 212,050 次操作、12,860 次替换，宿主哨兵的内容、mode 和 mtime

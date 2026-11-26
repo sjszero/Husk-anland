@@ -28,14 +28,16 @@ all: lint check version-check
 check:
 	cargo fmt --all --check --manifest-path $(MANIFEST)
 	cargo check --manifest-path $(MANIFEST) --target $(TARGET) \
-		-p runtime-core -p nr-tools -p ldconfig -p path-shim -p gpu-env -p v4l2-preload -p v4l2-ref-probe -p fd-identity-probe -p drm-preload
-	cargo test --manifest-path $(MANIFEST) -p gpu-env
+		-p runtime-core -p nr-tools -p ldconfig -p path-shim -p gpu-env -p session-env -p v4l2-preload -p v4l2-ref-probe -p fd-identity-probe -p drm-preload
+	cargo test --manifest-path $(MANIFEST) -p gpu-env -p session-env
 # No --all-targets: path-shim is no_std and its test harness collides with the
 # crate's own panic handler (duplicate lang item). Warnings there are tracked
 # separately; this gate fails on errors.
 	cargo clippy --manifest-path $(MANIFEST) --target $(TARGET) \
-		-p runtime-core -p nr-tools -p ldconfig -p path-shim -p gpu-env -p v4l2-preload -p v4l2-ref-probe -p fd-identity-probe -p drm-preload
+		-p runtime-core -p nr-tools -p ldconfig -p path-shim -p gpu-env -p session-env -p v4l2-preload -p v4l2-ref-probe -p fd-identity-probe -p drm-preload
+	cargo check --manifest-path app-rs/Cargo.toml --target aarch64-linux-android --lib --bin husk-session-guard
 	sh tools/ci/test-locale-defaults.sh
+	sh tools/ci/check-fork-safety.sh
 	sh tools/ci/check-shell.sh
 	@$(MAKE) --no-print-directory tools
 	$(HUSK_TOOLS) check-links
