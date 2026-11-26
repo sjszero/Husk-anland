@@ -75,3 +75,41 @@ FACT，`runtime/crates/fd-identity-probe/src/main.rs` 新增用例
 
 `fd-identity-probe` 属于设备侧探针，进 `make gate-a` 的 coverage 组。本次新增用例失败时
 会在探针输出里打 `fdidentity|pathshim-drm-fake-fd-identity-lost|FAIL|...`。
+
+## 6 · 追记：第一版修复其实是死代码（2026-11-26 18:20 发现）
+
+`42caa99` 提交的实现**没有生效**，而 `cargo check`、`clippy`、`make check` 全绿。
+
+原因（FACT）：插入位置写错了。原来是
+
+```rust
+#[no_mangle]
+pub unsafe extern "C" fn ioctl(...) -> CInt {
+```
+
+而补丁把新助手函数插在 `pub unsafe extern "C" fn ioctl` **之前**，于是 `#[no_mangle]` 变成了
+新助手 `fn drm_ioc_type` 的属性，`ioctl` 反而丢了 `#[no_mangle]`，变成 Rust 私有符号。
+没有任何调用方引用它，`--gc-sections` 把整个函数连同字符串一起删掉。
+
+怎么发现的（FACT，可复现）：不信编译结果，直接查产物。
+
+```sh
+grep -a -c 'SCM_RIGHTS' runtime/target/aarch64-unknown-linux-gnu/release/libpath_shim.so
+# 0  <- 源码里有，产物里没有
+```
+
+修好后同一个命令返回 1，且 `libld.so` 里也是 1。
+
+**这一类错误编译期查不出来**，所以加了一道产物级断言进 `tools/loader/build-embedded-loader.sh`：
+用 `llvm-nm -D --defined-only` 检查 shim 仍然导出 `open openat ioctl mmap close dup dup2 dup3
+execve read stat fstat unlink rename mkdir chmod chown utimensat`，少一个就构建失败，
+并在报错里点明「有东西被插到了 `#[no_mangle]` 和它的 fn 之间」。
+
+注意 `write` **不在**这份清单里：它本来就不由 shim 接管，实测导出表里没有，
+断言不能凭想象列符号。
+
+### 教训（写进流程）
+
+「编译通过」既不等于「代码在产物里」，也不等于「行为变了」。
+凡是 `#[no_mangle]` 的符号，验证必须落在产物上（`llvm-nm` / 字符串 / 反汇编），不能只看
+`cargo check`。这条同样适用于 `drm-preload`、`v4l2-preload` 两个 LD_PRELOAD 层。

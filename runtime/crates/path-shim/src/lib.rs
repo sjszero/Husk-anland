@@ -13121,8 +13121,6 @@ unsafe fn drm_fake_open(flags: CInt) -> CInt {
     fd as CInt
 }
 
-#[no_mangle]
-
 /// `_IOC_TYPE` of a DRM ioctl is `'d'` (0x64) on arm64 (`_IOC_TYPE_SHIFT == 8`).
 /// Used only to decide whether a *failed* lookup deserves the expensive
 /// `/proc/self/fd` identity check below; ordinary ioctls never take that path.
@@ -13184,6 +13182,7 @@ unsafe fn fd_is_our_memfd(fd: CInt) -> bool {
 
 static mut ORPHAN_LOGGED: bool = false;
 
+#[no_mangle]
 pub unsafe extern "C" fn ioctl(fd: CInt, request: u64, arg: *mut u8) -> CInt {
     if v4l2_is_fake(fd) {
         let r = v4l2_dispatch_ioctl(fd, request, arg);

@@ -57,6 +57,23 @@ cargo build --release -p nr-tools --manifest-path "$ROOT/runtime/Cargo.toml"
 
 SHIM=$ROOT/runtime/target/aarch64-unknown-linux-gnu/release/libpath_shim.so
 TOOLS=$ROOT/runtime/target/release/nr-tools
+
+# Assert the shim still *exports* the symbols the loader patches into glibc.
+# A stray attribute silently turns an interposed function into private dead
+# code: inserting any item between `#[no_mangle]` and its `fn` re-binds the
+# attribute to the new item, so `ioctl` becomes mangled, nothing calls it, and
+# --gc-sections removes it along with its strings. cargo check, clippy and the
+# unit tests all stay green while the shipped loader no longer intercepts.
+# (This is not hypothetical: it happened to the SCM_RIGHTS orphan-fd check on
+# 2026-11-26 and was only caught by grepping the built artifact.)
+for sym in open openat ioctl mmap close dup dup2 dup3 execve read \
+           stat fstat unlink rename mkdir chmod chown utimensat; do
+  "$NDK/llvm-nm" -D --defined-only "$SHIM" | awk '{print $3}' | grep -qx "$sym" || {
+    echo "build-embedded-loader: shim does not export $sym" >&2
+    echo "  (an item inserted between #[no_mangle] and its fn detaches the attribute)" >&2
+    exit 1
+  }
+done
 cd "$ROOT/tools/loader"
 
 scan() { "$TOOLS" scan-syscalls "$@"; }
