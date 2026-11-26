@@ -10,5 +10,13 @@ case "${LANG:-}" in
     ''|POSIX|C|C.UTF-8) LANG=zh_CN.UTF-8 ;;
 esac
 export LANG
-: "${LANGUAGE:=zh_CN:zh}"
+# LANGUAGE 的 gettext 优先级高于 LANG。只在本次实际选中中文时补默认值；调用者显式设为
+# en_US 等非中文值时必须原样保留，只设置非中文 LANG 时也不能偷偷塞回中文。
+if [ -n "${LANGUAGE:-}" ]; then
+    :
+elif [ "$LANG" = zh_CN.UTF-8 ]; then
+    LANGUAGE=zh_CN:zh
+else
+    LANGUAGE=
+fi
 export LANGUAGE

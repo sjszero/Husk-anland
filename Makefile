@@ -35,6 +35,7 @@ check:
 # separately; this gate fails on errors.
 	cargo clippy --manifest-path $(MANIFEST) --target $(TARGET) \
 		-p runtime-core -p nr-tools -p ldconfig -p path-shim -p gpu-env -p v4l2-preload -p v4l2-ref-probe -p fd-identity-probe -p drm-preload
+	sh tools/ci/test-locale-defaults.sh
 	sh tools/ci/check-shell.sh
 	@$(MAKE) --no-print-directory tools
 	$(HUSK_TOOLS) check-links

@@ -17,6 +17,10 @@ FACT：进一步负对照发现，只显式传入 `LANG=en_US.UTF-8` 时，旧�
 `LANGUAGE=zh_CN:zh`。由于 gettext 中 `LANGUAGE` 优先于 `LANG`，这会让显式英文环境仍显示
 中文。修后只设置英文 `LANG` 时不再合成中文 `LANGUAGE`。
 
+FACT：同一段错误不是 session 独有。`husk-desktop.sh` 和安装到 guest
+`/etc/profile.d/husk-locale.sh` 也各自执行 `: "${LANGUAGE:=zh_CN:zh}"`，所以只修
+`husk-session.sh` 的话，登录 shell 和桌面仍会复现。两处已按同一规则修正。
+
 ## 1 · 修前原始输出（FACT）
 
 ```text
@@ -46,6 +50,9 @@ LANGUAGE=zh_CN:zh
 新增 `tools/device-tests/run-session-locale-probe.sh`，并接入 `make gate-a`。探针不是检查
 脚本里的字符串，而是实际启动 session 后读取 `/usr/bin/env`。
 
+新增 `tools/ci/test-locale-defaults.sh` 并接入 `make check`，覆盖 profile 默认中文、显式英文
+`LANG`、显式 `LANGUAGE` 三种取值。该测试只验证 shell 环境语义，不能替代桌面进程实测。
+
 ## 3 · 修后原始输出（FACT）
 
 ```text
@@ -61,7 +68,7 @@ LANG=en_US.UTF-8
 LANGUAGE=en_US:en
 ```
 
-完整门禁 A 同轮通过：`PASS=38 FAIL=0`。`make check` 通过：75 个 shell 脚本、287 个
+完整门禁 A 同轮通过：`PASS=38 FAIL=0`。`make check` 通过：76 个 shell 脚本、287 个
 Markdown 文件、0 个坏链，版本检查为 `0.0.32`。`coverage-sweep` 仍因 rootfs 没有 `strace`
 为 `SKIP`，不能算 PASS。
 

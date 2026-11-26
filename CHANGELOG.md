@@ -21,7 +21,8 @@
   默认值到不了真正启动的进程；现在仅在没有显式语言、或调用方给的是 `POSIX`/`C`/`C.UTF-8`
   时选择 `zh_CN.UTF-8`，显式 `LANG`/`LANGUAGE` 保持不变。真机探针验证默认
   `LANG=zh_CN.UTF-8`、`LANGUAGE=zh_CN:zh`，显式 `en_US.UTF-8` 仍原样保留；只设置
-  英文 `LANG`、不设置 `LANGUAGE` 时也不会再被中文 `LANGUAGE` 覆盖。
+  英文 `LANG`、不设置 `LANGUAGE` 时也不会再被中文 `LANGUAGE` 覆盖。登录 shell 的
+  `profile.d` 与 `husk-desktop.sh` 使用同一规则，并新增无需设备的 shell 语义测试。
 
 ## [0.0.32] - 2026-11-26
 

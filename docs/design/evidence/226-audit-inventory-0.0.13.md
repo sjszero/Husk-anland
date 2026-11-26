@@ -54,6 +54,7 @@
 | H-46 | 用户身份 | `getgroups` 永远只报主组；`setgroups`/`initgroups` 只返回成功但不保存，`/etc/group` 里的附加组和组权限文件失真 | 260 |
 | H-47 | 会话形态 | `husk-session.sh` 在 `env -i` 边界硬编码 `LANG=C.UTF-8`，带中文 locale 的 rootfs 仍以英文环境启动 | 261 |
 | H-48 | 会话形态 | 只显式设置 `LANG=en_US.UTF-8` 时仍强制注入 `LANGUAGE=zh_CN:zh`；gettext 的语言优先级会让英文覆盖失效 | 261 |
+| H-49 | 会话形态 | `husk-desktop.sh` 与 `/etc/profile.d/husk-locale.sh` 重复了同一个 `LANGUAGE` 覆盖错误，修了 session 仍会在登录 shell/桌面侧复现 | 261 |
 
 ## 2 · 记录在案、不修或不完全修的（L）
 

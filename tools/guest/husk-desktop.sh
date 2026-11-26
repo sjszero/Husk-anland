@@ -80,8 +80,15 @@ case "${LANG:-}" in
         fi ;;
     *) G_LANG=$LANG ;;
 esac
-: "${LANGUAGE:=zh_CN:zh}"
-G_LANGUAGE=$LANGUAGE
+# 与 husk-session.sh 同一规则：gettext 的 LANGUAGE 优先于 LANG，不能因为调用者只设了
+# 英文 LANG 就强行补中文 LANGUAGE；只有本次实际选中中文默认值时才合成。
+if [ -n "${LANGUAGE:-}" ]; then
+    G_LANGUAGE=$LANGUAGE
+elif [ "$G_LANG" = zh_CN.UTF-8 ]; then
+    G_LANGUAGE=zh_CN:zh
+else
+    G_LANGUAGE=
+fi
 
 # 在 guest 里跑一条命令（不继承宿主的 XDG_*，避免把宿主路径漏进去）
 g() {
