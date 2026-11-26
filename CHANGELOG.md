@@ -7,6 +7,42 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.26] - 2026-11-26
+
+> 主题：**修掉 V4L2 假相机 fd 被 `dup2`、`dup3` 覆盖后的身份误判与 socket 泄漏**。
+> 这一版只改假设备 fd 身份和回收，不改变真实 Camera2 画质、帧率或跨进程语义。
+
+### 修复
+
+- **V4L2 不再按 fd 号码认身份**（evidence 253）。`dev_of_fd()` 每次都必须通过
+  `/proc/self/fd` 的 memfd 名称确认设备；普通文件覆盖原假 fd 后，`VIDIOC_QUERYCAP`
+  返回普通文件应有的失败，不再伪报 `driver=husk`。
+- **`dup2`/`dup3` 覆盖目标时清理 V4L2 旧设备**（evidence 253）。path-shim 在系统调用成功后
+  通知 V4L2 核对目标号码的旧设备；零 live memfd 引用时关闭 camera.sock，仍有 dup 时保留会话。
+- **零引用回收补齐**（evidence 253）。`Ctx::close()` 现在同时处理 `Some(0)` 与 `Some(1)`；
+  旧实现会把零引用误当成“还有别的 dup”，导致 socket 泄漏。
+- **V4L2 preload ABI 补齐 `forget_target`**（evidence 253）。当前 preload 仍按 evidence 91
+  的边界持有独立 Ctx；ABI 先补齐，避免以后恢复共享 Ctx 时再次遗漏目标覆盖清理。
+- **新增 Rust fd 身份探针并接入门禁 A**（evidence 253）。`fd-identity-probe` 覆盖 V4L2 与
+  netlink 的普通对象覆盖假 fd、假 fd 复制保留两个方向。
+
+### 验证
+
+- 旧 loader 负对照：V4L2 `dup2-ordinary-over-fake|FAIL|QUERYCAP=Ok("husk")`。
+- 新 loader 真机：V4L2 `dup2` / `dup3` 覆盖均 `PASS`，camera.sock 均正常 EOF；
+  假 fd 的 `dup2` 副本在源关闭后仍可 `QUERYCAP`。
+- netlink `dup2` / `dup3` 覆盖与复制三方向均 `PASS`；这一项是“核过不是缺陷”，不写成修复。
+- 完整门禁 A：`PASS=38 FAIL=0`；coverage-probe 全部 PASS；coverage-sweep 扫描 1401 条候选路径
+  无未翻译泄漏；V4L2 引用计数、DRM fd 回归与新增 fd 身份探针全部 PASS。
+- `make check` 通过；格式化检查、目标平台检查、Clippy、72 个 shell 脚本语法和 278 个 Markdown
+  文件链接检查均通过。
+
+### 边界
+
+- FACT：动态证据来自 Mali-G77 / Android 13 / kernel 4.19.191 / 4 KiB。
+- UNKNOWN：`SCM_RIGHTS` 跨进程传假 V4L2 / netlink fd 后的状态恢复。
+- UNKNOWN：多线程同时 `dup2`/`dup3`/`close` 同一 fd 的长时压力。
+
 ## [0.0.25] - 2026-11-26
 
 > 主题：**修掉 DRM / Adreno 假 fd 被 `dup2`、`dup3` 覆盖后留下的旧表项**。
@@ -1086,7 +1122,8 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.25...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.26...HEAD
+[0.0.26]: https://github.com/xishanp/Husk/releases/tag/v0.0.26
 [0.0.25]: https://github.com/xishanp/Husk/releases/tag/v0.0.25
 [0.0.24]: https://github.com/xishanp/Husk/releases/tag/v0.0.24
 [0.0.23]: https://github.com/xishanp/Husk/releases/tag/v0.0.23

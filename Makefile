@@ -28,13 +28,13 @@ all: lint check version-check
 check:
 	cargo fmt --all --check --manifest-path $(MANIFEST)
 	cargo check --manifest-path $(MANIFEST) --target $(TARGET) \
-		-p runtime-core -p nr-tools -p ldconfig -p path-shim -p gpu-env -p v4l2-ref-probe
+		-p runtime-core -p nr-tools -p ldconfig -p path-shim -p gpu-env -p v4l2-preload -p v4l2-ref-probe -p fd-identity-probe
 	cargo test --manifest-path $(MANIFEST) -p gpu-env
 # No --all-targets: path-shim is no_std and its test harness collides with the
 # crate's own panic handler (duplicate lang item). Warnings there are tracked
 # separately; this gate fails on errors.
 	cargo clippy --manifest-path $(MANIFEST) --target $(TARGET) \
-		-p runtime-core -p nr-tools -p ldconfig -p path-shim -p gpu-env -p v4l2-ref-probe
+		-p runtime-core -p nr-tools -p ldconfig -p path-shim -p gpu-env -p v4l2-preload -p v4l2-ref-probe -p fd-identity-probe
 	sh tools/ci/check-shell.sh
 	@$(MAKE) --no-print-directory tools
 	$(HUSK_TOOLS) check-links
@@ -138,6 +138,7 @@ gate-a:
 	sh tools/probe/coverage-sweep.sh "$${DEV}"
 	sh tools/device-tests/run-v4l2-ref-probe.sh "$${DEV}"
 	sh tools/device-tests/run-drm-fd-probe.sh "$${DEV}"
+	sh tools/device-tests/run-fd-identity-probe.sh "$${DEV}"
 
 virt-race:
 	@test -n "$${DEV:-}" || { echo "set DEV=<serial> and the device paths" >&2; exit 1; }

@@ -374,3 +374,15 @@ STREAMON/DQBUF 与多线程压力仍未验证，UNKNOWN。
 **仍未验证的是 Adreno/KGSL 真机**：当前设备只有 Mali-G77，Adreno 分支只有源码静态审计。
 通过 `SCM_RIGHTS` 把假 DRM fd 交给另一进程后的表身份恢复仍未实现；多线程同时
 `dup2`/`dup3`/`close` 的长时压力也仍是 UNKNOWN。
+
+## 19 · V4L2 假 fd 的覆盖写与跨进程边界（2026-11-26）
+
+0.0.26 起，V4L2 不再把 fd 号码当设备身份。每次 ioctl / mmap / close 都通过
+`/proc/self/fd` 的 `memfd:husk-v4l2-N` 名称复核；`dup2`/`dup3` 覆盖假 fd 后，path-shim
+会清核目标号码的旧设备，零 live memfd 引用时关闭 camera.sock（evidence 253）。旧 loader
+在普通文件覆盖假 `/dev/video0` 后会把 `VIDIOC_QUERYCAP` 伪报成 `driver=husk`，现已用真机
+负对照和修后探针钉住。
+
+**仍未支持的是 `SCM_RIGHTS` 跨进程传递假 V4L2 fd**：memfd 本身能传，但接收进程没有对应的
+设备、socket 和 buffer 表，不能保证继续模拟 V4L2。多线程同时对同一 fd 做
+`dup2`/`dup3`/`close` 的长时压力仍未验证，UNKNOWN。

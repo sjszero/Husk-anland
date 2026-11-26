@@ -26,6 +26,14 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 **仓库布局**：`runtime/crates/{path-shim,nr-tools,runtime-core,gpu-env}`（Rust）、`tools/loader/*.S`（裸汇编，仅入口与 hook）、
 `tools/device-tests/*.sh`、`docs/design/`（设计 + `evidence/` 原始记录）。
 
+**0.0.26 V4L2 fd 覆盖身份与零引用回收**：V4L2 不再按 fd 号码认定相机；`dup2`/`dup3`
+用普通文件覆盖假 `/dev/video0` 后，`VIDIOC_QUERYCAP` 会离开模拟层并返回普通文件失败，
+不再伪报 `driver=husk`。系统调用成功后 path-shim 会清核目标号码的旧 V4L2 设备；零 live
+memfd 引用时 camera.sock 正常 EOF。旧 loader 负对照为 `QUERYCAP=Ok("husk")`，新 loader 的
+V4L2 `dup2`/`dup3`、假 fd 复制、camera EOF 全部 PASS；netlink 三方向也 PASS（核过不是缺陷）。
+完整门禁 A、coverage 与 DRM / V4L2 既有回归结果见 evidence 253。跨进程 `SCM_RIGHTS` 与
+多线程覆盖压力仍是 UNKNOWN。
+
 **0.0.25 DRM / Adreno fd 覆盖记账**：`dup2`/`dup3` 用普通文件覆盖假 DRM fd 时，目标号码现在
 会先从 `FAKE_FDS` 移除；源 fd 是假 DRM 时仍会重新登记，因此副本语义不变。`ADRENO_FDS` 同步
 采用先清目标、再判断 KGSL 源的顺序（evidence 251）。Mali-G77 真机的 `drmfake` 结果为

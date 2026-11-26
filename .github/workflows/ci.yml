@@ -39,7 +39,7 @@ jobs:
       - run: rustup target add $TARGET
       - run: >
           cargo check --manifest-path runtime/Cargo.toml --target $TARGET
-          -p runtime-core -p nr-tools -p ldconfig -p path-shim
+          -p runtime-core -p nr-tools -p ldconfig -p path-shim -p v4l2-preload -p v4l2-ref-probe -p fd-identity-probe
 
   clippy:
     name: cargo clippy
@@ -56,7 +56,7 @@ jobs:
       # Warnings are allowed (the shim keeps several on purpose); errors are not.
       - run: >
           cargo clippy --manifest-path runtime/Cargo.toml --target $TARGET
-          -p runtime-core -p nr-tools
+          -p runtime-core -p nr-tools -p ldconfig -p path-shim -p v4l2-preload -p v4l2-ref-probe -p fd-identity-probe
 
   scripts:
     name: shell scripts parse

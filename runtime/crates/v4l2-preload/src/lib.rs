@@ -845,13 +845,20 @@ pub unsafe extern "C" fn husk_v4l2_close(fd: i32) {
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn husk_v4l2_forget_target(fd: i32) {
+    lock();
+    CTX.forget_target(fd);
+    unlock();
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn husk_v4l2_nonblock(fd: i32, on: i32) {
     lock();
     CTX.update_nonblock(fd, on != 0);
     unlock();
 }
 
-static mut API: [usize; 6] = [0; 6];
+static mut API: [usize; 7] = [0; 7];
 
 unsafe extern "C" fn announce() {
     API = [
@@ -861,6 +868,7 @@ unsafe extern "C" fn announce() {
         husk_v4l2_is_fake as usize,
         husk_v4l2_close as usize,
         husk_v4l2_nonblock as usize,
+        husk_v4l2_forget_target as usize,
     ];
     let _ = setenv(b"HUSK_V4L2_PRELOAD\0".as_ptr(), b"1\0".as_ptr(), 1);
     // Hex table address, same encoding path-shim already parses for DRM.

@@ -329,15 +329,12 @@ impl Ctx {
         if fd < 0 {
             return None;
         }
-        // Fast path: the fd our own open() returned.
         let mut i = 0;
         let mut any = false;
         while i < MAX_DEVS {
             if self.devs[i].opened {
                 any = true;
-                if self.devs[i].fd == fd {
-                    return Some(i);
-                }
+                break;
             }
             i += 1;
         }
@@ -346,7 +343,10 @@ impl Ctx {
         if !any {
             return None;
         }
-        // Slow path: a dup, or an fd opened by the other layer.
+        // The descriptor number is never the identity. dup2/dup3 can replace
+        // the number with an ordinary file, and a stale number match must not
+        // keep routing ioctls into the camera emulation. The memfd name is
+        // checked through /proc/self/fd on every access instead.
         let idx = unsafe { fd_dev_of_kernel(fd) }?;
         if self.devs[idx].opened {
             Some(idx)
@@ -713,36 +713,71 @@ impl Ctx {
         Some(count)
     }
 
-    pub unsafe fn close(&mut self, fd: i32) {
-        let i = match self.dev_of_fd(fd) {
-            Some(i) => i,
-            None => return,
-        };
-        // The fd being closed is still open here, so 1 means "last one".
-        // If `/proc/self/fd` cannot be read, keep the device state alive: a
-        // leak is safer than tearing down a socket still used by a dup.
-        match self.refs(i) {
-            Some(1) => {}
-            Some(_) => {
-                if self.devs[i].fd == fd {
-                    self.devs[i].fd = -1;
-                }
-                return;
-            }
-            None => {
-                if self.devs[i].fd == fd {
-                    self.devs[i].fd = -1;
-                }
-                note(b"[husk v4l2] close: cannot enumerate refs; preserving state\n");
-                return;
-            }
-        }
+    unsafe fn destroy(&mut self, i: usize) {
         if self.devs[i].streaming {
             self.send(i, b"STOP\n");
         }
         self.drop_sock(i);
         self.devs[i].opened = false;
         self.devs[i].fd = -1;
+    }
+
+    pub unsafe fn close(&mut self, fd: i32) {
+        let i = match self.dev_of_fd(fd) {
+            Some(i) => i,
+            None => return,
+        };
+        // The fd being closed is still open here, so 1 means "last one".
+        // Zero is possible when dup2/dup3 already replaced the original fake
+        // descriptor: the device has no live memfd reference left and its
+        // private camera socket must be closed, not leaked.
+        // If `/proc/self/fd` cannot be read, keep the device state alive: a
+        // leak is safer than tearing down a socket still used by a dup.
+        match self.refs(i) {
+            Some(0 | 1) => self.destroy(i),
+            Some(_) => {
+                if self.devs[i].fd == fd {
+                    self.devs[i].fd = -1;
+                }
+            }
+            None => {
+                if self.devs[i].fd == fd {
+                    self.devs[i].fd = -1;
+                }
+                note(b"[husk v4l2] close: cannot enumerate refs; preserving state\n");
+            }
+        }
+    }
+
+    /// Clean the device whose original returned descriptor number was replaced
+    /// by dup2/dup3. This runs after the kernel installed the new source, so a
+    /// zero reference count is the only proof that the old camera session has
+    /// no live duplicate left.
+    pub unsafe fn forget_target(&mut self, fd: i32) {
+        if fd < 0 {
+            return;
+        }
+        let mut hit = None;
+        let mut i = 0;
+        while i < MAX_DEVS {
+            if self.devs[i].opened && self.devs[i].fd == fd {
+                hit = Some(i);
+                break;
+            }
+            i += 1;
+        }
+        let Some(i) = hit else {
+            return;
+        };
+        match self.refs(i) {
+            Some(0) => self.destroy(i),
+            Some(_) | None => {
+                // Another dup of the old device is still live, or the kernel
+                // directory could not be read. Keep the session, but stop
+                // treating the reused number as its original fd.
+                self.devs[i].fd = -1;
+            }
+        }
     }
 
     // ---- ioctl ----

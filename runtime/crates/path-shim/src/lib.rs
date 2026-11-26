@@ -7816,6 +7816,7 @@ pub unsafe extern "C" fn dup2(fd: CInt, newfd: CInt) -> CInt {
     if r >= 0 {
         drm_inherit_fake(fd, r);
         adreno_inherit(fd, r);
+        v4l2_forget_target(r);
     }
     r
 }
@@ -7832,6 +7833,7 @@ pub unsafe extern "C" fn dup3(fd: CInt, newfd: CInt, flags: CInt) -> CInt {
     if r >= 0 {
         drm_inherit_fake(fd, r);
         adreno_inherit(fd, r);
+        v4l2_forget_target(r);
     }
     r
 }
@@ -12778,7 +12780,7 @@ unsafe fn v4l2_statx(n: u32, buf: *mut u8) -> CInt {
  * dlopen 的，它调 open("/dev/video1") 会绕过我们落到 Android 那个 0660 的节点。
  * 所以 preload 拥有一份 Ctx，并把函数表地址写进 HUSK_V4L2_API（hex），
  * 我们两边共用同一份状态（app 的 camera.sock 一次只收一个客户端）。
- * 表：[open, ioctl, mmap, is_fake, close, nonblock]
+ * 表：[open, ioctl, mmap, is_fake, close, nonblock, forget_target]
  */
 type V4l2Open = unsafe extern "C" fn(u32) -> CInt;
 type V4l2Ioctl = unsafe extern "C" fn(CInt, u64, *mut u8) -> i64;
@@ -12786,6 +12788,7 @@ type V4l2Mmap = unsafe extern "C" fn(CInt, usize, i64) -> *mut u8;
 type V4l2IsFake = unsafe extern "C" fn(CInt) -> CInt;
 type V4l2Close = unsafe extern "C" fn(CInt);
 type V4l2Nonblock = unsafe extern "C" fn(CInt, CInt);
+type V4l2ForgetTarget = unsafe extern "C" fn(CInt);
 
 unsafe fn v4l2_api() -> Option<*const usize> {
     let v = env_lookup(b"HUSK_V4L2_API")?;
@@ -12857,6 +12860,20 @@ unsafe fn v4l2_forget(fd: CInt) {
         f(fd);
     } else {
         V4L2_CTX.close(fd);
+    }
+    v4l2_unlock();
+}
+
+/// dup2/dup3 closed the old destination before installing the source. Tell
+/// V4L2 to drop the device whose original fd number was overwritten, even when
+/// the new source is an ordinary file and can no longer be identified as V4L2.
+unsafe fn v4l2_forget_target(fd: CInt) {
+    v4l2_lock();
+    if let Some(t) = v4l2_api() {
+        let f: V4l2ForgetTarget = core::mem::transmute(*t.add(6));
+        f(fd);
+    } else if V4L2_STATE.load(Ordering::Acquire) == 2 {
+        V4L2_CTX.forget_target(fd);
     }
     v4l2_unlock();
 }

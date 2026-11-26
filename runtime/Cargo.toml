@@ -37,6 +37,7 @@ members = [
     "crates/v4l2-preload",
     "crates/v4l2-test",
     "crates/v4l2-ref-probe",
+    "crates/fd-identity-probe",
 ]
 
 [workspace.package]

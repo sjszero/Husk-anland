@@ -1,0 +1,12 @@
+[package]
+name = "fd-identity-probe"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "fd-identity-probe"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"

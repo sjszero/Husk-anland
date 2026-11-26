@@ -38,6 +38,8 @@
 | H-30 | V4L2 | `V4L2_CTX` 在 lazy init 之后无锁访问；path-shim 与 preload 两层都可能并发改写 socket、buffer 表和设备状态 | 250 |
 | H-31 | GPU/DRM | `dup2`/`dup3` 用普通文件覆盖假 DRM/KGSL fd 时，旧目标表项未清理；后续 ioctl 会被错误路由进假设备并可能伪成功 | 251 |
 | H-32 | 发布构建 | `libc-nop.so.6` 是被忽略的生成物，但 `make dist` 没生成也没前置拒绝；clean tree 在复制阶段失败 | 252 |
+| H-33 | V4L2 | `dev_of_fd()` 只按 fd 号码认相机；`dup2`/`dup3` 用普通文件覆盖假 fd 后，`VIDIOC_QUERYCAP` 仍伪成功 | 253 |
+| H-34 | V4L2 | 假 fd 被覆盖后 live memfd 引用可为 0，但 `close()` 只把 1 当最后引用，camera.sock 泄漏不关闭 | 253 |
 
 ## 2 · 记录在案、不修或不完全修的（L）
 
@@ -65,6 +67,7 @@
 | boot 侧十几个 `static mut` | 写点全在 `nr_boot`（`_dl_init` 钩子，单线程） | 223 §7 |
 | `ctypes` 拿到的是原始符号，绕过 GOT | 设计边界（raw 调用不翻译），不是 bug | 222 §6 |
 | raw `syscall(SYS_*)` 绕过 shim | 同上，SECURITY.md 已写明 | LIMITATIONS §9 / 214 |
+| netlink `dup2`/`dup3` 普通 socket 覆盖假 fd | 按 socket inode 查槽位；真机三方向 PASS | 253 |
 
 ## 4 · 还没审到的面（0.0.13 未闭合的部分）
 
