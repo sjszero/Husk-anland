@@ -83,6 +83,7 @@
 | `ctypes` 拿到的是原始符号，绕过 GOT | 设计边界（raw 调用不翻译），不是 bug | 222 §6 |
 | raw `syscall(SYS_*)` 绕过 shim | 同上，SECURITY.md 已写明 | LIMITATIONS §9 / 214 |
 | netlink `dup2`/`dup3` 普通 socket 覆盖假 fd | 按 socket inode 查槽位；真机三方向 PASS | 253 |
+| 最终 symlink 并发替换逃到宿主 | 4 worker 212,050 次 `chmod/utimensat/chown/open/lstat`，同时切换最终链接 12,860 次；宿主哨兵内容、mode、mtime 不变 | 262 |
 
 ## 4 · 还没审到的面（0.0.13 未闭合的部分）
 

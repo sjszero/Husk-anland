@@ -24,6 +24,14 @@
   英文 `LANG`、不设置 `LANGUAGE` 时也不会再被中文 `LANGUAGE` 覆盖。登录 shell 的
   `profile.d` 与 `husk-desktop.sh` 使用同一规则，并新增无需设备的 shell 语义测试。
 
+### 验证
+
+- **最终 symlink 并发替换纳入门禁 A**（evidence 262）。探针在 guest 内把最终 symlink
+  持续切到 guest 文件和 App 私有宿主绝对路径，同时并发执行 `chmod`、`utimensat`、`chown`、
+  `open` 和 `lstat`。真机完成 212,050 次操作、12,860 次替换，宿主哨兵的内容、mode 和 mtime
+  均未变化。该结果只证明经 libc/GOT 的这批操作不会逃出 rootfs；raw syscall 和静态 ELF
+  仍按既有限制处理。
+
 ## [0.0.32] - 2026-11-26
 
 > 主题：**修正文件创建 mode、虚拟所有权和 `access/faccessat` 的主体语义**。

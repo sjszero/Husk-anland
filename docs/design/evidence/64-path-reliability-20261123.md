@@ -5,10 +5,11 @@ Device: RMX3357 / MT6893 / Android 13 / kernel 4.19.191 / 4 KiB / arm64
 Repository: `$REPO`
 Test tree: `/data/data/com.linuxhub.husk/files/rootfs-full` (private copy)
 
-> Superseded in part by evidence 65: metadata calls are now pinned to the final
-> inode, relative dirfds are reconstructed under the guest root, and the linker
-> dynamic/GNU-Hash ranges are bounded, including ET_EXEC. The rows below record
-> the state at the time of this first audit pass, not the current verdict.
+> Superseded in part by evidence 65 and 262: metadata calls are now pinned to
+> the final inode, relative dirfds are reconstructed under the guest root, and a
+> concurrent final-symlink replacement probe no longer reaches the host file.
+> The rows below record the state at the time of this first audit pass, not the
+> current verdict.
 
 This record verifies the third-party reliability audit against the current
 source and device. It does not treat the audit's proposed fixes as correct by

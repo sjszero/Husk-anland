@@ -53,6 +53,7 @@ Husk 是一个 Android 用户态 Linux 运行时：让完整 glibc 发行版以�
   `O_NOFOLLOW`、`faccessat(AT_SYMLINK_NOFOLLOW)`、真实 dirfd 相对路径逃逸和 `/proc`
   `..` / `self/root` / `self/cwd` magic-link 逃逸已在当前 4K 设备验证；`linkat` follow
   与 `renameat2` flags 语义已复验。`chmod`/`chown`/`utimensat`/`statx` 固定最终 inode；
+  最终 symlink 并发替换已由 evidence 262 做 212,050 次操作真机压力，宿主哨兵未变化；
   动态表、GNU Hash、relocation 和 GOT 都按对象 `PT_LOAD` 范围校验。ET_EXEC 已用
   Python 3.12.3 验证。最终 loader `6c079648…` 回归为 31/31 功能、0 escapes、15/15 路径、
   31/31 dirfd。

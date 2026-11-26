@@ -44,6 +44,12 @@ guest `/etc/group` 自动得到 `[1500, 4242]`，`setgroups([4242])` 后为 `[42
 `LANG=C.UTF-8`。rootfs 带 `zh_CN` locale 时默认 `zh_CN.UTF-8` / `zh_CN:zh`，调用方显式
 设置的 `LANG`/`LANGUAGE` 保留；真机探针同时验证默认值和 `en_US.UTF-8` 覆盖（evidence 261）。
 
+**最终 symlink 并发替换（同一候选回归）**：新探针在 guest 内持续把最终 symlink 在 guest
+文件和 App 私有宿主绝对路径之间替换，同时并发执行 `chmod`、`utimensat`、`chown`、`open`
+和 `lstat`。真机 212,050 次操作、12,860 次替换后，宿主哨兵的内容、mode 和 mtime 均未变化
+（evidence 262）。这关闭了 evidence 64 留下的动态验证缺口，不代表 raw syscall 或静态 ELF
+也成为受控路径。
+
 **0.0.31 V4L2 假节点 open 标志**：path-shim 对 `/dev/video0` 返回的假 fd 现在保留
 `O_CLOEXEC` 与 `O_NONBLOCK`。旧 0.0.30 loader 的负对照是 `fdflags=0 fl=131074`，修后为
 `fdflags=1 fl=133122`（evidence 258）。同一轮把 netlink 的
