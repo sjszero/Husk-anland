@@ -5178,7 +5178,7 @@ unsafe fn fake_access_mode(mode: CInt, st: *const u8) -> Result<(), CInt> {
     if mode & !(R_OK | W_OK | X_OK) != 0 {
         return Err(22); // EINVAL
     }
-    let (uid, gid) = fake_id();
+    let (uid, _) = fake_id();
     let m = rd4u(st.add(16));
     if uid == 0 {
         // CAP_DAC_OVERRIDE bypasses read/write and directory execute checks.
@@ -5190,7 +5190,7 @@ unsafe fn fake_access_mode(mode: CInt, st: *const u8) -> Result<(), CInt> {
     }
     let bits = if uid == rd4u(st.add(24)) {
         (m >> 6) & 7
-    } else if gid == rd4u(st.add(28)) {
+    } else if fake_has_gid(rd4u(st.add(28))) {
         (m >> 3) & 7
     } else {
         m & 7
@@ -6029,6 +6029,16 @@ static FAKE_ID: AtomicU64 = AtomicU64::new(0);
 /// 就打在这条路径上）。改成 Release/Acquire 发布、先写值后置位。
 static FAKE_ID_READY: AtomicU8 = AtomicU8::new(0);
 
+// Supplementary groups are part of the process identity too. Android gives
+// every app a fixed set of host groups (input, log, sdcard_rw, ...); those must
+// never leak into a guest user's `getgroups()`. Keep a process-local guest list
+// instead, seeded from /etc/group and replaceable by setgroups()/initgroups().
+const FAKE_GROUPS_MAX: usize = 32;
+static mut FAKE_GROUPS: [u32; FAKE_GROUPS_MAX] = [0; FAKE_GROUPS_MAX];
+static mut FAKE_GROUPS_N: usize = 0;
+static FAKE_GROUPS_READY: AtomicU8 = AtomicU8::new(0);
+static FAKE_GROUPS_LOCK: AtomicBool = AtomicBool::new(false);
+
 unsafe fn parse_dec(v: &[u8]) -> u32 {
     let mut n: u64 = 0;
     let mut any = false;
@@ -6103,6 +6113,240 @@ unsafe fn fake_id() -> (u32, u32) {
     id
 }
 
+unsafe fn groups_lock() {
+    while FAKE_GROUPS_LOCK
+        .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        core::hint::spin_loop();
+    }
+}
+
+unsafe fn groups_unlock() {
+    FAKE_GROUPS_LOCK.store(false, Ordering::Release);
+}
+
+fn line_field(line: &[u8], idx: usize) -> &[u8] {
+    let mut start = 0usize;
+    let mut field = 0usize;
+    let mut i = 0usize;
+    while i <= line.len() {
+        if i == line.len() || line[i] == b':' {
+            if field == idx {
+                return &line[start..i];
+            }
+            field += 1;
+            start = i + 1;
+        }
+        i += 1;
+    }
+    &[]
+}
+
+fn member_has(list: &[u8], name: &[u8]) -> bool {
+    if list.is_empty() || name.is_empty() {
+        return false;
+    }
+    for member in list.split(|c| *c == b',') {
+        if member == name {
+            return true;
+        }
+    }
+    false
+}
+
+unsafe fn guest_file_read(path: &[u8], out: &mut [u8]) -> usize {
+    if path.is_empty() || path.len() >= PATH_MAX || out.is_empty() {
+        return 0;
+    }
+    let mut raw = [0u8; PATH_MAX];
+    raw[..path.len()].copy_from_slice(path);
+    raw[path.len()] = 0;
+    let mut gp = [0u8; PATH_MAX];
+    let n = match abs_guest_raw(raw.as_ptr() as *const CChar, &mut gp) {
+        Some(n) => n,
+        None => return 0,
+    };
+    let rfd = rootfd();
+    if rfd < 0 {
+        return 0;
+    }
+    let mut name = [0u8; 256];
+    let parent = match rc::resolve_parent_follow(rfd, &gp[..n], &mut name) {
+        Ok(fd) => fd,
+        Err(_) => return 0,
+    };
+    let nl = match name.iter().position(|c| *c == 0) {
+        Some(n) => n,
+        None => {
+            rc::close(parent);
+            return 0;
+        }
+    };
+    let fd = match rc::openat(parent, &name[..nl], 0, 0) {
+        Ok(fd) => fd,
+        Err(_) => {
+            rc::close(parent);
+            return 0;
+        }
+    };
+    rc::close(parent);
+    let mut used = 0usize;
+    while used < out.len() {
+        let r = syscall4(
+            SYS_READ,
+            fd as usize,
+            out.as_mut_ptr().add(used) as usize,
+            out.len() - used,
+            0,
+        );
+        if r <= 0 {
+            break;
+        }
+        used += r as usize;
+    }
+    syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+    used
+}
+
+fn group_add(list: &mut [u32; FAKE_GROUPS_MAX], n: &mut usize, gid: u32) {
+    if *n >= FAKE_GROUPS_MAX {
+        return;
+    }
+    if list[..*n].contains(&gid) {
+        return;
+    }
+    list[*n] = gid;
+    *n += 1;
+}
+
+/// Build the group list a login for `name` would get: the primary group plus
+/// every /etc/group entry whose member list names the user. This deliberately
+/// reads the guest's own files, not Android's process groups.
+unsafe fn groups_collect(
+    name: Option<&[u8]>,
+    primary: u32,
+    list: &mut [u32; FAKE_GROUPS_MAX],
+) -> usize {
+    let mut n = 0usize;
+    group_add(list, &mut n, primary);
+    let mut buf = [0u8; 16384];
+    let got = guest_file_read(b"/etc/group\0", &mut buf);
+    let mut i = 0usize;
+    while i < got {
+        let mut end = i;
+        while end < got && buf[end] != b'\n' {
+            end += 1;
+        }
+        let line = &buf[i..end];
+        i = end + 1;
+        if line.is_empty() || line[0] == b'#' {
+            continue;
+        }
+        let gid = parse_dec(line_field(line, 2));
+        let hit =
+            gid == primary || name.map_or(false, |name| member_has(line_field(line, 3), name));
+        if hit {
+            group_add(list, &mut n, gid);
+        }
+    }
+    n
+}
+
+unsafe fn groups_store_locked(list: &[u32]) {
+    let mut n = 0usize;
+    let mut out = [0u32; FAKE_GROUPS_MAX];
+    for &gid in list {
+        group_add(&mut out, &mut n, gid);
+    }
+    FAKE_GROUPS[..n].copy_from_slice(&out[..n]);
+    FAKE_GROUPS_N = n;
+    FAKE_GROUPS_READY.store(1, Ordering::Release);
+}
+
+/// Seed once from the guest account database. A session launcher only passes
+/// NR_FAKE_UID/GID, so this is where a normal login's supplementary groups
+/// come from when no explicit initgroups() call was made.
+unsafe fn groups_seed_locked(uid: u32, gid: u32) {
+    let mut passwd = [0u8; 16384];
+    let got = guest_file_read(b"/etc/passwd\0", &mut passwd);
+    let mut user = [0u8; 256];
+    let mut user_len = 0usize;
+    let mut i = 0usize;
+    while i < got {
+        let mut end = i;
+        while end < got && passwd[end] != b'\n' {
+            end += 1;
+        }
+        let line = &passwd[i..end];
+        i = end + 1;
+        if !line.is_empty() && parse_dec(line_field(line, 2)) == uid {
+            let name = line_field(line, 0);
+            if name.len() <= user.len() {
+                user[..name.len()].copy_from_slice(name);
+                user_len = name.len();
+                break;
+            }
+        }
+    }
+    let mut list = [0u32; FAKE_GROUPS_MAX];
+    let n = groups_collect(
+        if user_len == 0 {
+            None
+        } else {
+            Some(&user[..user_len])
+        },
+        gid,
+        &mut list,
+    );
+    groups_store_locked(&list[..n]);
+}
+
+unsafe fn fake_groups() -> usize {
+    if FAKE_GROUPS_READY.load(Ordering::Acquire) == 0 {
+        groups_lock();
+        if FAKE_GROUPS_READY.load(Ordering::Acquire) == 0 {
+            let (uid, gid) = fake_id();
+            groups_seed_locked(uid, gid);
+        }
+        groups_unlock();
+    }
+    groups_lock();
+    let n = FAKE_GROUPS_N;
+    groups_unlock();
+    n
+}
+
+unsafe fn fake_has_gid(gid: u32) -> bool {
+    if gid == fake_id().1 {
+        return true;
+    }
+    let _ = fake_groups();
+    groups_lock();
+    let found = FAKE_GROUPS[..FAKE_GROUPS_N].contains(&gid);
+    groups_unlock();
+    found
+}
+
+unsafe fn groups_replace(list: &[u32]) -> bool {
+    if list.len() > FAKE_GROUPS_MAX {
+        return false;
+    }
+    groups_lock();
+    groups_store_locked(list);
+    groups_unlock();
+    true
+}
+
+unsafe fn groups_init_named(name: &[u8], primary: u32) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let mut list = [0u32; FAKE_GROUPS_MAX];
+    let n = groups_collect(Some(name), primary, &mut list);
+    groups_replace(&list[..n])
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn getuid() -> u32 {
     if fake_root_on() {
@@ -6140,15 +6384,27 @@ pub unsafe extern "C" fn getgroups(size: CInt, list: *mut u32) -> CInt {
     if !fake_root_on() {
         return ret_or_errno(syscall4(SYS_GETGROUPS, size as usize, list as usize, 0, 0));
     }
-    let gid = fake_id().1;
+    let n = fake_groups() as CInt;
     if size == 0 {
-        return 1;
+        return n;
     }
-    if size < 1 || list.is_null() {
+    if size < 0 {
         return set_errno(22);
     }
-    *list = gid;
-    1
+    if list.is_null() {
+        return set_errno(14);
+    }
+    if size < n {
+        return set_errno(22);
+    }
+    groups_lock();
+    let mut i = 0;
+    while i < FAKE_GROUPS_N {
+        *list.add(i) = FAKE_GROUPS[i];
+        i += 1;
+    }
+    groups_unlock();
+    n
 }
 
 // ------------------------------------------------------- RLIMIT_NOFILE ceiling
@@ -6932,29 +7188,49 @@ pub unsafe extern "C" fn setegid(_gid: u32) -> CInt {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn setgroups(_n: usize, _list: *const u32) -> CInt {
-    log_id(b"setgroups", _n as i64);
-    if fake_root_on() {
+pub unsafe extern "C" fn setgroups(n: usize, list: *const u32) -> CInt {
+    log_id(b"setgroups", n as i64);
+    if !fake_root_on() {
+        return ret_or_errno(syscall4(SYS_SETGROUPS, n, list as usize, 0, 0));
+    }
+    if n > FAKE_GROUPS_MAX || (n != 0 && list.is_null()) {
+        return set_errno(22);
+    }
+    let ok = if n == 0 {
+        groups_replace(&[])
+    } else {
+        groups_replace(core::slice::from_raw_parts(list, n))
+    };
+    if ok {
         0
     } else {
-        ret_or_errno(syscall4(SYS_SETGROUPS, _n, _list as usize, 0, 0))
+        set_errno(22)
     }
 }
 
 /// glibc's `initgroups()` issues `setgroups` *inside* libc, so the GOT slot we
 /// rewrite never sees it: that is why `su` and `polkitd` both died with
 /// "Error initializing groups: Operation not permitted" (evidence 139 and 147).
-/// Under the fake identity the group list is the fiction anyway, so answer the
-/// way `setgroups()` already does. With a real identity nothing changes: the
-/// caller gets the EPERM the kernel would have given it, because an app has no
-/// CAP_SETGID.
+/// Under the fake identity, read the guest's own /etc/group and keep the list
+/// for getgroups() and access(2). With a real identity nothing changes: an app
+/// has no CAP_SETGID, so it still gets EPERM.
 #[no_mangle]
-pub unsafe extern "C" fn initgroups(_user: *const CChar, group: u32) -> CInt {
+pub unsafe extern "C" fn initgroups(user: *const CChar, group: u32) -> CInt {
     log_id(b"initgroups", group as i64);
-    if fake_root_on() {
+    if !fake_root_on() {
+        return set_errno(1); // EPERM
+    }
+    if user.is_null() {
+        return set_errno(14); // EFAULT
+    }
+    let name = bytes(user);
+    if name.is_empty() || name.len() > 255 {
+        return set_errno(22); // EINVAL
+    }
+    if groups_init_named(name, group) {
         0
     } else {
-        set_errno(1) // EPERM
+        set_errno(22)
     }
 }
 
@@ -11755,7 +12031,9 @@ unsafe fn pw_lookup(
 /// every gid look taken: `adduser` scans 100..999 with `getgrgid()` looking for
 /// a free one and gets -1, then calls `groupadd -g -1` (measured, evidence 111).
 unsafe fn process_has_gid(g: u32) -> bool {
-    const SYS_GETGROUPS: usize = 158;
+    if fake_root_on() {
+        return fake_has_gid(g);
+    }
     const SYS_GETEGID: usize = 177;
     let real_gid = syscall4(SYS_GETGID, 0, 0, 0, 0) as u32;
     let real_egid = syscall4(SYS_GETEGID, 0, 0, 0, 0) as u32;

@@ -51,6 +51,7 @@
 | H-43 | 文件创建 | `O_CREAT` 被无条件改成 `mode \| 0600`，所有程序创建的文件都可能读回错误权限；dpkg 的写放宽还会把 inode 永久留在 `0600` | 259 |
 | H-44 | 用户身份 | `fchown(fd)` 只返回成功但不记录虚构 uid/gid，随后 `fstat(fd)` 与跨进程路径 `stat` 仍报真实 app 所有者 | 259 |
 | H-45 | 用户身份 | `access/faccessat` 按真实 Android uid 判断；假 root 读不了 `0000` 文件，非 root 被当成所有者，且不检查父目录 X 权限 | 259 |
+| H-46 | 用户身份 | `getgroups` 永远只报主组；`setgroups`/`initgroups` 只返回成功但不保存，`/etc/group` 里的附加组和组权限文件失真 | 260 |
 
 ## 2 · 记录在案、不修或不完全修的（L）
 
