@@ -198,6 +198,26 @@ apk:
 	cd app && ./gradlew :app:assembleDebug
 	@ls -l $(JNI) app/app/build/outputs/apk/debug/*.apk
 
+# 第 8 轮的发行树验收：从 tar 装一棵树，然后体检 + 门禁 A + 读回套一次跑完。
+#   make release-tree-check DEV=<serial> TAR=/tmp/husk-desktop.tar.gz
+#   (BUNDLE=files/linux-clean 是设备上那份带 install-husk.sh / libld.so 的 bundle)
+#
+# 为什么要有这一条：出厂桌面树曾经同时踩到两个"不报错、只是不能用"的坑——862 个包
+# 只有 92 个 .list，以及树里没有 locale-archive（界面全英文，evidence 298）。单跑
+# 门禁 A 看不出来，单跑体检又不测运行时，所以发版前必须两条一起跑。
+release-tree-check:
+	@test -n "$$DEV" || { echo "set DEV=<serial>" >&2; exit 1; }
+	@test -n "$$TAR" || { echo "set TAR=<rootfs.tar.gz>" >&2; exit 1; }
+	BUNDLE=$${BUNDLE:-files/linux-clean}; DEST=$${DEST:-files/release-tree/root}; \
+	adb -s "$$DEV" push "$$TAR" /data/local/tmp/husk-release-tree.tar.gz >/dev/null && \
+	adb -s "$$DEV" shell "run-as $${PKG:-com.linuxhub.husk} sh -c 'cat /data/local/tmp/husk-release-tree.tar.gz > files/release-tree.tar.gz'" && \
+	adb -s "$$DEV" shell "run-as $${PKG:-com.linuxhub.husk} sh -c 'cd $$BUNDLE && TMPDIR=/data/data/$${PKG:-com.linuxhub.husk}/files/tmp sh install-husk.sh --rootfs ../release-tree.tar.gz --dest ../release-tree/root --loader ./libld.so'"
+	DEV=$$DEV PKG=$${PKG:-com.linuxhub.husk} ROOTFS=$${DEST:-files/release-tree/root} EXPECT=desktop \
+		sh tools/device-tests/20-tree-integrity.sh
+	DEV=$$DEV PKG=$${PKG:-com.linuxhub.husk} ROOTFS=$${DEST:-files/release-tree/root} \
+		LD=$${BUNDLE:-files/linux-clean}/libld.so EXPECT_PKGS_MIN=$${EXPECT_PKGS_MIN:-700} \
+		sh tools/device-tests/14-gate-a-acceptance.sh
+
 bench:
 	sh tools/bench/install.sh
 	sh tools/bench/run-interleaved.sh $${REPS:-5}
