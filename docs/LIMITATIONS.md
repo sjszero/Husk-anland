@@ -145,6 +145,14 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
    再往后 X server 的合成结果仍走 `AHardwareBuffer` → dma-buf → `SurfaceControl`
    （evidence 59，那条是真零拷贝）。所以整条链是
    **GPU 渲染 → SHM 拷贝 → X 合成 → AHB 零拷贝 → 屏幕**，中间那一次拷贝没有消掉。
+   **2026-11-26 定案（evidence 290）**：这一跳在本布局里**结构性消不掉**，不是参数问题。
+   判定链：DRI3 要求 server 先持有真 DRM fd（`DRI3Open` 要把 fd 交给客户端、之后走 gbm）；
+   应用内 bionic Xorg 看到的是真实视角 —— `/dev/dri` 只有 `card0`（226:0，`0660 system:system`，
+   应用域 open 直接 `Permission denied`）、**`renderD128` 不存在**、`/dev/dma_heap` 与
+   `/dev/udmabuf` 都不存在；退一步就算拿到 `card0` 也不是 Mali 的节点（Mali 走 kbase 的
+   `/dev/mali0`，没有 PRIME/dma-buf 语义）。MIT-SHM 同理不可达（evidence 228）。
+   注意：经 husk loader 起来后 open `/dev/dri/renderD128` 会**成功**，那是 path-shim 的
+   假设备，只能骗设备探测，不能当证据用。
 3. **桌面合成器已经由 GPU 出帧（FACT），但 fps 在轻负载上不占优**：gnome-shell 46 跑在
    zink → PanVK 上，X 根窗口抓到完整桌面、非黑像素 100%（evidence 165/168）。而 640×480
    clear+swap 的帧率是 zink 131 fps vs llvmpipe 300 fps。**不是 GPU 算力不够**：2026-11-25
@@ -153,6 +161,10 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
    的有效带宽），llvmpipe 约 11 ms/兆像素（evidence 174）。即 640×480 那 8.9 ms 里 GPU 只
    占 1.3 ms，其余是 GPU→CPU 回读，再加挂进 X server 的那次拷贝。重负载的 GPU/CPU 对比
    **未测**。
+   **2400×1080 直测（evidence 228/290）**：整窗 clear+swap zink **50.3 ms（19.9 fps）**、
+   llvmpipe **20.1 ms（49.7 fps）**；拆开是 zink 回读 **30.27 ms** + X 协议拷贝 **18.92 ms**，
+   llvmpipe 回读 **7.29 ms** + 同一份 18.92 ms（两条独立路径相加与整窗实测差 3%）。
+   也就是说零拷贝能拿回的全部价值就是那 30.27 ms：19.9 fps → 约 50 fps。
    要消掉这一段只能走 DRI3/dma-buf 直传，而它在这台机上**不在 shim 能力范围内**：X server 是
    应用进程里的 bionic Xorg（X.Org 21.1.99）。2026-11-25 在应用域（`u:r:runas_app`）里把节点
    布局查清了：`/dev/dri` 下**只有 `card0`（226,0，`system:system` `0660`）**，**没有

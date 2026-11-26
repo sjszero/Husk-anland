@@ -292,6 +292,20 @@ APK 版本元数据和 NDK 构建入口，共记录 **28 条已修缺陷（H-01�
    （`system:system` `0660`）、**没有 `renderD128`**，`/dev/dma_heap` 不存在，GPU 实际走厂商节点
    `/dev/mali0`（`10,33`，`0666`）→ 只能停在 `Could not get DRI3 device`，
    **不是 path-shim 能补的**。
+   **2026-11-26 第 5 轮定案（evidence 290）**：DRI3 结构性不可达，判定链已写死；
+   2400×1080 逐段直测 = zink 回读 30.27 ms + X 协议拷贝 18.92 ms = 整窗 50.3 ms（19.9 fps），
+   llvmpipe 回读 7.29 ms + 同一份拷贝 = 整窗 20.1 ms（49.7 fps），两条独立路径互相对上（差 3%）。
+   零拷贝能拿回的全部价值就是那 30.27 ms。替代路线只有「自建 AHB present（客户端把 surface 做成
+   AHB 经 SCM_RIGHTS 交给应用内 X server）」，验收标准已写进 evidence 290；MIT-SHM 改 memfd
+   收益更小不先做，换合成器已否决。
+   另记一条会挡住 GPU 验收的现场事实（FACT，本轮核过设备上所有树）：设备上现在两棵树都**没有
+   Vulkan ICD** —— `rootfs` 是 0.0.36 的干净 base 安装（93 包，没有 mesa/GNOME）；
+   `rootfs-broken-20261126` 有 GNOME + stock Ubuntu Mesa **25.2.8**，但 `usr/share/vulkan` 不存在、
+   只有 `libvulkan.so.1` 加载器，`zink_dri.so` 在却没有 Vulkan 实现可指。所以两棵树的 GL 都只能是
+   llvmpipe。evidence 179/245/278 用的那棵带 **FristOneRR 1.2.0 / Mesa 26.3.0-devel** 的 GPU 树
+   现在既不在设备上、也不在仓库里（`make dist` 的 tarball 里也没有任何 ICD）。
+   → 第 6 轮「GPU 全局原生化」的前置条件是先把那份 guest PanVK/Mesa artifact 重新构建并装回树里，
+   否则只能验 llvmpipe。这一条不要用「参数开关」绕过去。
    真实客户端：`gnome-text-editor`（GTK 4.14 ngl）与 `gnome-control-center`（GTK 4 + Adwaita）
    完整出画，键盘 XTEST 敲进去标题与正文都更新（evidence 176/180）；**`nautilus` 46 内容区空白**
    ——能开窗、能枚举，但 `cairo`/`ngl`、`list`/`icon`、**proot 也同样空白**，根因 UNKNOWN

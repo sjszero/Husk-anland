@@ -19,6 +19,7 @@ usage: readback.py [W] [H] [tag]
 """
 import ctypes
 import sys
+import time
 
 GL_RGBA = 0x1908
 GL_UNSIGNED_BYTE = 0x1401
@@ -171,9 +172,12 @@ def main():
 
     # Ground truth: per-pixel 1x1 (known-good path), cross-checked against the
     # pattern we uploaded, so an upload defect cannot poison the comparison.
+    mode = sys.argv[4] if len(sys.argv) > 4 else "rgba"
+
     truth = {}
     upload_bad = 0
-    for y in range(H):
+    if mode != "cost":
+      for y in range(H):
         for x in range(W):
             v = read1(x, y)
             want = bytes(bytearray([(x * 7 + 3) & 0xFF, (y * 11 + 5) & 0xFF,
@@ -181,11 +185,11 @@ def main():
             truth[(x, y)] = v
             if v != want:
                 upload_bad += 1
+      print("SOURCE 1x1-read map: %d/%d pixels differ from uploaded pattern "
+            "(upload/pack-read identity mismatches)" % (upload_bad, W * H))
     back = {}
     for (x, y), v in truth.items():
         back.setdefault(v, []).append((x, y))
-    print("SOURCE 1x1-read map: %d/%d pixels differ from uploaded pattern "
-          "(upload/pack-read identity mismatches)" % (upload_bad, W * H))
 
     def whole_read(row_length, align):
         gles.glPixelStorei(GL_PACK_ROW_LENGTH, row_length)
@@ -387,6 +391,56 @@ def main():
             pitch = (last + 1 - W * bpp) / (H - 1) if last >= 0 and H > 1 else -1
             print("RGB align=%d last_off=%d implied_pitch=%.1f err=0x%x"
                   % (align, last, pitch, err))
+        return 0
+
+    if mode == "cost":
+        # Split the presentation bill at device resolution, without needing an X
+        # server: (a) render leg = clear + glFinish, (b) readback leg = the
+        # known-good row-at-a-time glReadPixels + glFinish. evidence 174 could
+        # only subtract "window - pbuffer"; this measures the readback directly.
+        for name, restype, argtypes in (
+            ("glClearColor", None, [ctypes.c_float, ctypes.c_float, ctypes.c_float,
+                                    ctypes.c_float]),
+            ("glClear", None, [ctypes.c_uint]),
+            ("glFinish", None, []),
+        ):
+            fn = getattr(gles, name)
+            fn.restype = restype
+            fn.argtypes = argtypes
+        frames = int(sys.argv[5]) if len(sys.argv) > 5 else 12
+        gles.glClearColor(0.2, 0.4, 0.6, 1.0)
+        gles.glFinish()
+        for _ in range(2):  # warmup
+            gles.glClear(0x4000)
+            gles.glFinish()
+        t = time.perf_counter()
+        for _ in range(frames):
+            gles.glClear(0x4000)
+            gles.glFinish()
+        render_ms = (time.perf_counter() - t) * 1000.0 / frames
+
+        buf = bytearray(W * 4 * H)
+        arr = (ctypes.c_ubyte * len(buf)).from_buffer(buf)
+        gles.glPixelStorei(GL_PACK_ROW_LENGTH, 0)
+        gles.glPixelStorei(GL_PACK_ALIGNMENT, 4)
+
+        def rows_read():
+            for y in range(H):
+                gles.glReadPixels(0, y, W, 1, GL_RGBA, GL_UNSIGNED_BYTE,
+                                  ctypes.cast(arr, ctypes.c_void_p))
+
+        rows_read()  # warm
+        gles.glFinish()
+        t = time.perf_counter()
+        for _ in range(frames):
+            rows_read()
+            gles.glFinish()
+        read_ms = (time.perf_counter() - t) * 1000.0 / frames
+        mp = W * H / 1e6
+        print("COST %dx%d (%.3f MP) frames=%d" % (W, H, mp, frames))
+        print("COST render   %.2f ms/frame  (%.2f ms/MP)" % (render_ms, render_ms / mp))
+        print("COST readback %.2f ms/frame  (%.2f ms/MP)  row-at-a-time %d calls"
+              % (read_ms, read_ms / mp, H))
         return 0
 
     if mode == "rgba4":
