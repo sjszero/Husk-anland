@@ -12,7 +12,7 @@
 | 空目录安装 | `INSTALL_RC=0` | 308 |
 | Tree Integrity | `PASS=23 FAIL=0` | 308、310 |
 | Gate A | `PASS=34 FAIL=0 SKIP=1` | 310 |
-| A-hw | `PASS=11 FAIL=0` | 310 |
+| A-hw | `PASS=14 FAIL=0` | 323 |
 | GPU loader defaults | `PASS=9 FAIL=0 SKIP=0` | 310 |
 | dpkg | 807 installed / 807 `.list` | 308 |
 | 中文 locale | 6,222,864-byte locale archive，413 个 zh_CN `.mo` | 308 |
@@ -66,12 +66,13 @@ Gate A 的 SKIP 是离线树没有 apt package index。没有把它算成 PASS�
 | 前摄 `/dev/video1` | 5 帧，6,912,000 bytes，12.19 fps | 309 |
 | Camera2 V4L2 `read` / `readv` | 前后摄通过 | 309 |
 | GStreamer `v4l2src` | 前后摄各 3 帧 NV12 640×480，rc=0 | 309 |
-| A-hw 普通用户授权路径 | `PASS=11 FAIL=0`；前后摄各 3 帧 1280×720 NV12 | 320 |
+| A-hw 普通用户授权路径 | `PASS=14 FAIL=0`；相机、录音、定位权限与真实数据链路 | 323 |
 | V4L2 fixture + GStreamer | 640×480、1280×720 两档均 PASS | 320 |
 | V4L2 crop/selection + monotonic PTS | 两档契约通过；GStreamer 无 `CROPCAP`/时间戳相关性警告 | 321 |
 | AAudio 采集 | 196,608 PCM bytes，`peak=285` | 310 |
 | 传感器 IIO | 5 类默认传感器 `READY`，guest 可读 | 302 |
 | 传感器 D-Bus | `iio-sensor-proxy` 出现；Accelerometer/Light/Proximity 三项 Claim 成功；`monitor-sensor` 读到三类设备 | 322 |
+| 定位 gpsd | last-known `network` 点转成 `TPV mode=2`；撤权后 `mode=1`、无 TPV；坐标在日志中脱敏 | 323 |
 | MediaCodec 解码 | H.264 1080p30，600 秒，dropped=0 | 80 |
 | AHB → SurfaceControl | 3-buffer ring / SYNC_FD，10,000 帧 | 59 |
 
@@ -88,6 +89,6 @@ GNOME/X11 桌面为 **UNVERIFIED**。不得把其他 App 或旧 PRoot 树的 X s
 - Adreno/KGSL 真机；
 - 其他 Android 版本、厂商 seccomp/SELinux；
 - 相机 DMABUF、通用 V4L2 controls、非整帧裁剪、真实 Camera2 的 GStreamer PTS、跨进程假 fd；
-- 定位、USB、蓝牙完整链路；
+- 持续定位、后台定位、GNSS 原始测量；USB、蓝牙完整链路；
 - 窗口内容到 X server 的零拷贝；
 - 负载型长时间稳定性和更多 GPU 应用。

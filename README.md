@@ -113,12 +113,14 @@ Husk 不按应用逐个开洞。能直接使用的内核节点就直接交给 gu
 | 音频 | **中转** | PulseAudio → Rust relay → AAudio | 输出与采集均有真实 PCM 数据；`/dev/snd` 在应用域不可直接打开 |
 | 视频解码 | **中转** | VA-API → Rust bridge → MediaCodec | H.264 1080p30 连续 600 秒，`dropped=0` |
 | 传感器 | **中转** | IIO sysfs 影子树 ← NDK `ASensorManager_*` | 加速度、磁力、陀螺仪、环境光、距离五类可读，数值随真实事件更新；`iio-sensor-proxy` 的 D-Bus Claim 与 `monitor-sensor` 已在参考机通过 |
+| 定位 | **中转（仅 last-known）** | gpsd JSON over Unix socket ← Android `LocationManager` | `VERSION` / `DEVICES` / `WATCH` / `POLL` / `TPV` 已通；撤销权限会清空缓存 FIX，gpsd 只收到 `mode=1`。持续定位、后台定位与 GNSS 原始测量未验证 |
 | 显示 | **应用侧中转** | `AHardwareBuffer` → dma-buf → `SurfaceControl` | 3-buffer ring 与真实 `SYNC_FD` 跑过 10,000 帧；这一段是应用侧零拷贝 |
 | 输入 | **窗口层** | Android 输入事件 → 宿主 window/X11 | bridge 已实现；端到端结果取决于宿主是否提供窗口系统 |
 
-口径必须写清：**GPU 是直连，相机、音频、视频和传感器是中转，显示只在其应用侧接管段为零拷贝。**
-定位、USB、蓝牙属于中转，但还需要最小 Java 回调垫片；NFC 与指纹对 Linux 用户态不是必需的
-设备接口。逐项理由、被宿主拒绝时的原始错误串和“不能说什么”见
+口径必须写清：**GPU 是直连；相机、音频、视频、传感器和定位是中转；显示只在其应用侧接管段为零拷贝。**
+定位目前只提供 Android 已有的 last-known 点，不是持续 GNSS。USB 与蓝牙仍需要最小 Java 回调
+垫片；NFC 与指纹对 Linux 用户态不是必需的设备接口。逐项理由、被宿主拒绝时的原始错误串和
+“不能说什么”见
 [`docs/design/hardware-interface-map.md`](docs/design/hardware-interface-map.md)。
 
 GPU 默认值属于运行时接口的一部分。ICD、GL 驱动和 GLES 上限写在 `/etc/husk/gpu-env`，由

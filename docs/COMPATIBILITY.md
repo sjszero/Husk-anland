@@ -7,8 +7,8 @@
 `untrusted_app` 运行，无 root。具体机型与 SoC 见 `docs/STATUS.md`。
 
 最终树现状（2026-11-27）：`TREE_INTEGRITY PASS=23 FAIL=0`、Gate A `PASS=34 FAIL=0 SKIP=1`、
-A-hw `PASS=11 FAIL=0`、GPU 默认值 `PASS=9 FAIL=0`。离线树没有 apt index，因此 apt 解析项
-按 SKIP 记录。证据见 evidence 308–310。
+A-hw `PASS=14 FAIL=0`、GPU 默认值 `PASS=9 FAIL=0`。离线树没有 apt index，因此 apt 解析项
+按 SKIP 记录。证据见 evidence 308–310、323。
 
 ## shell、工具链、语言运行时
 
@@ -59,8 +59,9 @@ Termux 不是交付形态（`LIMITATIONS.md` §3）。
 
 硬件按宿主能力分四类，逐类理由见 [`design/hardware-interface-map.md`](design/hardware-interface-map.md)：
 传感器已经以 NDK → IIO 影子树的方式接入（中转，5 类默认传感器和 guest sysfs 读取实测通过）；
-定位 / USB / 蓝牙同属中转，当前卡在 `hasCode=false` 下缺少承接 Java 回调的最小垫片；
-NFC 与指纹不需要。被宿主挡住的能力贴的是原始错误串，不用「未做」代替分类。
+定位已以 `LocationManager.getLastKnownLocation()` → gpsd Unix socket 的方式接入（中转，只覆盖
+last-known，不冒充持续 GNSS）；USB / 蓝牙仍卡在 `hasCode=false` 下缺少回调垫片；NFC 与指纹
+不需要。被宿主挡住的能力贴的是原始错误串，不用「未做」代替分类。
 
 guest 内的 VA-API 全链已通到 `vaapih264dec` 出真实帧（evidence 81–87），但只有解码方向。
 窗口呈现仍不是零拷贝（DRI3 未通，宿主 X server 在本机应用域没有可用 render node）。

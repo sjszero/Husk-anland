@@ -37,6 +37,8 @@ use crate::sys::ANativeActivity;
 
 const CAMERA: &str = "android.permission.CAMERA";
 const RECORD_AUDIO: &str = "android.permission.RECORD_AUDIO";
+const ACCESS_COARSE_LOCATION: &str = "android.permission.ACCESS_COARSE_LOCATION";
+const ALL_PERMISSIONS: [&str; 3] = [CAMERA, RECORD_AUDIO, ACCESS_COARSE_LOCATION];
 const PERMISSION_GRANTED: i32 = 0;
 const LENGTH_LONG: i32 = 1;
 
@@ -112,6 +114,8 @@ fn short(permission: &str) -> &'static str {
         "相机"
     } else if permission == RECORD_AUDIO {
         "麦克风"
+    } else if permission == ACCESS_COARSE_LOCATION {
+        "定位"
     } else {
         "硬件"
     }
@@ -158,7 +162,7 @@ fn files_dir(a: *mut ANativeActivity) -> Option<PathBuf> {
 
 fn load(a: *mut ANativeActivity) -> BTreeMap<&'static str, Rec> {
     let mut map: BTreeMap<&'static str, Rec> = BTreeMap::new();
-    for permission in [CAMERA, RECORD_AUDIO] {
+    for permission in ALL_PERMISSIONS {
         map.insert(permission, Rec::default());
     }
     let Some(dir) = files_dir(a) else {
@@ -375,19 +379,26 @@ pub unsafe fn on_resume(a: *mut ANativeActivity) {
     let states = [
         (CAMERA, query(&mut env, &activity, CAMERA)),
         (RECORD_AUDIO, query(&mut env, &activity, RECORD_AUDIO)),
+        (
+            ACCESS_COARSE_LOCATION,
+            query(&mut env, &activity, ACCESS_COARSE_LOCATION),
+        ),
     ];
     let mut map = load(a);
     // States *and* the recorded history in one line: "denied but never asked"
     // and "denied after asking" take different actions, and telling them apart
     // from logcat used to need a rebuild.
     crate::log(&format!(
-        "permissions|STATE|camera={} microphone={}|asks=camera:{},microphone:{}|denials=camera:{},microphone:{}",
+        "permissions|STATE|camera={} microphone={} location={}|asks=camera:{},microphone:{},location:{}|denials=camera:{},microphone:{},location:{}",
         states[0].1.as_str(),
         states[1].1.as_str(),
+        states[2].1.as_str(),
         map[CAMERA].asks,
         map[RECORD_AUDIO].asks,
+        map[ACCESS_COARSE_LOCATION].asks,
         map[CAMERA].denials,
-        map[RECORD_AUDIO].denials
+        map[RECORD_AUDIO].denials,
+        map[ACCESS_COARSE_LOCATION].denials
     ));
     let mut changed = false;
     let mut missing: Vec<&'static str> = Vec::new();
@@ -419,12 +430,15 @@ pub unsafe fn on_resume(a: *mut ANativeActivity) {
                     ));
                     let name = short(permission);
                     if rec.denials == 1 {
+                        let consequence = if permission == ACCESS_COARSE_LOCATION {
+                            "gpsd 没有可用坐标".to_string()
+                        } else {
+                            format!("{name}在 Linux 里是黑的")
+                        };
                         toast(
                             &mut env,
                             &activity,
-                            &format!(
-                                "Husk 需要{name}权限，否则{name}在 Linux 里是黑的。下次进来还会再问一次。"
-                            ),
+                            &format!("Husk 需要{name}权限，否则{consequence}。下次进来还会再问一次。"),
                         );
                     } else if !rec.nudged || !settings_opened {
                         rec.nudged = true;

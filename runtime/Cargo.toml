@@ -7,6 +7,7 @@ members = [
     "crates/audio-relay",
     "crates/audio-setup",
     "crates/audio-probe",
+    "crates/location-probe",
     "crates/camera-client",
     "crates/capability-probe",
     "crates/guest-bench",

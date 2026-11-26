@@ -5,9 +5,9 @@
 # This is the group round 4 adds next to gate A. A-core (14-gate-a-acceptance.sh)
 # is unchanged: it measures the Linux userspace, and its numbers must not move
 # because of a permission change. A-hw measures the other direction - that a
-# plain `adb install` (no `-g`) ends with the app holding camera and microphone
-# permission *because the user granted it*, and that the hardware behind those
-# permissions is actually enumerated afterwards.
+# plain `adb install` (no `-g`) ends with the app holding camera, microphone and
+# coarse-location permission *because the user granted them*, and that the
+# hardware behind those permissions is actually enumerated afterwards.
 #
 #   DEV=UKHMMB8PYTGECMNV ./17-gate-a-hw.sh
 #
@@ -21,6 +21,8 @@ DEV=${DEV:?usage: DEV=<serial> $0}
 PKG=${PKG:-com.linuxhub.husk}
 ROOTFS_REL=${ROOTFS_REL:-files/rootfs-full}
 LOADER_REL=${LOADER_REL:-files/linux/libld.so}
+REPO_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+LOCATION_PROBE=${LOCATION_PROBE:-$REPO_ROOT/runtime/target/aarch64-unknown-linux-gnu/release/location-probe}
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  PASS  $1"; }
 bad() { FAIL=$((FAIL+1)); echo "  FAIL  $1"; }
@@ -29,7 +31,7 @@ adb_() { adb -s "$DEV" shell "$@"; }
 perm_line() { adb_ "dumpsys package $PKG" | grep -m1 "android.permission.$1: granted="; }
 
 echo "== runtime permissions (granted by a user, not by install -g) =="
-for perm in CAMERA RECORD_AUDIO; do
+for perm in CAMERA RECORD_AUDIO ACCESS_COARSE_LOCATION; do
     line=$(perm_line "$perm")
     case "$line" in
         *"granted=true"*) ok "$perm granted=true" ;;
@@ -125,6 +127,28 @@ if printf '%s' "$audio" | grep -q '^capture-probe|PASS|'; then
     fi
 else
     bad "microphone capture probe failed: $(printf '%s' "$audio" | tail -2 | tr '\n' ' ')"
+fi
+
+echo "== authorized coarse location delivers gpsd TPV =="
+locprobe=/data/local/tmp/husk-location-probe
+if [ ! -x "$LOCATION_PROBE" ]; then
+    bad "missing $LOCATION_PROBE (run tools/guest-config/build-guest-tools.sh)"
+    LOCATION_PROBE=
+elif adb -s "$DEV" push "$LOCATION_PROBE" "$locprobe" >/dev/null 2>&1; then
+    adb_ "run-as $PKG sh -c 'cp $locprobe $ROOTFS_REL/root/location-probe && chmod 755 $ROOTFS_REL/root/location-probe'" >/dev/null 2>&1 || true
+else
+    bad "could not push location probe"
+    LOCATION_PROBE=
+fi
+location=$(
+  if [ -n "$LOCATION_PROBE" ]; then
+    adb_ "run-as $PKG sh -c 'R=\$PWD/$ROOTFS_REL; L=\$PWD/$LOADER_REL; cd \"\$R\" && NR_ROOTFS=\"\$R\" NR_LD=\"\$L\" HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \"\$L\" --library-path \"\$R/lib/aarch64-linux-gnu:\$R/usr/lib/aarch64-linux-gnu\" ./root/location-probe'" 2>&1 || true
+  fi
+)
+if printf '%s' "$location" | grep -q '^location-probe|PASS|'; then
+    ok "gpsd delivered a last-known fix ($(printf '%s' "$location" | sed -n 's/^location-probe|PASS|//p'))"
+else
+    bad "location probe failed: $(printf '%s' "$location" | tail -2 | tr '\n' ' ')"
 fi
 
 echo "== nothing died on the way =="

@@ -31,7 +31,7 @@ files/rootfs-full -> release-tree-final/root
 | 安装器退出码 | `INSTALL_RC=0` | 308 |
 | Tree Integrity | `PASS=23 FAIL=0` | 308、310 |
 | Gate A | `PASS=34 FAIL=0 SKIP=1` | 310 |
-| A-hw | `PASS=11 FAIL=0` | 310 |
+| A-hw | `PASS=14 FAIL=0` | 323 |
 | GPU loader defaults | `PASS=9 FAIL=0 SKIP=0` | 310 |
 | dpkg 记录 | 807 个 installed 包 / 807 个 `.list` | 308 |
 | locale | `LANG=zh_CN.UTF-8`，413 个 zh_CN `.mo` | 308 |
@@ -59,16 +59,17 @@ Gate A 的唯一 SKIP 是离线树没有 apt package index。没有把 SKIP 计�
 | 设备类 | 分类 | guest 接口 | 当前实测 |
 |---|---|---|---|
 | GPU | 直连 | `/dev/mali0`，PanVK + Zink | Mali-G77 MC9 枚举、compute、离屏 graphics、EGL/GL；Adreno/KGSL 仅源码与主机侧测试，真机 UNKNOWN |
-| 相机 | 中转 | V4L2 `/dev/videoN` facade | 2026-11-27 复验：A-hw 11/0；前后摄各 3 帧 1280×720 NV12；V4L2/GStreamer fixture 两档通过；crop/selection 与 monotonic PTS 已验；DMABUF、通用 controls、非整帧裁剪未支持 |
+| 相机 | 中转 | V4L2 `/dev/videoN` facade | 2026-11-27 复验：A-hw 14/0；前后摄各 3 帧 1280×720 NV12；V4L2/GStreamer fixture 两档通过；crop/selection 与 monotonic PTS 已验；DMABUF、通用 controls、非整帧裁剪未支持 |
 | 音频 | 中转 | PulseAudio → Rust relay → AAudio | 输出与采集真实 PCM；采集探针 196,608 bytes、`peak=285` |
 | 视频解码 | 中转 | VA-API → bridge → MediaCodec | H.264 1080p30 连续 600 秒，`dropped=0` |
 | 传感器 | 中转 | IIO sysfs 影子树 ← `ASensorManager_*` | 加速度、磁力、陀螺仪、环境光、距离五类可读；`iio-sensor-proxy` 已发布 `net.hadess.SensorProxy`，三项 Claim 与 `monitor-sensor` 真机通过（evidence 322） |
+| 定位 | 中转（仅 last-known） | gpsd JSON → `/run/husk/gps.sock` ← `LocationManager.getLastKnownLocation()` | `VERSION` / `DEVICES` / `WATCH` / `POLL` / `TPV` 真机通过；撤权后缓存 FIX 清空且只回 `mode=1`；持续定位、后台定位、GNSS 原始测量 UNVERIFIED（evidence 323） |
 | 显示 | 应用侧中转 | AHB → dma-buf → SurfaceControl | 3-buffer ring 与真实 `SYNC_FD` 跑到 10,000 帧；只覆盖应用侧接管段 |
 | 输入 | 窗口层 | Android 输入 → 宿主 window/X11 | bridge 已实现；端到端依赖宿主窗口系统 |
-| 定位 / USB / 蓝牙 | 权限或厂商限制 | 需要 Java 回调/Intent | 当前 `hasCode=false`，需要极小 Java 垫片或明确子集 |
+| USB / 蓝牙 | 权限或厂商限制 | 需要 Java 回调/Intent | 当前 `hasCode=false`，需要极小 Java 垫片或明确子集 |
 | NFC / 指纹 | 不需要 | 无标准 POSIX 等价接口 | 不应为 Linux 用户态伪造 |
 
-“直连”只用于 GPU。相机、音频、视频和传感器都是明确的中转；不能写成“全部直连”。
+“直连”只用于 GPU。相机、音频、视频、传感器和定位都是明确的中转；不能写成“全部直连”。
 
 ## 5. GPU
 
@@ -129,7 +130,7 @@ ls: files/rootfs-full/usr/lib/xorg/Xorg: No such file or directory
 
 - 16 KiB / 64 KiB 页真机；当前只有 QEMU 证据。
 - Adreno/KGSL、其他 Android 版本、其他厂商 seccomp/SELinux 策略。
-- 定位、USB、蓝牙的完整链路。
+- 持续定位、后台定位、GNSS 原始测量；USB、蓝牙的完整链路。
 - 相机 DMABUF、通用 V4L2 controls、非整帧裁剪、真实 Camera2 的 GStreamer PTS、跨进程假 fd。
 - 窗口内容到 X server 的零拷贝。
 - 长时间负载型 soak；现有 30 分钟为空载，GPU 有 300 秒并发探针。

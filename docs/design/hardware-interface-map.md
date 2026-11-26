@@ -18,20 +18,20 @@ Husk 的目标不是给某个 Linux 应用单独开洞，而是把 Android 宿�
 | 能力 | 分类 | guest 接口 | Android 后端 | 当前状态 |
 |---|---|---|---|---|
 | GPU | 直连 | `/dev/mali0` + Vulkan/EGL | PanVK + Zink（Mali/kbase） | Mali-G77 已真机验证；Adreno/KGSL 仅有适配代码，真机 UNKNOWN |
-| 相机 | 中转 | V4L2 `/dev/videoN` facade | Camera2 NDK / `AImageReader` | 2026-11-27 复验：A-hw 11/0，前后摄各 3 帧 1280×720 NV12；fixture 的 V4L2/GStreamer 两档通过；crop/selection 与 monotonic PTS 已验；DMABUF、通用 controls、非整帧裁剪未支持 |
+| 相机 | 中转 | V4L2 `/dev/videoN` facade | Camera2 NDK / `AImageReader` | 2026-11-27 复验：A-hw 14/0，前后摄各 3 帧 1280×720 NV12；fixture 的 V4L2/GStreamer 两档通过；crop/selection 与 monotonic PTS 已验；DMABUF、通用 controls、非整帧裁剪未支持 |
 | 音频输出 | 中转 | PulseAudio | Rust relay → AAudio | 真实 PCM 输出已验证 |
 | 音频采集 | 中转 | PulseAudio source | Rust relay → AAudio | 196,608 PCM bytes、peak=285 已验证 |
 | 视频解码 | 中转 | VA-API | Rust VA driver → MediaCodec | H.264 1080p30 600 秒，dropped=0 |
 | 传感器 | 中转 | IIO sysfs 影子树 | NDK `ASensorManager_*` | 加速度、磁力、陀螺仪、环境光、距离五类可读；`iio-sensor-proxy` 的 `net.hadess.SensorProxy`、三项 Claim 与 `monitor-sensor` 已在参考机通过（evidence 322） |
 | 显示 | 应用侧中转 | AHB / dma-buf | `SurfaceControl` | 3-buffer ring 与 `SYNC_FD` 10,000 帧；仅代表应用侧接管段 |
 | 输入 | 窗口层 | 宿主 window/X11 事件 | Android 输入事件 | bridge 已实现；端到端依赖宿主窗口系统 |
-| 定位 | 权限或厂商限制 | Location 接口（候选） | Java `LocationManager` | 持续定位需要 Java 回调类；可接受 last-known 子集或加最小垫片 |
+| 定位 | 中转（仅 last-known） | gpsd JSON over Unix socket | `LocationManager.getLastKnownLocation()` | `/run/husk/gps.sock` 已提供 `VERSION`/`DEVICES`/`WATCH`/`POLL`/`TPV`；`/run/gpsd.sock` 在未被占用时指向它；撤权后清空 FIX 并返回 mode=1；持续定位、后台定位、GNSS 原始测量 UNVERIFIED |
 | USB | 权限或厂商限制 | libusb（候选） | `UsbManager` + Intent | 首次授权需要广播接收器；需要最小 Java 垫片 |
 | 蓝牙 | 权限或厂商限制 | BlueZ（候选） | `BluetoothAdapter` | Android 12+ 权限与回调模型需要 Java 垫片 |
 | NFC | 不需要 | — | 前台 Activity tag dispatch | 没有可复用的标准 POSIX NFC 设备接口 |
 | 指纹 | 不需要 | — | `BiometricPrompt` | 认证绑定可见 Activity，guest 没有可复用的凭据流 |
 
-**直连只有 GPU。** 相机、音频、视频、传感器和显示都是中转。不能宣传成“全部直连”。
+**直连只有 GPU。** 相机、音频、视频、传感器、定位和显示都是中转。不能宣传成“全部直连”。
 
 ## 2. GPU 直连
 
@@ -100,8 +100,13 @@ PRoot 树的 socket 算进 Husk。证据见 evidence 312。
 
 ## 5. 定位、USB、蓝牙、NFC、指纹
 
-- **定位、USB、蓝牙**方向上是中转，但 Android API 需要 Java listener、Intent 或广播接收器。
-  当前 App 保持 `hasCode=false`，因此要么增加一个极小的 Java 类，要么明确只支持功能子集。
+- **定位**使用不需要自定义 Java 类的 last-known 子集：App 轮询 `network` / `fused` / `gps`
+  三个 provider 的 `getLastKnownLocation()`，把最新点发布成 gpsd JSON。guest 默认使用
+  `/run/husk/gps.sock`；`/run/gpsd.sock` 未被真实 daemon 占用时会指向它。socket 位于应用私有
+  目录，避免无认证 TCP 让同机其他应用读取位置。撤销权限会同时清空内存 FIX，客户端只能看到
+  `mode=1`。持续回调、后台定位、GNSS 原始测量没有实现。
+- **USB、蓝牙**方向上是中转，但 Android API 需要 Intent、广播接收器或回调。当前 App 保持
+  `hasCode=false`，因此要么增加一个极小的 Java 类，要么明确只支持功能子集。
 - **NFC、指纹**归类为不需要。它们依赖前台 Activity 的可见交互或安全认证语义，Linux 用户态
   没有可复用的标准设备接口。
 

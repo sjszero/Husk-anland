@@ -118,7 +118,7 @@ fn husk_state(class: &str) -> (&'static str, &'static str) {
         ),
         "platform-peripherals" => (
             "degraded",
-            "GPS / USB / Bluetooth require a minimal Java callback shim; NFC and fingerprint are intentionally not mapped",
+            "location last-known is bridged to gpsd over a private Unix socket; continuous GNSS is UNVERIFIED; USB host and Bluetooth callbacks still require a minimal Java shim; NFC and fingerprint are intentionally not mapped",
         ),
         _ => ("unknown", "unclassified"),
     }

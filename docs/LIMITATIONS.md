@@ -86,10 +86,11 @@ GPU 表面 -> CPU 回读 -> X server / SHM 拷贝 -> 应用侧 AHB -> 屏幕
 | 音频 | 中转 | PulseAudio → Rust relay → AAudio；无 `/dev/snd` |
 | 视频解码 | 中转 | VA-API → MediaCodec；只覆盖 H.264 已验证路径 |
 | 传感器 | 中转 | NDK → IIO 影子树 → `iio-sensor-proxy`；D-Bus 输出已在参考机验证，当前只映射五类默认传感器 |
-| 定位 / USB / 蓝牙 | 权限或厂商限制 | 需要 Java 回调或明确功能子集 |
+| 定位 | 中转（仅 last-known） | `LocationManager.getLastKnownLocation()` → gpsd JSON；持续定位、后台定位、GNSS 原始测量未实现 |
+| USB / 蓝牙 | 权限或厂商限制 | 仍需要 Java 回调或明确功能子集 |
 | NFC / 指纹 | 不需要 | 没有可复用的标准 Linux 设备语义 |
 
-“直连”只对 GPU 成立。相机、音频、视频和传感器都是中转。
+“直连”只对 GPU 成立。相机、音频、视频、传感器和定位都是中转；定位当前只有 last-known 子集。
 
 ## 7. 安装与升级
 
@@ -146,7 +147,8 @@ Termux 不是交付形态。Husk 的用户态二进制、库、安装路径和 A
 ## 11. 仍需补测的项目
 
 - 相机 DMABUF、V4L2 controls、跨进程假 fd；
-- 定位、USB、蓝牙；
+- 持续定位、后台定位、GNSS 原始测量；
+- USB、蓝牙；
 - 窗口内容到 X server 的 dma-buf 直传；
 - 负载型长稳和更多 GPU 应用；
 - 16K/64K 页真机与 Adreno 真机。

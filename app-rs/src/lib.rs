@@ -20,6 +20,7 @@ mod caps;
 mod encoder;
 mod gl;
 mod input;
+mod location;
 mod permissions;
 mod sensors;
 mod surface;
@@ -668,6 +669,7 @@ pub unsafe extern "C" fn ANativeActivity_onCreate(
     audio::start_once();
     camera::start_once();
     sensors::start_once();
+    location::start_once();
     input::start_once();
     encoder::start_once();
     video::start_once();
