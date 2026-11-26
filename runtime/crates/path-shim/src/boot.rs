@@ -929,6 +929,13 @@ pub unsafe extern "C" fn nr_boot(
     //    embedded object has no .init_array of its own that the loader would run.
     crate::install_sigsys();
 
+    // 3b. Fake identity is process state read by getuid()/getgid(). Seed it
+    // before constructors or guest threads exist so the reporting path never
+    // performs lazy initialization and cannot deadlock against itself in a
+    // signal handler. This must stay after step 1: `env_lookup` reaches
+    // `environ` through an external slot that is unresolved before then.
+    crate::seed_fake_identity();
+
     // 4. start at the guest root, not at the host directory the app launcher
     //    picked (see set_guest_cwd).
     crate::set_guest_cwd();

@@ -703,7 +703,9 @@ fn probe_sigsys_semantics() {
                 0 as c_long,
                 8 as c_long,
             );
-            crate::log(&format!("probe: rt_sigaction ret={r}"));
+            // fork() copied a multithreaded process. Do not log/allocate in
+            // the child; the parent reports the probe's exit status below.
+            let _ = r;
             let code = syscall(437, 0 as c_long, 0 as c_long, 0 as c_long, 0 as c_long);
             _exit(if code < 0 { 43 } else { 44 });
         }

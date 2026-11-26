@@ -155,6 +155,13 @@ fn spawn_guard(libdir: &str, rootfs: &str, session_id: &str) -> Option<(i32, i32
         CString::new("ANDROID_ROOT=/system").ok()?,
         CString::new("ANDROID_DATA=/data").ok()?,
     ];
+    // The App is multithreaded. Build both pointer arrays before fork() just
+    // like the guest leader path; collecting them in the child can block on the
+    // allocator lock held by another thread.
+    let mut guard_argv: Vec<*const core::ffi::c_char> = argv_s.iter().map(|c| c.as_ptr()).collect();
+    guard_argv.push(core::ptr::null());
+    let mut guard_env: Vec<*const core::ffi::c_char> = env_s.iter().map(|c| c.as_ptr()).collect();
+    guard_env.push(core::ptr::null());
     let mut lease = [0 as c_int; 2];
     let mut ready = [0 as c_int; 2];
     if unsafe { pipe(lease.as_mut_ptr()) } != 0 {
@@ -197,13 +204,7 @@ fn spawn_guard(libdir: &str, rootfs: &str, session_id: &str) -> Option<(i32, i32
                 }
                 fd += 1;
             }
-            let mut argv: Vec<*const core::ffi::c_char> =
-                argv_s.iter().map(|c| c.as_ptr()).collect();
-            argv.push(core::ptr::null());
-            let mut envp: Vec<*const core::ffi::c_char> =
-                env_s.iter().map(|c| c.as_ptr()).collect();
-            envp.push(core::ptr::null());
-            execve(guard_c.as_ptr(), argv.as_ptr(), envp.as_ptr());
+            execve(guard_c.as_ptr(), guard_argv.as_ptr(), guard_env.as_ptr());
             _exit(127);
         }
     }

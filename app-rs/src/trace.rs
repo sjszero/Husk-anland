@@ -117,6 +117,12 @@ pub fn spy(loader: &str, libdir: &str, rootfs: &str) {
         return;
     }
     let slave = unsafe { CStr::from_ptr(ptname.as_ptr()) }.to_owned();
+    // Build pointer arrays before fork(). The diagnostic child must not use
+    // Vec/String allocation after duplicating a multithreaded App.
+    let mut argv_ptrs: Vec<*const c_char> = argv_s.iter().map(|c| c.as_ptr()).collect();
+    argv_ptrs.push(core::ptr::null());
+    let mut env_ptrs: Vec<*const c_char> = env_s.iter().map(|c| c.as_ptr()).collect();
+    env_ptrs.push(core::ptr::null());
     let pid = unsafe { fork() };
     if pid == 0 {
         unsafe {
@@ -139,11 +145,7 @@ pub fn spy(loader: &str, libdir: &str, rootfs: &str) {
                 chdir(r.as_ptr());
             }
             ptrace(PTRACE_TRACEME, 0 as c_long, 0 as c_long, 0 as c_long);
-            let mut argv: Vec<*const c_char> = argv_s.iter().map(|c| c.as_ptr()).collect();
-            argv.push(core::ptr::null());
-            let mut envp: Vec<*const c_char> = env_s.iter().map(|c| c.as_ptr()).collect();
-            envp.push(core::ptr::null());
-            execve(loader_c.as_ptr(), argv.as_ptr(), envp.as_ptr());
+            execve(loader_c.as_ptr(), argv_ptrs.as_ptr(), env_ptrs.as_ptr());
             _exit(127);
         }
     }

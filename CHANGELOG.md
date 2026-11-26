@@ -11,6 +11,10 @@
 
 ### 修复
 
+- **App 所有 fork 子路径改为后 fork 零分配**（evidence 265）。上一轮只覆盖了 guest PTY
+  leader；会话 guard 仍在子进程用 `.collect()` 建 `argv`/`envp`，SIGSYS 启动自检在子进程
+  `format!`/写日志，trace 诊断子进程也重新分配两个 `Vec`。现在三条路径都在 `fork()` 前
+  准备参数，静态门禁同时扫描四条子路径；APK 已重新构建成功。
 - **补充组不再只报主组**（evidence 260）。`getgroups()` 现在从 guest 的 `/etc/passwd` 和
   `/etc/group` 建立进程组表，`setgroups()` 替换组表，`initgroups()` 按用户名重建；组位权限和
   `access/faccessat` 也按补充组判断。真机结果：`setgroups([4242])` 后 `getgroups()` 为
@@ -25,6 +29,12 @@
   `profile.d` 与 `husk-desktop.sh` 使用同一规则，并新增无需设备的 shell 语义测试。
 
 ### 验证
+
+- **身份初始化从运行期改成 boot 单写者**（evidence 264）。`NR_FAKE_UID/GID`
+  在 `nr_boot` 的构造器之前一次播种，`getuid/getgid` 不再懒初始化，也不再有多个
+  线程互相覆盖启动种子的窗口。身份登记锁改成记录 owner TID，信号处理器在同一线程
+  重入 `getuid/getgid` 时不会自旋自锁。身份压力探针同时高频调用
+  `getuid/getgid` 并接入门禁 A；动态探针不能证明旧实现必现，只作为回归门禁。
 
 - **App 直接 PTY 的 locale 和 fork 安全**（evidence 263）。`Term::spawn()` 不再在
   `execve()` 前硬编码 `LANG=C.UTF-8`，而是和 shell session 共用 Rust locale 选择器；

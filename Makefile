@@ -130,7 +130,7 @@ bench:
 	@$(MAKE) --no-print-directory tools
 	$(HUSK_TOOLS) bench-compare docs/design/evidence/bench-*-il.log
 
-# 门禁 A = 38 项验收 + 覆盖度探针 + 补充组/session locale/最终 symlink 竞态真机回归。
+# 门禁 A = 38 项验收 + 覆盖度探针 + 补充组/session locale/身份初始化/rootfd/最终 symlink 真机回归。
 # 探针单列一步，因为 locale 看 env -i 后的真实值，竞态看宿主哨兵是否被改动。
 gate-a:
 	DEV=$${DEV:?} PKG=$${PKG:-com.linuxhub.myth.husk} \
@@ -151,7 +151,18 @@ gate-a:
 		sh tools/device-tests/run-session-locale-probe.sh
 	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.myth.husk} \
 		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} LD=$${LD:-files/linux/husk/libld.so} \
+		sh tools/device-tests/run-identity-init-race-probe.sh
+	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.myth.husk} \
+		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} LD=$${LD:-files/linux/husk/libld.so} \
+		sh tools/device-tests/run-rootfd-close-range-probe.sh
+	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.myth.husk} \
+		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-path-race-probe.sh
+
+rootfd-race:
+	DEV=$${DEV:?} PKG=$${PKG:-com.linuxhub.myth.husk} \
+		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} LD=$${LD:-files/linux/husk/libld.so} \
+		sh tools/device-tests/run-rootfd-close-range-probe.sh
 
 virt-race:
 	@test -n "$${DEV:-}" || { echo "set DEV=<serial> and the device paths" >&2; exit 1; }

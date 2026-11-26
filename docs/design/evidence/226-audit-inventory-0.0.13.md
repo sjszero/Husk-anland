@@ -57,6 +57,8 @@
 | H-49 | 会话形态 | `husk-desktop.sh` 与 `/etc/profile.d/husk-locale.sh` 重复了同一个 `LANGUAGE` 覆盖错误，修了 session 仍会在登录 shell/桌面侧复现 | 261 |
 | H-50 | App PTY | App 直接启动 `Term::spawn()` 绕过 `husk-session.sh`，并在 `execve()` 前硬编码 `LANG=C.UTF-8`；rootfs 有中文 locale 时仍可能拿到英文 | 263 |
 | H-51 | App PTY | `Term::spawn()` 在 `fork()` 后的子进程里构建 `argv`/`envp` 的 `Vec`；多线程 App 下可能卡在分配器锁，无法到达 `execve` | 263 |
+| H-52 | 用户身份 | `fake_id()` 的首次初始化不是单写者：并发 `getuid`/`setuid` 时，晚完成的线程可用启动 `NR_FAKE_UID/GID` 覆盖已发布的新身份 | 264 |
+| H-53 | App fork | fork 安全静态门禁只覆盖主 PTY；会话 guard、SIGSYS 自检和 trace 子进程仍在 fork 后分配 `Vec`/字符串，可能卡在 allocator 锁 | 265 |
 
 ## 2 · 记录在案、不修或不完全修的（L）
 

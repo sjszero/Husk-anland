@@ -6023,11 +6023,6 @@ unsafe fn log_id(name: &[u8], v: i64) {
 /// proot-only patch we want to delete. So the fiction follows the calls, and
 /// NR_FAKE_UID / NR_FAKE_GID seed it for a launcher that starts as the user.
 static FAKE_ID: AtomicU64 = AtomicU64::new(0);
-/// 「env 里的 NR_FAKE_UID/GID 已经读过了」的发布位。原来是 `static mut u8`，
-/// 而且**先置位再写值**：两个线程同时进 `fake_id()` 时，后进的那个会看到
-/// 「已就绪」却读到还没写的 0，于是把 root 身份报错（每个进程的第一批 stat
-/// 就打在这条路径上）。改成 Release/Acquire 发布、先写值后置位。
-static FAKE_ID_READY: AtomicU8 = AtomicU8::new(0);
 
 // Supplementary groups are part of the process identity too. Android gives
 // every app a fixed set of host groups (input, log, sdcard_rw, ...); those must
@@ -6085,31 +6080,31 @@ unsafe fn fake_id_update(uid: Option<u32>, gid: Option<u32>) -> (u32, u32) {
         }
     }
     let now = unpack_fake_id(FAKE_ID.load(Ordering::Acquire));
-    ident_sync(now.0, now.1);
+    ident_sync();
     now
 }
 
+/// Seed the process-wide identity once, from the loader's original environment.
+/// `nr_boot` calls this before any constructor or guest thread exists. Keeping
+/// lazy initialization out of `getuid()`/`getgid()` means a signal handler can
+/// never interrupt the first identity lookup while that same thread holds the
+/// initialization path.
+pub(crate) unsafe fn seed_fake_identity() {
+    let (uid, gid) = unpack_fake_id(FAKE_ID.load(Ordering::Acquire));
+    let uid = match env_lookup(b"NR_FAKE_UID") {
+        Some(v) => parse_dec(v),
+        None => uid,
+    };
+    let gid = match env_lookup(b"NR_FAKE_GID") {
+        Some(v) => parse_dec(v),
+        None => gid,
+    };
+    FAKE_ID.store(pack_fake_id(uid, gid), Ordering::Release);
+}
+
 unsafe fn fake_id() -> (u32, u32) {
-    if FAKE_ID_READY.load(Ordering::Acquire) == 0 {
-        // 先算完、写完，再发布「就绪」；两个线程同时进来最多重复解析一次，
-        // 结果一样，但不会有人读到半截。
-        let u = match env_lookup(b"NR_FAKE_UID") {
-            Some(v) => Some(parse_dec(v)),
-            None => None,
-        };
-        let g = match env_lookup(b"NR_FAKE_GID") {
-            Some(v) => Some(parse_dec(v)),
-            None => None,
-        };
-        let (uid, gid) = unpack_fake_id(FAKE_ID.load(Ordering::Acquire));
-        FAKE_ID.store(
-            pack_fake_id(u.unwrap_or(uid), g.unwrap_or(gid)),
-            Ordering::Release,
-        );
-        FAKE_ID_READY.store(1, Ordering::Release);
-    }
     let id = unpack_fake_id(FAKE_ID.load(Ordering::Acquire));
-    ident_sync(id.0, id.1);
+    ident_sync();
     id
 }
 
@@ -15887,7 +15882,9 @@ unsafe fn ident_note(tag: u8, pid: CInt, a: i64, b: i64) {
 // A process publishes on the first call that reports its identity; receivers
 // read that first and fall back to environ for the not-yet-published window.
 static IDENT_PUB: AtomicU64 = AtomicU64::new(u64::MAX);
-static IDENT_PUB_LOCK: AtomicBool = AtomicBool::new(false);
+/// Owning TID, or zero. Unlike a boolean lock, a signal handler running on the
+/// owner thread can detect re-entry and return instead of spinning forever.
+static IDENT_PUB_LOCK: AtomicI32 = AtomicI32::new(0);
 
 unsafe fn ident_path(pid: CInt, out: &mut [u8; 512], dir_only: bool) -> Option<usize> {
     let root = guest_root();
@@ -15975,21 +15972,40 @@ unsafe fn ident_publish(uid: u32, gid: u32) {
     rc::close(fd as CInt);
 }
 
-/// Publish only when the reported identity changed (a launcher seeds it once,
-/// `su` changes it mid-life).
-unsafe fn ident_sync(uid: u32, gid: u32) {
-    let packed = pack_fake_id(uid, gid);
-    while IDENT_PUB_LOCK
-        .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
-        .is_err()
-    {
-        core::hint::spin_loop();
+/// Publish only when the current identity changed (a launcher seeds it once,
+/// `su` changes it mid-life). Re-entry from a signal handler on the owner thread
+/// is a no-op: the interrupted frame observes the latest `FAKE_ID` and publishes
+/// it before releasing the lock.
+unsafe fn ident_sync() {
+    let tid = syscall4(SYS_GETTID, 0, 0, 0, 0) as i32;
+    loop {
+        let owner = IDENT_PUB_LOCK.load(Ordering::Acquire);
+        if owner == 0 {
+            if IDENT_PUB_LOCK
+                .compare_exchange(0, tid, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                break;
+            }
+        } else if owner == tid {
+            return;
+        } else {
+            core::hint::spin_loop();
+        }
     }
-    if IDENT_PUB.load(Ordering::Acquire) != packed {
+    loop {
+        let packed = FAKE_ID.load(Ordering::Acquire);
+        if IDENT_PUB.load(Ordering::Acquire) == packed {
+            break;
+        }
+        let (uid, gid) = unpack_fake_id(packed);
         ident_publish(uid, gid);
         IDENT_PUB.store(packed, Ordering::Release);
+        if FAKE_ID.load(Ordering::Acquire) == packed {
+            break;
+        }
     }
-    IDENT_PUB_LOCK.store(false, Ordering::Release);
+    IDENT_PUB_LOCK.store(0, Ordering::Release);
 }
 
 unsafe fn ident_from_registry(pid: CInt) -> Option<(u32, u32)> {
