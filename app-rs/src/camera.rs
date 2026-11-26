@@ -582,6 +582,17 @@ struct Selftest {
     camera: Option<String>,
 }
 
+/// `AImage_getTimestamp` reports nanoseconds since boot. Return the frame
+/// cadence and timestamp span without ever dividing by a zero/invalid span.
+fn selftest_timing(frame_count: usize, first_ts_ns: i64, last_ts_ns: i64) -> (f64, f64) {
+    let span_ns = last_ts_ns.saturating_sub(first_ts_ns);
+    if frame_count < 2 || span_ns <= 0 {
+        return (0.0, 0.0);
+    }
+    let fps = (frame_count - 1) as f64 * 1_000_000_000.0 / span_ns as f64;
+    (fps, span_ns as f64 / 1_000_000.0)
+}
+
 /// One open camera pipeline: device, capture session, ImageReader and the
 /// repeating request. `next_frame` is the only frame source both the self-test
 /// and the socket server use, so there is exactly one conversion path.
@@ -800,18 +811,32 @@ unsafe fn run_selftest(
             }
         }
     }
-    let elapsed_us = (last_ts - first_ts).max(1) as f64;
-    let fps = if selftest.saved > 1 {
-        (selftest.saved - 1) as f64 * 1_000_000.0 / elapsed_us
-    } else {
-        0.0
-    };
+    let (fps, span_ms) = selftest_timing(selftest.saved, first_ts, last_ts);
     crate::log(&format!(
-        "camera|selftest|DONE|frames={}|fps={fps:.2}|elapsed_ms={}",
+        "camera|selftest|DONE|frames={}|fps={fps:.2}|span_ms={:.2}|elapsed_ms={}",
         selftest.saved,
+        span_ms,
         started.elapsed().as_millis()
     ));
     session.close(api);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::selftest_timing;
+
+    #[test]
+    fn selftest_timing_uses_nanosecond_timestamps() {
+        let (fps, span_ms) = selftest_timing(10, 1_000_000_000, 1_300_000_000);
+        assert!((fps - 30.0).abs() < 0.001, "fps={fps}");
+        assert!((span_ms - 300.0).abs() < 0.001, "span_ms={span_ms}");
+    }
+
+    #[test]
+    fn selftest_timing_rejects_invalid_span() {
+        assert_eq!(selftest_timing(10, 2_000, 2_000), (0.0, 0.0));
+        assert_eq!(selftest_timing(1, 1_000, 2_000), (0.0, 0.0));
+    }
 }
 
 // ---------------------------------------------------------------------------

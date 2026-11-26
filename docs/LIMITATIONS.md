@@ -220,7 +220,7 @@ socket 协议，数据在应用侧过一次。逐类理由见
 | 硬件视频解码（平台 MediaCodec，应用侧） | 中转 | 有实测链路，未产品化 | evidence 80 |
 | guest 内 VA-API 全链（播放器直接用） | 中转 | 部分 | evidence 81–87 |
 | 视频编码（VA-API encode） | 中转（未做） | 未做 | — |
-| 相机（V4L2 `/dev/videoN` facade + Camera2 NDK + 平台编码） | 中转 | 有实测链路；`open()` 是 memfd，不支持 DMABUF / read / controls，约 15–17 fps | evidence 91–93、240 |
+| 相机（V4L2 `/dev/videoN` facade + Camera2 NDK + 平台编码） | 中转 | 有实测链路；`open()` 是 memfd，NV12/YUYV 的 `read`/`readv` 与 mmap 均可用；不支持 DMABUF / controls。真实 Camera2 上 read/readv 约 9 fps，mmap 约 11.7 fps | evidence 91–93、240、282 |
 | 音频（PulseAudio → `audio-relay` → AAudio） | 中转 | 可用，非长稳；本轮播放 1 次 xrun、平均 121.667 ms，采集协议通过但未做声学质量测试；guest 里 `/dev/snd` 打不开 | evidence 62、231 |
 | 输入注入（触摸/键盘） | 窗口层 | 全屏点击与双客户端已验证；`adb input swipe` 的 XI 事件仍是 UNKNOWN；指针默认是 trackpad 语义，2.0 侧的 `touchMode` 默认值未在本仓库改；**拖动窗口失效**（见 §10） | evidence 148、180、203、230 |
 | 传感器、GPS、USB、蓝牙、NFC | 未做 | 未开始：这几类既开不到节点，NDK 也没有对应平台 API | — |

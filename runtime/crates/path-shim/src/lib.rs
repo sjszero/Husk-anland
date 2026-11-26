@@ -11791,6 +11791,7 @@ pub unsafe extern "C" fn euidaccess(path: *const CChar, mode: CInt) -> CInt {
 // entry points are answered here, straight out of the rootfs.
 
 const SYS_READ: usize = 63;
+const SYS_READV: usize = 65;
 const ERANGE: CInt = 34;
 const O_RDONLY: CInt = 0;
 
@@ -13165,6 +13166,39 @@ pub unsafe extern "C" fn ioctl(fd: CInt, request: u64, arg: *mut u8) -> CInt {
     ))
 }
 
+/// V4L2 read() streaming. A camera fd is a memfd only so that dup/close/fstat
+/// have real kernel semantics; read() has to be routed to the frame protocol or
+/// it would silently return EOF from that memfd.
+#[no_mangle]
+pub unsafe extern "C" fn read(fd: CInt, out: *mut u8, count: CSizet) -> Ssize {
+    if v4l2_is_fake(fd) {
+        v4l2_api_audit(16, b"[husk v4l2] core read\n");
+        v4l2_lock();
+        let r = V4L2_CTX.read_frame(fd, out, count);
+        v4l2_unlock();
+        return ssize_or_errno(r);
+    }
+    ssize_or_errno(syscall4(SYS_READ, fd as usize, out as usize, count, 0))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn readv(fd: CInt, iov: *mut u8, iovcnt: CInt) -> Ssize {
+    if v4l2_is_fake(fd) {
+        v4l2_api_audit(32, b"[husk v4l2] core readv\n");
+        v4l2_lock();
+        let r = V4L2_CTX.readv_frame(fd, iov, iovcnt);
+        v4l2_unlock();
+        return ssize_or_errno(r);
+    }
+    ssize_or_errno(syscall4(
+        SYS_READV,
+        fd as usize,
+        iov as usize,
+        iovcnt as usize,
+        0,
+    ))
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mmap(
     addr: *mut u8,
@@ -13400,8 +13434,10 @@ unsafe fn v4l2_is_fake(fd: CInt) -> bool {
     let fake = if let Some(t) = v4l2_api() {
         let f: V4l2IsFake = core::mem::transmute(*t.add(3));
         f(fd) != 0
+    } else if V4L2_STATE.load(Ordering::Acquire) != 2 {
+        false
     } else {
-        v4l2_ready() && V4L2_CTX.is_video_fd(fd)
+        V4L2_CTX.is_video_fd(fd)
     };
     v4l2_unlock();
     fake

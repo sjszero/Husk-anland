@@ -65,6 +65,7 @@ pub const FRMIVAL_DISCRETE: u32 = 1;
 pub const FIELD_NONE: u32 = 1;
 pub const COLORSPACE_JPEG: u32 = 7;
 pub const CAP_VIDEO_CAPTURE: u32 = 0x1;
+pub const CAP_READWRITE: u32 = 0x0100_0000;
 pub const CAP_STREAMING: u32 = 0x0400_0000;
 pub const CAP_DEVICE_CAPS: u32 = 0x8000_0000;
 pub const CAP_TIMEPERFRAME: u32 = 0x1000;
@@ -77,6 +78,7 @@ pub const FMT_YUYV: u32 = 0x5659_5559;
 const PRIORITY_DEFAULT: u32 = 2;
 const EINVAL: i64 = 22;
 const EACCES: i64 = 13;
+const EBADF: i64 = 9;
 const ENODEV: i64 = 19;
 const EAGAIN: i64 = 11;
 const EBUSY: i64 = 16;
@@ -85,6 +87,7 @@ const EFAULT: i64 = 14;
 const EIO: i64 = 5;
 const BUFFER_OFFSET_SHIFT: u32 = 24;
 const SCRATCH_BYTES: usize = 1920 * 1080 * 3 / 2 + 4096;
+const READV_BYTES: usize = 1920 * 1080 * 2 + 4096;
 
 /// Every guest-facing fd is a memfd whose name carries the device index, so an
 /// fd can be identified from the kernel alone, whoever opened it.
@@ -283,6 +286,7 @@ pub struct Ctx {
     devs: [Dev; MAX_DEVS],
     scratch: *mut u8,
     scratch_len: usize,
+    readv_scratch: *mut u8,
 }
 
 unsafe impl Sync for Ctx {}
@@ -298,6 +302,7 @@ impl Ctx {
             devs: [Dev::new(), Dev::new(), Dev::new(), Dev::new()],
             scratch: core::ptr::null_mut(),
             scratch_len: 0,
+            readv_scratch: core::ptr::null_mut(),
         }
     }
 
@@ -323,6 +328,17 @@ impl Ctx {
         self.scratch = p as *mut u8;
         self.scratch_len = SCRATCH_BYTES;
         Some(self.scratch)
+    }
+
+    unsafe fn readv_scratch(&mut self) -> Option<*mut u8> {
+        if self.readv_scratch.is_null() {
+            let p = syscall6(SYS_MMAP, 0, READV_BYTES, 3, 0x22, usize::MAX, 0);
+            if p < 0 {
+                return None;
+            }
+            self.readv_scratch = p as *mut u8;
+        }
+        Some(self.readv_scratch)
     }
 
     fn dev_of_fd(&mut self, fd: i32) -> Option<usize> {
@@ -851,7 +867,7 @@ impl Ctx {
         }
         st_bytes(arg, 48, &bus[..n]);
         st32(arg, 80, (6 << 16) | (1 << 8));
-        let caps = CAP_VIDEO_CAPTURE | CAP_STREAMING;
+        let caps = CAP_VIDEO_CAPTURE | CAP_READWRITE | CAP_STREAMING;
         st32(arg, 84, caps | CAP_DEVICE_CAPS);
         st32(arg, 88, caps);
         0
@@ -1114,6 +1130,11 @@ impl Ctx {
         if ld32(arg, 0) != BUF_TYPE_VIDEO_CAPTURE || self.devs[i].nbuffers == 0 {
             return -EINVAL;
         }
+        self.open_session(i)
+    }
+
+    /// Start the app-side capture session shared by STREAMON and read().
+    unsafe fn open_session(&mut self, i: usize) -> i64 {
         if self.devs[i].streaming {
             return 0;
         }
@@ -1173,6 +1194,150 @@ impl Ctx {
         }
         self.devs[i].streaming = true;
         0
+    }
+
+    /// V4L2 read() streaming: no REQBUFS/mmap, one frame per call. Mixing read
+    /// with the streaming I/O methods is rejected, matching videodev2's rule.
+    pub unsafe fn read_frame(&mut self, fd: i32, out: *mut u8, count: usize) -> isize {
+        let i = match self.dev_of_fd(fd) {
+            Some(i) => i,
+            None => return -(EBADF as isize),
+        };
+        if out.is_null() {
+            return -(EFAULT as isize);
+        }
+        if self.devs[i].nbuffers != 0 || self.devs[i].memory != 0 {
+            return -(EINVAL as isize);
+        }
+        let need = self.devs[i].size_image() as usize;
+        if count < need {
+            return -(EINVAL as isize);
+        }
+        if !self.devs[i].streaming {
+            let rc = self.open_session(i);
+            if rc < 0 {
+                return rc as isize;
+            }
+        }
+        let nonblock = self.devs[i].nonblock;
+        loop {
+            if !self.send(i, b"FRAME\n") {
+                return -(ENODEV as isize);
+            }
+            let mut line = [0u8; 256];
+            let n = match self.recv_line(i, &mut line) {
+                Some(n) => n,
+                None => return -(EIO as isize),
+            };
+            let l = &line[..n];
+            if starts(l, b"NOFRAME") {
+                if nonblock {
+                    return -(EAGAIN as isize);
+                }
+                continue;
+            }
+            if !starts(l, b"FRAME ") {
+                return -(EIO as isize);
+            }
+            let bytes = field(l, b"bytes=").and_then(parse_u32).unwrap_or(0) as usize;
+            let fw = field(l, b"w=")
+                .and_then(parse_u32)
+                .unwrap_or(self.devs[i].w);
+            let fh = field(l, b"h=")
+                .and_then(parse_u32)
+                .unwrap_or(self.devs[i].h);
+            let (fourcc, w, h) = {
+                let d = &self.devs[i];
+                (d.fourcc, fw.min(d.w), fh.min(d.h))
+            };
+            if bytes == 0 || w == 0 || h == 0 || bytes > count {
+                return -(EIO as isize);
+            }
+            if fourcc == FMT_YUYV {
+                let dst_len = w as usize * h as usize * 2;
+                if dst_len > count {
+                    return -(EINVAL as isize);
+                }
+                let src = match self.scratch() {
+                    Some(p) if bytes <= self.scratch_len => p,
+                    _ => return -(EIO as isize),
+                };
+                if !self.recv_exact(i, src, bytes) {
+                    return -(EIO as isize);
+                }
+                nv12_to_yuyv(src, out, w as usize, h as usize, dst_len);
+                return dst_len as isize;
+            }
+            if !self.recv_exact(i, out, bytes) {
+                return -(EIO as isize);
+            }
+            return bytes as isize;
+        }
+    }
+
+    /// Scatter one read()-streaming frame across the caller's iovec. The fake
+    /// camera fd is a memfd, so allowing glibc's readv() to reach it would
+    /// silently return EOF instead of a frame.
+    pub unsafe fn readv_frame(&mut self, fd: i32, iov: *mut u8, iovcnt: i32) -> isize {
+        let i = match self.dev_of_fd(fd) {
+            Some(i) => i,
+            None => return -(EBADF as isize),
+        };
+        if iov.is_null() {
+            return -(EFAULT as isize);
+        }
+        if iovcnt <= 0 || iovcnt > 1024 {
+            return -(EINVAL as isize);
+        }
+
+        let mut total = 0usize;
+        let mut k = 0usize;
+        while k < iovcnt as usize {
+            let entry = iov.add(k * 16);
+            let base = ld64(entry, 0);
+            let len = ld64(entry, 8);
+            if len != 0 && base == 0 {
+                return -(EFAULT as isize);
+            }
+            total = match total.checked_add(len as usize) {
+                Some(v) => v,
+                None => return -(EINVAL as isize),
+            };
+            k += 1;
+        }
+
+        let d = &self.devs[i];
+        let need = if d.fourcc == FMT_YUYV {
+            d.w as usize * d.h as usize * 2
+        } else {
+            d.size_image() as usize
+        };
+        if total < need {
+            return -(EINVAL as isize);
+        }
+        let scratch = match self.readv_scratch() {
+            Some(p) => p,
+            None => return -(EIO as isize),
+        };
+        let n = self.read_frame(fd, scratch, READV_BYTES);
+        if n < 0 {
+            return n;
+        }
+        let n = n as usize;
+        let mut copied = 0usize;
+        k = 0;
+        while k < iovcnt as usize && copied < n {
+            let entry = iov.add(k * 16);
+            let base = ld64(entry, 0) as *mut u8;
+            let len = ld64(entry, 8) as usize;
+            let take = len.min(n - copied);
+            if take != 0 {
+                core::ptr::copy_nonoverlapping(scratch.add(copied), base, take);
+                copied += take;
+            }
+            k += 1;
+        }
+        n as isize
     }
 
     unsafe fn streamoff(&mut self, i: usize, arg: *mut u8) -> i64 {

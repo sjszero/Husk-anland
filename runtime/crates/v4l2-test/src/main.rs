@@ -23,6 +23,8 @@ const ENUM_FRAMESIZES: u64 = 0xc02c_564a;
 
 const BUF_TYPE_VIDEO_CAPTURE: u32 = 1;
 const MEMORY_MMAP: u32 = 1;
+const CAP_READWRITE: u32 = 0x0100_0000;
+const CAP_STREAMING: u32 = 0x0400_0000;
 const FMT_NV12: u32 = 0x3231_564e;
 const FMT_YUYV: u32 = 0x5659_5559;
 
@@ -52,7 +54,269 @@ fn main() {
         "YUYV" => FMT_YUYV,
         _ => FMT_NV12,
     };
-    unsafe { run(&dev, frames, fourcc, &out, width, height) }
+    match args.get(7).map(String::as_str) {
+        Some("read") => unsafe { run_read(&dev, frames, fourcc, &out, width, height) },
+        Some("readv") => unsafe { run_readv(&dev, frames, fourcc, &out, width, height) },
+        Some("contract") => unsafe { run_contract(&dev, fourcc, width, height) },
+        Some("nonblock") => unsafe { run_nonblock(&dev, fourcc, width, height) },
+        _ => unsafe { run(&dev, frames, fourcc, &out, width, height) },
+    }
+}
+
+/// The same facade through V4L2 read() streaming: no REQBUFS, no mmap.
+unsafe fn run_read(dev: &str, frames: usize, fourcc: u32, out: &str, want_w: u32, want_h: u32) {
+    use std::os::unix::ffi::OsStrExt;
+    let cpath = CString::new(std::ffi::OsStr::new(dev).as_bytes()).unwrap();
+    let mut st = std::mem::MaybeUninit::<libc::stat>::zeroed().assume_init();
+    if libc::stat(cpath.as_ptr(), &mut st) != 0 {
+        eprintln!(
+            "v4l2test|FAIL|stat {dev}: {}",
+            std::io::Error::last_os_error()
+        );
+        std::process::exit(1);
+    }
+    let fd = libc::open(cpath.as_ptr(), libc::O_RDWR);
+    if fd < 0 {
+        eprintln!("v4l2test|FAIL|open: {}", std::io::Error::last_os_error());
+        std::process::exit(1);
+    }
+    let mut fmt = [0u8; 208];
+    put_u32(&mut fmt, 0, BUF_TYPE_VIDEO_CAPTURE);
+    put_u32(&mut fmt, 8, want_w);
+    put_u32(&mut fmt, 12, want_h);
+    put_u32(&mut fmt, 16, fourcc);
+    if libc::ioctl(fd, S_FMT as _, fmt.as_mut_ptr()) != 0 {
+        eprintln!("v4l2test|FAIL|S_FMT: {}", std::io::Error::last_os_error());
+        std::process::exit(1);
+    }
+    let (w, h) = (u32_at(&fmt, 8), u32_at(&fmt, 12));
+    let sizeimage = u32_at(&fmt, 28) as usize;
+    println!(
+        "v4l2test|read|setfmt|{w}x{h}|{:08x}|sizeimage={sizeimage}",
+        u32_at(&fmt, 16)
+    );
+    let mut frame = vec![0u8; sizeimage];
+    let started = std::time::Instant::now();
+    for k in 0..frames {
+        let n = libc::read(fd, frame.as_mut_ptr().cast(), frame.len());
+        if n < 0 {
+            eprintln!(
+                "v4l2test|FAIL|read {k}: {}",
+                std::io::Error::last_os_error()
+            );
+            std::process::exit(1);
+        }
+        if n as usize != sizeimage {
+            eprintln!("v4l2test|FAIL|read {k}: {n} != {sizeimage}");
+            std::process::exit(1);
+        }
+        if k == 0 || k + 1 == frames {
+            let min = *frame.iter().min().unwrap();
+            let max = *frame.iter().max().unwrap();
+            let mean = frame.iter().map(|b| *b as u64).sum::<u64>() as f64 / frame.len() as f64;
+            println!("v4l2test|read|frame|{k}|bytes={n}|min={min}|max={max}|mean={mean:.2}");
+        }
+    }
+    let secs = started.elapsed().as_secs_f64().max(0.001);
+    println!(
+        "v4l2test|read|done|frames={frames}|bytes={}|fps={:.2}",
+        sizeimage * frames,
+        frames as f64 / secs
+    );
+    let raw = format!("{out}.read.raw");
+    let _ = std::fs::write(&raw, &frame);
+    if fourcc == FMT_NV12 && frame.len() >= (w * h * 3 / 2) as usize {
+        let ppm = format!("{out}.read.ppm");
+        let _ = std::fs::write(&ppm, nv12_to_ppm(&frame, w as usize, h as usize));
+        println!("v4l2test|read|saved|{raw}|{ppm}");
+    } else {
+        println!("v4l2test|read|saved|{raw}");
+    }
+    libc::close(fd);
+    println!("v4l2test|read|OK");
+}
+
+/// readv() must gather one frame across the caller's iovec. A plain readv on the
+/// backing memfd would return EOF, which is the failure this mode detects.
+unsafe fn run_readv(dev: &str, frames: usize, fourcc: u32, out: &str, want_w: u32, want_h: u32) {
+    use std::os::unix::ffi::OsStrExt;
+    let cpath = CString::new(std::ffi::OsStr::new(dev).as_bytes()).unwrap();
+    let fd = libc::open(cpath.as_ptr(), libc::O_RDWR);
+    if fd < 0 {
+        eprintln!("v4l2test|FAIL|open: {}", std::io::Error::last_os_error());
+        std::process::exit(1);
+    }
+    let mut fmt = [0u8; 208];
+    put_u32(&mut fmt, 0, BUF_TYPE_VIDEO_CAPTURE);
+    put_u32(&mut fmt, 8, want_w);
+    put_u32(&mut fmt, 12, want_h);
+    put_u32(&mut fmt, 16, fourcc);
+    if libc::ioctl(fd, S_FMT as _, fmt.as_mut_ptr()) != 0 {
+        eprintln!("v4l2test|FAIL|S_FMT: {}", std::io::Error::last_os_error());
+        std::process::exit(1);
+    }
+    let (w, h) = (u32_at(&fmt, 8), u32_at(&fmt, 12));
+    let sizeimage = u32_at(&fmt, 28) as usize;
+    let mut frame = vec![0u8; sizeimage];
+    let split1 = 4096.min(sizeimage);
+    let split2 = (split1 + 32768).min(sizeimage);
+    let iov = [
+        libc::iovec {
+            iov_base: frame.as_mut_ptr().cast(),
+            iov_len: split1,
+        },
+        libc::iovec {
+            iov_base: frame.as_mut_ptr().add(split1).cast(),
+            iov_len: split2 - split1,
+        },
+        libc::iovec {
+            iov_base: frame.as_mut_ptr().add(split2).cast(),
+            iov_len: sizeimage - split2,
+        },
+    ];
+    println!(
+        "v4l2test|readv|setfmt|{w}x{h}|{:08x}|sizeimage={sizeimage}|iov=3",
+        u32_at(&fmt, 16)
+    );
+    let started = std::time::Instant::now();
+    for k in 0..frames {
+        let n = libc::readv(fd, iov.as_ptr(), iov.len() as i32);
+        if n < 0 {
+            eprintln!(
+                "v4l2test|FAIL|readv {k}: {}",
+                std::io::Error::last_os_error()
+            );
+            std::process::exit(1);
+        }
+        if n as usize != sizeimage {
+            eprintln!("v4l2test|FAIL|readv {k}: {n} != {sizeimage}");
+            std::process::exit(1);
+        }
+        if k == 0 || k + 1 == frames {
+            let min = *frame.iter().min().unwrap();
+            let max = *frame.iter().max().unwrap();
+            let mean = frame.iter().map(|b| *b as u64).sum::<u64>() as f64 / frame.len() as f64;
+            println!("v4l2test|readv|frame|{k}|bytes={n}|min={min}|max={max}|mean={mean:.2}");
+        }
+    }
+    let secs = started.elapsed().as_secs_f64().max(0.001);
+    println!(
+        "v4l2test|readv|done|frames={frames}|bytes={}|fps={:.2}",
+        sizeimage * frames,
+        frames as f64 / secs
+    );
+    let raw = format!("{out}.readv.raw");
+    let _ = std::fs::write(&raw, &frame);
+    println!("v4l2test|readv|saved|{raw}");
+    libc::close(fd);
+    println!("v4l2test|readv|OK");
+}
+
+/// Standards checks that do not need a sensor: QUERYCAP advertises read I/O,
+/// short read buffers are EINVAL, and mixing read with REQBUFS is EINVAL.
+unsafe fn run_contract(dev: &str, fourcc: u32, want_w: u32, want_h: u32) {
+    use std::os::unix::ffi::OsStrExt;
+    let cpath = CString::new(std::ffi::OsStr::new(dev).as_bytes()).unwrap();
+    let fd = libc::open(cpath.as_ptr(), libc::O_RDWR);
+    if fd < 0 {
+        eprintln!("v4l2test|FAIL|open: {}", std::io::Error::last_os_error());
+        std::process::exit(1);
+    }
+    let mut cap = [0u8; 104];
+    if libc::ioctl(fd, QUERYCAP as _, cap.as_mut_ptr()) != 0 {
+        eprintln!(
+            "v4l2test|FAIL|QUERYCAP: {}",
+            std::io::Error::last_os_error()
+        );
+        std::process::exit(1);
+    }
+    let caps = u32_at(&cap, 84);
+    if caps & (CAP_READWRITE | CAP_STREAMING) != (CAP_READWRITE | CAP_STREAMING) {
+        eprintln!("v4l2test|FAIL|caps={caps:#x} missing READWRITE/STREAMING");
+        std::process::exit(1);
+    }
+    println!("v4l2test|contract|caps={caps:#x}|readwrite=yes|streaming=yes");
+
+    let mut fmt = [0u8; 208];
+    put_u32(&mut fmt, 0, BUF_TYPE_VIDEO_CAPTURE);
+    put_u32(&mut fmt, 8, want_w);
+    put_u32(&mut fmt, 12, want_h);
+    put_u32(&mut fmt, 16, fourcc);
+    if libc::ioctl(fd, S_FMT as _, fmt.as_mut_ptr()) != 0 {
+        eprintln!("v4l2test|FAIL|S_FMT: {}", std::io::Error::last_os_error());
+        std::process::exit(1);
+    }
+    let sizeimage = u32_at(&fmt, 28) as usize;
+    let mut short = vec![0u8; sizeimage.saturating_sub(1)];
+    let n = libc::read(fd, short.as_mut_ptr().cast(), short.len());
+    if n != -1 || std::io::Error::last_os_error().raw_os_error() != Some(libc::EINVAL) {
+        eprintln!(
+            "v4l2test|FAIL|short read: n={n} errno={:?}",
+            std::io::Error::last_os_error()
+        );
+        std::process::exit(1);
+    }
+    println!("v4l2test|contract|short-read|EINVAL=yes");
+
+    let mut req = [0u8; 20];
+    put_u32(&mut req, 0, 1);
+    put_u32(&mut req, 4, BUF_TYPE_VIDEO_CAPTURE);
+    put_u32(&mut req, 8, MEMORY_MMAP);
+    if libc::ioctl(fd, REQBUFS as _, req.as_mut_ptr()) != 0 {
+        eprintln!("v4l2test|FAIL|REQBUFS: {}", std::io::Error::last_os_error());
+        std::process::exit(1);
+    }
+    let mut frame = vec![0u8; sizeimage];
+    let n = libc::read(fd, frame.as_mut_ptr().cast(), frame.len());
+    if n != -1 || std::io::Error::last_os_error().raw_os_error() != Some(libc::EINVAL) {
+        eprintln!(
+            "v4l2test|FAIL|read+REQBUFS: n={n} errno={:?}",
+            std::io::Error::last_os_error()
+        );
+        std::process::exit(1);
+    }
+    println!("v4l2test|contract|read+reqbufs|EINVAL=yes");
+    libc::close(fd);
+    println!("v4l2test|contract|OK");
+}
+
+/// With a frame source that answers NOFRAME, O_NONBLOCK must surface EAGAIN
+/// immediately instead of the shim busy-looping until a frame appears.
+unsafe fn run_nonblock(dev: &str, fourcc: u32, want_w: u32, want_h: u32) {
+    use std::os::unix::ffi::OsStrExt;
+    let cpath = CString::new(std::ffi::OsStr::new(dev).as_bytes()).unwrap();
+    let fd = libc::open(cpath.as_ptr(), libc::O_RDWR | libc::O_NONBLOCK);
+    if fd < 0 {
+        eprintln!("v4l2test|FAIL|open: {}", std::io::Error::last_os_error());
+        std::process::exit(1);
+    }
+    let mut fmt = [0u8; 208];
+    put_u32(&mut fmt, 0, BUF_TYPE_VIDEO_CAPTURE);
+    put_u32(&mut fmt, 8, want_w);
+    put_u32(&mut fmt, 12, want_h);
+    put_u32(&mut fmt, 16, fourcc);
+    if libc::ioctl(fd, S_FMT as _, fmt.as_mut_ptr()) != 0 {
+        eprintln!("v4l2test|FAIL|S_FMT: {}", std::io::Error::last_os_error());
+        std::process::exit(1);
+    }
+    let sizeimage = u32_at(&fmt, 28) as usize;
+    let mut frame = vec![0u8; sizeimage];
+    let started = std::time::Instant::now();
+    let n = libc::read(fd, frame.as_mut_ptr().cast(), frame.len());
+    let elapsed = started.elapsed();
+    if n != -1 || std::io::Error::last_os_error().raw_os_error() != Some(libc::EAGAIN) {
+        eprintln!(
+            "v4l2test|FAIL|nonblock read: n={n} errno={:?}",
+            std::io::Error::last_os_error()
+        );
+        std::process::exit(1);
+    }
+    println!(
+        "v4l2test|nonblock|EAGAIN=yes|elapsed_ms={:.2}",
+        elapsed.as_secs_f64() * 1000.0
+    );
+    libc::close(fd);
+    println!("v4l2test|nonblock|OK");
 }
 
 unsafe fn run(dev: &str, frames: usize, fourcc: u32, out: &str, want_w: u32, want_h: u32) {

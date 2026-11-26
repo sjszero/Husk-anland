@@ -106,7 +106,7 @@ fn husk_state(class: &str) -> (&'static str, &'static str) {
         ),
         "camera" => (
             "degraded",
-            "V4L2 /dev/videoN is served by Camera2 NDK without a test marker; capture/photo/record verified (evidence 91/93/240), but no DMABUF/read/controls and 12-17 fps observed",
+            "V4L2 /dev/videoN is served by Camera2 NDK without a test marker; capture/photo/record and read/readv/mmap verified (evidence 91/93/240/282), but DMABUF/controls are unsupported and 8-25 fps was observed depending on mode",
         ),
         "input" => (
             "degraded",

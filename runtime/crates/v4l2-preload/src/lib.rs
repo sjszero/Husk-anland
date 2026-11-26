@@ -31,6 +31,8 @@ const SYS_OPENAT: i64 = 56;
 const SYS_IOCTL: i64 = 29;
 const SYS_MMAP: i64 = 222;
 const SYS_CLOSE: i64 = 57;
+const SYS_READ: i64 = 63;
+const SYS_READV: i64 = 65;
 const SYS_FCNTL: i64 = 25;
 const SYS_NEWFSTATAT: i64 = 79;
 const SYS_STATX: i64 = 291;
@@ -54,6 +56,8 @@ static mut ROOT_LEN: usize = 0;
 core::arch::global_asm!(
     ".globl __hv_open64; .set __hv_open64, open64; .symver __hv_open64, open64@GLIBC_2.17",
     ".globl __hv_ioctl; .set __hv_ioctl, ioctl; .symver __hv_ioctl, ioctl@GLIBC_2.17",
+    ".globl __hv_read; .set __hv_read, read; .symver __hv_read, read@GLIBC_2.17",
+    ".globl __hv_readv; .set __hv_readv, readv; .symver __hv_readv, readv@GLIBC_2.17",
     ".globl __hv_mmap64; .set __hv_mmap64, mmap64; .symver __hv_mmap64, mmap64@GLIBC_2.17",
     ".globl __hv_close; .set __hv_close, close; .symver __hv_close, close@GLIBC_2.17",
     ".globl __hv_stat64; .set __hv_stat64, stat64; .symver __hv_stat64, stat64@GLIBC_2.33",
@@ -460,9 +464,56 @@ pub unsafe extern "C" fn __openat64_2(dirfd: i32, path: *const i8, flags: i32) -
 }
 
 #[no_mangle]
-#[no_mangle]
 pub unsafe extern "C" fn ioctl(fd: i32, request: u64, arg: *mut u8) -> i32 {
     do_ioctl(fd, request, arg)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn read(fd: i32, out: *mut u8, count: usize) -> isize {
+    lock();
+    if CTX.is_video_fd(fd) {
+        let r = CTX.read_frame(fd, out, count);
+        unlock();
+        return if r < 0 {
+            set_errno(errno_of(r as i64)) as isize
+        } else {
+            r
+        };
+    }
+    unlock();
+    let r = raw(SYS_READ as usize, fd as usize, out as usize, count, 0, 0, 0);
+    if r < 0 {
+        return set_errno(errno_of(r)) as isize;
+    }
+    r as isize
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn readv(fd: i32, iov: *mut u8, iovcnt: i32) -> isize {
+    lock();
+    if CTX.is_video_fd(fd) {
+        let r = CTX.readv_frame(fd, iov, iovcnt);
+        unlock();
+        return if r < 0 {
+            set_errno(errno_of(r as i64)) as isize
+        } else {
+            r
+        };
+    }
+    unlock();
+    let r = raw(
+        SYS_READV as usize,
+        fd as usize,
+        iov as usize,
+        iovcnt as usize,
+        0,
+        0,
+        0,
+    );
+    if r < 0 {
+        return set_errno(errno_of(r)) as isize;
+    }
+    r as isize
 }
 
 #[inline(always)]

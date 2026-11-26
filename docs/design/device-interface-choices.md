@@ -20,7 +20,7 @@
 | 视频编码 | VA-API encode，后端接 MediaCodec 编码器 | 同上 | 未做（编码器存在已确认） |
 | 音频输出 | `module-pipe-sink`（guest PulseAudio 契约） | 桌面与播放器统一走 PulseAudio | 可用（610 秒） |
 | 音频输入 | `module-pipe-source` + 按需开关 | 同上；只有真录音时才开 Android 麦克风 | 可用（声学回环） |
-| 相机 | `/dev/videoN` V4L2 facade（QUERYCAP / ENUM_FMT / G/S_FMT / REQBUFS / QBUF / DQBUF / poll）→ Camera2 NDK | GStreamer / Cheese / OpenCV 全走 V4L2；应用域又不能把真实 V4L2 fd 交出去 | 可用（取流 / 拍照 / 录像）；`open()` 是 memfd，不支持 DMABUF / read / controls |
+| 相机 | `/dev/videoN` V4L2 facade（QUERYCAP / ENUM_FMT / G/S_FMT / REQBUFS / QBUF / DQBUF / read / readv / poll）→ Camera2 NDK | GStreamer / Cheese / OpenCV 全走 V4L2；应用域又不能把真实 V4L2 fd 交出去 | 可用（取流 / 拍照 / 录像）；`open()` 是 memfd；DMABUF / controls 仍不支持 |
 | 输入 | 合成器级注入：mutter → `RemoteDesktop`(+EIS) | 不走 `/dev/input` + libinput + udev：那需要设备节点与 udev | 可用 |
 | 传感器 | `/sys/bus/iio/devices/iio:deviceN/*` 合成树 | `iio-sensor-proxy` 与直接读 sysfs 的程序都认；guest 读真 sysfs 会被 SELinux 拒 | 未做 |
 | 定位 | `/dev/gps0` 输出 NMEA 0183 | gpsd 一族只认串口 NMEA | 未做 |
