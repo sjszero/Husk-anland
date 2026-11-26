@@ -137,7 +137,7 @@ want 'fdidentity|drm-preload-ioctl-failure-errno|PASS|' 'drm preload 的普通 f
 # 假 V4L2 的名字必须整串匹配（越界下标/尾巴不对/拿了 DRM 的名字都不认领）。
 want 'fdidentity|pathshim-drm-fake-fd-identity-lost|PASS|' '无状态假 DRM fd 明确回 EOPNOTSUPP'
 want 'fdidentity|v4l2-name-grammar-exact|PASS|' '假 V4L2 fd 名字整串匹配，越界与脏尾巴不认领'
-want 'fdidentity|pathshim-drm-fake-fd-identity-lost-preload|PASS|' 'preload 在场时同一条件仍是显式拒绝（不是 ENOTTY）'
+want 'fdidentity|pathshim-drm-fake-fd-identity-lost-preload|PASS|' 'preload 在场时同一条件统一回 EOPNOTSUPP(95)'
 
 adb -s "$DEV" shell "run-as $PKG rm -f $ROOTFS/root/fd-identity-probe $ROOTFS/root/libhusk_drm.so" || true
 adb -s "$DEV" shell 'rm -f /data/local/tmp/fd-identity-probe /data/local/tmp/libhusk_drm.so' || true

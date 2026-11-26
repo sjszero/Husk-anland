@@ -458,7 +458,12 @@ impl DrmCtx {
                     -22
                 }
             }
-            _ => -38, // -ENOSYS
+            // The emulation is present and explicitly does not implement this
+            // request. EOPNOTSUPP is the same answer path-shim gives for a
+            // valid fake DRM fd whose context cannot be recovered; ENOSYS lets
+            // some clients interpret the ioctl as "the kernel has no DRM at
+            // all" and take a different fallback path.
+            _ => -95, // -EOPNOTSUPP
         }
     }
 }

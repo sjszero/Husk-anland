@@ -929,14 +929,13 @@ fn test_fake_fd_identity_lost() {
 }
 
 /// Same condition, but with the LD_PRELOAD DRM layer already live in this
-/// process: `/memfd:husk-drm` is then claimed by that layer, whose emulation has
-/// no state for this descriptor and answers `ENOSYS(38)`, while path-shim's own
-/// branch answers `EOPNOTSUPP(95)`.
+/// process: `/memfd:husk-drm` is then claimed by that layer. Both layers must
+/// answer the same explicit `EOPNOTSUPP(95)` for an unmodelled request.
 ///
 /// The invariant that must hold in both worlds is "explicit refusal": never 0,
-/// and never `ENOTTY(25)` - that is what makes clients discard the GPU. The
-/// exact errno is recorded rather than asserted, because unifying 38 and 95 has
-/// not been done and is not provable from this side alone.
+/// and never `ENOTTY(25)` - that is what makes clients discard the GPU. Using
+/// the same errno in both paths also avoids selecting different client fallback
+/// semantics just because `LD_PRELOAD` happened to be active.
 fn test_fake_fd_identity_lost_with_preload() {
     const NAME: &str = "pathshim-drm-fake-fd-identity-lost-preload";
     const DRM_MAGIC_IOCTL: u64 = 0x64b1;
@@ -955,8 +954,8 @@ fn test_fake_fd_identity_lost_with_preload() {
     unsafe { libc::close(fd) };
     line(
         NAME,
-        rc == -1 && e != 25,
-        format!("rc={rc} errno={e} (want explicit refusal: rc=-1, errno!=ENOTTY=25)"),
+        rc == -1 && e == 95,
+        format!("rc={rc} errno={e} (want -1/EOPNOTSUPP=95)"),
     );
 }
 

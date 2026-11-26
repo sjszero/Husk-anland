@@ -200,13 +200,13 @@ if [ ! -S "$ROOTFS/run/dbus/system_bus_socket" ] && \
    [ -x "$ROOTFS/usr/bin/dbus-daemon" ] && [ -f "$dbus_config" ]; then
     mkdir -p "$ROOTFS/run/dbus" 2>/dev/null || true
     rm -f "$ROOTFS/run/dbus/system_bus_socket" "$ROOTFS/run/dbus/pid" 2>/dev/null || true
-    ( cd "$ROOTFS" && "$NR_LD" --library-path "$LIBS" usr/bin/env -i \
+    ( cd "$ROOTFS" && setsid -d "$NR_LD" --library-path "$LIBS" usr/bin/env -i \
         HOME=/root PATH="$PATH_GUEST" NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" \
         NR_SESSION_ID="${NR_SESSION_ID:-}" \
         /usr/bin/dbus-daemon \
         --config-file=/usr/local/share/linuxhub/linuxhub-system-bus.conf \
         --nofork --address=unix:path=/run/dbus/system_bus_socket \
-        >"$ROOTFS/tmp/husk-sysbus.log" 2>&1 & ) || true
+        </dev/null >"$ROOTFS/tmp/husk-sysbus.log" 2>&1 & ) || true
     i=0
     while [ $i -lt 30 ] && [ ! -S "$ROOTFS/run/dbus/system_bus_socket" ]; do
         sleep 0.2; i=$((i+1))
