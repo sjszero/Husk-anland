@@ -123,3 +123,25 @@ DEV=UKHMMB8PYTGECMNV PKG=com.linuxhub.husk \
 - 桌面会话里**实际看到的**中文界面（只验到 `locale charmap` / `%A` 两条；会话级观察属第 8 轮）。
 - 重拼后的完整桌面树（P11）尚未跑完/装回设备。
 - 全新 `-g` 外安装的权限流程：见 §5，UNVERIFIED。
+
+## 8. 补上的门禁：`20-tree-integrity.sh` 现在查这两类"看不出来的坏"
+
+上面两件事（包记录缺 `.list`、树里没有 locale-archive）都属于"不报错、只是不能用"，
+所以必须有命令能查出来，而不是靠人记得。`tools/device-tests/20-tree-integrity.sh`
+新增一段，判据只用文件计数，不需要进 guest 跑 dpkg：
+
+```
+installed 包数（grep -c '^Status: install ok installed' status）  vs  info/*.list 个数
+usr/lib/locale/locale-archive 是否存在
+etc/default/locale 是否选中文
+```
+
+两条树的实测（FACT）：
+
+| 树 | 结果 |
+|---|---|
+| 出厂桌面树 `files/linux/distributions/ubuntu-24.04/rootfs` | `TREE_INTEGRITY PASS=13 FAIL=1` —— 唯一红的就是 `92 .list / 862 installed` |
+| 安装器产出的 67 包树 `files/linux-t6/root` | `TREE_INTEGRITY PASS=10 FAIL=0` |
+
+也就是说这条门禁能把"旧 nr-tools 拼的树"和"现在拼的树"分开——第 8 轮发版前必须
+用它把整棵桌面树筛一遍。

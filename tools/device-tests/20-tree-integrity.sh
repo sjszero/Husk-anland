@@ -67,6 +67,34 @@ else
     ok "no vendor Vulkan driver in this tree (base tree, expected)"
 fi
 
+echo "== package records and locale data =="
+# 这两项是 2026-11-26 在出厂桌面树上量出来的两类"看不出来的坏"：
+#   * 862 个包 installed 却只有 92 个 .list —— dpkg -L / apt purge / dpkg -r 全废，
+#     dpkg -C 报 1722 行（evidence 298 §3）。用"installed 数 vs .list 数"就能查出来，
+#     不必进 guest 跑 dpkg。
+#   * 没有 /etc/locale-archive —— zh_CN.UTF-8 不存在，LANG 静默回落 C，界面英文
+#     （evidence 298 §2）。
+inst=$(adb -s "$DEV" shell "run-as $PKG sh -c 'grep -c \"^Status: install ok installed\" $ROOTFS/var/lib/dpkg/status 2>/dev/null'" | tr -d '\r')
+lists=$(adb -s "$DEV" shell "run-as $PKG sh -c 'ls $ROOTFS/var/lib/dpkg/info/*.list 2>/dev/null | wc -l'" | tr -d '\r')
+inst=${inst:-0}; lists=${lists:-0}
+if [ "$inst" -gt 0 ] && [ "$lists" -ge "$inst" ]; then
+    ok "dpkg records: $lists .list for $inst installed package(s)"
+else
+    bad "dpkg records: $lists .list for $inst installed package(s) - dpkg -L/apt purge are broken; rebuild this tree with the current nr-tools"
+fi
+if have usr/lib/locale/locale-archive; then
+    sz=$(adb -s "$DEV" shell "run-as $PKG sh -c 'ls -l $ROOTFS/usr/lib/locale/locale-archive | cut -d\" \" -f5'" | tr -d '\r')
+    ok "locale-archive present (${sz:-?} bytes)"
+else
+    bad "no usr/lib/locale/locale-archive: zh_CN.UTF-8 does not exist, every program falls back to C (UI English)"
+fi
+def=$(read_ etc/default/locale | tr -d '\r')
+case "$def" in
+    *zh_CN*) ok "etc/default/locale selects zh_CN ($(printf '%s' "$def" | tr '\n' ' '))" ;;
+    "")      bad "etc/default/locale missing or empty" ;;
+    *)       bad "etc/default/locale is not Chinese ($(printf '%s' "$def" | tr '\n' ' '))" ;;
+esac
+
 echo "== desktop session requirements =="
 if [ "$EXPECT" = desktop ]; then
     if have usr/local/share/linuxhub/linuxhub-system-bus.conf; then
