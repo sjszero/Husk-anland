@@ -45,16 +45,17 @@ g() {
 # 1. 等 shell 把 X 拉起来、会话总线能应答（最多 90 s）
 i=0
 while [ $i -lt 90 ]; do
-    if g usr/bin/xdpyinfo | grep -q '^  dimensions:'; then break; fi
+    if g usr/bin/husk-window-wait --geometry >/dev/null 2>&1; then break; fi
     sleep 1; i=$((i+1))
 done
 [ $i -lt 90 ] || exit 0
 
-# 2. 屏幕尺寸
-GEO=$(g usr/bin/xdpyinfo | sed -n 's/^  dimensions: *\([0-9]*\)x\([0-9]*\).*/\1 \2/p' | head -1)
-set -- ${GEO:-}
-W=${1:-}; H=${2:-}
-[ -n "$W" ] && [ -n "$H" ] || exit 0
+# 2. 屏幕尺寸（Rust helper 只 dlopen libX11，不要求 x11-utils）
+GEO=$(g usr/bin/husk-window-wait --geometry 2>/dev/null | head -1)
+case "$GEO" in
+    [0-9]*x[0-9]*) W=${GEO%x*}; H=${GEO#*x} ;;
+    *) exit 0 ;;
+esac
 
 # 3. 当前壁纸。空 URI、不是 file://、或者指向的文件不在，都算"壁纸坏了"，兜底到一张
 #    随发行版装进来的图（2026-11-25 实测发现 picture-uri 被留成空串、primary-color 被

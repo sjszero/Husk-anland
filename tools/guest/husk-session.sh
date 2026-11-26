@@ -105,6 +105,10 @@ LIBS="$ROOTFS/lib/aarch64-linux-gnu:$ROOTFS/usr/lib/aarch64-linux-gnu"
 [ -d "$ROOTFS/usr/lib/aarch64-linux-gnu/mutter-14" ] && LIBS="$LIBS:$ROOTFS/usr/lib/aarch64-linux-gnu/mutter-14"
 [ -d "$ROOTFS/usr/lib/gnome-shell" ] && LIBS="$LIBS:$ROOTFS/usr/lib/gnome-shell"
 [ -d "$ROOTFS/usr/lib/aarch64-linux-gnu/gvfs" ] && LIBS="$LIBS:$ROOTFS/usr/lib/aarch64-linux-gnu/gvfs"
+if [ -f "$ROOTFS/etc/ld.so.husk-path" ]; then
+    _runpaths=$(sed -n '/^#/d; s|^|'"$ROOTFS"'|p' "$ROOTFS/etc/ld.so.husk-path" | tr '\n' ':')
+    LIBS="$LIBS:$_runpaths"
+fi
 
 # GPU escape variables cross the final env -i boundary explicitly. Forwarding
 # only NR_FORCE_SOFTWARE_GPU made the documented `HUSK_GPU=llvmpipe` entry point

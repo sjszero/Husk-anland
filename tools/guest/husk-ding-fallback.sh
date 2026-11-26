@@ -27,6 +27,11 @@ esac
 LIBS="$ROOTFS/lib/aarch64-linux-gnu:$ROOTFS/usr/lib/aarch64-linux-gnu"
 [ -d "$ROOTFS/usr/lib/aarch64-linux-gnu/mutter-14" ] && LIBS="$LIBS:$ROOTFS/usr/lib/aarch64-linux-gnu/mutter-14"
 [ -d "$ROOTFS/usr/lib/gnome-shell" ] && LIBS="$LIBS:$ROOTFS/usr/lib/gnome-shell"
+[ -d "$ROOTFS/usr/lib/aarch64-linux-gnu/gvfs" ] && LIBS="$LIBS:$ROOTFS/usr/lib/aarch64-linux-gnu/gvfs"
+if [ -f "$ROOTFS/etc/ld.so.husk-path" ]; then
+    _runpaths=$(sed -n '/^#/d; s|^|'"$ROOTFS"'|p' "$ROOTFS/etc/ld.so.husk-path" | tr '\n' ':')
+    LIBS="$LIBS:$_runpaths"
+fi
 
 DING_DIR=/usr/share/gnome-shell/extensions/ding@rastersoft.com/app
 
@@ -40,23 +45,23 @@ g() {
 # 等 X 起来（最多 60 s）
 i=0
 while [ $i -lt 60 ]; do
-    if g usr/bin/xdpyinfo 2>/dev/null | grep -q "^  dimensions:"; then break; fi
+    if g usr/bin/husk-window-wait --geometry 2>/dev/null | grep -Eq '^[0-9]+x[0-9]+$'; then break; fi
     sleep 1; i=$((i+1))
 done
 
 # 等 shell 自己把 DING 拉起来（最多 30 s）
-i=0
-while [ $i -lt 30 ]; do
-    if g usr/bin/xdotool search --name "Desktop Icons" 2>/dev/null | grep -q .; then
-        exit 0
-    fi
-    sleep 1; i=$((i+1))
-done
+if g usr/bin/husk-window-wait --wait-window "Desktop Icons" 30000 2>/dev/null | grep -q '^window=yes$'; then
+    exit 0
+fi
 
-# 还是没起来：自己拉一个
-GEO=$(g usr/bin/xdpyinfo 2>/dev/null | sed -n 's/^  dimensions: *\([0-9]*\)x\([0-9]*\).*/\1 \2/p' | head -1)
-set -- ${GEO:-2400 1080}
-W=$1; H=$2
+# 还是没起来：自己拉一个。X11 探测统一走随树安装的 Rust helper，不再依赖
+# x11-utils/xdotool；精简桌面树没有这几个测试包时，看护进程也不能静默失效。
+GEO=$(g usr/bin/husk-window-wait --geometry 2>/dev/null | head -1)
+case "$GEO" in
+    [0-9]*x[0-9]*) ;;
+    *) GEO=2400x1080 ;;
+esac
+W=${GEO%x*}; H=${GEO#*x}
 
 ( cd "$ROOTFS" && "$NR_LD" --library-path "$LIBS" usr/bin/env -i \
     HOME=/root USER=root LOGNAME=root \

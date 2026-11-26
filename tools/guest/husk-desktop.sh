@@ -47,6 +47,10 @@ done
 
 NR_LD=${NR_LD:-$(dirname "$ROOTFS")/libld.so}
 [ -x "$NR_LD" ] || { echo "husk-desktop: loader not executable: $NR_LD" >&2; exit 69; }
+case "$NR_LD" in
+    /*) ;;
+    *) NR_LD=$(cd "$(dirname "$NR_LD")" && pwd)/$(basename "$NR_LD") ;;
+esac
 DISPLAY=${DISPLAY:-:0}
 # 运行时目录固定放树根下的 /run/rt，不再用 /tmp/xdg-husk：
 # unix socket 的 sun_path 上限是 108 字节（含结尾 NUL），而路径层会把**guest 路径**
@@ -71,6 +75,19 @@ SYSBUS_G=/run/dbus/system_bus_socket
 SESSBUS=$RT/bus
 SESSBUS_G=$RT_G/bus
 STATE=$(dirname "$ROOTFS")/.husk-install-state
+# D-Bus needs a stable machine-id, and DING needs a real (not world-writable)
+# Desktop directory. The installer creates both; keep existing trees usable too.
+mkdir -p "$ROOTFS/etc" "$ROOTFS/var/lib/dbus" "$ROOTFS$HOME_G/Desktop" 2>/dev/null || true
+if [ ! -s "$ROOTFS/etc/machine-id" ]; then
+    _machine_id=$(tr -d '-' < /proc/sys/kernel/random/uuid 2>/dev/null || true)
+    [ ${#_machine_id} -eq 32 ] || { echo "husk-desktop: cannot generate a machine-id" >&2; exit 74; }
+    printf '%s\n' "$_machine_id" > "$ROOTFS/etc/machine-id"
+fi
+chmod 644 "$ROOTFS/etc/machine-id" 2>/dev/null || true
+if [ ! -s "$ROOTFS/var/lib/dbus/machine-id" ] || ! cmp -s "$ROOTFS/etc/machine-id" "$ROOTFS/var/lib/dbus/machine-id"; then
+    cp "$ROOTFS/etc/machine-id" "$ROOTFS/var/lib/dbus/machine-id" 2>/dev/null || true
+fi
+chmod 755 "$ROOTFS$HOME_G/Desktop" 2>/dev/null || true
 LIBS="$ROOTFS/lib/aarch64-linux-gnu:$ROOTFS/usr/lib/aarch64-linux-gnu"
 [ -d "$ROOTFS/usr/lib/aarch64-linux-gnu/mutter-14" ] && LIBS="$LIBS:$ROOTFS/usr/lib/aarch64-linux-gnu/mutter-14"
 [ -d "$ROOTFS/usr/lib/gnome-shell" ] && LIBS="$LIBS:$ROOTFS/usr/lib/gnome-shell"
@@ -78,8 +95,19 @@ LIBS="$ROOTFS/lib/aarch64-linux-gnu:$ROOTFS/usr/lib/aarch64-linux-gnu"
 # gio 模块都报 "cannot open shared object file"，桌面图标/挂载全废。
 [ -d "$ROOTFS/usr/lib/aarch64-linux-gnu/gvfs" ] && LIBS="$LIBS:$ROOTFS/usr/lib/aarch64-linux-gnu/gvfs"
 if [ -f "$ROOTFS/etc/ld.so.husk-path" ]; then
-    LIBS="$LIBS:$(sed -n 's|^|'"$ROOTFS"'|p' "$ROOTFS/etc/ld.so.husk-path" | tr '\n' ':')"
+    _runpaths=$(sed -n '/^#/d; s|^|'"$ROOTFS"'|p' "$ROOTFS/etc/ld.so.husk-path" | tr '\n' ':')
+    LIBS="$LIBS:$_runpaths"
 fi
+
+# Session modes and GResource overlays are distro/session assets, not socket
+# plumbing. Only select them when they actually exist; pointing at a missing
+# overlay or a missing custom mode makes GNOME fall back to user mode while the
+# process still looks healthy, so dock/DING silently disappear.
+GMODE=user
+[ -f "$ROOTFS/usr/share/gnome-shell/modes/ubuntu.json" ] && GMODE=ubuntu
+GOVERLAY=
+GOVERLAY_DIR=/usr/local/share/linuxhub/gnome-shell-overlay/org/gnome/shell
+[ -d "$ROOTFS$GOVERLAY_DIR" ] && GOVERLAY="/org/gnome/shell=$GOVERLAY_DIR"
 
 # 桌面 UI 的语言由 LANG 决定，而这个变量经常是空的（run-as 起的进程、env -i 都不带）。
 # 树里有 zh_CN.utf8 就用中文；调用者自己设了 LANG 就不动。
@@ -137,12 +165,14 @@ say() { echo "husk-desktop: $*" >&2; }
 stop_leftovers() {
     for pat in usr/bin/gnome-shell mutter-x11-frames usr/bin/gjs gnome-settings-daemon \
                /usr/libexec/gsd- xdg-desktop-portal gvfsd tracker-miner at-spi \
+               usr/bin/husk-window-wait husk-ding-fallback.sh \
                usr/bin/nautilus usr/bin/gnome-text-editor usr/bin/gnome-calculator; do
         g usr/bin/pkill -f "$pat" || true
     done
     sleep 2
     for pat in usr/bin/gnome-shell mutter-x11-frames usr/bin/gjs gnome-settings-daemon \
-               /usr/libexec/gsd- xdg-desktop-portal gvfsd tracker-miner at-spi; do
+               /usr/libexec/gsd- xdg-desktop-portal gvfsd tracker-miner at-spi \
+               usr/bin/husk-window-wait husk-ding-fallback.sh; do
         g usr/bin/pkill -9 -f "$pat" || true
     done
     # 总线自己最后停，避免上面那些进程在收尾时又把它拉起来
@@ -188,10 +218,10 @@ SHELL_LOG=$ROOTFS/tmp/husk-shell.log
         DBUS_SESSION_BUS_ADDRESS="unix:path=$SESSBUS_G" \
         DBUS_SYSTEM_BUS_ADDRESS="unix:path=$SYSBUS_G" \
         LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu:/usr/lib \
-        G_RESOURCE_OVERLAYS=/org/gnome/shell=/usr/local/share/linuxhub/gnome-shell-overlay/org/gnome/shell \
+        G_RESOURCE_OVERLAYS="$GOVERLAY" \
         XDG_CURRENT_DESKTOP=ubuntu:GNOME XDG_SESSION_DESKTOP=ubuntu \
         XDG_SESSION_TYPE=x11 DESKTOP_SESSION=ubuntu \
-        GNOME_SHELL_SESSION_MODE=linuxhub-ubuntu-min \
+        GNOME_SHELL_SESSION_MODE="$GMODE" \
         XDG_DATA_DIRS=/usr/local/share:/usr/share XDG_CONFIG_DIRS=/etc/xdg \
         GSETTINGS_SCHEMA_DIR=/usr/share/glib-2.0/schemas \
         GI_TYPELIB_PATH=/usr/lib/aarch64-linux-gnu/girepository-1.0:/usr/lib/girepository-1.0 \
@@ -203,27 +233,33 @@ SHELL_LOG=$ROOTFS/tmp/husk-shell.log
 ) || true
 
 # 等 WM 出现（不是"进程在"，而是"有人认领 _NET_SUPPORTING_WM_CHECK"）
+# DING's own launcher passes an empty -P on this stack; keep the same fallback
+# as the login-session entry. It waits for X and no-ops when the extension came
+# up correctly.
+if [ -x "$BASE/husk-ding-fallback.sh" ]; then
+    "$BASE/husk-ding-fallback.sh" "$ROOTFS" "$NR_LD" >/dev/null 2>&1 &
+fi
+
 i=0
 while [ $i -lt "$WAIT" ]; do
-    if g usr/bin/xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null | grep -q 'window id'; then break; fi
+    if g usr/bin/husk-window-wait --probe-wm 2>/dev/null | grep -q '^wm=yes$'; then break; fi
     sleep 1; i=$((i+1))
 done
 
 # ---------------------------------------------------------------- 5. 自检
 wm=no
-g usr/bin/xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null | grep -q 'window id' && wm=yes
+g usr/bin/husk-window-wait --probe-wm 2>/dev/null | grep -q '^wm=yes$' && wm=yes
 ding=no
-i=0
-while [ $i -lt 15 ]; do
-    if g usr/bin/xwininfo -root -children 2>/dev/null | grep -q 'Desktop Icons'; then ding=yes; break; fi
-    sleep 1; i=$((i+1))
-done
+if g usr/bin/husk-window-wait --wait-window "Desktop Icons" 15000 2>/dev/null | grep -q '^window=yes$'; then
+    ding=yes
+fi
 # GPU 这一项不能只看日志里的一个单词，也不能要求 VK_ICD_FILENAMES 出现在 environ：
 # loader 的填空默认值只回答 getenv，不会反写 /proc/<pid>/environ（evidence 187）。
 # 以进程真实状态为准：zink 变量 + 硬件设备 fd + 已加载的硬件 Vulkan 后端，三者齐全才记
 # zink。任何一项缺失都降级为 partial/unknown，不用日志冒充实测。
 gpu=unknown
-shell_pid=$(ps -A -o PID,ARGS 2>/dev/null | awk '/usr\/bin\/gnome-shell/ && $0 !~ /awk/ { print $1; exit }')
+shell_pid=$(ps -A -o PID,ARGS 2>/dev/null | grep -F 'usr/bin/gnome-shell' | grep -v grep | \
+    sed -n '1s/^ *\([0-9][0-9]*\).*/\1/p')
 if [ -n "${shell_pid:-}" ]; then
     shell_env=$(tr '\000' '\n' < "/proc/$shell_pid/environ" 2>/dev/null || true)
     shell_fds=$(ls -l "/proc/$shell_pid/fd" 2>/dev/null || true)
@@ -256,15 +292,7 @@ echo "CHECK gpu=$gpu"
 #     用一次空点击 + 一次 8 px 的空拖动把这一次消耗掉，用户第一次拖窗口就是好的。
 #     选点在屏幕中下部（远离左侧 dock 和 DING 的图标列），失败不影响会话。
 input=no
-dims=$(g usr/bin/xdpyinfo 2>/dev/null | awk '/dimensions:/ {print $2; exit}')
-W=${dims%x*}; H=${dims#*x}
-case "$W$H" in ''|*[!0-9]*) W=800; H=600 ;; esac
-PX=$(( W / 2 )); PY=$(( H / 4 * 3 ))
-if g usr/bin/xdotool mousemove "$PX" "$PY" >/dev/null 2>&1; then
-    g usr/bin/xdotool click 1 >/dev/null 2>&1 || true
-    g usr/bin/xdotool mousedown 1 >/dev/null 2>&1 || true
-    g usr/bin/xdotool mousemove "$((PX + 8))" "$((PY + 8))" >/dev/null 2>&1 || true
-    g usr/bin/xdotool mouseup 1 >/dev/null 2>&1 || true
+if g usr/bin/husk-window-wait --prime-input 2>/dev/null | grep -q '^input=primed$'; then
     input=primed
 fi
 echo "CHECK input=$input"

@@ -15,12 +15,13 @@
 //! the exit status.
 
 use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_int, c_uint, c_ulong, c_void};
+use std::os::raw::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 type Display = c_void;
 type Window = c_ulong;
+type Atom = c_ulong;
 type Visual = c_void;
 type Screen = c_void;
 
@@ -91,6 +92,24 @@ fn sym(handle: *mut c_void, name: &str) -> Option<*mut c_void> {
 struct X11 {
     display: *mut Display,
     root: Window,
+    intern_atom: unsafe extern "C" fn(*mut Display, *const c_char, c_int) -> Atom,
+    get_property: unsafe extern "C" fn(
+        *mut Display,
+        Window,
+        Atom,
+        c_ulong,
+        c_ulong,
+        c_int,
+        Atom,
+        *mut Atom,
+        *mut c_int,
+        *mut c_ulong,
+        *mut c_ulong,
+        *mut *mut c_uchar,
+    ) -> c_int,
+    fetch_name: unsafe extern "C" fn(*mut Display, Window, *mut *mut c_char) -> c_int,
+    display_width: unsafe extern "C" fn(*mut Display, c_int) -> c_int,
+    display_height: unsafe extern "C" fn(*mut Display, c_int) -> c_int,
     query_tree: unsafe extern "C" fn(
         *mut Display,
         Window,
@@ -112,6 +131,11 @@ impl X11 {
                 std::mem::transmute(sym(handle, "XOpenDisplay")?);
             let root_of: unsafe extern "C" fn(*mut Display) -> Window =
                 std::mem::transmute(sym(handle, "XDefaultRootWindow")?);
+            let intern_atom = std::mem::transmute(sym(handle, "XInternAtom")?);
+            let get_property = std::mem::transmute(sym(handle, "XGetWindowProperty")?);
+            let fetch_name = std::mem::transmute(sym(handle, "XFetchName")?);
+            let display_width = std::mem::transmute(sym(handle, "XDisplayWidth")?);
+            let display_height = std::mem::transmute(sym(handle, "XDisplayHeight")?);
             let query_tree = std::mem::transmute(sym(handle, "XQueryTree")?);
             let get_attributes = std::mem::transmute(sym(handle, "XGetWindowAttributes")?);
             let free = std::mem::transmute(sym(handle, "XFree")?);
@@ -123,6 +147,11 @@ impl X11 {
             Some(X11 {
                 display,
                 root: root_of(display),
+                intern_atom,
+                get_property,
+                fetch_name,
+                display_width,
+                display_height,
                 query_tree,
                 get_attributes,
                 free,
@@ -162,6 +191,116 @@ impl X11 {
         unsafe { (self.free)(children as *mut c_void) };
         out
     }
+
+    fn root_property(&self, name: &str) -> Option<c_ulong> {
+        let atom_name = CString::new(name).ok()?;
+        let atom = unsafe { (self.intern_atom)(self.display, atom_name.as_ptr(), 0) };
+        if atom == 0 {
+            return None;
+        }
+        let mut actual_type: Atom = 0;
+        let mut actual_format: c_int = 0;
+        let mut nitems: c_ulong = 0;
+        let mut bytes_after: c_ulong = 0;
+        let mut data: *mut c_uchar = std::ptr::null_mut();
+        let rc = unsafe {
+            (self.get_property)(
+                self.display,
+                self.root,
+                atom,
+                0,
+                1,
+                0,
+                0,
+                &mut actual_type,
+                &mut actual_format,
+                &mut nitems,
+                &mut bytes_after,
+                &mut data,
+            )
+        };
+        let value = if rc == 0 && actual_format == 32 && nitems == 1 && !data.is_null() {
+            Some(unsafe { *(data as *const c_long_t) as c_ulong })
+        } else {
+            None
+        };
+        if !data.is_null() {
+            unsafe { (self.free)(data as *mut c_void) };
+        }
+        value
+    }
+
+    fn window_name(&self, window: Window) -> Option<String> {
+        let mut name: *mut c_char = std::ptr::null_mut();
+        let ok = unsafe { (self.fetch_name)(self.display, window, &mut name) };
+        if ok == 0 || name.is_null() {
+            return None;
+        }
+        let text = unsafe { CStr::from_ptr(name) }
+            .to_string_lossy()
+            .into_owned();
+        unsafe { (self.free)(name as *mut c_void) };
+        Some(text)
+    }
+
+    fn viewable_named(&self) -> Vec<(Window, String)> {
+        self.viewable()
+            .into_iter()
+            .filter_map(|window| self.window_name(window).map(|name| (window, name)))
+            .collect()
+    }
+
+    fn geometry(&self) -> (c_int, c_int) {
+        unsafe {
+            (
+                (self.display_width)(self.display, 0),
+                (self.display_height)(self.display, 0),
+            )
+        }
+    }
+
+    fn prime_input(&self) -> bool {
+        let handle = match dlopen("libXtst.so.6") {
+            Some(handle) => handle,
+            None => return false,
+        };
+        let motion: unsafe extern "C" fn(*mut Display, c_int, c_int, c_int, c_ulong) -> c_int =
+            match sym(handle, "XTestFakeMotionEvent") {
+                Some(symbol) => unsafe { std::mem::transmute(symbol) },
+                None => return false,
+            };
+        let button: unsafe extern "C" fn(*mut Display, c_uint, c_int, c_ulong) -> c_int =
+            match sym(handle, "XTestFakeButtonEvent") {
+                Some(symbol) => unsafe { std::mem::transmute(symbol) },
+                None => return false,
+            };
+        let flush: unsafe extern "C" fn(*mut Display) -> c_int = match sym(handle, "XFlush") {
+            Some(symbol) => unsafe { std::mem::transmute(symbol) },
+            None => return false,
+        };
+        let (width, height) = self.geometry();
+        if width <= 16 || height <= 16 {
+            return false;
+        }
+        let x = width / 2;
+        let y = height / 4 * 3;
+        unsafe {
+            if (motion)(self.display, 0, x, y, 0) == 0 {
+                return false;
+            }
+            let _ = (button)(self.display, 1, 1, 0);
+            let _ = (motion)(
+                self.display,
+                0,
+                (x + 8).min(width - 1),
+                (y + 8).min(height - 1),
+                0,
+            );
+            let _ = (button)(self.display, 1, 0, 0);
+            let _ = (flush)(self.display);
+        }
+        true
+    }
 }
 
 impl Drop for X11 {
@@ -180,24 +319,103 @@ fn spawn(app: &str) -> Option<Child> {
         .ok()
 }
 
-fn main() {
-    let app = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "gnome-control-center".to_string());
+/// GNOME/DING append a numeric instance suffix to the X11 title, e.g.
+/// `Desktop Icons 1`. Accept only that exact shape so `Desktop` does not match
+/// the unrelated `Desktop Icons` window.
+fn window_title_matches(title: &str, name: &str) -> bool {
+    title == name
+        || title.strip_prefix(name).is_some_and(|rest| {
+            rest.strip_prefix(' ').is_some_and(|suffix| {
+                !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit())
+            })
+        })
+}
+
+fn open_display_or_skip() -> Option<X11> {
     if std::env::var_os("DISPLAY").is_none() {
         println!("window_wait\tskip\tDISPLAY unset");
-        return;
+        return None;
     }
-    let x11 = match X11::open() {
-        Some(x) => x,
+    match X11::open() {
+        Some(x) => Some(x),
         None => {
             println!(
                 "window_wait\tskip\tcannot open {}",
                 std::env::var("DISPLAY").unwrap_or_default()
             );
+            None
+        }
+    }
+}
+
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("--help") {
+        println!("usage: husk-window-wait [APP]");
+        println!("       husk-window-wait --probe-wm");
+        println!("       husk-window-wait --wait-window NAME [TIMEOUT_MS]");
+        println!("       husk-window-wait --geometry");
+        println!("       husk-window-wait --prime-input");
+        println!("       husk-window-wait --list");
+        return;
+    }
+    let x11 = match open_display_or_skip() {
+        Some(x) => x,
+        None => return,
+    };
+    match args.first().map(String::as_str) {
+        Some("--probe-wm") => {
+            let have = x11.root_property("_NET_SUPPORTING_WM_CHECK").is_some();
+            println!("wm={}", if have { "yes" } else { "no" });
             return;
         }
-    };
+        Some("--wait-window") => {
+            let name = args.get(1).map(String::as_str).unwrap_or("Desktop Icons");
+            let timeout_ms = args
+                .get(2)
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(30_000);
+            let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+            let found = loop {
+                if x11
+                    .viewable_named()
+                    .iter()
+                    .any(|(_, title)| window_title_matches(title, name))
+                {
+                    break true;
+                }
+                if Instant::now() >= deadline {
+                    break false;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            };
+            println!("window={}", if found { "yes" } else { "no" });
+            return;
+        }
+        Some("--geometry") => {
+            let (width, height) = x11.geometry();
+            println!("{width}x{height}");
+            return;
+        }
+        Some("--prime-input") => {
+            println!(
+                "input={}",
+                if x11.prime_input() { "primed" } else { "skip" }
+            );
+            return;
+        }
+        Some("--list") => {
+            for (window, title) in x11.viewable_named() {
+                println!("0x{window:x}\t{title}");
+            }
+            return;
+        }
+        _ => {}
+    }
+    let app = args
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "gnome-control-center".to_string());
     let before: Vec<Window> = x11.viewable();
     let started = Instant::now();
     let mut child = match spawn(&app) {
@@ -223,6 +441,21 @@ fn main() {
     }
     let _ = child.kill();
     let _ = child.wait();
-    // Keep the CStr import used on every path that opened a display.
-    let _ = CStr::from_bytes_with_nul(b"\0");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::window_title_matches;
+
+    #[test]
+    fn window_title_accepts_instance_suffix() {
+        assert!(window_title_matches("Desktop Icons 1", "Desktop Icons"));
+        assert!(window_title_matches("Desktop Icons", "Desktop Icons"));
+    }
+
+    #[test]
+    fn window_title_rejects_unrelated_prefix() {
+        assert!(!window_title_matches("Desktop Icons 1", "Desktop"));
+        assert!(!window_title_matches("Desktop", "Desktop Icons"));
+    }
 }

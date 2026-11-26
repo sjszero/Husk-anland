@@ -324,7 +324,8 @@ dist:
 	cp tools/loader/ld-embedded.so dist/libld.so
 	@chmod 755 dist/libld.so   # tar keeps the mode; a 644 loader is "not executable"
 	cp $(PROFILE_DIR)/husk-ldconfig $(PROFILE_DIR)/husk-usermgr \
-	   $(PROFILE_DIR)/husk-su $(PROFILE_DIR)/husk-symlinks dist/
+	   $(PROFILE_DIR)/husk-su $(PROFILE_DIR)/husk-symlinks \
+	   $(PROFILE_DIR)/husk-window-wait dist/
 	cp tools/loader/libc-nop.so.6 dist/libc.so.6   # the artifact `make libc-patch` refreshed
 	cp tools/guest/install-husk.sh tools/guest/husk-session.sh \
 	   tools/guest/husk-desktop.sh tools/guest/husk-ding-fallback.sh \
@@ -347,7 +348,7 @@ dist:
 	fi
 	COPYFILE_DISABLE=1 tar czf dist/husk-arm64.tar.gz -C dist \
 	    libld.so libc.so.6 husk-ldconfig husk-usermgr husk-su husk-symlinks \
-	    guest guest-config vendor install-husk.sh husk-session.sh husk-desktop.sh \
+	    husk-window-wait guest guest-config vendor install-husk.sh husk-session.sh husk-desktop.sh \
 	    husk-ding-fallback.sh husk-wallpaper-fit.sh husk-lang-zh.tar.gz VERSION
 # The installer writes /etc/profile.d/husk-gpu.sh from guest-config/, and skips it
 # silently when the file is not next to it: a bundle without it installs a tree
@@ -387,12 +388,12 @@ dist:
 # 0.0.6 补的三条断言：这几个文件少了不会报错，只会让装出来的树缺一件东西
 # （husk-session.sh 的 `[ -x ... ]` 判假、pulse 客户端静默丢掉 enable-shm=no）。
 	@for f in husk-desktop.sh husk-ding-fallback.sh husk-wallpaper-fit.sh \
-	          guest/husk-wallpaper-scale.js guest-config/pulse-client-no-shm.conf; do \
+	          husk-window-wait guest/husk-wallpaper-scale.js guest-config/pulse-client-no-shm.conf; do \
 	    tar tzf dist/husk-arm64.tar.gz | grep -qx "$$f" || \
 	        { echo "dist: bundle is missing $$f" >&2; exit 1; }; \
 	done
 	@rm -f dist/libld.so dist/libc.so.6 dist/husk-ldconfig dist/husk-usermgr \
-	    dist/husk-su dist/husk-symlinks dist/install-husk.sh dist/husk-session.sh \
+	    dist/husk-su dist/husk-symlinks dist/husk-window-wait dist/install-husk.sh dist/husk-session.sh \
 	    dist/husk-desktop.sh dist/husk-ding-fallback.sh dist/husk-wallpaper-fit.sh \
 	    dist/husk-lang-zh.tar.gz dist/VERSION
 	@rm -rf dist/guest dist/guest-config dist/vendor
