@@ -274,7 +274,7 @@ jobs:
           set -eu
           DEB=libc6_2.39-0ubuntu8.12_arm64.deb
           WANT_DEB=2578bc27d4e077f5e93c283d2502bc693c516d9590a20a27840b548a4d436820
-          WANT_OUT=2ed8771f220ba55ed0c224e114c83a30cb9d34fb333d375fc690f7267bd138bb
+          WANT_OUT=16d5ba2120c1a92c0c9cba62dd8ec244d29d5d30a733d4ac530be4fb1b92933f
           # Launchpad keeps the exact input bytes; both the deb and transformed
           # output are pinned so a mirror or URL change fails closed.
           curl -fsSL --retry 3 -o "$DEB" \

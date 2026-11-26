@@ -1041,7 +1041,7 @@ unsafe fn self_lookup(base: usize, interp: usize, name: usize, len: usize) -> u6
 /// Path entry points whose libc.so.6 definition is redirected into the shim.
 /// Every one of these has a standalone implementation in the shim (raw syscalls
 /// plus runtime-core), so redirecting libc's internal callers cannot recurse.
-static BODY_PATCH: [&[u8]; 102] = [
+static BODY_PATCH: [&[u8]; 103] = [
     b"open",
     b"open64",
     b"openat",
@@ -1060,6 +1060,7 @@ static BODY_PATCH: [&[u8]; 102] = [
     b"fstatat64",
     b"statx",
     b"statfs",
+    b"statfs64",
     b"fstatfs",
     b"fstatfs64",
     b"inotify_add_watch",

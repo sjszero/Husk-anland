@@ -77,7 +77,7 @@ shim 跨度 `0x60000`；钩子地址 983,040；服务表地址 987,136；介入�
 |---|---|---|
 | `tools/loader/ld-noble2404-ld.so` | 输入：Ubuntu 24.04 原始 loader，**入库** | `124e3f166bdc0be365eaa6dc59e415b876b0841a40463edd1b0e084b518bb7cd` |
 | `ld-embedded.so` / `jniLibs/libld.so` | 产出：成品动态链接器 | `4216ad0cd98f41e8f7b8f366658fe80b9231d60d49a94f90382cf26f6ae8d768` |
-| `libc-nop.so.6` | 产出：guest 用（HUSK-SLOT-1 槽位页 + clone3→ENOSYS），输入固定为 `libc6 2.39-0ubuntu8.12`，需要 `LIBC=` 才生成 | `2ed8771f220ba55ed0c224e114c83a30cb9d34fb333d375fc690f7267bd138bb` |
+| `libc-nop.so.6` | 产出：guest 用（HUSK-SLOT-1 槽位页 + clone3→ENOSYS），输入固定为 `libc6 2.39-0ubuntu8.12`，需要 `LIBC=` 才生成 | `16d5ba2120c1a92c0c9cba62dd8ec244d29d5d30a733d4ac530be4fb1b92933f` |
 | `libpath_shim.so` | 产出：嵌入前的路径层 | `3e770c0b9a37554dcfdecb5d202881ef222859bac7754a1f8064fce4489d73e7` |
 
 四行里只有 `ld-noble2404-ld.so` 是入库文件；另外三个都是本地构建产物（`.gitignore` 挡着）。

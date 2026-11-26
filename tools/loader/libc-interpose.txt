@@ -1,6 +1,6 @@
-# Functions whose libc.so.6 definition is redirected into the shim.
-# Generated from the runtime list (boot.rs BODY_PATCH) so the two cannot
-# silently disagree; nr-tools libc-interpose reads this file.
+# Exported functions whose libc.so.6 definition is redirected into the shim.
+# This is the build-time companion of boot.rs BODY_PATCH. Keep both lists in
+# review together and document intentional differences; nr-tools reads this file.
 open
 open64
 openat

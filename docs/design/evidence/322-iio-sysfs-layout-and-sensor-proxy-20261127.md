@@ -159,3 +159,19 @@ gdbus call ... ClaimAccelerometer / ClaimLight / ClaimProximity
 - 只映射五类默认传感器；未校准磁力、未校准陀螺、计步等没有额外 IIO 节点。
 - `stat -f` 的 coreutils 目录预打开路径仍是未覆盖面；libc `statfs()` 与 `udevadm` 通过。
 - 传感器 D-Bus 的跨会话、多用户和长时间热插拔没有验证。
+
+## 7. libc 构件 pin 同步（FACT）
+
+新增 `statfs64` / `fstatfs` / `fstatfs64` 后，固定输入
+`libc6_2.39-0ubuntu8.12_arm64.deb` 的补丁产物发生了变化。旧 pin 不能继续代表
+当前实现，因此 CI、`Makefile` 和 `docs/ENGINEERING.md` 统一更新为：
+
+```text
+patched libc sha256 = 16d5ba2120c1a92c0c9cba62dd8ec244d29d5d30a733d4ac530be4fb1b92933f
+104/109 hooks, 5 declared refusals
+```
+
+本地用锁定 stock 输入重建后，`runtime/target/libc-patch/libc.so.6` 与
+`tools/loader/libc-nop.so.6` 字节一致；设备活动树、bundle 和
+`.husk-install-state` 也已同步为同一个哈希。`BODY_PATCH` 同时补入
+`statfs64`，避免构建期 hook 表与运行时内部调用补丁列表在这一项上继续漂移。
