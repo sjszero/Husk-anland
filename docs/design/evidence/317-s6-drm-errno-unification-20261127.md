@@ -33,7 +33,8 @@ fdidentity|pathshim-drm-fake-fd-identity-lost-preload|PASS|rc=-1 errno=38 (want 
 - `runtime/crates/fd-identity-probe/src/main.rs`：把断言收紧为必须
   `rc == -1 && errno == 95`，避免再次把别的拒绝码当通过。
 - `tools/device-tests/run-fd-identity-probe.sh`：对应说明改为 EOPNOTSUPP(95)。
-- `tools/guest/husk-session.sh`：系统总线后台进程改用 `setsid -d` 并从 `/dev/null` 读入，
+- `tools/guest/husk-session.sh`：系统总线启动改为直接用 `setsid -d sh -c ...`
+  启动整个子进程，不再保留 `( ... & )` 外层后台子 shell，并从 `/dev/null` 读入，
   防止 `adb shell` 因测试会话的 dbus 进程一直等待而挂住。
 
 ## 3 · 修后真机结果
@@ -75,10 +76,14 @@ ok   preload 在场时同一条件统一回 EOPNOTSUPP(95)
 
 ```text
 run-as com.linuxhub.husk env NR_LD=... sh husk-session.sh ... -- /bin/true
-real 0.20
+real 0.22
+
+run-as com.linuxhub.husk env NR_LD=... sh husk-session.sh ... -- /usr/bin/dpkg -C
+lines=0
 ```
 
-随后完整 `run-fd-identity-probe.sh` 正常返回，证明修复的是会话启动路径，不是绕过 probe。
+随后在正式入口 `release-tree-libc812-20261127/root` 上完整 `run-fd-identity-probe.sh` 正常返回，
+证明修复的是会话启动路径，不是绕过 probe。
 
 ## 5 · 本地门禁
 
