@@ -133,3 +133,7 @@ make check: PASS
   session/GPU/installer/release contract checks: PASS
 make docs: PASS (348 Markdown, 0 broken links)
 ```
+
+远端 CI：run [`45900479488`](https://github.com/xishanp/Husk/actions/runs/45900479488)
+全部 11 个 job `success`，包含 APK 产物/版本契约、完整 workspace check/clippy、主机测试、
+libc patch 断言、preload 导出、app-rs Android 交叉编译和文档链接检查。
