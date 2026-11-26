@@ -13122,6 +13122,68 @@ unsafe fn drm_fake_open(flags: CInt) -> CInt {
 }
 
 #[no_mangle]
+
+/// `_IOC_TYPE` of a DRM ioctl is `'d'` (0x64) on arm64 (`_IOC_TYPE_SHIFT == 8`).
+/// Used only to decide whether a *failed* lookup deserves the expensive
+/// `/proc/self/fd` identity check below; ordinary ioctls never take that path.
+fn drm_ioc_type(request: u64) -> bool {
+    ((request >> 8) & 0xff) == 0x64
+}
+
+/// Is this fd one of *our* fake fds, judged by the kernel rather than by our table?
+///
+/// `FAKE_FDS` is keyed by fd number, and fd numbers are process-local. When a
+/// guest passes a fake fd to another process over `SCM_RIGHTS` - Mesa's
+/// cross-process buffer sharing does exactly that - the receiver gets a fresh
+/// number that is not in its table. Falling through to the raw memfd there is
+/// silently wrong: the ioctl answers ENOTTY, the client concludes "not a GPU"
+/// and drops to software rendering, with nothing in any log.
+unsafe fn fd_is_our_memfd(fd: CInt) -> bool {
+    if fd < 0 {
+        return false;
+    }
+    let mut link = [0u8; 32];
+    const PREFIX: &[u8] = b"/proc/self/fd/";
+    link[..PREFIX.len()].copy_from_slice(PREFIX);
+    let mut v = fd as u32;
+    let mut d = [0u8; 10];
+    let mut dn = 0;
+    if v == 0 {
+        d[0] = b'0';
+        dn = 1;
+    }
+    while v > 0 {
+        d[dn] = b'0' + (v % 10) as u8;
+        v /= 10;
+        dn += 1;
+    }
+    let mut j = PREFIX.len();
+    while dn > 0 {
+        dn -= 1;
+        link[j] = d[dn];
+        j += 1;
+    }
+    link[j] = 0;
+    let mut out = [0u8; 64];
+    let r = syscall4(
+        SYS_READLINKAT,
+        AT_FDCWD as usize,
+        link.as_ptr() as usize,
+        out.as_mut_ptr() as usize,
+        out.len(),
+    );
+    if r <= 0 {
+        return false;
+    }
+    let s = &out[..r as usize];
+    if s == b"/memfd:husk-drm" {
+        return true;
+    }
+    s.len() >= 17 && &s[..17] == b"/memfd:husk-v4l2-"
+}
+
+static mut ORPHAN_LOGGED: bool = false;
+
 pub unsafe extern "C" fn ioctl(fd: CInt, request: u64, arg: *mut u8) -> CInt {
     if v4l2_is_fake(fd) {
         let r = v4l2_dispatch_ioctl(fd, request, arg);
@@ -13156,6 +13218,17 @@ pub unsafe extern "C" fn ioctl(fd: CInt, request: u64, arg: *mut u8) -> CInt {
             return set_errno((-r) as CInt);
         }
         return 0;
+    }
+    // Last stop before the kernel: a DRM ioctl on an fd whose number is not in
+    // our table, but whose kernel target says it is one of our own memfds. That
+    // is the cross-process case. Refuse explicitly instead of letting the memfd
+    // answer ENOTTY and the client fall back to software without a trace.
+    if drm_ioc_type(request) && fd_is_our_memfd(fd) {
+        if !ORPHAN_LOGGED {
+            ORPHAN_LOGGED = true;
+            dbg(&[b"nrshim drm: fake fd without state (SCM_RIGHTS across processes); refusing with EBADF\n"]);
+        }
+        return set_errno(9); // EBADF
     }
     ret_or_errno(syscall4(
         SYS_IOCTL,

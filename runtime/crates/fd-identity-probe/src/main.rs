@@ -869,6 +869,57 @@ fn test_drm_is_fake_exactness() {
     );
 }
 
+/// Identity that gets lost when the fd leaves the process.
+///
+/// `FAKE_FDS` is keyed by fd number. Any fd that points at the same memfd but
+/// was not handed out by the shim - the receiver of an `SCM_RIGHTS` transfer is
+/// the real case - has no table entry. Before this change such an fd fell
+/// through to the memfd and answered ENOTTY, which clients read as "not a GPU"
+/// and silently drop to software rendering.
+///
+/// `/proc/self/fd/N` reproduces the same shape in one process: same memfd, new
+/// number, no registration. Expected: EBADF, not ENOTTY.
+fn test_fake_fd_identity_lost() {
+    const NAME: &str = "pathshim-drm-fake-fd-identity-lost";
+    const DRM_MAGIC_IOCTL: u64 = 0x64b1; // _IOC_TYPE == 'd'
+
+    let file = match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/dri/renderD128")
+    {
+        Ok(f) => f,
+        Err(e) => {
+            line(NAME, false, format!("open /dev/dri/renderD128: {e}"));
+            return;
+        }
+    };
+    let registered = file.as_raw_fd();
+
+    let alias_path = format!("/proc/self/fd/{registered}");
+    let alias = match OpenOptions::new().read(true).write(true).open(&alias_path) {
+        Ok(f) => f,
+        Err(e) => {
+            line(NAME, false, format!("open {alias_path}: {e}"));
+            return;
+        }
+    };
+    let orphan = alias.as_raw_fd();
+
+    let on_registered = unsafe { libc::ioctl(registered, DRM_MAGIC_IOCTL as _, 0usize) };
+    let registered_errno = errno();
+    let on_orphan = unsafe { libc::ioctl(orphan, DRM_MAGIC_IOCTL as _, 0usize) };
+    let orphan_errno = errno();
+
+    line(
+        NAME,
+        on_orphan == -1 && orphan_errno == 9,
+        format!(
+            "registered_fd={registered} rc={on_registered} errno={registered_errno} | orphan_fd={orphan} rc={on_orphan} errno={orphan_errno} (want -1/EBADF=9)"
+        ),
+    );
+}
+
 fn main() {
     let rootfs = std::env::var("NR_ROOTFS").unwrap_or_else(|_| "/".into());
     line("start", true, format!("rootfs={rootfs}"));
@@ -886,4 +937,5 @@ fn main() {
     test_netlink_dup_preserved();
     test_drm_preload();
     test_drm_is_fake_exactness();
+    test_fake_fd_identity_lost();
 }

@@ -41,6 +41,15 @@
   仍保持 `hasCode=false`。**这一条尚未在真机上验收**：权限弹窗、拒绝、重新授权、升级保留
   四类都要跑过才算完成（evidence 282 的 `install -g` 依赖也未解除）。
 
+- **丢了身份表的假 fd 明确拒绝**（`runtime/crates/path-shim/src/lib.rs` 的 `ioctl`）。
+  `FAKE_FDS` 按 fd 号记账，fd 号是进程本地的；guest 用 `SCM_RIGHTS` 把假 fd 传给另一个进程后，
+  接收方拿到的新号不在表里，于是直接落到 memfd，memfd 对 DRM ioctl 回 `ENOTTY`，
+  客户端据此判定「这不是 GPU」静默退回软件渲染，链路上没有任何日志。
+  现在只对 `_IOC_TYPE == 'd'` 的 ioctl 多做一次 `/proc/self/fd` 精确比对：是我们自己的 memfd
+  （`/memfd:husk-drm`、`/memfd:husk-v4l2-*`）但表里没有，就回 `EBADF` 并打一行日志，
+  不再伪成功也不再静默。普通 fd 的 ioctl 一次额外系统调用都不多花。
+  新增设备侧用例 `pathshim-drm-fake-fd-identity-lost`（用 `/proc/self/fd` 复现同样的
+  「同 memfd、新 fd 号、无记账」形状）。**未上机验证。**
 - **账户数据库改成先全部暂存再统一换入**（`runtime/crates/usermgr/src/main.rs`）。
   `save()` 原先逐个 `write_atomic`：四个文件各自 `fsync` 后 `rename`，而
   `f.sync_all().ok()` 与 `fs::set_permissions(...).ok()` 把失败吞掉了。于是
