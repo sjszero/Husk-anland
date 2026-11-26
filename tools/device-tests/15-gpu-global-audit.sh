@@ -5,11 +5,14 @@
 set -u
 P=0
 F=0
+S=0
 fail() { F=$((F+1)); echo "  FAIL  $*"; }
 ok()   { P=$((P+1)); echo "  PASS  $*"; }
+skip() { S=$((S+1)); echo "  SKIP  $*"; }
 
 pid_for() {
-    ps -eo pid=,args= 2>/dev/null | awk -v pat="$1" '$0 ~ pat && $0 !~ /awk/ { print $1; exit }'
+    ps -eo pid=,args= 2>/dev/null | grep -F "$1" | grep -v grep | \
+        sed -n '1s/^ *\([0-9][0-9]*\).*/\1/p'
 }
 
 env_of() {
@@ -23,13 +26,14 @@ gpu_state() {
     maps=$(grep -E '/(libvulkan_(panfrost|freedreno)[^/]*\.so)' "/proc/$pid/maps" 2>/dev/null || true)
     gsk=$(printf '%s\n' "$env" | sed -n 's/^GSK_RENDERER=//p' | head -1)
     [ -n "$gsk" ] || gsk=unset
-    if printf '%s\n' "$env" | grep -qx 'GALLIUM_DRIVER=zink' && \
-       printf '%s\n' "$env" | grep -qx 'MESA_LOADER_DRIVER_OVERRIDE=zink' && \
-       printf '%s\n' "$fds" | grep -qE '/dev/(mali0|kgsl-3d0)' && \
-       [ -n "$maps" ]; then
-        gpu=zink
-    elif printf '%s\n' "$env" | grep -qE '(^LIBGL_ALWAYS_SOFTWARE=1$|^GALLIUM_DRIVER=llvmpipe$|^MESA_LOADER_DRIVER_OVERRIDE=swrast$)'; then
+    software=$(printf '%s\n' "$env" | grep -E '(^LIBGL_ALWAYS_SOFTWARE=1$|^GALLIUM_DRIVER=llvmpipe$|^MESA_LOADER_DRIVER_OVERRIDE=swrast$)' || true)
+    if [ -n "$software" ]; then
         gpu=llvmpipe
+    elif printf '%s\n' "$fds" | grep -qE '/dev/(mali0|kgsl-3d0)' && [ -n "$maps" ]; then
+        # Loader defaults answer getenv() but are deliberately not written back to
+        # /proc/PID/environ. Device fd + hardware Vulkan backend + no software
+        # override is the process-level proof; do not require zink strings here.
+        gpu=zink
     else
         gpu=unknown
     fi
@@ -62,6 +66,8 @@ echo '== loader-default GL client =='
 glx=$(/usr/bin/glxinfo -B 2>&1 || true)
 if printf '%s\n' "$glx" | grep -q 'Device: zink Vulkan 1.3(Mali-G77'; then
     ok 'glxinfo saw zink Vulkan 1.3(Mali-G77)'
+elif printf '%s\n' "$glx" | grep -q "couldn't find RGB GLX visual or fbconfig"; then
+    skip 'this X server has no GLX visual (Xvfb fallback); EGL/GL loader defaults are covered by 18-gpu-loader-defaults.sh'
 else
     fail 'glxinfo did not report zink Vulkan 1.3(Mali-G77)'
     printf '%s\n' "$glx" | sed -n '1,20p'
@@ -78,5 +84,5 @@ sleep 8
 check_pid nested-gtk "$app_pid"
 if [ -n "${app_pid:-}" ]; then kill "$app_pid" 2>/dev/null || true; fi
 
-echo "GPU_GLOBAL_AUDIT PASS=$P FAIL=$F"
+echo "GPU_GLOBAL_AUDIT PASS=$P FAIL=$F SKIP=$S"
 [ "$F" -eq 0 ]

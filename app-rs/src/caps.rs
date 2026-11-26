@@ -82,11 +82,11 @@ fn husk_state(class: &str) -> (&'static str, &'static str) {
     match class {
         "gpu" => (
             "degraded",
-            "Mali kbase -> PanVK -> Zink X11 window verified (evidence 165/167); fixed-function 600-frame probe passes after defaulting PANVK_DXVK_COMPAT=0 (evidence 244), but real X11 glxgears, long-run and SHM readback remain unverified",
+            "Mali kbase -> PanVK -> Zink compute and offscreen graphics verified (evidence 156/310); fixed-function probe passes with PANVK_DXVK_COMPAT=0 (evidence 244); X11/WSI is host-integrated and window readback remains a copy (evidence 312)",
         ),
         "display" => (
             "ready",
-            "AHB -> dma-buf -> SurfaceControl ring, 10000 frames / 665 s (evidence 59)",
+            "AHB -> dma-buf -> SurfaceControl ring verified for 10000 frames / 665 s (evidence 59); this covers only the app-side presentation segment, not an X server",
         ),
         "video-decode" => (
             "degraded",
@@ -102,7 +102,7 @@ fn husk_state(class: &str) -> (&'static str, &'static str) {
         ),
         "audio-in" => (
             "degraded",
-            "AAudio capture -> module-pipe-source, 1.9 MB loopback (evidence 88); needs install -g for the mic permission",
+            "AAudio capture -> PulseAudio source; real PCM verified at 196608 bytes / peak=285 after runtime permission grant (evidence 310)",
         ),
         "camera" => (
             "degraded",
@@ -110,15 +110,15 @@ fn husk_state(class: &str) -> (&'static str, &'static str) {
         ),
         "input" => (
             "degraded",
-            "X11 touch/click and keyboard injection verified (evidence 148/180); adb input swipe to XI2 remains UNKNOWN",
+            "Android input -> host window bridge implemented; end-to-end behavior depends on the host X11/window system, adb swipe to XI2 remains UNKNOWN",
         ),
         "sensors" => (
             "degraded",
-            "NDK ASensorManager -> IIO shadow tree implemented; guest consumer still UNVERIFIED",
+            "NDK ASensorManager -> IIO shadow tree; five default sensor classes are readable from guest (evidence 302); iio-sensor-proxy D-Bus remains UNVERIFIED",
         ),
         "platform-peripherals" => (
-            "absent",
-            "USB / Bluetooth / GPS / NFC / fingerprint not bridged yet",
+            "degraded",
+            "GPS / USB / Bluetooth require a minimal Java callback shim; NFC and fingerprint are intentionally not mapped",
         ),
         _ => ("unknown", "unclassified"),
     }
@@ -293,7 +293,7 @@ fn probe_all() {
             match ins {
                 Ok(list) => {
                     ain.present = if list.is_empty() { Present::No } else { Present::Yes };
-                    ain.backend = "-".to_string();
+                    ain.backend = "AAudio capture + PulseAudio source".to_string();
                     ain.detail = format!("devices={}", join(&list));
                 }
                 Err(e) => ain.detail = format!("probe failed: {e}"),

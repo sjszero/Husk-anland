@@ -19,6 +19,8 @@
 set -u
 DEV=${DEV:?usage: DEV=<serial> $0}
 PKG=${PKG:-com.linuxhub.husk}
+ROOTFS_REL=${ROOTFS_REL:-files/rootfs-full}
+LOADER_REL=${LOADER_REL:-files/linux/libld.so}
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  PASS  $1"; }
 bad() { FAIL=$((FAIL+1)); echo "  FAIL  $1"; }
@@ -43,7 +45,17 @@ for perm in CAMERA RECORD_AUDIO; do
 done
 
 echo "== the app read that state back =="
-log=$(adb_ 'logcat -d' | grep -E 'Husk *: ' || true)
+# logcat is a ring buffer. Force a fresh onResume and read the permission
+# state it reports now, instead of accepting an old line that may have rolled
+# out while the app was running. Only the main buffer is cleared; the crash
+# buffer is checked later and must stay intact.
+adb_ 'logcat -b main -c'
+adb_ 'input keyevent KEYCODE_HOME'
+sleep 1
+adb -s "$DEV" shell am start -W -n "$PKG/android.app.NativeActivity" >/dev/null 2>&1
+sleep 2
+read_husk_log() { adb_ 'logcat -d' | grep -E 'Husk *: ' || true; }
+log=$(read_husk_log)
 has() { printf '%s' "$log" | grep -qF "$1"; }
 has "permissions|OK|all hardware permissions granted" \
     && ok "app reports all hardware permissions granted" \
@@ -68,20 +80,62 @@ if printf '%s' "$frames" | grep -q 'camera-client|PASS'; then
 else
     bad "capture failed: $(printf '%s' "$frames" | head -2 | tr '\n' ' ')"
 fi
-printf '%s' "$log" | grep -q 'camera|session|open|id' \
-    && ok "app opened a Camera2 session" \
-    || bad "no Camera2 session was opened"
+# The client's capture creates the session log line during this check, after
+# the permission log snapshot. Refresh before asserting it instead of looking
+# at a stale buffer.
+log=$(read_husk_log)
+has "camera|session|open|id" && ok "app opened a Camera2 session"     || bad "no Camera2 session was opened"
 
-has "caps|audio-in|present=yes" && ok "audio capture device present (enumeration only)" \
+# The capability matrix is durable; logcat is a ring buffer and can roll over
+# while the camera test runs. Read the app's canonical matrix instead of
+# assuming the startup lines are still present in logcat.
+read_caps() {
+    adb_ "run-as $PKG cat files/husk-capabilities.txt" 2>/dev/null || true
+}
+caps=$(read_caps)
+caps_has() { printf '%s' "$caps" | grep -qF "$1"; }
+case "$caps" in
+    '# husk-capabilities v1'*) ok "capability matrix readable" ;;
+    *) bad "capability matrix missing or unreadable" ;;
+esac
+caps_has "caps|audio-in|present=yes" && ok "audio capture device present" \
     || bad "audio capture device not present"
+
+# Enumeration is not capture. Feed the app's own AAudio bridge through the
+# guest-side socket and require real PCM bytes with at least one non-silent
+# sample. The marker only enables the already-implemented bridge; it does not
+# grant the microphone permission. The probe is copied to the private rootfs
+# because `run-as` cannot execute a host file from /data/local/tmp.
+echo "== authorized microphone delivers PCM =="
+probe=/data/local/tmp/husk-audio-capture-probe.py
+adb -s "$DEV" push tools/probe/audio-capture-probe.py "$probe" >/dev/null 2>&1 || true
+adb_ "run-as $PKG sh -c 'cp $probe $ROOTFS_REL/root/audio-capture-probe.py && chmod 755 $ROOTFS_REL/root/audio-capture-probe.py && mkdir -p $ROOTFS_REL/tmp/husk-pulse && : > $ROOTFS_REL/tmp/husk-pulse/enabled-in'" >/dev/null 2>&1 || true
+sleep 2
+audio=$(
+  adb_ "run-as $PKG sh -c 'R=\$PWD/$ROOTFS_REL; L=\$PWD/$LOADER_REL; cd \"\$R\" && NR_ROOTFS=\"\$R\" NR_LD=\"\$L\" HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \"\$L\" --library-path \"\$R/lib/aarch64-linux-gnu:\$R/usr/lib/aarch64-linux-gnu\" ./usr/bin/python3 ./root/audio-capture-probe.py /run/husk/audio-in.sock 1'" 2>&1 || true
+)
+printf '%s\n' "$audio" | grep -E '^capture-probe\|PASS|^CAPTURE_OK' | sed 's/^/  NOTE  /' || true
+if printf '%s' "$audio" | grep -q '^capture-probe|PASS|'; then
+    bytes=$(printf '%s' "$audio" | sed -n 's/^capture-probe|PASS|.*bytes=\([0-9]*\).*/\1/p' | tail -1)
+    peak=$(printf '%s' "$audio" | sed -n 's/^capture-probe|PASS|.*peak=\([0-9]*\).*/\1/p' | tail -1)
+    if [ "${bytes:-0}" -gt 0 ] && [ "${peak:-0}" -gt 0 ]; then
+        ok "microphone returned ${bytes} PCM bytes (peak=${peak})"
+    else
+        bad "microphone bridge returned no non-silent PCM (bytes=${bytes:-0} peak=${peak:-0})"
+    fi
+else
+    bad "microphone capture probe failed: $(printf '%s' "$audio" | tail -2 | tr '\n' ' ')"
+fi
 
 echo "== nothing died on the way =="
 # A JNI misuse aborts the process (this is exactly how the
 # 'illegal class name java/lang/String;' bug showed up), so a clean run must
 # have no crash record for this package since the last install.
-crash=$(adb -s "$DEV" logcat -d -b crash | grep -c "$PKG" || true)
-[ "${crash:-0}" -eq 0 ] && ok "no crash records for $PKG" \
-    || bad "crash buffer has $crash record(s) for $PKG"
+# `camera-client` is a deliberately separate test process. Its historical
+# SIGABRT must not be attributed to the app; count crash records whose Cmdline
+# is the app process itself.
+crash=$(adb -s "$DEV" logcat -d -b crash | grep -cE 'Cmdline: .*com\.linuxhub\.husk' || true)
+[ "${crash:-0}" -eq 0 ] && ok "no crash records for the app process"     || bad "crash buffer has $crash app-process record(s) for $PKG"
 
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
