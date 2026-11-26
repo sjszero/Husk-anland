@@ -6032,7 +6032,10 @@ const FAKE_GROUPS_MAX: usize = 32;
 static mut FAKE_GROUPS: [u32; FAKE_GROUPS_MAX] = [0; FAKE_GROUPS_MAX];
 static mut FAKE_GROUPS_N: usize = 0;
 static FAKE_GROUPS_READY: AtomicU8 = AtomicU8::new(0);
-static FAKE_GROUPS_LOCK: AtomicBool = AtomicBool::new(false);
+/// Owning TID, or zero. `getgroups()` is async-signal-safe; a handler that
+/// interrupts the owner thread must be able to obtain the primary-group
+/// fallback instead of spinning on itself.
+static FAKE_GROUPS_LOCK: AtomicI32 = AtomicI32::new(0);
 
 unsafe fn parse_dec(v: &[u8]) -> u32 {
     let mut n: u64 = 0;
@@ -6108,17 +6111,30 @@ unsafe fn fake_id() -> (u32, u32) {
     id
 }
 
-unsafe fn groups_lock() {
-    while FAKE_GROUPS_LOCK
-        .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
-        .is_err()
-    {
-        core::hint::spin_loop();
+/// Returns true when the lock was acquired. False means this is a recursive
+/// entry on the owner thread (normally from a signal handler) and the caller
+/// must use a non-blocking fallback.
+unsafe fn groups_lock() -> bool {
+    let tid = syscall4(SYS_GETTID, 0, 0, 0, 0) as i32;
+    loop {
+        let owner = FAKE_GROUPS_LOCK.load(Ordering::Acquire);
+        if owner == 0 {
+            if FAKE_GROUPS_LOCK
+                .compare_exchange(0, tid, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                return true;
+            }
+        } else if owner == tid {
+            return false;
+        } else {
+            core::hint::spin_loop();
+        }
     }
 }
 
 unsafe fn groups_unlock() {
-    FAKE_GROUPS_LOCK.store(false, Ordering::Release);
+    FAKE_GROUPS_LOCK.store(0, Ordering::Release);
 }
 
 fn line_field(line: &[u8], idx: usize) -> &[u8] {
@@ -6297,27 +6313,21 @@ unsafe fn groups_seed_locked(uid: u32, gid: u32) {
     groups_store_locked(&list[..n]);
 }
 
-unsafe fn fake_groups() -> usize {
+unsafe fn groups_ensure_locked(uid: u32, gid: u32) {
     if FAKE_GROUPS_READY.load(Ordering::Acquire) == 0 {
-        groups_lock();
-        if FAKE_GROUPS_READY.load(Ordering::Acquire) == 0 {
-            let (uid, gid) = fake_id();
-            groups_seed_locked(uid, gid);
-        }
-        groups_unlock();
+        groups_seed_locked(uid, gid);
     }
-    groups_lock();
-    let n = FAKE_GROUPS_N;
-    groups_unlock();
-    n
 }
 
 unsafe fn fake_has_gid(gid: u32) -> bool {
-    if gid == fake_id().1 {
+    let (uid, primary) = fake_id();
+    if gid == primary {
         return true;
     }
-    let _ = fake_groups();
-    groups_lock();
+    if !groups_lock() {
+        return false;
+    }
+    groups_ensure_locked(uid, primary);
     let found = FAKE_GROUPS[..FAKE_GROUPS_N].contains(&gid);
     groups_unlock();
     found
@@ -6327,7 +6337,9 @@ unsafe fn groups_replace(list: &[u32]) -> bool {
     if list.len() > FAKE_GROUPS_MAX {
         return false;
     }
-    groups_lock();
+    if !groups_lock() {
+        return false;
+    }
     groups_store_locked(list);
     groups_unlock();
     true
@@ -6379,27 +6391,49 @@ pub unsafe extern "C" fn getgroups(size: CInt, list: *mut u32) -> CInt {
     if !fake_root_on() {
         return ret_or_errno(syscall4(SYS_GETGROUPS, size as usize, list as usize, 0, 0));
     }
-    let n = fake_groups() as CInt;
-    if size == 0 {
-        return n;
-    }
     if size < 0 {
         return set_errno(22);
     }
+    let (uid, primary) = fake_id();
+    if !groups_lock() {
+        // Recursive call from the owner thread's signal handler. The table may
+        // be mid-update, so expose only the immutable primary group.
+        if size == 0 {
+            return 1;
+        }
+        if list.is_null() {
+            return set_errno(14);
+        }
+        if size < 1 {
+            return set_errno(22);
+        }
+        *list = primary;
+        return 1;
+    }
+    groups_ensure_locked(uid, primary);
+    // Validate and copy in one critical section. Re-reading FAKE_GROUPS_N
+    // after unlocking used to let a concurrent setgroups() grow the table
+    // between the size check and this loop, writing past the caller's buffer.
+    let n = FAKE_GROUPS_N;
+    if size == 0 {
+        groups_unlock();
+        return n as CInt;
+    }
     if list.is_null() {
+        groups_unlock();
         return set_errno(14);
     }
-    if size < n {
+    if (size as usize) < n {
+        groups_unlock();
         return set_errno(22);
     }
-    groups_lock();
     let mut i = 0;
-    while i < FAKE_GROUPS_N {
+    while i < n {
         *list.add(i) = FAKE_GROUPS[i];
         i += 1;
     }
     groups_unlock();
-    n
+    n as CInt
 }
 
 // ------------------------------------------------------- RLIMIT_NOFILE ceiling

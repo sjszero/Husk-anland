@@ -59,6 +59,7 @@
 | H-51 | App PTY | `Term::spawn()` 在 `fork()` 后的子进程里构建 `argv`/`envp` 的 `Vec`；多线程 App 下可能卡在分配器锁，无法到达 `execve` | 263 |
 | H-52 | 用户身份 | `fake_id()` 的首次初始化不是单写者：并发 `getuid`/`setuid` 时，晚完成的线程可用启动 `NR_FAKE_UID/GID` 覆盖已发布的新身份 | 264 |
 | H-53 | App fork | fork 安全静态门禁只覆盖主 PTY；会话 guard、SIGSYS 自检和 trace 子进程仍在 fork 后分配 `Vec`/字符串，可能卡在 allocator 锁 | 265 |
+| H-54 | 用户身份 | `getgroups()` 用旧组数校验缓冲区，却在第二次加锁后按可能变大的新组数复制；并发 `setgroups()` 可造成调用方缓冲区越界写，信号重入还可能在旧布尔锁上自旋 | 266 |
 
 ## 2 · 记录在案、不修或不完全修的（L）
 

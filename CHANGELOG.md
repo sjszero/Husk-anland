@@ -11,6 +11,11 @@
 
 ### 修复
 
+- **组表并发读写不再越界，也不在信号重入时自锁**（evidence 266）。旧 `getgroups()` 用
+  第一次读到的组数量校验调用方缓冲区，解锁后却在复制阶段重新读取可能已被并发
+  `setgroups()` 扩大的长度；旧 loader 负对照 20 轮中 19 轮触发 `buffer-overrun` 和
+  stack smashing。现在长度读取、边界检查和复制在同一 owner-TID 锁区间内完成，信号处理器
+  同线程重入时返回一致的主组快照。新 loader 同探针 20/20 轮通过，并接入门禁 A。
 - **App 所有 fork 子路径改为后 fork 零分配**（evidence 265）。上一轮只覆盖了 guest PTY
   leader；会话 guard 仍在子进程用 `.collect()` 建 `argv`/`envp`，SIGSYS 启动自检在子进程
   `format!`/写日志，trace 诊断子进程也重新分配两个 `Vec`。现在三条路径都在 `fork()` 前

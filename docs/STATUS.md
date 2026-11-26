@@ -54,6 +54,11 @@ guest `/etc/group` 自动得到 `[1500, 4242]`，`setgroups([4242])` 后为 `[42
 `strace` 为 `SKIP`，不能算通过（evidence 260）。**这不是已发布的 0.0.32 资产，发布前仍需
 按版本流程生成 0.0.33 包并重新上传 GitHub Release 资产。**
 
+**组表并发越界写（同一候选）**：`getgroups()` 的长度读取、缓冲区校验和复制现在位于
+同一 owner-TID 锁区间，不再允许并发 `setgroups()` 在检查与复制之间扩大组表。旧 loader
+负对照 20 轮中 19 轮出现 `buffer-overrun`/stack smashing；新 loader 20/20 轮通过，并接入
+门禁 A。信号处理器同线程重入时返回只含主组的一致快照，不读取半更新表（evidence 266）。
+
 **session 中文默认值（同一候选）**：`husk-session.sh` 的 `env -i` 边界不再固定写
 `LANG=C.UTF-8`。rootfs 带 `zh_CN` locale 时默认 `zh_CN.UTF-8` / `zh_CN:zh`，调用方显式
 设置的 `LANG`/`LANGUAGE` 保留；真机探针同时验证默认值和 `en_US.UTF-8` 覆盖（evidence 261）。
