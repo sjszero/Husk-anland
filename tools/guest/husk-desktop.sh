@@ -32,9 +32,9 @@ set -eu
 # 和 husk-session.sh 一样，在入口处统一设成普通登录会话的 022。
 umask 022
 
-BASE=$(cd "$(dirname "$0")" && pwd)
+BASE=$(cd "$(dirname "$0")" && pwd -P)
 [ $# -ge 1 ] || { echo "usage: husk-desktop.sh <rootfs> [--home DIR] [--wait SEC]" >&2; exit 64; }
-ROOTFS=$(cd "$1" && pwd); shift
+ROOTFS=$(cd "$1" && pwd -P); shift
 HOME_G=/root
 WAIT=30
 while [ $# -gt 0 ]; do
@@ -45,7 +45,8 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-NR_LD=${NR_LD:-$(dirname "$ROOTFS")/libld.so}
+BUNDLE=$(dirname "$ROOTFS")
+NR_LD=${NR_LD:-$BUNDLE/libld.so}
 [ -x "$NR_LD" ] || { echo "husk-desktop: loader not executable: $NR_LD" >&2; exit 69; }
 case "$NR_LD" in
     /*) ;;
@@ -74,7 +75,7 @@ SYSBUS=$ROOTFS/run/dbus/system_bus_socket
 SYSBUS_G=/run/dbus/system_bus_socket
 SESSBUS=$RT/bus
 SESSBUS_G=$RT_G/bus
-STATE=$(dirname "$ROOTFS")/.husk-install-state
+STATE=$BUNDLE/.husk-install-state
 # D-Bus needs a stable machine-id, and DING needs a real (not world-writable)
 # Desktop directory. The installer creates both; keep existing trees usable too.
 mkdir -p "$ROOTFS/etc" "$ROOTFS/var/lib/dbus" "$ROOTFS$HOME_G/Desktop" 2>/dev/null || true

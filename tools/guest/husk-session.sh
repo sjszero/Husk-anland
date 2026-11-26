@@ -37,9 +37,9 @@ set -eu
 # Set it once at the session entry so the whole tree inherits a normal umask.
 umask 022
 
-BASE=$(cd "$(dirname "$0")" && pwd)
+BASE=$(cd "$(dirname "$0")" && pwd -P)
 [ $# -gt 0 ] || { echo "usage: husk-session.sh <rootfs> [--user N] [--cwd D] -- prog [args]" >&2; exit 64; }
-ROOTFS=$(cd "$1" && pwd); shift
+ROOTFS=$(cd "$1" && pwd -P); shift
 USER_NAME=root
 CWD=
 while [ $# -gt 0 ]; do
@@ -55,7 +55,8 @@ done
 [ "${1:-}" = "--" ] && shift
 [ $# -gt 0 ] || { echo "husk-session: no command given" >&2; exit 64; }
 
-NR_LD=${NR_LD:-$(dirname "$ROOTFS")/libld.so}
+BUNDLE=$(dirname "$ROOTFS")
+NR_LD=${NR_LD:-$BUNDLE/libld.so}
 [ -x "$NR_LD" ] || { echo "husk-session: loader not executable: $NR_LD" >&2; exit 69; }
 
 # The guest libc is not stock: it carries the shim's slot page and clone3 ->
@@ -63,14 +64,14 @@ NR_LD=${NR_LD:-$(dirname "$ROOTFS")/libld.so}
 # distro's own copy and the symptom appears much later and far away from the
 # cause: empty `getent shadow`, failing `su`, and `/bin/sh: Cannot fork`. Check
 # the hash the installer recorded, and put the bundled copy back if it moved.
-STATE=$(dirname "$ROOTFS")/.husk-install-state
+STATE=$BUNDLE/.husk-install-state
 LIBC=$ROOTFS/usr/lib/aarch64-linux-gnu/libc.so.6
 if [ -f "$STATE" ] && [ -f "$LIBC" ]; then
     want=$(sed -n 's/^libc_sha256=//p' "$STATE" | head -1)
     if [ -n "${want:-}" ] && [ "$want" != unknown ]; then
         have=$(sha256sum "$LIBC" | cut -d' ' -f1)
         if [ "$want" != "$have" ]; then
-            bundled=$(dirname "$ROOTFS")/libc.so.6
+            bundled=$BUNDLE/libc.so.6
             if [ -f "$bundled" ] && [ "$(sha256sum "$bundled" | cut -d' ' -f1)" = "$want" ]; then
                 cp "$bundled" "$LIBC" && chmod 755 "$LIBC"
                 echo "husk-session: libc was $(echo "$have" | cut -c1-12), not the installed $(echo "$want" | cut -c1-12); restored" >&2

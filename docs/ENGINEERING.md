@@ -76,12 +76,13 @@ shim 跨度 `0x60000`；钩子地址 983,040；服务表地址 987,136；介入�
 | 文件 | 是什么 | sha256 |
 |---|---|---|
 | `tools/loader/ld-noble2404-ld.so` | 输入：Ubuntu 24.04 原始 loader，**入库** | `124e3f166bdc0be365eaa6dc59e415b876b0841a40463edd1b0e084b518bb7cd` |
-| `ld-embedded.so` / `jniLibs/libld.so` | 产出：成品动态链接器 | `96b96bbe7895b871a65df8598e146bc4566910ce2f68a2cafaf0392e1563141b` |
+| `ld-embedded.so` / `jniLibs/libld.so` | 产出：成品动态链接器 | `4216ad0cd98f41e8f7b8f366658fe80b9231d60d49a94f90382cf26f6ae8d768` |
 | `libc-nop.so.6` | 产出：guest 用（HUSK-SLOT-1 槽位页 + clone3→ENOSYS），输入固定为 `libc6 2.39-0ubuntu8.12`，需要 `LIBC=` 才生成 | `2ed8771f220ba55ed0c224e114c83a30cb9d34fb333d375fc690f7267bd138bb` |
-| `libpath_shim.so` | 产出：嵌入前的路径层 | `5319d12893bdf783fd540805319825a77938fdf7472512f59ea5c7bf5b0abed6` |
+| `libpath_shim.so` | 产出：嵌入前的路径层 | `3e770c0b9a37554dcfdecb5d202881ef222859bac7754a1f8064fce4489d73e7` |
 
 四行里只有 `ld-noble2404-ld.so` 是入库文件；另外三个都是本地构建产物（`.gitignore` 挡着）。
-`ld-embedded.so` 的哈希是 `path-shim` 源码的函数：改一行路径层代码它就会变，所以这一行
+`ld-embedded.so` 的哈希是 `path-shim` 及其嵌入的 `drm-shim` 源码的函数：改一行路径层或
+DRM 模拟代码它就会变，所以这一行
 只对当前主干有意义，发布审计以 tag 里 `dist/SHA256SUMS` 的记录为准。clean tree 构建
 `libc-nop.so.6` 时必须用固定的 glibc 2.39 stock 输入，结果应与上表哈希一致。
 

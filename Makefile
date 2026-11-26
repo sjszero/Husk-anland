@@ -51,6 +51,7 @@ check:
 	sh tools/ci/test-version-bump.sh
 	sh tools/ci/test-release-notes.sh
 	sh tools/ci/test-session-gpu-escape.sh
+	sh tools/ci/test-session-rootfs-bundle.sh
 	sh tools/ci/audit-panvk-bundle.sh
 	@$(MAKE) --no-print-directory tools
 	$(HUSK_TOOLS) check-links
