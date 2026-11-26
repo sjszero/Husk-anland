@@ -112,7 +112,10 @@ fn husk_state(class: &str) -> (&'static str, &'static str) {
             "degraded",
             "X11 touch/click and keyboard injection verified (evidence 148/180); adb input swipe to XI2 remains UNKNOWN",
         ),
-        "sensors" => ("absent", "no sensor path exists yet"),
+        "sensors" => (
+            "degraded",
+            "NDK ASensorManager -> IIO shadow tree implemented; guest consumer still UNVERIFIED",
+        ),
         "platform-peripherals" => (
             "absent",
             "USB / Bluetooth / GPS / NFC / fingerprint not bridged yet",

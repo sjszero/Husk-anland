@@ -11,12 +11,13 @@
 # there fails on missing dependencies rather than on anything this script can fix.
 #
 # usage:
-#   install-husk.sh --rootfs <rootfs.tar[.gz]> [--dest DIR] [--loader PATH] [--user NAME]
+#   install-husk.sh --rootfs <rootfs.tar[.gz]> [--dest DIR] [--loader PATH] [--user NAME] [--fresh]
 #
 #   --rootfs  Ubuntu base tarball (uncompressed or .gz)
 #   --dest    where the rootfs goes (default: ./root next to this script)
 #   --loader  our loader (default: $NR_LD, else ./libld.so next to this script)
 #   --user    guest user for the generated launcher (default: root)
+#   --fresh   replace a non-empty destination instead of refusing it
 #
 # Why two extraction passes: Ubuntu's base tarball contains hard links
 # (usr/bin/uncompress -> gunzip, usr/bin/perl -> perl5.38.2, ...). Android
@@ -31,6 +32,7 @@ ROOTFS_TAR=
 DEST=
 LOADER=${NR_LD:-}
 USER_NAME=root
+FRESH=no
 usage() { sed -n '2,25p' "$0"; }
 
 while [ $# -gt 0 ]; do
@@ -39,6 +41,7 @@ while [ $# -gt 0 ]; do
         --dest)   [ $# -ge 2 ] || { echo "--dest needs a value" >&2; exit 64; };   DEST=$2; shift 2 ;;
         --loader) [ $# -ge 2 ] || { echo "--loader needs a value" >&2; exit 64; }; LOADER=$2; shift 2 ;;
         --user)   [ $# -ge 2 ] || { echo "--user needs a value" >&2; exit 64; };   USER_NAME=$2; shift 2 ;;
+        --fresh)  FRESH=yes; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "install-husk: unknown argument $1" >&2; exit 64 ;;
     esac
@@ -58,8 +61,26 @@ esac
 
 # Everything below works on absolute paths: the launcher we generate has to work
 # from any cwd, and half of the failure modes on Android are relative-path ones.
+#
+# Extraction is not an upgrade operation: a stale /bin directory stops tar from
+# creating the usr-merge /bin -> usr/bin link, and pass 2 then fails with
+# "usr/bin/env: '/bin/sh': No such file or directory". Refuse a non-empty target
+# unless the caller explicitly opts into replacement.
 mkdir -p "$DEST"
-DEST=$(cd "$DEST" && pwd)
+DEST=$(cd "$DEST" && pwd -P)
+[ "$DEST" != / ] || { echo "install-husk: refusing to use / as --dest" >&2; exit 64; }
+if [ -n "$(ls -A "$DEST" 2>/dev/null)" ]; then
+    if [ "$FRESH" = yes ]; then
+        echo "== fresh target: replacing $DEST =="
+        rm -rf "$DEST"
+        mkdir -p "$DEST"
+        DEST=$(cd "$DEST" && pwd -P)
+    else
+        echo "install-husk: destination is not empty: $DEST" >&2
+        echo "               use an empty directory or pass --fresh to replace it" >&2
+        exit 65
+    fi
+fi
 OUT=$(dirname "$DEST")
 
 # Version: one source of truth, the VERSION file shipped next to this script
@@ -279,6 +300,9 @@ if [ -f "$HERE/guest/husk-wallpaper-scale.js" ]; then
             "$DEST/usr/local/share/linuxhub/linuxhub-system-bus.conf"
         chmod 644 "$DEST/usr/local/share/linuxhub/linuxhub-system-bus.conf"
         echo "   wrote usr/local/share/linuxhub/linuxhub-system-bus.conf (system bus)"
+    else
+        echo "   WARNING: no guest-config/linuxhub-system-bus.conf next to the installer;" >&2
+        echo "            the desktop session may fall back to GNOME security mode." >&2
     fi
     echo "   wrote usr/local/share/linuxhub/husk-wallpaper-scale.js (wallpaper pre-scale)"
 else
@@ -777,17 +801,29 @@ case "$hl" in
 esac
 
 # 4b. the check that would have caught both symlink bugs: a soname that only
-#     resolves when the /etc/alternatives chain is relative.
+#     resolves when the /etc/alternatives chain is relative. BLAS is optional:
+#     a desktop image with python3 but without libblas3/liblapack3 is valid, so
+#     only test sonames that the tree actually contains.
 if [ -x "$DEST/usr/bin/python3" ]; then
-    son=$( guest_run /usr/bin/python3 -c \
-        "import ctypes; [ctypes.CDLL(n) for n in ('libblas.so.3','liblapack.so.3')]; print('sonames ok')" \
-        2>&1 | tail -2 )
-    echo "$son" | sed 's/^/   /'
-    case "$son" in
-        *"sonames ok"*) ;;
-        *) echo "install-husk: soname resolution failed (libblas/liblapack) - do not ship this tree" >&2
-           exit 73 ;;
-    esac
+    sonames=
+    for n in libblas.so.3 liblapack.so.3; do
+        if find "$DEST/lib" "$DEST/usr/lib" -name "$n" -print -quit 2>/dev/null | grep -q .; then
+            sonames="$sonames $n"
+        fi
+    done
+    if [ -n "$sonames" ]; then
+        son=$( guest_run /usr/bin/python3 -c \
+            "import ctypes,sys; [ctypes.CDLL(n) for n in sys.argv[1:]]; print('sonames ok')" $sonames \
+            2>&1 | tail -2 )
+        echo "$son" | sed 's/^/   /'
+        case "$son" in
+            *"sonames ok"*) ;;
+            *) echo "install-husk: soname resolution failed ($sonames) - do not ship this tree" >&2
+               exit 73 ;;
+        esac
+    else
+        echo "   skipped BLAS/LAPACK soname check (not installed in this tree)"
+    fi
 fi
 
 cat <<DONE

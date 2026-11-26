@@ -14,9 +14,11 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{mpsc, OnceLock};
+use std::time::{Duration, Instant};
 
 const HOST: &str = "ports.ubuntu.com";
 const POOL: &str = "/ubuntu-ports/";
@@ -50,33 +52,73 @@ fn die(msg: impl AsRef<str>) -> ! {
 /// So: resolve once with a bound, connect with a bound, read with a bound, and
 /// retry the request a few times before giving up.
 pub(crate) fn http_get(path: &str) -> Option<Vec<u8>> {
+    http_get_depth(path, 0)
+}
+
+fn http_get_depth(path: &str, redirects: u8) -> Option<Vec<u8>> {
+    if redirects > 5 {
+        eprintln!("too many redirects: {path}");
+        return None;
+    }
     for attempt in 0..3u64 {
-        if let Some(body) = http_get_once(path) {
+        if let Some(body) = http_get_once(path, redirects, attempt) {
             return Some(body);
         }
         if attempt < 2 {
-            std::thread::sleep(std::time::Duration::from_secs(1 + attempt));
+            std::thread::sleep(Duration::from_secs(1 + attempt));
         }
     }
     None
 }
 
-fn http_get_once(path: &str) -> Option<Vec<u8>> {
+fn host_addrs() -> Option<Vec<SocketAddr>> {
     use std::net::ToSocketAddrs;
-    let addr = (HOST, 80u16).to_socket_addrs().ok()?.next()?;
-    let mut stream = TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(20)).ok()?;
+
+    // Resolve in a helper thread because `ToSocketAddrs` has no timeout.  Keep
+    // every address, IPv4 first: one Ubuntu mirror address can accept TCP but
+    // never return a response, and the caller must be able to rotate.
+    static ADDRS: OnceLock<Vec<SocketAddr>> = OnceLock::new();
+    if let Some(addrs) = ADDRS.get() {
+        return Some(addrs.clone());
+    }
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut addrs: Vec<_> = (HOST, 80u16)
+            .to_socket_addrs()
+            .ok()
+            .map(|iter| iter.collect())
+            .unwrap_or_default();
+        addrs.sort_by_key(|addr| if addr.is_ipv4() { 0 } else { 1 });
+        let _ = tx.send(addrs);
+    });
+    let addrs = rx.recv_timeout(Duration::from_secs(10)).ok()?;
+    if addrs.is_empty() {
+        return None;
+    }
+    let _ = ADDRS.set(addrs.clone());
+    Some(addrs)
+}
+
+fn http_get_once(path: &str, redirects: u8, attempt: u64) -> Option<Vec<u8>> {
+    let addrs = host_addrs()?;
+    let addr = addrs[attempt as usize % addrs.len()];
+    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(20)).ok()?;
     stream
-        .set_read_timeout(Some(std::time::Duration::from_secs(60)))
+        .set_read_timeout(Some(Duration::from_secs(20)))
         .ok()?;
     stream
-        .set_write_timeout(Some(std::time::Duration::from_secs(20)))
+        .set_write_timeout(Some(Duration::from_secs(20)))
         .ok()?;
     let req = format!(
         "GET {path} HTTP/1.0\r\nHost: {HOST}\r\nUser-Agent: nr-tools\r\nConnection: close\r\n\r\n"
     );
     stream.write_all(req.as_bytes()).ok()?;
-    let mut raw = Vec::new();
-    stream.read_to_end(&mut raw).ok()?;
+    // SO_RCVTIMEO is not reliable for every blocking IPv6 socket on macOS:
+    // the process was observed sitting in recvfrom for minutes although a
+    // 20-second read timeout had been accepted.  Switch the socket to
+    // non-blocking mode and enforce the deadline in our own loop.
+    stream.set_nonblocking(true).ok()?;
+    let raw = read_response(&mut stream)?;
     let hdr_end = raw.windows(4).position(|w| w == b"\r\n\r\n")? + 4;
     let head = String::from_utf8_lossy(&raw[..hdr_end]).to_string();
     let status: u16 = head.split_whitespace().nth(1)?.parse().ok()?;
@@ -89,7 +131,7 @@ fn http_get_once(path: &str) -> Option<Vec<u8>> {
             })
             .map(|s| s.trim().to_string())?;
         if let Some(rest) = loc.strip_prefix("http://ports.ubuntu.com") {
-            return http_get(rest);
+            return http_get_depth(rest, redirects + 1);
         }
         eprintln!("cannot follow {loc} (TLS is not supported by this tool)");
         return None;
@@ -98,6 +140,70 @@ fn http_get_once(path: &str) -> Option<Vec<u8>> {
         return None;
     }
     Some(raw[hdr_end..].to_vec())
+}
+
+/// Read one HTTP/1.0 response without waiting for the peer to close if the
+/// response declares a Content-Length.  The old `read_to_end` waited for EOF;
+/// a mirror that kept a completed response open could therefore stall the
+/// build forever even though all bytes had arrived.
+fn read_response(stream: &mut TcpStream) -> Option<Vec<u8>> {
+    const MAX_RESPONSE: usize = 512 * 1024 * 1024;
+
+    let started = Instant::now();
+    let no_progress_deadline = Duration::from_secs(20);
+    let mut last_progress = started;
+    let mut raw = Vec::new();
+    let mut buf = [0u8; 64 * 1024];
+    let mut total_len = None;
+    loop {
+        if started.elapsed() >= Duration::from_secs(120) {
+            return None;
+        }
+        if last_progress.elapsed() >= no_progress_deadline {
+            return None;
+        }
+        // A mirror address can stay connected and trickle one tiny segment
+        // occasionally.  That defeats a pure no-progress timer but is still
+        // unusable (measured: 31 KiB in 40 s).  Require at least 8 KiB/s
+        // after the first 10 seconds, then rotate to the next address.
+        let elapsed = started.elapsed();
+        if elapsed >= Duration::from_secs(10) && raw.len() < 8 * 1024 * elapsed.as_secs() as usize {
+            return None;
+        }
+        if total_len.map(|n| raw.len() >= n).unwrap_or(false) {
+            return Some(raw);
+        }
+        match stream.read(&mut buf) {
+            Ok(0) => return Some(raw),
+            Ok(n) => {
+                last_progress = Instant::now();
+                raw.extend_from_slice(&buf[..n]);
+                if raw.len() > MAX_RESPONSE {
+                    return None;
+                }
+                if total_len.is_none() {
+                    total_len = response_total_len(&raw);
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return None,
+        }
+    }
+}
+
+fn response_total_len(raw: &[u8]) -> Option<usize> {
+    let hdr_end = raw.windows(4).position(|w| w == b"\r\n\r\n")? + 4;
+    let head = String::from_utf8_lossy(&raw[..hdr_end]);
+    let body_len = head.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        name.eq_ignore_ascii_case("content-length")
+            .then(|| value.trim().parse::<usize>().ok())
+            .flatten()
+    })?;
+    hdr_end.checked_add(body_len)
 }
 
 /// Run a decompressor: stdin = input, stdout = output.
@@ -897,6 +1003,37 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn response_length_parser_handles_header_case() {
+        let raw = b"HTTP/1.0 200 OK\r\nContent-Length: 7\r\n\r\npayload";
+        assert_eq!(response_total_len(raw), Some(raw.len()));
+    }
+
+    /// A mirror may leave the TCP connection open after sending a complete
+    /// Content-Length response.  The old read_to_end path waited forever.
+    #[test]
+    fn response_reader_stops_at_content_length_without_eof() {
+        use std::net::{TcpListener, TcpStream};
+        use std::time::Duration;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .write_all(b"HTTP/1.0 200 OK\r\nContent-Length: 7\r\n\r\npayload")
+                .unwrap();
+            std::thread::sleep(Duration::from_millis(500));
+        });
+        let mut client = TcpStream::connect(addr).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_millis(500)))
+            .unwrap();
+        let raw = read_response(&mut client).expect("response");
+        assert!(raw.ends_with(b"payload"));
+        server.join().unwrap();
     }
 
     fn fixture() -> (PathBuf, Vec<u8>) {

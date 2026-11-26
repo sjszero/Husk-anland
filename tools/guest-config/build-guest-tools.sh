@@ -46,9 +46,23 @@ case "$NDK" in */bin) NDK=${NDK%/bin} ;; esac
 for f in usr/lib/aarch64-linux-gnu/crt1.o usr/lib/aarch64-linux-gnu/libc.so lib/ld-linux-aarch64.so.1; do
   [ -e "$SYSROOT/$f" ] || { echo "$0: incomplete sysroot: $SYSROOT/$f missing" >&2; exit 1; }
 done
+# Rust's GNU target asks for crtbeginS.o/crtendS.o/libgcc_s even though this is
+# a C-free link.  NDK clang does not infer a Debian/Ubuntu GCC directory from a
+# bare --sysroot, so point both the start-file search (-B) and -lgcc_s search
+# (-L) at the staged host GCC support directory explicitly.
+GCCLIB=
+for d in "$SYSROOT"/usr/lib/gcc/*/*; do
+    [ -d "$d" ] && GCCLIB=$d
+done
+[ -n "$GCCLIB" ] || { echo "$0: no GCC support directory under $SYSROOT/usr/lib/gcc" >&2; exit 1; }
+for f in crtbeginS.o crtendS.o libgcc_s.so; do
+    [ -e "$GCCLIB/$f" ] || { echo "$0: incomplete GCC support: $GCCLIB/$f missing" >&2; exit 1; }
+done
 FLAGS="-C linker=$NDK/bin/clang \
        -C link-arg=--target=aarch64-linux-gnu \
        -C link-arg=--sysroot=$SYSROOT \
+       -C link-arg=-B$GCCLIB/ \
+       -C link-arg=-L$GCCLIB \
        -C link-arg=-fuse-ld=$NDK/bin/ld.lld \
        -C link-arg=-Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 \
        -C link-arg=-Wl,-z,max-page-size=65536"

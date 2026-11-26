@@ -332,7 +332,8 @@ dist:
 	cp tools/guest/husk-wallpaper-scale.js dist/guest/
 	cp tools/guest-config/husk-gpu-defaults.sh tools/guest-config/husk-look.override \
 	   tools/guest-config/husk-locale.sh tools/guest-config/fcitx5-profile \
-	   tools/guest-config/pulse-client-no-shm.conf dist/guest-config/
+	   tools/guest-config/pulse-client-no-shm.conf \
+	   tools/guest-config/linuxhub-system-bus.conf dist/guest-config/
 	cp VERSION dist/VERSION
 	@if [ -f tools/langpack/husk-lang-zh.tar.gz ]; then \
 	    cp tools/langpack/husk-lang-zh.tar.gz dist/; \
@@ -366,6 +367,10 @@ dist:
 # the shell is Yaru and every app window is Adwaita, and nothing says why.
 	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/husk-look.override' || \
 	    { echo "dist: bundle is missing guest-config/husk-look.override" >&2; exit 1; }
+# The desktop session falls back to GNOME's "security mode" when this file is
+# absent, while the installer itself succeeds.  Assert it on the tarball.
+	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/linuxhub-system-bus.conf' || \
+	    { echo "dist: bundle is missing guest-config/linuxhub-system-bus.conf" >&2; exit 1; }
 # 0.0.6 补的三条断言：这几个文件少了不会报错，只会让装出来的树缺一件东西
 # （husk-session.sh 的 `[ -x ... ]` 判假、pulse 客户端静默丢掉 enable-shm=no）。
 	@for f in husk-desktop.sh husk-ding-fallback.sh husk-wallpaper-fit.sh \

@@ -4895,6 +4895,15 @@ unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt)
                 return fd;
             }
             let mut sysbuf = [0u8; PATH_MAX];
+            if let Some(sn) = iio_sys_host(&gp[..n], &mut sysbuf) {
+                return ret_or_errno(syscall4(
+                    SYS_OPENAT,
+                    AT_FDCWD as usize,
+                    sysbuf.as_ptr() as usize,
+                    flags as usize,
+                    mode as usize,
+                ));
+            }
             if let Some(sn) = v4l2_sys_host(&gp[..n], &mut sysbuf) {
                 return ret_or_errno(syscall4(
                     SYS_OPENAT,
@@ -4986,6 +4995,15 @@ unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt)
         i
     };
     let mut sysbuf = [0u8; PATH_MAX];
+    if let Some(sn) = iio_sys_host(&buf[..bl], &mut sysbuf) {
+        return ret_or_errno(syscall4(
+            SYS_OPENAT,
+            AT_FDCWD as usize,
+            sysbuf.as_ptr() as usize,
+            flags as usize,
+            mode as usize,
+        ));
+    }
     if let Some(sn) = v4l2_sys_host(&buf[..bl], &mut sysbuf) {
         return ret_or_errno(syscall4(
             SYS_OPENAT,
@@ -5154,6 +5172,15 @@ unsafe fn stat_like(path: *const CChar, st: *mut u8, flags: CInt) -> CInt {
             None => PATH_MAX,
         };
         let mut sysbuf = [0u8; PATH_MAX];
+        if let Some(sn) = iio_sys_host(&gp[..n], &mut sysbuf) {
+            return ret_or_errno(syscall4(
+                SYS_NEWFSTATAT,
+                AT_FDCWD as usize,
+                sysbuf.as_ptr() as usize,
+                st as usize,
+                flags as usize,
+            ));
+        }
         if let Some(sn) = v4l2_sys_host(&gp[..n], &mut sysbuf) {
             return ret_or_errno(syscall4(
                 SYS_NEWFSTATAT,
@@ -8582,6 +8609,16 @@ pub unsafe extern "C" fn statx(
         let mut gp = [0u8; PATH_MAX];
         if let Some(n) = abs_guest(path, &mut gp) {
             let mut sbuf = [0u8; PATH_MAX];
+            if let Some(sn) = iio_sys_host(&gp[..n], &mut sbuf) {
+                return ret_or_errno(syscall5(
+                    SYS_STATX,
+                    AT_FDCWD as usize,
+                    sbuf.as_ptr() as usize,
+                    flags as usize,
+                    mask as usize,
+                    buf as usize,
+                ));
+            }
             if let Some(sn) = v4l2_sys_host(&gp[..n], &mut sbuf) {
                 return ret_or_errno(syscall5(
                     SYS_STATX,
@@ -13529,6 +13566,41 @@ unsafe fn v4l2_sys_host(p: &[u8], out: &mut [u8; PATH_MAX]) -> Option<usize> {
         (b"/sys-v4l2/class".as_ref(), &p[C.len()..])
     } else if p.starts_with(S) {
         (b"/sys-v4l2/subsystem".as_ref(), &p[S.len()..])
+    } else {
+        return None;
+    };
+    if !rest.is_empty() && rest[0] != b'/' {
+        return None;
+    }
+    let n = rl + dir.len() + rest.len();
+    if n + 1 > PATH_MAX {
+        return None;
+    }
+    out[..rl].copy_from_slice(&ROOT_REAL[..rl]);
+    out[rl..rl + dir.len()].copy_from_slice(dir);
+    out[rl + dir.len()..n].copy_from_slice(rest);
+    out[n] = 0;
+    Some(n)
+}
+
+/// The guest sees a Linux IIO tree even though Android's app domain cannot
+/// read the real one.  The app-side sensor bridge writes this shadow tree
+/// (rootfs-full/sys-iio); these three names are the paths libiio and
+/// iio-sensor-proxy enumerate.
+unsafe fn iio_sys_host(p: &[u8], out: &mut [u8; PATH_MAX]) -> Option<usize> {
+    let rl = ROOT_REAL_LEN;
+    if rl == 0 {
+        return None;
+    }
+    const B: &[u8] = b"/sys/bus/iio/devices";
+    const C: &[u8] = b"/sys/class/iio";
+    const S: &[u8] = b"/sys/subsystem/iio";
+    let (dir, rest) = if p.starts_with(B) {
+        (b"/sys-iio/bus/iio/devices".as_ref(), &p[B.len()..])
+    } else if p.starts_with(C) {
+        (b"/sys-iio/class/iio".as_ref(), &p[C.len()..])
+    } else if p.starts_with(S) {
+        (b"/sys-iio/subsystem/iio".as_ref(), &p[S.len()..])
     } else {
         return None;
     };

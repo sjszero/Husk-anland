@@ -48,6 +48,21 @@ libp11-kit0 libffi8 libtasn1-6 libnettle8t64 libhogweed6t64 libgmp10 liblz4-1 li
 libsystemd0 libudev1 libxxhash0 libapt-pkg6.0t64 ubuntu-keyring \
 libc-bin locales acl mawk libssl3t64";
 
+/// `--packages` is an additive package list, not a replacement for the base
+/// system.  Replacing BASE used to make a 787-package desktop tree with no
+/// `bash`, `dash`, `coreutils`, or `env`; the device-side installer then failed
+/// in pass 2 with `usr/bin/env: cannot open shared object file`.
+fn requested_packages(extra: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for name in BASE.split_whitespace().chain(extra.split_whitespace()) {
+        if seen.insert(name) {
+            out.push(name.to_string());
+        }
+    }
+    out
+}
+
 fn die(msg: impl AsRef<str>) -> ! {
     eprintln!("{}", msg.as_ref());
     std::process::exit(1)
@@ -73,7 +88,7 @@ pub fn main(argv: &[String]) {
     let mut out = PathBuf::from("/tmp/husk-rootfs");
     let mut suite = "noble".to_string();
     let mut arch = "arm64".to_string();
-    let mut packages = BASE.to_string();
+    let mut packages = String::new();
     let mut cache = PathBuf::from("/tmp/nr-rootfs/deb");
     let mut tar: Option<PathBuf> = None;
     let mut patch_libc = true;
@@ -100,7 +115,13 @@ pub fn main(argv: &[String]) {
             "--out" => out = PathBuf::from(next(&mut i)),
             "--suite" => suite = next(&mut i),
             "--arch" => arch = next(&mut i),
-            "--packages" => packages = next(&mut i),
+            "--packages" => {
+                let extra = next(&mut i);
+                if !packages.is_empty() {
+                    packages.push(' ');
+                }
+                packages.push_str(&extra);
+            }
             "--cache" => cache = PathBuf::from(next(&mut i)),
             "--tar" => tar = Some(PathBuf::from(next(&mut i))),
             "--no-patch-libc" => patch_libc = false,
@@ -190,7 +211,7 @@ pub fn main(argv: &[String]) {
     // `libc6` is unpacked like the rest, then patched: the guest loader and the
     // guest libc must agree on exactly the build this image carries.
     let skip: HashSet<String> = HashSet::new();
-    let wanted: Vec<String> = packages.split_whitespace().map(String::from).collect();
+    let wanted = requested_packages(&packages);
     let want = resolve(&index, &wanted, &skip);
     let total: u64 = want.iter().map(|p| p.size).sum();
     println!("{} packages, {:.1} MB", want.len(), total as f64 / 1e6);
@@ -467,6 +488,23 @@ mod tests {
     /// without /usr/sbin is correct, and `Path::exists()` follows the link and
     /// answers false - which made the staging report print "usr-merge links
     /// MISSING" on every minimal tree while the links were in place.
+    #[test]
+    fn custom_packages_keep_the_base_system() {
+        let wanted = requested_packages("gnome-shell gnome-terminal bash bash");
+        for required in ["bash", "dash", "coreutils", "dpkg", "apt"] {
+            assert!(
+                wanted.iter().any(|name| name == required),
+                "missing required base package: {required}"
+            );
+        }
+        assert_eq!(
+            wanted.iter().filter(|name| name.as_str() == "bash").count(),
+            1,
+            "duplicate package names must be collapsed"
+        );
+        assert!(wanted.iter().any(|name| name == "gnome-shell"));
+    }
+
     #[test]
     fn lexists_counts_a_dangling_symlink() {
         let d = std::env::temp_dir().join(format!("nr-lexists-{}", std::process::id()));
