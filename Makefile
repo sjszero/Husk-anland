@@ -51,6 +51,7 @@ check:
 	sh tools/ci/test-version-bump.sh
 	sh tools/ci/test-release-notes.sh
 	sh tools/ci/test-session-gpu-escape.sh
+	sh tools/ci/audit-panvk-bundle.sh
 	@$(MAKE) --no-print-directory tools
 	$(HUSK_TOOLS) check-links
 	@$(MAKE) --no-print-directory version-check
@@ -334,6 +335,8 @@ dist:
 	   tools/guest-config/husk-locale.sh tools/guest-config/fcitx5-profile \
 	   tools/guest-config/pulse-client-no-shm.conf \
 	   tools/guest-config/linuxhub-system-bus.conf dist/guest-config/
+	@mkdir -p dist/vendor/panvk
+	cp -R vendor/panvk/fristonerr-1.2.0-mali-g77 dist/vendor/panvk/
 	cp VERSION dist/VERSION
 	@if [ -f tools/langpack/husk-lang-zh.tar.gz ]; then \
 	    cp tools/langpack/husk-lang-zh.tar.gz dist/; \
@@ -344,7 +347,7 @@ dist:
 	fi
 	COPYFILE_DISABLE=1 tar czf dist/husk-arm64.tar.gz -C dist \
 	    libld.so libc.so.6 husk-ldconfig husk-usermgr husk-su husk-symlinks \
-	    guest guest-config install-husk.sh husk-session.sh husk-desktop.sh \
+	    guest guest-config vendor install-husk.sh husk-session.sh husk-desktop.sh \
 	    husk-ding-fallback.sh husk-wallpaper-fit.sh husk-lang-zh.tar.gz VERSION
 # The installer writes /etc/profile.d/husk-gpu.sh from guest-config/, and skips it
 # silently when the file is not next to it: a bundle without it installs a tree
@@ -371,6 +374,16 @@ dist:
 # absent, while the installer itself succeeds.  Assert it on the tarball.
 	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/linuxhub-system-bus.conf' || \
 	    { echo "dist: bundle is missing guest-config/linuxhub-system-bus.conf" >&2; exit 1; }
+# A bundle without the kbase PanVK snapshot installs successfully on Mali and then silently
+# renders with llvmpipe. Assert the compressed driver, guest-relative ICD and license.
+	@for f in \
+	    vendor/panvk/fristonerr-1.2.0-mali-g77/libvulkan_panfrost_frist370_execva.so.gz \
+	    vendor/panvk/fristonerr-1.2.0-mali-g77/husk_panvk_guest.json \
+	    vendor/panvk/fristonerr-1.2.0-mali-g77/LICENSE-Mesa.txt \
+	    vendor/panvk/fristonerr-1.2.0-mali-g77/PROVENANCE.md; do \
+	    tar tzf dist/husk-arm64.tar.gz | grep -qx "$$f" || \
+	        { echo "dist: bundle is missing $$f" >&2; exit 1; }; \
+	done
 # 0.0.6 补的三条断言：这几个文件少了不会报错，只会让装出来的树缺一件东西
 # （husk-session.sh 的 `[ -x ... ]` 判假、pulse 客户端静默丢掉 enable-shm=no）。
 	@for f in husk-desktop.sh husk-ding-fallback.sh husk-wallpaper-fit.sh \
@@ -382,7 +395,7 @@ dist:
 	    dist/husk-su dist/husk-symlinks dist/install-husk.sh dist/husk-session.sh \
 	    dist/husk-desktop.sh dist/husk-ding-fallback.sh dist/husk-wallpaper-fit.sh \
 	    dist/husk-lang-zh.tar.gz dist/VERSION
-	@rm -rf dist/guest dist/guest-config
+	@rm -rf dist/guest dist/guest-config dist/vendor
 	@cd dist && sha256sum husk-arm64.tar.gz > SHA256SUMS && cat SHA256SUMS
 
 clean:

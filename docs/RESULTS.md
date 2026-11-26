@@ -65,6 +65,8 @@
 | GStreamer 取流 | `v4l2src` 正常出帧 | 92 |
 | 拍照 / 录像 | 静态图有效，录像可播放 | 93 |
 
+| PanVK 发行打包 | 1.2.0 快照随 bundle 安装；干净树 GPU 默认值 9/0、门禁 A 34/0/1、读回 17/0 | 306 |
+
 ## 7. 未验证（UNKNOWN）
 
 - WSI 的**零拷贝**方向：窗口呈现已通（X11 EGL/GLX，600 秒；evidence 165、245、278），未通的是 dma-buf 直传（DRI3 无 render node），现在是回读 + SHM 拷贝。

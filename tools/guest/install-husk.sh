@@ -267,6 +267,51 @@ if [ ! -s "$DEST/etc/resolv.conf" ]; then
     echo "   wrote etc/resolv.conf ($(grep -c nameserver "$DEST/etc/resolv.conf") nameservers)"
 fi
 
+# 2b-2b-0. Mali kbase PanVK 发行快照。发行版 Mesa 只带 DRM/Panthor ICD；在只有
+#        /dev/mali0 的 Android 设备上，树里没有这颗 glibc PanVK 时 GL 会安静地掉到
+#        llvmpipe。这里只在宿主机确有 mali0 且目标树还没有 PanVK 驱动时解压固定快照，
+#        不覆盖发行版或其他构建已有的驱动。驱动、ICD 和 MIT 许可证一起落盘。
+_bundle_panvk_rel=vendor/panvk/fristonerr-1.2.0-mali-g77
+_panvk_driver=usr/lib/aarch64-linux-gnu/libvulkan_panfrost_frist370_execva.so
+if ( : <> /dev/mali0 ) 2>/dev/null && [ ! -r "$DEST/$_panvk_driver" ]; then
+    _pb="$HERE/$_bundle_panvk_rel"
+    if [ -f "$_pb/libvulkan_panfrost_frist370_execva.so.gz" ] && \
+       [ -f "$_pb/husk_panvk_guest.json" ]; then
+        mkdir -p "$DEST/usr/lib/aarch64-linux-gnu" \
+                 "$DEST/usr/share/vulkan/icd.d" \
+                 "$DEST/usr/share/licenses/husk" \
+                 "$DEST/usr/share/doc/husk/third-party/fristonerr-panvk"
+        _pt="$DEST/tmp/.husk-panvk.$$"
+        if ! gzip -dc "$_pb/libvulkan_panfrost_frist370_execva.so.gz" > "$_pt"; then
+            rm -f "$_pt"
+            echo "install-husk: bundled PanVK driver is corrupt" >&2
+            exit 76
+        fi
+        _want=599148568d80041ed3fd3312f5c9834479bcac9a13183f2b1479048b72a29b9c
+        _have=$(sha256sum "$_pt" | cut -d' ' -f1)
+        if [ "$_have" != "$_want" ]; then
+            rm -f "$_pt"
+            echo "install-husk: bundled PanVK driver sha256 mismatch: $_have" >&2
+            exit 76
+        fi
+        chmod 755 "$_pt"
+        mv "$_pt" "$DEST/$_panvk_driver"
+        cp "$_pb/husk_panvk_guest.json" "$DEST/usr/share/vulkan/icd.d/husk_panvk_guest.json"
+        cp "$_pb/LICENSE-Mesa.txt" "$DEST/usr/share/licenses/husk/FristOneRR-PanVK-MIT.txt"
+        cp "$_pb/PROVENANCE.md" "$DEST/usr/share/doc/husk/third-party/fristonerr-panvk/PROVENANCE.md"
+        chmod 644 "$DEST/usr/share/vulkan/icd.d/husk_panvk_guest.json" \
+                  "$DEST/usr/share/licenses/husk/FristOneRR-PanVK-MIT.txt" \
+                  "$DEST/usr/share/doc/husk/third-party/fristonerr-panvk/PROVENANCE.md"
+        echo "   installed bundled PanVK 1.2.0 ($_panvk_driver)"
+        unset _pt _want _have
+    else
+        echo "   WARNING: /dev/mali0 is available but the release bundle has no PanVK snapshot;" >&2
+        echo "            GL will fall back to llvmpipe unless the rootfs already carries a kbase driver." >&2
+    fi
+    unset _pb
+fi
+unset _bundle_panvk_rel _panvk_driver
+
 # 2b-2b. GPU 运行时默认值：写进 /etc/profile.d，让"进到 guest 里再开程序"也拿到
 #        ICD 与 GL 驱动（husk-session.sh 覆盖的是它自己拉起的那一条会话链）。
 if [ -f "$HERE/guest-config/husk-gpu-defaults.sh" ]; then
@@ -407,6 +452,7 @@ if [ "$_husk_gpu_family" = mali-kbase ]; then
     if [ -n "$_husk_driver" ]; then
         _husk_api=1.0.0
         for _src in \
+            "$DEST"/usr/share/vulkan/icd.d/husk_panvk_guest.json \
             "$DEST"/usr/share/vulkan/icd.d/husk_panvk_frist370_execva.json \
             "$DEST"/usr/share/vulkan/icd.d/husk_panvk_frist370.json \
             "$DEST"/usr/share/vulkan/icd.d/husk_panvk_x11.json \

@@ -43,3 +43,16 @@ Third-party components
 
 4) No part of the LinuxHub application, its private data, or its rootfs images is
    included in this repository.
+
+5) FristOneRR PanVK 1.2.0 snapshot, redistributed in release bundles only when a
+   Mali kbase device is present:
+
+     vendor/panvk/fristonerr-1.2.0-mali-g77/
+
+   Source: https://github.com/FristOneRR-Admin/FristOneRR-Panvk-Source
+   Pinned source commit: 0c9dce35094dbe89c412b79bf57c6067c7b97e59
+   Base: funnymdzz/mesa @ 6598829019c0746aa8e473b4ae1c980cbfa6ea4b
+   License: MIT (Mesa and FristOneRR changes), with the original license text at
+   the path above. `PROVENANCE.md` records the ELF Build ID, SHA-256 and the
+   source patches applied by this project. This is a community build, not an
+   official Mesa release and not an Adreno/Turnip driver.

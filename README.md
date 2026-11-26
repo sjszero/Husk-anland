@@ -166,8 +166,10 @@ facade 与中转**。按这一版实测：直连 1 类（GPU），中转 4 类�
 GPU 默认值按设备节点分族，而不是按机型名写死：Mali/kbase 走 PanVK + Zink，Adreno/KGSL
 把 guest 的 `/dev/dri/renderD128` 接成真实 `/dev/kgsl-3d0` fd，再交给 Turnip/freedreno。
 App 冷启动用独立的纯 Rust `gpu-env` crate 生成初始环境和 loader 随后读取的配置（evidence 243）。
-Mali 路径已在本机验证；Adreno 适配器代码和主机侧测试已落地，但**没有 Adreno 真机证据，状态是
-UNKNOWN**，不能写成已经支持（evidence 233、243）。
+Mali 路径已在本机验证；发行包现在固定携带 FristOneRR PanVK 1.2.0 快照、guest 相对 ICD
+和 MIT 许可证，安装器只在 `/dev/mali0` 可用且树里没有 PanVK 驱动时解压。该快照从 rootfs tar
+干净重装后通过树体检、GPU 默认值、门禁 A 和读回套（evidence 306）。Adreno 适配器代码和主机侧
+测试已落地，但**没有 Adreno 真机证据，状态是 UNKNOWN**，不能写成已经支持（evidence 233、243）。
 
 图形默认值也属于接口的一部分：ICD、GL 驱动、GLES 上限写在 `/etc/husk/gpu-env` 里，由**加载器**
 在程序自己没设置时补，所以登录 shell、cron、桌面 fork 出来的进程、`env -i` 看到的是同一套

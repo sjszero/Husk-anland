@@ -26,6 +26,14 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 **仓库布局**：`runtime/crates/{path-shim,nr-tools,runtime-core,gpu-env}`（Rust）、`tools/loader/*.S`（裸汇编，仅入口与 hook）、
 `tools/device-tests/*.sh`、`docs/design/`（设计 + `evidence/` 原始记录）。
 
+**PanVK 进入发行包（干净安装复验）**：Mali kbase 的 FristOneRR PanVK 1.2.0
+（Mesa 26.3.0-devel）不再靠手工从旧树复制。发行 bundle 携带压缩驱动、guest 相对 ICD、
+MIT 许可证和来源说明；安装器只在 `/dev/mali0` 可打开且目标树没有 PanVK 驱动时解压，并校验
+解压后 SHA-256。2026-11-27 从 672 MiB rootfs tar 重装到空目录：`INSTALL_RC=0`，树体检
+`PASS=14 FAIL=0`，GPU 默认值 `PASS=9 FAIL=0`，门禁 A `PASS=34 FAIL=0 SKIP=1`，读回套
+`PASS=17 FAIL=0`；无环境变量进程仍报 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`
+（evidence 306）。Adreno/KGSL 仍没有真机证据，状态 UNKNOWN。
+
 **身份初始化单写者（同一候选）**：`NR_FAKE_UID/GID` 在 loader 的 boot hook 中、
 任何构造器和 guest 线程启动前一次播种；运行期 `getuid/getgid` 不再懒初始化。
 身份登记锁记录 owner TID，同一线程的信号处理器重入时直接返回，不会自旋自锁。

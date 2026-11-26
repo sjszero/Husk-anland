@@ -81,6 +81,11 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
 `RESULT PASS`；显式 `HUSK_GPU=llvmpipe` 正确回退。这只说明默认值层级和设备门控，不改变
 窗口呈现/长跑限制。
 
+**2026-11-27 Mali PanVK 发行快照（FACT/UNKNOWN，evidence 306）**：Mali kbase 的 FristOneRR
+PanVK 1.2.0 已随发行 bundle 打包；安装器只在 `/dev/mali0` 可用且目标树没有 PanVK 时解压。
+干净 rootfs 安装后的 GPU 默认值与读回套通过。Adreno/KGSL 没有真机，仍为 UNKNOWN；该快照不是
+通用 GPU 驱动。
+
 **2026-11-26 GPU 默认值 crate 与 Adreno 启动分支（FACT/UNKNOWN，evidence 243）**：默认值
 生成已抽成纯 Rust `gpu-env` crate，App 用它生成初始环境和 loader 读取的 Mali/Adreno 配置。Mali 真机
 回归通过；Adreno 的 `/dev/kgsl-3d0`、Freedreno/Turnip、ioctl/mmap、桌面和长跑没有真机证据，
