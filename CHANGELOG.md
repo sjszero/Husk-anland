@@ -40,6 +40,10 @@
 
 ### 发布工程
 
+- **Git tag 显示名全部统一**（evidence 275）。32 个历史 tag 已全部改为 annotated tag，
+  说明首行严格写成 `Husk X.Y.Z`；其中 21 个原来混有主题、冒号、`release:` 或作者前缀，
+  `v0.0.11`/`v0.0.12` 原来是轻量 tag。逐项核对 `^{commit}` 后，32 个提交目标和全部
+  Release 附件均未变化。`make release-audit` 现在逐个检查所有 tag，不再只检查最新 tag。
 - **版本页与仓库首屏统一**（evidence 269）。Release 正文开头不再重复版本号或主题标题，
   15 个页面的重复标题已移除，原本正文为空的 0.0.19 已按 CHANGELOG 补齐；README 首屏只保留
   标题、图标和徽章，介绍移到 `## 概览`。新增 `tools/ci/release-notes.sh`，从 CHANGELOG

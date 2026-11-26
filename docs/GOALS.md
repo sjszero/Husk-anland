@@ -165,7 +165,8 @@ fork/exec 不经翻译层；I/O 直落内核）、**代价**（生态成熟度�
   evidence 编号。
 - 版本号形如 SemVer 2.0，但发布序号按 **100 进位**：`0.0.99` 的下一版是 `0.1.0`，
   `0.99.99` 的下一版是 `1.0.0`，不存在 `0.0.100`。用 `make version-bump` 推进，不要手改。
-- annotated tag `vX.Y.Z`；`husk --version`、APK `versionName`、徽章与 CHANGELOG 保持一致。
+- annotated tag `vX.Y.Z`，说明首行只写 `Husk X.Y.Z`；`husk --version`、APK `versionName`、
+  徽章与 CHANGELOG 保持一致。
 - GitHub Release 标题只写 `Husk X.Y.Z`；主题和说明只放正文，不拼进标题。
 - Release 正文第一行直接写本版结论，不重复 `# Husk X.Y.Z`、`## Husk X.Y.Z` 或日期标题。
 - 每个 release：CHANGELOG 一节 + GitHub Release（产物 + SHA256SUMS + 已知问题）。

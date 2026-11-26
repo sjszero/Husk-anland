@@ -64,3 +64,10 @@ release naming audit: PASS (tags=32 releases=32 latest=Husk 0.0.32)
 
 - 本次不改运行时、不改已发布 tag/附件、不重写历史 Release 正文。
 - `UNKNOWN`：GitHub 网页缓存可能短时间显示旧内容；以 API 回读和重新加载后的页面为准。
+
+## 5 · 后续更正
+
+FACT：本记录中“已经发布的 tag 不移动、不改写”的边界，已在同日由
+[evidence 275](275-tag-display-normalization-20261126.md) 补充。历史 tag 的提交目标、Release
+和附件仍不移动；仅把 annotation 的显示首行统一为 `Husk X.Y.Z`，并把审计范围从最新 tag
+扩大到全部 tag。

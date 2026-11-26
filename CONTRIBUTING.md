@@ -75,8 +75,8 @@ make loader
 | `CHANGELOG.md` 小节 | `[X.Y.Z] - YYYY-MM-DD` | `[0.0.32] - 2026-11-26` |
 
 `v` 只属于 git tag。Release 标题不能写成 `Husk vX.Y.Z`，也不能把主题拼在后面；
-主题只放正文。旧 tag 的内部 annotation 有主题或多余前缀，但那是不可移动的历史元数据，
-不是 Release 标题。从 `0.0.33` 起，新 tag 的 annotation 标题也必须严格写成 `Husk X.Y.Z`。
+主题只放正文。每个 annotated tag 的说明首行也必须严格写成 `Husk X.Y.Z`，不能让 tag 页显示
+另一套标题。tag 的提交目标和发布资产不可移动；历史上只含标题的主题文字可以统一为规范标题。
 
 发布序号按 **100 进位**，所以不存在 `0.0.100`：
 
@@ -88,9 +88,10 @@ make loader
 每次发版先运行 `make version-bump`，不要手改数字。`./husk --version`、APK `versionName`、
 `CHANGELOG.md` 最新一节、release tag 和徽章由 `make version-check` 强制对齐。
 
-**已经发出去的 tag 不改名、不移动**——否则下载同一个链接的人会拿到不同的东西。只有刚发布
-当天就发现版本号本身写错，才允许当场修正，并在 CHANGELOG 留一行说明。发版流程（下面以
-`0.0.33` 为例）：
+**已经发出去的 tag 不改名，也不移动提交目标**——否则下载同一个链接的人会拿到不同的东西。
+只有 tag 的 annotation 显示文字可以统一为 `Husk X.Y.Z`，且必须保留原 commit、Release 和
+附件不变。只有刚发布当天就发现版本号本身写错，才允许修正版本号，并在 CHANGELOG 留一行说明。
+发版流程（下面以 `0.0.33` 为例）：
 
 ```sh
 # 1. 版本与变更
