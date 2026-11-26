@@ -267,16 +267,16 @@ socket 协议，数据在应用侧过一次。逐类理由见
 | 显示上屏（dma-buf → AHB → `SurfaceControl`） | 应用侧，零拷贝 | 可用（10 000 帧 ring） | evidence 59 |
 | 硬件视频解码（平台 MediaCodec，应用侧） | 中转 | 有实测链路，未产品化 | evidence 80 |
 | guest 内 VA-API 全链（播放器直接用） | 中转 | 部分 | evidence 81–87 |
-| 视频编码（VA-API encode） | 中转（未做） | 未做 | — |
+| 视频编码（VA-API encode） | 中转 | MediaCodec 编码器已确认存在；VA-API encode 后端协议尚未接入 | — |
 | 相机（V4L2 `/dev/videoN` facade + Camera2 NDK + 平台编码） | 中转 | 有实测链路；`open()` 是 memfd，NV12/YUYV 的 `read`/`readv` 与 mmap 均可用；不支持 DMABUF / controls。真实 Camera2 上 read/readv 约 9 fps，mmap 约 11.7 fps | evidence 91–93、240、282 |
 | 音频（PulseAudio → `audio-relay` → AAudio） | 中转 | 可用，非长稳；本轮播放 1 次 xrun、平均 121.667 ms，采集协议通过但未做声学质量测试；guest 里 `/dev/snd` 打不开 | evidence 62、231 |
 | 输入注入（触摸/键盘） | 窗口层 | 全屏点击与双客户端已验证；`adb input swipe` 的 XI 事件仍是 UNKNOWN；指针默认是 trackpad 语义，2.0 侧的 `touchMode` 默认值未在本仓库改；**拖动窗口失效**（见 §10） | evidence 148、180、203、230 |
-| 传感器 | **中转（可做，未做）** | 没实现。NDK 有纯 C 的 `ASensorManager_*` / `ASensorEventQueue_*`（`libandroid.so` 导出表已核），`pm list features` 六类传感器都在；`/sys/bus/iio/devices` 对 `untrusted_app` 是 `Permission denied`，所以只能走 NDK，不能直读 sysfs。前人做法：伪造 IIO sysfs 树 + 值文件原地覆盖写 | `husk-notes/prior-art/sensor-gps-prior-art.md` |
-| 定位 | 中转（受限） | 没实现。无 NDK API；`LocationManager` 可经 JNI 取 `getLastKnownLocation()`，持续定位要 `LocationListener` 实现类，`hasCode=false` 造不出来 | 同上 |
-| USB | 中转 + 权限对话框 | 没实现。`/dev/bus/usb` 不可见；只能 `UsbManager` 拿 `UsbDeviceConnection` fd 再交给 guest `libusb`，首次插拔必须弹系统授权（`Intent` + 广播接收器，`hasCode=false` 卡在这里） | `platform-peripherals-prior-art.md` |
-| 蓝牙 | 中转 + 运行时权限 | 没实现。只有 Java `BluetoothAdapter`，NDK 无 API；监听器 / 接收器同样卡在 `hasCode=false`；Android 12+ 还需 `BLUETOOTH_CONNECT` / `BLUETOOTH_SCAN` | 同上 |
+| 传感器 | 中转 | 可用：NDK `ASensorManager_*` 事件 → app 私有 IIO 影子树；5 类默认传感器 `READY`，guest 三路径读取和节点枚举通过。`iio-sensor-proxy` 未安装，D-Bus 输出未验证 | evidence 302 |
+| 定位 | 中转（受限） | 无 NDK API；`LocationManager` 可经 JNI 取 `getLastKnownLocation()`，持续定位需要 `LocationListener` 实现类，`hasCode=false` 下还需最小 Java 垫片 | prior-art |
+| USB | 中转 + 权限对话框 | `/dev/bus/usb` 不可见；`UsbManager` 拿 `UsbDeviceConnection` fd 后交给 guest `libusb`，首次插拔需要 Intent/Receiver 承接授权 | prior-art |
+| 蓝牙 | 中转 + 运行时权限 | 只有 Java `BluetoothAdapter`，NDK 无 API；监听器 / 接收器需要最小 Java 垫片；Android 12+ 还需 CONNECT / SCAN 权限 | prior-art |
 | NFC | **不需要** | Linux 用户态没有标准 POSIX NFC 接口；Android 的 NFC 由前台 Activity 派发 tag，guest 没有可信窗口承接一次刷卡交互 | — |
-| 指纹 | 不做 | 认证必须绑定可见 Activity 的用户交互 | — |
+| 指纹 | **不需要** | 认证必须绑定可见 Activity 的用户交互，guest 没有可复用的凭据流 | — |
 | 浏览器 | — | 随附 rootfs 无浏览器包，未跑过 | — |
 
 「有实测链路」不等于「产品可用」：这四类都还是「跑通过一次」的程度，稳定性与错误路径没做完。

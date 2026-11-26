@@ -72,6 +72,6 @@
 - 16 KiB / 64 KiB 页内核上的实机运行。
 - HEVC / VP9 / AV1 解码；硬件编码。
 - 相机帧的零拷贝路径（当前是拷贝）。
-- 传感器、GPS、USB、蓝牙、NFC、指纹。
+- GPS、USB、蓝牙的实际传输链路；传感器已在中转路径上验证 5 类默认传感器，但 `iio-sensor-proxy` 的 D-Bus 输出未验；NFC、指纹归“不需要”。
 - ScreenCast 流的 buffer 类型已按源码定论（消费者带 modifier 就是 dmabuf），实测被
   「有 session bus 时 PipeWire 客户端卡住」挡住，见 evidence 103。

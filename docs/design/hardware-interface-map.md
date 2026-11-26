@@ -26,12 +26,12 @@
 | 相机 | V4L2 `/dev/videoN` facade | **中转**：guest 看到标准 V4L2 ioctl/read，后端经 socket 到 Camera2 NDK；`open()` 是 memfd，不是真节点 | 前后摄自动启动并取流；NV12/YUYV 的 `read`、`readv`、mmap 均通过；拍照 / 30 秒录像，硬件 H.264 编码。无 DMABUF / controls | 93、240、282 |
 | 音频 | PulseAudio（`module-pipe-sink` / `module-pipe-source`） | **中转**：Rust `audio-relay` → AAudio | 48 kHz 双声道 610 秒；反证：guest 里 `/dev/snd` 是 `Permission denied`，根本没有声卡节点 | 62 |
 | 视频解码 | VA-API（`vaGetDisplayDRM` / `vaCreateSurfaces`） | **中转**：Rust VA driver + `video-bridge` ↔ MediaCodec，AHB 交接 | H.264 1080p30 连续 600 秒，`dropped=0` | 80–87 |
+| 传感器 | IIO sysfs `/sys/bus/iio/devices/iio:deviceN/*` | **中转**：Rust NDK `ASensorManager_*` 事件线程 → app 私有 IIO 影子树；guest 不读真实 sysfs | 加速度、磁力、陀螺仪、环境光、距离五类全部 `READY`；guest 经 `/sys/bus/iio/devices`、`/sys/class/iio`、`/sys/subsystem/iio` 读取成功并可枚举节点；数值随真实事件更新。`iio-sensor-proxy` 未安装，未宣称其 D-Bus 输出通过 | 302 |
 
-### 1.2 有标准接口可以映射、还没做的
+### 1.2 有标准接口可以映射、当前尚未接入的中转项
 
 | 接口 | 分类 | 宿主侧接口 | 现在卡在哪 |
 |---|---|---|---|
-| 传感器 | **中转（可做，未做）** | NDK 纯 C：`ASensorManager_*` / `ASensorEventQueue_*` 由 `libandroid.so` 导出（本机 `libandroid.so` 导出表已核）；`pm list features` 有 accel / compass / gyro / light / proximity / stepcounter | 没有实现。`untrusted_app` 读不到 `/sys/bus/iio/devices`（`Permission denied`），但这不影响走 NDK。前人做法已读完：伪造一棵 IIO sysfs 树，值文件原地覆盖写 |
 | 定位 | 中转（受限） | 无 NDK API；`LocationManager` 是平台类，JNI 可以取 `getLastKnownLocation()` | 持续定位需要 `LocationListener` 实现类，`hasCode=false` 造不出来。要么接受「只给 last-known」，要么单独设计一个极小的 Java 类 |
 | USB | 中转 + 权限对话框 | `UsbManager`（Java）拿到 `UsbDeviceConnection` 的 fd 后，可以交给 guest 的 `libusb` | 首次插拔必须弹系统授权，需要 `Intent` + 广播接收器，同样卡在 `hasCode=false` |
 | 蓝牙 | 中转 + 运行时权限 | 只有 Java `BluetoothAdapter`，NDK 没有 API | 监听器 / 接收器同上；Android 12+ 还要 `BLUETOOTH_CONNECT`、`BLUETOOTH_SCAN` |
@@ -63,17 +63,16 @@
 | 显示 | `dma-buf → AHardwareBuffer → SurfaceControl`，**这一段是零拷贝**（3-buffer ring + 真实 `SYNC_FD`，submitted=10 000 / completed=10 000，evidence 59） |
 | 输入 | 走窗口层注入（mutter → `RemoteDesktop`/EIS），不是设备参数；`/dev/input` + libinput + udev 那条路需要设备节点和 udev，本机不通（evidence 148、180） |
 
-未做 / 不做的：
+接口状态（四类口径，不另造状态）：
 
 | 项 | 状态 | 为什么 |
 |---|---|---|
-| 视频编码 | 未做 | 编码器存在已确认，VA-API encode 后端没写 |
-| 传感器 | 未做 | 要合成 `/sys/bus/iio/devices/iio:deviceN/*` 树（`untrusted_app` 读真 sysfs 被 SELinux 拒） |
-| 定位 | 未做 | 要 `/dev/gps0` 输出 NMEA 0183，gpsd 一族只认这个 |
-| USB | 未做 | 要 `/dev/bus/usb/00X/00Y` + `USBDEVFS_*` ioctl 语义（libusb 的 Linux 后端） |
-| 蓝牙 | 未做 | 本机没有 HCI 节点 / VHCI，内核路径不通 |
-| NFC | 未做 | 本机无 `/dev/nfc*`，Linux NFC 栈不适用 |
-| 指纹 | 不做 | 认证必须绑定可见 Activity 的用户交互，没有设备节点也没有 NDK API |
+| 视频编码 | 中转 | MediaCodec 编码器存在；VA-API encode 后端的协议尚未接入 |
+| 定位 | 中转（受限） | 持续位置需要极小 Java 回调类；当前可选路径只有 last-known 子集 |
+| USB | 中转 + 权限对话框 | 需要 Java `UsbManager` + Intent/Receiver 承接授权，再把 connection fd 交给 guest libusb |
+| 蓝牙 | 中转 + 运行时权限 | 需要 Java `BluetoothAdapter` 回调；Android 12+ 另需 CONNECT / SCAN 权限 |
+| NFC | 不需要 | Linux 用户态没有可对应的标准 POSIX NFC 设备接口，强行实现只会和前台 Android 卡片交互冲突 |
+| 指纹 | 不需要 | 认证绑定可见 Activity 的用户交互；guest 没有可复用的凭据流 |
 
 ## 2. 为什么「直连」只对 GPU 成立
 
@@ -90,9 +89,9 @@
 | `/dev/kgsl-3d0` | 不存在（那是高通的节点） |
 
 **结论**：能直开的 GPU 使用真实节点和 fd；相机虽然给 guest 标准 V4L2 接口，但 `open()` 返回
-shim 的 memfd，帧经 socket 由 Camera2 产生，所以归入中转；声音、编解码同样走明确的 socket
-协议，数据在应用侧过一次；
-既开不了又没有平台 API 的（传感器、GPS、蓝牙、NFC、USB）这一版没有。
+shim 的 memfd，帧经 socket 由 Camera2 产生，所以归入中转；声音、编解码、传感器同样走明确的
+宿主接口或 socket，数据在应用侧过一次。定位、USB、蓝牙的接口形态也是中转，但还需要最小
+Java 垫片才能承接系统回调；NFC 与指纹归“不需要”。
 
 ## 3. 默认值也属于接口的一部分
 
@@ -107,7 +106,9 @@ shim 的 memfd，帧经 socket 由 Camera2 产生，所以归入中转；声音�
   0.0.17 又在 App 管理的 rootfs 上复验了 canonical ICD + `/etc/husk/gpu-env` 的自动生成
   （evidence 242），并确认 `HUSK_GPU=llvmpipe` 的进程级回退仍优先；0.0.18 将生成逻辑抽成
   `gpu-env` crate，并补上 Adreno 启动分支和回退传递（evidence 243）；0.0.19 让默认值穿透
-  真实 `setenv(..., 0)` 和显式 `execve(..., envp)`（evidence 244）。
+  真实 `setenv(..., 0)` 和显式 `execve(..., envp)`（evidence 244）。本次 807 包干净树 +
+  最新 loader 再次实测 `GPU_LOADER_DEFAULTS PASS=9 FAIL=0`，plain renderer 为
+  `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`（evidence 304）。
 
 ## 4. 能说什么、不能说什么
 

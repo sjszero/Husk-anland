@@ -17,17 +17,17 @@
 | GPU | `open("/dev/mali0")` + kbase UAPI，PanVK 后端 | 本机唯一可直开的 GPU 节点，Mesa 有 kbase 后端 | 可用（compute / 离屏 / Zink surfaceless） |
 | 显示 | dma-buf → `AHardwareBuffer` → `SurfaceControl` | 渲染面必须由 consumer 持有，才能零拷贝上屏 | 可用（3-buffer ring + 真实 SYNC_FD，10,000 帧） |
 | 视频解码 | VA-API（`vaGetDisplayDRM` / `vaCreateSurfaces`），后端接 MediaCodec | 播放器与 GStreamer 只认 VA-API | 可用（H.264 1080p30 600 秒） |
-| 视频编码 | VA-API encode，后端接 MediaCodec 编码器 | 同上 | 未做（编码器存在已确认） |
+| 视频编码 | VA-API encode，后端接 MediaCodec 编码器 | 同上 | 中转：编码器已确认存在；VA-API encode 后端协议尚未接入 |
 | 音频输出 | `module-pipe-sink`（guest PulseAudio 契约） | 桌面与播放器统一走 PulseAudio | 可用（610 秒） |
 | 音频输入 | `module-pipe-source` + 按需开关 | 同上；只有真录音时才开 Android 麦克风 | 可用（声学回环） |
 | 相机 | `/dev/videoN` V4L2 facade（QUERYCAP / ENUM_FMT / G/S_FMT / REQBUFS / QBUF / DQBUF / read / readv / poll）→ Camera2 NDK | GStreamer / Cheese / OpenCV 全走 V4L2；应用域又不能把真实 V4L2 fd 交出去 | 可用（取流 / 拍照 / 录像）；`open()` 是 memfd；DMABUF / controls 仍不支持 |
 | 输入 | 合成器级注入：mutter → `RemoteDesktop`(+EIS) | 不走 `/dev/input` + libinput + udev：那需要设备节点与 udev | 可用 |
-| 传感器 | `/sys/bus/iio/devices/iio:deviceN/*` 合成树 | `iio-sensor-proxy` 与直接读 sysfs 的程序都认；guest 读真 sysfs 会被 SELinux 拒 | 未做 |
-| 定位 | `/dev/gps0` 输出 NMEA 0183 | gpsd 一族只认串口 NMEA | 未做 |
-| USB | `/dev/bus/usb/00X/00Y` + `USBDEVFS_*` ioctl 语义 | libusb 的 Linux 后端就长这样 | 未做 |
-| 蓝牙 | org.bluez D-Bus 接口 | 本机没有 HCI 节点 / VHCI，内核路径不通；`bluetoothctl` 是 D-Bus 客户端 | 未做 |
-| NFC | 自有守护进程 + D-Bus（读卡器姿态） | 本机无 `/dev/nfc*`，Linux NFC 栈不适用 | 未做 |
-| 指纹 | 无（平台限制） | 认证必须绑定可见 Activity 的用户交互，没有可用的设备节点或 NDK API | 不做 |
+| 传感器 | `/sys/bus/iio/devices/iio:deviceN/*` 合成树 | NDK `ASensorManager_*` 提供真实事件；`untrusted_app` 读真实 sysfs 被 SELinux 拒，所以 guest 看到的是标准 IIO 影子树 | 中转可用：5 类默认传感器 `READY`，guest 三路径读取和节点枚举通过；`iio-sensor-proxy` 未安装，其 D-Bus 输出未验证 |
+| 定位 | `/dev/gps0` 输出 NMEA 0183 | gpsd 一族只认串口 NMEA；宿主侧只有 `LocationManager`，需要最小 Java 回调类 | 中转，当前只给 last-known 子集或不提供 |
+| USB | `/dev/bus/usb/00X/00Y` + `USBDEVFS_*` ioctl 语义 | libusb 的 Linux 后端就长这样；宿主 `UsbManager` 需要 Intent/Receiver 承接授权 | 中转 + 权限对话框，需要最小 Java 垫片 |
+| 蓝牙 | org.bluez D-Bus 接口 | 本机没有 HCI 节点 / VHCI；`BluetoothAdapter` 只有 Java API | 中转 + 运行时权限，需要最小 Java 垫片 |
+| NFC | 无标准 Linux 设备接口 | Android NFC 由前台 Activity 派发 tag，guest 没有可信窗口承接一次刷卡交互 | 不需要 |
+| 指纹 | 无标准 Linux 设备接口 | 认证必须绑定可见 Activity 的用户交互，没有可复用凭据流 | 不需要 |
 
 ## 2. 被实测否决的路线
 

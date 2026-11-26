@@ -153,12 +153,13 @@ DRI3 只能停在 `Could not get DRI3 device`。逐条数字与做法见
 | 视频解码 | 中转 | MediaCodec `c2.mtk.avc.decoder` + AHB 三平面 | H.264 1080p30 连续 600 秒，`dropped=0`（evidence 80） |
 | 相机 | 中转（标准 V4L2 facade） | guest `/dev/videoN` → Rust V4L2 shim → Camera2 NDK / `AImageReader` | `open()` 返回 memfd，不是真实 V4L2 fd；QUERYCAP、REQBUFS、DQBUF、`read`、`readv` 和 mmap 均可用，前后摄自动启动、无测试 marker（evidence 240、282）。真实 Camera2 的 NV12 `read`/`readv` 实测约 9 fps，mmap 约 11.7 fps；拍照 JPEG + 30 秒录像与硬件 H.264 编码见 evidence 93。DMABUF 和 controls 仍不支持 |
 | 音频 | 中转 | PulseAudio → Rust relay → AAudio | 48 kHz 双声道连续会话通过（evidence 62，10 秒级，不是长稳） |
+| 传感器 | 中转（标准 IIO facade） | NDK `ASensorManager_*` → app 私有 IIO 影子树 → guest `/sys/bus/iio/devices/iio:deviceN/*` | 加速度、磁力、陀螺仪、环境光、距离五类 `READY`；guest 经 `/sys/bus/iio/devices`、`/sys/class/iio`、`/sys/subsystem/iio` 读取和枚举节点成功，数值随真实事件更新（evidence 302）。`iio-sensor-proxy` 未安装，D-Bus 输出未验 |
 | 输入 | 窗口层 | 触摸事件注入到用户态的窗口系统 | 触摸 → JNI → XI2，点哪落哪（evidence 148） |
 
 这张表的口径：**能直开的设备使用真实 fd；必须经过应用身份的仍给标准 Linux 接口，但明确标注
-facade 与中转**。按这一版实测：直连 1 类（GPU），中转 3 类（相机、音频、视频），显示那一段
-零拷贝、输入走窗口层。其余按宿主能力分四类，不写「未做」：传感器是中转、NDK 就能做但还没做；
-定位 / USB / 蓝牙是中转，卡在 `hasCode=false` 下造不出 Java 回调；NFC 与指纹不需要。
+facade 与中转**。按这一版实测：直连 1 类（GPU），中转 4 类（相机、音频、视频、传感器），
+显示那一段零拷贝、输入走窗口层。定位 / USB / 蓝牙同属中转，当前还缺承接系统回调的最小 Java
+垫片；NFC 与指纹不需要。所有硬件都落在四类口径里，不用「未做」代替分类。
 逐条理由与被宿主挡住的原始错误串见
 [`docs/design/hardware-interface-map.md`](docs/design/hardware-interface-map.md)。
 

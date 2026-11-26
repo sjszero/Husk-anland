@@ -54,9 +54,9 @@
 Termux 不是交付形态（`LIMITATIONS.md` §3）。
 
 硬件按宿主能力分四类，逐类理由见 [`design/hardware-interface-map.md`](design/hardware-interface-map.md)：
-传感器（中转，NDK 可做，未做）、定位 / USB / 蓝牙（中转，卡在 `hasCode=false` 的
-Java 回调）、NFC 与指纹（不需要，逐条理由在该表里）。被宿主挡住的能力贴的是原始错误串，
-不写「未做」。
+传感器已经以 NDK → IIO 影子树的方式接入（中转，5 类默认传感器和 guest sysfs 读取实测通过）；
+定位 / USB / 蓝牙同属中转，当前卡在 `hasCode=false` 下缺少承接 Java 回调的最小垫片；
+NFC 与指纹不需要。被宿主挡住的能力贴的是原始错误串，不用「未做」代替分类。
 
 guest 内的 VA-API 全链已通到 `vaapih264dec` 出真实帧（evidence 81–87），但只有解码方向。
 桌面呈现仍不是零拷贝（DRI3 未通，X server 是应用内的 bionic Xorg，本机没有 render node），

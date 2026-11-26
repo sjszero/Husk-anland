@@ -85,7 +85,7 @@ nr-plan: drm node -> gpu=software reason=mali0=13 kgsl=2 dri=2 no gpu node opena
 | 音频入 | 同上 | 同一 socketpair 反向 | 同上 |
 | 相机 | guest 内 `/dev/videoN`（v4l2 shim） | V4L2 → Camera2 转接 | 无 Camera2 或权限被拒 → `ENODEV` + 日志 |
 | 输入 | 触摸/键盘/鼠标注入 | mutter `RemoteDesktop` | 无合成器时内建直投（未实现） |
-| 传感器 / GPS | 实测：`/dev/iio:device0` **EACCES**，`/dev/sensorhub`、`/dev/gps0` ENOENT；`/sys/class/iio` 不存在 | 只保留探测位置（`gpu-probe periph`） | 节点缺失看 `ENOENT`；`EACCES` 表示节点在、域不允许，不能当成没有硬件 |
+| 传感器 / GPS | 实测：`/dev/iio:device0` **EACCES**，`/dev/sensorhub`、`/dev/gps0` ENOENT；`/sys/class/iio` 不存在 | 传感器已改走 NDK `ASensorManager_*` → IIO 影子树；GPS 保留探测并用 last-known 子集评估 | 节点缺失看 `ENOENT`；`EACCES` 表示节点在、域不允许，不能当成没有硬件（evidence 302） |
 | USB / 蓝牙 / NFC / 指纹 | 实测：`/dev/bus/usb`、`/dev/rfkill`、`/dev/hci0`、`/dev/nfc0`、`/dev/fingerprint` 全 ENOENT；`/sys/bus/usb`、`/sys/class/bluetooth` **EACCES** | 只保留探测位置 | 同上；不造假节点（evidence 128） |
 
 ## 6. 适配器的形状（代码层）

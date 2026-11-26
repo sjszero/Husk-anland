@@ -235,7 +235,7 @@ APK 版本元数据和 NDK 构建入口，共记录 **28 条已修缺陷（H-01�
 **当前开口（按优先级）**：
 1. 非 Mali GPU 家族**适配器**（Adreno kgsl+Turnip / 通用 DRM）：探测表与降级已落地（evidence 127），
    适配器本身等有设备再写——没设备只能出未验证代码；
-2. 传感器（中转，NDK `ASensorManager_*` 可做，未做）、定位 / USB / 蓝牙（中转，卡在 `hasCode=false` 的 Java 回调）、NFC / 指纹（不需要）——四类口径与逐条理由见 `docs/design/hardware-interface-map.md`；
+2. 传感器（中转，NDK `ASensorManager_*` → IIO 影子树）已在本机验证 5 类默认传感器、guest 三路径读取与节点枚举（evidence 302）；定位 / USB / 蓝牙（中转，卡在 `hasCode=false` 的 Java 回调）、NFC / 指纹（不需要）——四类口径与逐条理由见 `docs/design/hardware-interface-map.md`；
 3. 2.0 集成：映射表与替代启动器已落地（docs/design/linuxhub-2.0-swap.md，evidence 129）；
    ① `su` 已用 husk-su 替掉（evidence 139），PAM 那条路仍是 UNKNOWN 但不再需要；
    ② Kotlin 侧已经接上（运行时替换 + 资产），门禁 A 的干净重跑见 evidence 140；
@@ -366,8 +366,9 @@ sudo/PAM 一条按"不需要"结案：`husk-su` 已覆盖提权路径，PAM 的 
 `/dev/log`、装包）和 GPU、显示、视频、音频、相机、输入六类硬件都已在该机跑通。
 按"对标容器/轻量虚拟机"的环境口径，A（账号）、B（挂载）、C（设备节点）、D（网络表面）
 四段已收口，E（进程视图 + 服务监督器）已收口；**F 只剩 16K/64K 实机和 Mali 以外的 GPU 家族适配**。
-桌面帧出屏（G）按目标延后，不作为环境完整性判据。传感器、GPS、USB / 蓝牙 / NFC / 指纹
-尚未开始；2.0 已经**不含 proot**——APK 与仓库里都没有 proot，初始化与会话全部跑在 Husk 上（evidence 144）。
+桌面帧出屏（G）按目标延后，不作为环境完整性判据。传感器已接入中转 IIO 接口并通过 guest
+读取/枚举验证；GPS、USB、蓝牙还需要最小 Java 回调垫片，NFC 与指纹不需要。2.0 已经**不含
+proot**——APK 与仓库里都没有 proot，初始化与会话全部跑在 Husk 上（evidence 144）。
 
 另外记一条会反复踩的事实（evidence 130）：2.0 assets 里的 `ubuntu-base-24.04.4-base-arm64.tar`
 **是 gzip**（`1f 8b`，md5 `0be8b9e5…`），只是文件名没有 `.gz`。装之前先 `od -An -tx1 -N6`。
@@ -381,7 +382,7 @@ sudo/PAM 一条按"不需要"结案：`husk-su` 已覆盖提权路径，PAM 的 
 | 页大小 | rootfs 2987 个 ELF + loader + 我们全部产物在 4K/16K/64K 静态体检全绿（含 `p_align % 页` 规则）；**真 16K 内核（RPi5 kernel）与真 64K 内核（Ubuntu `linux-image-6.8.0-31-generic-64k`）上我们的 loader 端到端全绿**：`cat /etc/os-release`、`/usr/bin` 计数、嵌套 exec、`/tmp` 写读、`check-elf` 727 个 ELF 三档 congruent；修掉三个真 Bug（段重叠、mprotect 对齐、xattr/readlink 返回裸 -errno）；**16K/64K 真机仍 UNKNOWN**（本机只有 4K） | 30, 122, 124, 125, 126 |
 | GPU | PanVK 列举 Mali-G77、compute、离屏 graphics、X11 窗口化 EGL 与桌面出帧；canonical guest ICD 和 loader 级 GPU 默认值已在真机验证，`env -i` 仍走 zink/PanVK；App 默认值生成已抽成 `gpu-env` crate，并补 Adreno 启动分支；0.0.19 默认关闭 DXVK 兼容 GS，并让默认值穿透 `setenv`/`execve`，fixed-function 600 帧与 ES3/Vulkan 回归通过；0.0.20 在真实 X11 窗口里 `glxgears` 连续 600 秒，119 个窗口平均 248.352 FPS，进程持有 `/dev/mali0`；0.0.34 当前 GNOME 进程已核对为 zink/PanVK，fd 表有两个 `/dev/mali0`；普通 Nautilus 进程也加载 PanVK 并持有同一设备 fd；`make gpu-audit` 通过 glxinfo 和嵌套 GTK 应用验证继承链。当前 GTK4 仍默认 `GSK_RENDERER=cairo`，因此不能把 GTK UI 绘制说成 GPU；**显式 `PANVK_DXVK_COMPAT=1` 仍崩溃，X11 窗口内容到 server 仍非零拷贝** | 46 / 47 / 165 / 232 / 241 / 242 / 243 / 244 / 245 / 278 |
 | 设备族探测与降级 | `path-shim/src/plan.rs`：按节点定族（mali0 / kgsl-3d0 / renderD128 / 都没有）。Mali 使用 kbase DRM 语义层；Adreno/KGSL 已实现 render-node → 真实 `/dev/kgsl-3d0` fd、`DRM_IOCTL_VERSION=kgsl`、fd 继承和 stat/statx/uevent；`gpu-probe adreno` 可在真机复验。当前 Mali 门禁 A 38/38、Vulkan/GL 探针通过，App 入口重启的 GNOME 由当前 loader 映射 `/dev/mali0`；但 **Adreno 真机与通用 DRM 真节点仍 UNKNOWN（无设备）** | 127、233 |
-| 外设族探测 | `gpu-probe periph`：传感器/GPS/USB/蓝牙/NFC/指纹/输入/i2c/spi 逐个节点实测，`EACCES`(13) 与 `ENOENT`(2) 分开记录；不造假节点、进程退出码 0。本机是否真有传感器仍 UNKNOWN（EACCES 藏住了） | 128 |
+| 外设族探测 | `gpu-probe periph`：传感器/GPS/USB/蓝牙/NFC/指纹/输入/i2c/spi 逐个节点实测，`EACCES`(13) 与 `ENOENT`(2) 分开记录；不造假节点、进程退出码 0。节点探测仍不能证明硬件型号，因此传感器改走 NDK 枚举；本机 5 类默认传感器全部 `READY`，guest IIO 读取与枚举通过 | 128 / 302 |
 | 用户身份与 2.0 swap | `NR_FAKE_UID/GID` + `setuid/setresuid/setreuid/getresuid` 跟随 + `getgroups` 只报主组：`id` 报 `uid=1000(hu1)`，`su` 这一步可以删；`tools/guest/husk-session.sh` 是 `prootCommand()` 的替代契约（`env -i` 必须带 `NR_ROOTFS/NR_LD`）。**`su`/PAM 仍报 `PAM_SYSTEM_ERR`（UNKNOWN，已绕开）** | 129 |
 | 显示 | AHB → dma-buf → SurfaceControl；3-buffer ring + 真实 SYNC_FD；10,000 帧 / 665 秒 | 53–59 / 73 |
 | 视频 | H.264 1080p30 连续 600 秒，dropped=0；VA-API 解码出真实帧 | 74–80 / 85–87 |
