@@ -125,3 +125,34 @@ method return ... sender=org.freedesktop.DBus -> destination=:1.0 serial=3 reply
    "用的是 2.0 的 X server"这条限定。
 2. `glxgears` 在有 X 之后重测一次，把 232 的结论从"当前"降级为"当时的构建"。
 3. Adreno/KGSL 仍然没有设备（UNKNOWN）。
+
+## 6 · 那个 X server 是什么（顺着 §3 查到底）
+
+**FACT**：2.0 包的 APK（`pm path` 给出 `/data/app/~~7gvkIuk5CVuQFkiF6A_Mlg==/…/base.apk`，
+1 048 715 860 字节）里，`lib/arm64/` 下的原生库是：
+
+```text
+libXlorie.so                 <- X server（Termux:X11 的 Xlorie，Xorg 的 in-process 改造版）
+libdoro_virgl_process.so
+liblinuxhub_sessiond.so
+libtermux.so
+libandroidx.graphics.path.so
+```
+
+**FACT**：进程的 SELinux 标签不同，这就是 `EPERM` 的来源：
+
+```text
+u:r:untrusted_app_27:s0:c9,c257,c512,c768   u0_a265  com.linuxhub.myth.husk:x11
+u:r:untrusted_app:s0:c47,c257,c512,c768     u0_a303  com.linuxhub.husk（本应用）
+```
+
+两个域连 MLS 类别都不同（`c9` vs `c47`），`untrusted_app` 之间开 unix socket 被策略拒绝。
+这不是路径层能改的：抽象命名空间虽然全机唯一，连接仍要过 SELinux。
+
+**INFERENCE**：所以 Husk 要有自己的桌面，X server 必须**跑在本应用自己的进程/uid 里**，
+和 2.0 一样：一个 bionic 的 Xlorie 式 in-process X server，由应用进程持有 `/dev/mali0`，
+guest 通过 shim 连它的 socket。这和 evidence 290 的"A 路线（AHB present）"是同一个组件的
+两端：X server 在应用里，客户端把 surface 做成 AHB 交给它，就不再走 SHM 回读。
+
+**UNVERIFIED**：把 Xlorie 打进 Husk APK 的构建、JNI 引导、输入接线、以及它在本机 GPU 上的
+呈现，一件都还没做。这是第 6 轮剩下那半条（桌面 + 并发 + 长稳）唯一的前置条件。
