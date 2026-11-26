@@ -32,7 +32,8 @@ chk long-path-rejected "$rc" 1
 
 # Final symlinks must be followed through the guest root, not the host root.
 ln -s /etc/os-release /tmp/husk-rel/abs
-chk symlink-follow "$(head -1 /tmp/husk-rel/abs)" 'PRETTY_NAME="Ubuntu 24.04.4 LTS"'
+guest_os=$(head -1 /etc/os-release)
+chk symlink-follow "$(head -1 /tmp/husk-rel/abs)" "$guest_os"
 
 # Absolute and dot-dot targets that name host paths must remain contained.
 ln -s /system/build.prop /tmp/husk-rel/escape-abs

@@ -6,10 +6,24 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$HERE/../.." && pwd)
 DEV=${DEV:?usage: DEV=<serial> sh run-path-race-probe.sh}
 PKG=${PKG:-com.linuxhub.husk}
+APPDIR=${APPDIR:-/data/data/$PKG/files/linux}
 ROOTFS=${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs}
 LD=${LD:-files/linux/husk/libld.so}
 SESS=${SESS:-/data/local/tmp/husk-session.sh}
 RUNTIME_PROBE=${RUNTIME_PROBE:-$REPO_ROOT/runtime/target/aarch64-unknown-linux-gnu/release/runtime-probe}
+
+# The Makefile passes workspace-relative paths. They are host-side names and
+# must be normalized before crossing into the guest; passing "files/linux/..."
+# straight to husk-session makes it look for a relative loader on the device.
+device_path() {
+    case "$1" in
+        /*) printf '%s\n' "$1" ;;
+        files/linux/*) printf '%s/%s\n' "$APPDIR" "${1#files/linux/}" ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+ROOTFS=$(device_path "$ROOTFS")
+LD=$(device_path "$LD")
 
 [ -x "$RUNTIME_PROBE" ] || {
     echo "--- path-race-probe: SKIP (missing $RUNTIME_PROBE; run tools/guest-config/build-guest-tools.sh)" >&2
