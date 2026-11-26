@@ -33,6 +33,13 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 为 `PASS=38 FAIL=0`，coverage-sweep 1400 条无泄漏，dpkg `0440` conffile、V4L2、DRM 和
 fd identity 全通过。`make check` 检查 73 个 shell 脚本、284 个 Markdown 文件。
 
+**0.0.32 之后候选修复（尚未发版）**：补充组语义已落到当前 `libld.so` 候选。假用户从
+guest `/etc/group` 自动得到 `[1500, 4242]`，`setgroups([4242])` 后为 `[4242]`，
+`initgroups()` 后为 `[1500, 4242]`；组权限文件的 `access(R_OK/W_OK)` 也按补充组判断。
+真机门禁 A `PASS=38 FAIL=0`，挂载专项 `PASS=18 FAIL=0`；coverage-sweep 因 rootfs 没有
+`strace` 为 `SKIP`，不能算通过（evidence 260）。**这不是已发布的 0.0.32 资产，发布前仍需
+按版本流程生成 0.0.33 包并重新上传 GitHub Release 资产。**
+
 **0.0.31 V4L2 假节点 open 标志**：path-shim 对 `/dev/video0` 返回的假 fd 现在保留
 `O_CLOEXEC` 与 `O_NONBLOCK`。旧 0.0.30 loader 的负对照是 `fdflags=0 fl=131074`，修后为
 `fdflags=1 fl=133122`（evidence 258）。同一轮把 netlink 的

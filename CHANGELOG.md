@@ -7,6 +7,16 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [未发布]
+
+### 修复
+
+- **补充组不再只报主组**（evidence 260）。`getgroups()` 现在从 guest 的 `/etc/passwd` 和
+  `/etc/group` 建立进程组表，`setgroups()` 替换组表，`initgroups()` 按用户名重建；组位权限和
+  `access/faccessat` 也按补充组判断。真机结果：`setgroups([4242])` 后 `getgroups()` 为
+  `[4242]`，`initgroups()` 后为 `[1500, 4242]`，`0660` 组文件可读可写。完整门禁 A
+  `PASS=38 FAIL=0`，挂载专项 `PASS=18 FAIL=0`。
+
 ## [0.0.32] - 2026-11-26
 
 > 主题：**修正文件创建 mode、虚拟所有权和 `access/faccessat` 的主体语义**。
