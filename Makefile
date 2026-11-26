@@ -7,6 +7,7 @@
 #   make apk     loader + ArkTS-free Rust app .so + Gradle assembleDebug
 #   make bench   three-runner benchmark (needs a device)
 #   make gate-a  the 38-item acceptance gate + path/V4L2/DRM probes (needs a device)
+#   make readback-audit  complete 19-case Rust GPU readback suite (needs a device)
 #   make gpu-audit  desktop shell + nested GTK app hardware-GPU inheritance (needs a device)
 #   make camera-audit  V4L2 mmap + GStreamer v4l2src through the fixture (needs a device)
 #   make docs    markdown link check
@@ -18,7 +19,7 @@ MANIFEST    := runtime/Cargo.toml
 PROFILE_DIR := runtime/target/$(TARGET)/release
 HUSK_TOOLS  := runtime/target/debug/husk-tools
 
-.PHONY: all check lint test tools nr-tools loader preloads apk bench gate-a gpu-audit camera-audit virt-race docs dist clean version-check version-bump release-audit \
+.PHONY: all check lint test tools nr-tools loader preloads apk bench gate-a readback-audit gpu-audit camera-audit virt-race docs dist clean version-check version-bump release-audit \
         libc-patch libc-verify
 
 all: lint check version-check
@@ -228,7 +229,20 @@ bench:
 
 # 门禁 A = 38 项验收 + 覆盖度探针 + 补充组/session locale/身份初始化/组表竞态/session guard/rootfd/最终 symlink 真机回归。
 # 探针单列一步，因为 locale 看 env -i 后的真实值，竞态看宿主哨兵是否被改动。
+readback-audit:
+	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.husk} \
+		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} \
+		LD=$${LD:-files/linux/husk/libld.so} \
+		GL_PROBE=$${GL_PROBE:-$(PROFILE_DIR)/gl-probe} \
+		EXPECT_RENDERER=$${EXPECT_RENDERER-zink} \
+		sh tools/device-tests/19-readback-suite.sh
+
 gpu-audit:
+	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.husk} \
+		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} \
+		LD=$${LD:-files/linux/husk/libld.so} \
+		GL_PROBE=$${GL_PROBE:-$(PROFILE_DIR)/gl-probe} \
+		sh tools/device-tests/19-readback-suite.sh
 	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.husk} \
 		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} \
 		LD=$${LD:-files/linux/husk/libld.so} \
