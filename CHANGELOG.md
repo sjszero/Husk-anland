@@ -10,11 +10,31 @@
 ## [0.0.36] - 2026-11-26
 
 这一版把「检查」和「事实」两件事补上：CI 不再只检查 8 个 crate，DRM 假 fd 的身份判定从
-子串匹配改成精确名字，硬件能力表从「直连 / 中转 / 未做」改成四分类。运行时的默认行为只动了
-一处：`umount <目录>` 从回 EPERM 变成真的卸载（见下）。
+子串匹配改成精确名字，硬件能力表从「直连 / 中转 / 未做」改成四分类。运行时的默认行为动了两处：
+`umount <目录>` 从回 EPERM 变成真的卸载，以及首次安装不再需要 `adb install -g`
+（相机/麦克风的权限由 App 自己问、自己解释、自己引导去设置页）。
+
+### 新增
+
+- **运行时权限四类验收 + A-hw 门禁组**（`app-rs/src/permissions.rs`、
+  `tools/device-tests/17-gate-a-hw.sh`，evidence 288）。`hasCode="false"` 没动，Activity 实例
+  仍只从 `ANativeActivity.clazz` 取。首次申请、拒绝（toast 说明原因）、第二次拒绝（toast +
+  自动打开本应用的权限页）、重新授权，四条都在真机上走通；拒绝与「不再询问」靠
+  `USER_FIXED` 标志位分开判断。**A-core 的 36 项一条没改**，新增的 A-hw 组 9/0。
+  权限给上之后 `camera-client` 从 App 的 Camera2 socket 取到 3 帧 1280×720 NV12
+  （`bytes=1382400`、`min=0 max=128 mean≈42.8`，不是全黑），`openCamera` 真的通过了。
 
 ### 修复
 
+- **权限没给时进程一启动就 SIGABRT**（`app-rs/src/permissions.rs`）。`NewObjectArray` 收的是
+  类名不是描述符，传 `"java/lang/String;"` 让 `FindClass` 直接 abort：
+  `JNI DETECTED ERROR: illegal class name 'java/lang/String;' ... from onResumeNative`。
+  这行旧代码里就有，只因为一直是 `install -g` 装的、请求列表永远为空，从来没执行到。
+- **对话框抢焦点的那次 resume 把两次机会一起用掉了**。`requestPermissions` 之后 48 ms 就来
+  了一次 resume（权限值还是旧的 denied），旧逻辑把它当答案：两轮对话、两次 toast、两次设置
+  页全在 300 ms 内完成，用户一下都没点。现在距请求不足 800 ms 的 denied 不算答案，且 pending
+  未答时绝不发第二次请求。
+- **两个权限各开一次设置页**：`startActivity` 在循环里，同一个页面被拉起两次；改成每趟最多一次。
 - **`umount <目录>` 在 guest 里能用了**（`path-shim` `umount` 导出 + `BODY_PATCH` +
   `libc-interpose.txt`，evidence 287）。libmount 在**没有 flag** 时调的是旧接口
   `umount()`，glibc 把它展开成内联 `umount2(2)` 系统调用，**根本不经过 `umount2` 符号**，
