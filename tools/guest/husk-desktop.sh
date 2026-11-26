@@ -48,7 +48,16 @@ done
 NR_LD=${NR_LD:-$(dirname "$ROOTFS")/libld.so}
 [ -x "$NR_LD" ] || { echo "husk-desktop: loader not executable: $NR_LD" >&2; exit 69; }
 DISPLAY=${DISPLAY:-:0}
-RT=${XDG_RUNTIME_DIR:-$ROOTFS/tmp/xdg-husk}
+# 运行时目录固定放树根下的 /run/rt，不再用 /tmp/xdg-husk：
+# unix socket 的 sun_path 上限是 108 字节（含结尾 NUL），而路径层会把**guest 路径**
+# 拼上 rootfs 前缀。实测树路径
+# /data/data/com.linuxhub.husk/files/linux/distributions/ubuntu-24.04/rootfs-broken-20261126
+# 是 90 字符：/run/rt/bus 拼完 101 字节可以，/tmp/xdg-husk/bus 拼完 109 就超，
+# dbus-daemon 直接退出 "Failed to start message bus: Socket name too long"，整套会话起不来。
+RT=${XDG_RUNTIME_DIR:-$ROOTFS/run/rt}
+mkdir -p "$RT" 2>/dev/null || true
+chmod 700 "$RT" 2>/dev/null || true
+
 # 同一个路径有两个身份：宿主看到的（$RT）和 guest 看到的（$RT_G）。dbus 的地址、
 # XDG_RUNTIME_DIR 必须用 guest 那一份 —— 用宿主绝对路径写进 unix:path= 时，
 # 路径层会再加一次 rootfs 前缀，于是连不上（实测报 "Could not connect:
@@ -65,6 +74,9 @@ STATE=$(dirname "$ROOTFS")/.husk-install-state
 LIBS="$ROOTFS/lib/aarch64-linux-gnu:$ROOTFS/usr/lib/aarch64-linux-gnu"
 [ -d "$ROOTFS/usr/lib/aarch64-linux-gnu/mutter-14" ] && LIBS="$LIBS:$ROOTFS/usr/lib/aarch64-linux-gnu/mutter-14"
 [ -d "$ROOTFS/usr/lib/gnome-shell" ] && LIBS="$LIBS:$ROOTFS/usr/lib/gnome-shell"
+# gvfs 的 gio 模块要 libgvfscommon.so，它不在标准库里；不加这一行 shell 起得来但每个
+# gio 模块都报 "cannot open shared object file"，桌面图标/挂载全废。
+[ -d "$ROOTFS/usr/lib/aarch64-linux-gnu/gvfs" ] && LIBS="$LIBS:$ROOTFS/usr/lib/aarch64-linux-gnu/gvfs"
 if [ -f "$ROOTFS/etc/ld.so.husk-path" ]; then
     LIBS="$LIBS:$(sed -n 's|^|'"$ROOTFS"'|p' "$ROOTFS/etc/ld.so.husk-path" | tr '\n' ':')"
 fi
@@ -156,8 +168,10 @@ g_bg "$ROOTFS/tmp/husk-sysbus.log" usr/bin/dbus-daemon \
 i=0; while [ $i -lt 20 ] && [ ! -S "$SYSBUS" ]; do sleep 1; i=$((i+1)); done
 [ -S "$SYSBUS" ] || say "WARNING: 系统总线没起来（账号/挂载相关功能会退化）"
 
+# 地址必须写 guest 路径：写宿主绝对路径时路径层会再拼一次 rootfs，
+# 拼完直接超 sun_path 上限（实测 101 + 90 = 191，dbus 报 Socket name too long）。
 g_bg "$ROOTFS/tmp/husk-sessbus.log" usr/bin/dbus-daemon \
-     --session --nofork --address="unix:path=$SESSBUS"
+     --session --nofork --address="unix:path=$SESSBUS_G"
 i=0; while [ $i -lt 20 ] && [ ! -S "$SESSBUS" ]; do sleep 1; i=$((i+1)); done
 [ -S "$SESSBUS" ] || { say "会话总线起不来，会话无法继续"; exit 70; }
 
