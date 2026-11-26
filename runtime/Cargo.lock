@@ -341,6 +341,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "v4l2-ref-probe"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "v4l2-shim",
+]
+
+[[package]]
 name = "v4l2-shim"
 version = "0.1.0"
 

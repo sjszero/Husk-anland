@@ -12646,6 +12646,24 @@ pub unsafe extern "C" fn mmap64(
 static mut V4L2_CTX: v4l2_shim::Ctx = v4l2_shim::Ctx::empty();
 static V4L2_STATE: AtomicU8 = AtomicU8::new(0);
 static V4L2_OWNER: AtomicI32 = AtomicI32::new(0);
+/// `V4L2_CTX` contains the camera socket, the four device records and their
+/// buffer tables. Two threads doing ioctl/close/mmap at once can otherwise
+/// observe a half-updated table. The lazy init has its own once state; this
+/// lock serializes every access after init.
+static V4L2_LOCK: AtomicBool = AtomicBool::new(false);
+
+unsafe fn v4l2_lock() {
+    while V4L2_LOCK
+        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        core::hint::spin_loop();
+    }
+}
+
+unsafe fn v4l2_unlock() {
+    V4L2_LOCK.store(false, Ordering::Release);
+}
 
 unsafe fn v4l2_ready() -> bool {
     if V4L2_STATE.load(Ordering::Acquire) == 2 {
@@ -12786,83 +12804,89 @@ unsafe fn v4l2_api() -> Option<*const usize> {
 }
 
 unsafe fn v4l2_is_fake(fd: CInt) -> bool {
-    if let Some(t) = v4l2_api() {
+    v4l2_lock();
+    let fake = if let Some(t) = v4l2_api() {
         let f: V4l2IsFake = core::mem::transmute(*t.add(3));
-        return f(fd) != 0;
-    }
-    v4l2_ready() && V4L2_CTX.is_video_fd(fd)
-}
-
-unsafe fn v4l2_fake_open(n: u32) -> Option<CInt> {
-    if let Some(t) = v4l2_api() {
-        let f: V4l2Open = core::mem::transmute(*t);
-        let fd = f(n);
-        return if fd >= 0 { Some(fd) } else { None };
-    }
-    if !v4l2_ready() {
-        return None;
-    }
-    let fd = V4L2_CTX.open(n);
-    if fd < 0 {
-        None
+        f(fd) != 0
     } else {
-        Some(fd)
-    }
+        v4l2_ready() && V4L2_CTX.is_video_fd(fd)
+    };
+    v4l2_unlock();
+    fake
 }
 
 unsafe fn v4l2_dispatch_ioctl(fd: CInt, req: u64, arg: *mut u8) -> i64 {
-    if let Some(t) = v4l2_api() {
+    v4l2_lock();
+    let r = if let Some(t) = v4l2_api() {
         let f: V4l2Ioctl = core::mem::transmute(*t.add(1));
-        return f(fd, req, arg);
-    }
-    V4L2_CTX.ioctl(fd, req, arg)
+        f(fd, req, arg)
+    } else {
+        V4L2_CTX.ioctl(fd, req, arg)
+    };
+    v4l2_unlock();
+    r
 }
 
 unsafe fn v4l2_dispatch_mmap(fd: CInt, len: usize, off: i64) -> Option<*mut u8> {
-    if let Some(t) = v4l2_api() {
+    v4l2_lock();
+    let out = if let Some(t) = v4l2_api() {
         let f: V4l2Mmap = core::mem::transmute(*t.add(2));
         let p = f(fd, len, off);
-        return if p.is_null() { None } else { Some(p) };
-    }
-    V4L2_CTX.mmap(fd, len, off)
+        if p.is_null() {
+            None
+        } else {
+            Some(p)
+        }
+    } else {
+        V4L2_CTX.mmap(fd, len, off)
+    };
+    v4l2_unlock();
+    out
 }
 
 unsafe fn v4l2_forget(fd: CInt) {
+    v4l2_lock();
     if let Some(t) = v4l2_api() {
         let f: V4l2Close = core::mem::transmute(*t.add(4));
         f(fd);
-        return;
+    } else {
+        V4L2_CTX.close(fd);
     }
-    V4L2_CTX.close(fd);
+    v4l2_unlock();
 }
 
 unsafe fn v4l2_nonblock(fd: CInt, on: bool) {
+    v4l2_lock();
     if let Some(t) = v4l2_api() {
         let f: V4l2Nonblock = core::mem::transmute(*t.add(5));
         f(fd, if on { 1 } else { 0 });
-        return;
+    } else {
+        V4L2_CTX.update_nonblock(fd, on);
     }
-    V4L2_CTX.update_nonblock(fd, on);
+    v4l2_unlock();
 }
 
 /// open("/dev/videoN")：给一个 memfd，登记在 v4l2 表里。
 /// `None` = not our device (fall through to the normal path); `Some(Err(e))` =
 /// ours but the open failed, and the guest must see that errno.
 unsafe fn v4l2_open(n: u32) -> Option<Result<CInt, CInt>> {
-    if let Some(t) = v4l2_api() {
+    v4l2_lock();
+    let out = if let Some(t) = v4l2_api() {
         let f: V4l2Open = core::mem::transmute(*t);
         let fd = f(n);
-        return Some(if fd >= 0 { Ok(fd) } else { Err(-fd) });
-    }
-    if !v4l2_ready() {
-        return None;
-    }
-    let fd = V4L2_CTX.open(n);
-    if fd < 0 {
-        Some(Err(-fd))
+        Some(if fd >= 0 { Ok(fd) } else { Err(-fd) })
+    } else if !v4l2_ready() {
+        None
     } else {
-        Some(Ok(fd))
-    }
+        let fd = V4L2_CTX.open(n);
+        if fd < 0 {
+            Some(Err(-fd))
+        } else {
+            Some(Ok(fd))
+        }
+    };
+    v4l2_unlock();
+    out
 }
 
 /// fcntl: 只跟踪 O_NONBLOCK，其余原样走。glibc 的 fcntl 是可变参，第三个参数

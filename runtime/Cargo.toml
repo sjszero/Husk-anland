@@ -36,6 +36,7 @@ members = [
     "crates/v4l2-shim",
     "crates/v4l2-preload",
     "crates/v4l2-test",
+    "crates/v4l2-ref-probe",
 ]
 
 [workspace.package]

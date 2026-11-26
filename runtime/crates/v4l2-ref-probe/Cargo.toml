@@ -1,0 +1,16 @@
+[package]
+name = "v4l2-ref-probe"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "v4l2-ref-probe"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"
+v4l2-shim = { path = "../v4l2-shim" }
+
+[profile.release]
+panic = "abort"

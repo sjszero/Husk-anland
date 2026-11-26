@@ -353,3 +353,13 @@ Android 13 的 app seccomp 会拦截 syscall 436；glibc 的 `close_range()` 不
 
 **仍未支持的是 `SCM_RIGHTS` 跨进程传递假 netlink fd**：接收进程没有对应的 `NL_SLOTS` 状态，
 不能保证继续模拟 netlink。多线程同时 dup/close 的极端竞态也没有专项压测，UNKNOWN。
+
+## 17 · V4L2 假相机 fd：高位复制已修，跨进程仍是边界（2026-11-26）
+
+0.0.24 起，假 V4L2 fd 的引用计数枚举 `/proc/self/fd`，不再只看 0..1023；`dup()` 到高位后
+关闭原 fd 不会提前拆除 camera socket。path-shim 与 preload 对 `V4L2_CTX` 的访问也已加锁
+（evidence 250）。
+
+**仍未支持的是 `SCM_RIGHTS` 跨进程传递假 V4L2 fd**：memfd 本身能传，但接收进程没有对应的
+设备、socket 和 buffer 表，不能保证继续模拟 V4L2。真实 Camera2 后端在高 fd 下的长时间
+STREAMON/DQBUF 与多线程压力仍未验证，UNKNOWN。

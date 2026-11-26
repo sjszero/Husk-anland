@@ -232,7 +232,7 @@ unsafe fn c_str_len(p: *const u8) -> usize {
     n
 }
 
-unsafe fn rootfs() -> Option<&'static [u8]> {
+unsafe fn rootfs_locked() -> Option<&'static [u8]> {
     if ROOT_LEN > 0 {
         return Some(&ROOT[..ROOT_LEN]);
     }
@@ -249,11 +249,11 @@ unsafe fn rootfs() -> Option<&'static [u8]> {
     Some(&ROOT[..n])
 }
 
-unsafe fn ensure_init() -> bool {
+unsafe fn ensure_init_locked() -> bool {
     if READY {
         return true;
     }
-    let root = match rootfs() {
+    let root = match rootfs_locked() {
         Some(r) => r,
         None => return false,
     };
@@ -292,7 +292,14 @@ fn video_index(path: &[u8]) -> Option<u32> {
 
 /// `/sys/class/video4linux*`, `/sys/subsystem/video4linux*` → rootfs 影子树
 unsafe fn sys_host(path: &[u8], out: &mut [u8; 256]) -> Option<usize> {
-    let root = rootfs()?;
+    lock();
+    let out_len = sys_host_locked(path, out);
+    unlock();
+    out_len
+}
+
+unsafe fn sys_host_locked(path: &[u8], out: &mut [u8; 256]) -> Option<usize> {
+    let root = rootfs_locked()?;
     const C: &[u8] = b"/sys/class/video4linux";
     const S: &[u8] = b"/sys/subsystem/video4linux";
     let (dir, rest) = if path.starts_with(C) {
@@ -319,16 +326,21 @@ unsafe fn sys_host(path: &[u8], out: &mut [u8; 256]) -> Option<usize> {
 /// `Some(Ok(fd))` or `Some(Err(errno))`; `None` when this layer is not set up
 /// (the caller then falls through to the real syscall, unchanged).
 unsafe fn open_video(n: u32) -> Option<Result<i32, i32>> {
-    if !ensure_init() {
+    lock();
+    if !ensure_init_locked() {
+        unlock();
         return None;
     }
     let fd = CTX.open(n);
-    if fd < 0 {
+    let out = if fd < 0 {
         let e = CTX.last_errno();
         note_int(b"[husk v4l2] open failed for dev=", n as i64);
-        return Some(Err(if e > 0 { e } else { 19 }));
-    }
-    Some(Ok(fd))
+        Some(Err(if e > 0 { e } else { 19 }))
+    } else {
+        Some(Ok(fd))
+    };
+    unlock();
+    out
 }
 
 unsafe fn synth_stat(n: u32, st: *mut u8) -> i32 {
@@ -457,16 +469,20 @@ pub unsafe extern "C" fn ioctl(fd: i32, request: u64, arg: *mut u8) -> i32 {
 unsafe fn do_ioctl(fd: i32, request: u64, arg: *mut u8) -> i32 {
     // A V4L2 request on an fd we cannot account for is a bug, not noise: say
     // which fd it was and what the kernel says it points at.
-    if ((request >> 8) & 0xff) == 0x56 && !CTX.is_video_fd(fd) {
+    lock();
+    let fake = CTX.is_video_fd(fd);
+    if ((request >> 8) & 0xff) == 0x56 && !fake {
         note_hex(b"[husk v4l2] unknown fd for ioctl=", request);
         note_int(b"   fd=", fd as i64);
         note(b"   target=");
         note_link(fd);
     }
-    if CTX.is_video_fd(fd) {
+    if fake {
         let r = CTX.ioctl(fd, request, arg);
+        unlock();
         return if r < 0 { set_errno(errno_of(r)) } else { 0 };
     }
+    unlock();
     let r = raw(
         SYS_IOCTL as usize,
         fd as usize,
@@ -496,12 +512,16 @@ pub unsafe extern "C" fn mmap(
 
 #[inline(always)]
 unsafe fn do_mmap(addr: *mut u8, len: usize, prot: i32, flags: i32, fd: i32, off: i64) -> *mut u8 {
+    lock();
     if CTX.is_video_fd(fd) {
-        return match CTX.mmap(fd, len, off) {
+        let out = match CTX.mmap(fd, len, off) {
             Some(p) => p,
             None => set_errno(22) as *mut u8,
         };
+        unlock();
+        return out;
     }
+    unlock();
     let r = raw(
         SYS_MMAP as usize,
         addr as usize,
@@ -536,10 +556,12 @@ pub unsafe extern "C" fn close(fd: i32) -> i32 {
 
 #[inline(always)]
 unsafe fn do_close(fd: i32) -> i32 {
+    lock();
     if CTX.is_video_fd(fd) {
         CTX.close(fd);
     }
     let r = raw(SYS_CLOSE as usize, fd as usize, 0, 0, 0, 0, 0);
+    unlock();
     if r < 0 {
         return set_errno(errno_of(r));
     }
@@ -549,12 +571,16 @@ unsafe fn do_close(fd: i32) -> i32 {
 #[no_mangle]
 pub unsafe extern "C" fn fcntl(fd: i32, cmd: i32, arg: usize) -> i32 {
     let r = raw(SYS_FCNTL as usize, fd as usize, cmd as usize, arg, 0, 0, 0);
-    if r >= 0 && CTX.is_video_fd(fd) {
-        if cmd == 4 {
-            CTX.update_nonblock(fd, (arg & 0o4000) != 0);
-        } else if cmd == 3 {
-            CTX.update_nonblock(fd, (r as usize & 0o4000) != 0);
+    if r >= 0 {
+        lock();
+        if CTX.is_video_fd(fd) {
+            if cmd == 4 {
+                CTX.update_nonblock(fd, (arg & 0o4000) != 0);
+            } else if cmd == 3 {
+                CTX.update_nonblock(fd, (r as usize & 0o4000) != 0);
+            }
         }
+        unlock();
     }
     if r < 0 {
         return set_errno(errno_of(r));
@@ -708,8 +734,12 @@ pub unsafe extern "C" fn access(path: *const i8, mode: i32) -> i32 {
 #[no_mangle]
 pub unsafe extern "C" fn v4l2_open(path: *const i8, flags: i32) -> i32 {
     let fd = do_openat(AT_FDCWD, path, flags, 0);
-    if fd >= 0 && CTX.is_video_fd(fd) {
-        CTX.update_nonblock(fd, (flags & 0o4000) != 0);
+    if fd >= 0 {
+        lock();
+        if CTX.is_video_fd(fd) {
+            CTX.update_nonblock(fd, (flags & 0o4000) != 0);
+        }
+        unlock();
     }
     fd
 }
@@ -775,23 +805,30 @@ pub unsafe extern "C" fn husk_v4l2_open(n: u32) -> i32 {
 
 #[no_mangle]
 pub unsafe extern "C" fn husk_v4l2_ioctl(fd: i32, req: u64, arg: *mut u8) -> i64 {
-    if !CTX.is_video_fd(fd) {
-        return -25;
-    }
-    CTX.ioctl(fd, req, arg)
+    lock();
+    let r = if CTX.is_video_fd(fd) {
+        CTX.ioctl(fd, req, arg)
+    } else {
+        -25
+    };
+    unlock();
+    r
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn husk_v4l2_mmap(fd: i32, len: usize, off: i64) -> *mut u8 {
-    match CTX.mmap(fd, len, off) {
-        Some(p) => p,
-        None => core::ptr::null_mut(),
-    }
+    lock();
+    let p = CTX.mmap(fd, len, off).unwrap_or(core::ptr::null_mut());
+    unlock();
+    p
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn husk_v4l2_is_fake(fd: i32) -> i32 {
-    if CTX.is_video_fd(fd) {
+    lock();
+    let fake = CTX.is_video_fd(fd);
+    unlock();
+    if fake {
         1
     } else {
         0
@@ -800,14 +837,18 @@ pub unsafe extern "C" fn husk_v4l2_is_fake(fd: i32) -> i32 {
 
 #[no_mangle]
 pub unsafe extern "C" fn husk_v4l2_close(fd: i32) {
+    lock();
     if CTX.is_video_fd(fd) {
         CTX.close(fd);
     }
+    unlock();
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn husk_v4l2_nonblock(fd: i32, on: i32) {
+    lock();
     CTX.update_nonblock(fd, on != 0);
+    unlock();
 }
 
 static mut API: [usize; 6] = [0; 6];

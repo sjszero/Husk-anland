@@ -27,6 +27,13 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 **仓库布局**：`runtime/crates/{path-shim,nr-tools,runtime-core,gpu-env}`（Rust）、`tools/loader/*.S`（裸汇编，仅入口与 hook）、
 `tools/device-tests/*.sh`、`docs/design/`（设计 + `evidence/` 原始记录）。
 
+**0.0.24 V4L2 高 fd 复制与上下文锁**：假相机 fd 的引用计数改为枚举 `/proc/self/fd`，
+`dup()` 到 1024 以上后关闭原 fd 不会提前拆掉仍存活的 camera socket；path-shim 与 preload 的
+V4L2 上下文访问已串行化。Rust 探针 `v4l2-ref-probe` 在 guest 内完成
+`open -> dup(1100) -> close(original) -> QUERYCAP(high) -> close(high)`，输出
+`socket=alive`、`ioctl-high rc=0`、`last-close socket=eof` 和 `V4L2_REF|PASS`（evidence 250）。
+真实 Camera2 连续取帧、高 fd 下的 STREAMON/DQBUF 组合与长时并发压力仍是 UNKNOWN。
+
 **0.0.23 netlink 复制 fd 生命周期**：假 netlink socket 现在按 client / peer 的 socket inode
 识别，`dup`、`dup2`、`fcntl(F_DUPFD_CLOEXEC)` 产生的新 fd 仍保持 `AF_NETLINK` 语义；
 关闭原 fd 不会拆掉其他复制 fd 共用私有 peer，最后一个引用关闭后才清理。真机探针输出

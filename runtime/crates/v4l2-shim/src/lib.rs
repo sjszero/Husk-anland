@@ -24,12 +24,15 @@ const SYS_READ: usize = 63;
 const SYS_WRITE: usize = 64;
 const SYS_CLOSE: usize = 57;
 const SYS_OPENAT: usize = 56;
+const SYS_GETDENTS64: usize = 61;
 const SYS_MMAP: usize = 222;
 const SYS_SOCKET: usize = 198;
 const SYS_CONNECT: usize = 203;
 const SYS_MEMFD_CREATE: usize = 279;
 const SYS_READLINKAT: usize = 78;
 const AT_FDCWD: isize = -100;
+const O_DIRECTORY: usize = 0o40000; // AArch64 UAPI, not asm-generic 0o200000
+const O_CLOEXEC: usize = 0o2000000;
 
 // ---- ioctls (verified on the guest header, aarch64) ----
 pub const QUERYCAP: u64 = 0x8068_5600;
@@ -622,16 +625,92 @@ impl Ctx {
 
     /// Fds in this process that still refer to device `i`. A dup shares the
     /// file description, so the device lives until the last one is closed.
-    unsafe fn refs(&self, i: usize) -> u32 {
-        let mut n = 0;
-        let mut fd = 0;
-        while fd < 1024 {
-            if fd_dev_of_kernel(fd) == Some(i) {
-                n += 1;
-            }
-            fd += 1;
+    ///
+    /// Enumerate `/proc/self/fd`; never assume the descriptor fits below 1024.
+    /// A process can legitimately `dup()` a camera fd above that bound, and the
+    /// old fixed scan then destroyed the shared device state on the first close.
+    /// `None` means the kernel directory could not be enumerated; callers must
+    /// fail closed instead of guessing that the fd was the last reference.
+    unsafe fn refs(&self, i: usize) -> Option<u32> {
+        let dfd = syscall6(
+            SYS_OPENAT,
+            AT_FDCWD as usize,
+            b"/proc/self/fd\0".as_ptr() as usize,
+            O_DIRECTORY | O_CLOEXEC,
+            0,
+            0,
+            0,
+        );
+        if dfd < 0 {
+            return None;
         }
-        n
+
+        let mut count = 0u32;
+        let mut buf = [0u8; 1024];
+        loop {
+            let n = syscall6(
+                SYS_GETDENTS64,
+                dfd as usize,
+                buf.as_mut_ptr() as usize,
+                buf.len(),
+                0,
+                0,
+                0,
+            );
+            if n < 0 {
+                syscall3(SYS_CLOSE, dfd as usize, 0, 0);
+                return None;
+            }
+            if n == 0 {
+                break;
+            }
+            let n = n as usize;
+            let mut off = 0usize;
+            while off < n {
+                if off + 20 > n {
+                    syscall3(SYS_CLOSE, dfd as usize, 0, 0);
+                    return None;
+                }
+                // Linux `struct linux_dirent64`: d_reclen at +16, d_name at +19.
+                let reclen =
+                    core::ptr::read_unaligned(buf.as_ptr().add(off + 16) as *const u16) as usize;
+                if reclen < 20 || off + reclen > n {
+                    syscall3(SYS_CLOSE, dfd as usize, 0, 0);
+                    return None;
+                }
+
+                let mut fd: u32 = 0;
+                let mut any = false;
+                let mut valid = true;
+                let mut k = off + 19;
+                while k < off + reclen {
+                    let c = *buf.as_ptr().add(k);
+                    if c == 0 {
+                        break;
+                    }
+                    if !c.is_ascii_digit() {
+                        valid = false;
+                        break;
+                    }
+                    let digit = (c - b'0') as u32;
+                    match fd.checked_mul(10).and_then(|v| v.checked_add(digit)) {
+                        Some(v) => fd = v,
+                        None => {
+                            valid = false;
+                            break;
+                        }
+                    }
+                    any = true;
+                    k += 1;
+                }
+                if valid && any && fd_dev_of_kernel(fd as i32) == Some(i) {
+                    count += 1;
+                }
+                off += reclen;
+            }
+        }
+        syscall3(SYS_CLOSE, dfd as usize, 0, 0);
+        Some(count)
     }
 
     pub unsafe fn close(&mut self, fd: i32) {
@@ -640,11 +719,23 @@ impl Ctx {
             None => return,
         };
         // The fd being closed is still open here, so 1 means "last one".
-        if self.refs(i) > 1 {
-            if self.devs[i].fd == fd {
-                self.devs[i].fd = -1;
+        // If `/proc/self/fd` cannot be read, keep the device state alive: a
+        // leak is safer than tearing down a socket still used by a dup.
+        match self.refs(i) {
+            Some(1) => {}
+            Some(_) => {
+                if self.devs[i].fd == fd {
+                    self.devs[i].fd = -1;
+                }
+                return;
             }
-            return;
+            None => {
+                if self.devs[i].fd == fd {
+                    self.devs[i].fd = -1;
+                }
+                note(b"[husk v4l2] close: cannot enumerate refs; preserving state\n");
+                return;
+            }
         }
         if self.devs[i].streaming {
             self.send(i, b"STOP\n");

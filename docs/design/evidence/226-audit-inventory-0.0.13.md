@@ -34,6 +34,8 @@
 | H-26 | 身份状态 | `FAKE_UID/GID`、`IDENT_PUB_UID/GID`、`IDENT_NOTES` 用无保护 `static mut`；并发读写构成数据竞争，身份对可能半新半旧 | 236 |
 | H-27 | 发布工程 | APK `versionName=0.1`、`versionCode=1` 与仓库 `0.0.13` 脱节；改为直接读取 `VERSION` | 237 |
 | H-28 | 构建入口 | `make apk` 要求 NDK 指向 `<prebuilt>`，loader 却要求 `<prebuilt>/bin`；并发探针脚本也会拼出 `bin/bin/clang`。同一条 NDK 设置无法跨入口使用 | 238 |
+| H-29 | V4L2 | 假相机 fd 的引用计数只扫描 `0..1023`；`dup()` 到高 fd 后关闭原 fd，会提前拆掉仍被引用的 camera socket | 250 |
+| H-30 | V4L2 | `V4L2_CTX` 在 lazy init 之后无锁访问；path-shim 与 preload 两层都可能并发改写 socket、buffer 表和设备状态 | 250 |
 
 ## 2 · 记录在案、不修或不完全修的（L）
 

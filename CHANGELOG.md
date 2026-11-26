@@ -7,6 +7,36 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.24] - 2026-11-26
+
+> 主题：**修掉 V4L2 假相机 fd 的高位复制生命周期，并把相机上下文的所有访问串行化**。
+> 这一版只改假设备的状态管理，不把合成 `camera.sock` 探针写成真实摄像头画质验收。
+
+### 修复
+
+- **V4L2 引用计数不再写死 fd < 1024**（evidence 250）。`refs()` 现在枚举 `/proc/self/fd`，
+  `dup()` 到 1100 等高位 fd 后，关闭原 fd 不会提前拆掉仍被引用的 camera socket。
+- **`/proc/self/fd` 读取失败时 fail closed**（evidence 250）。无法确认最后引用时保留设备状态，
+  避免误拆仍在使用的 socket；代价是极端情况下宁可泄漏状态，也不造成活 fd 静默失效。
+- **V4L2 上下文加锁**（evidence 250）。path-shim 与 preload 两层对 socket、设备、buffer 表、
+  rootfs 初始化和 ABI 转发的访问统一串行化，修掉 lazy init 之后的并发数据竞争。
+- **新增 Rust 回归探针**（evidence 250）。`v4l2-ref-probe` 在 guest 内启动假 `camera.sock`，
+  覆盖 `open -> dup(1100) -> close(original) -> QUERYCAP(high) -> close(high)`，并接入门禁 A。
+
+### 验证
+
+- 修前负对照：高 fd `QUERYCAP` 失败，socket 被提前拆掉。
+- 修后真机：`original-close|socket=alive`、`ioctl-high|rc=0|driver=husk`、
+  `last-close|socket=eof`、`V4L2_REF|PASS`。
+- 完整门禁 A：`PASS=38 FAIL=0`；coverage-probe 全部 PASS；coverage-sweep 扫描 1400 条候选路径无泄漏。
+- `make check` 通过。
+
+### 边界
+
+- 本版探针验证的是假 fd 生命周期与 `camera.sock` 握手，不是真实 Camera2 连续取帧。
+- 真实相机高 fd 下的 STREAMON/DQBUF 组合、长时并发压力仍是 UNKNOWN。
+- 通过 `SCM_RIGHTS` 把 V4L2 memfd 送到另一进程后的跨进程状态恢复仍未实现。
+
 ## [0.0.23] - 2026-11-26
 
 > 主题：**让假 netlink socket 在 `dup`、`dup2`、`fcntl(F_DUPFD*)` 后仍保持同一语义**。
@@ -1023,7 +1053,8 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.23...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.24...HEAD
+[0.0.24]: https://github.com/xishanp/Husk/releases/tag/v0.0.24
 [0.0.23]: https://github.com/xishanp/Husk/releases/tag/v0.0.23
 [0.0.22]: https://github.com/xishanp/Husk/releases/tag/v0.0.22
 [0.0.21]: https://github.com/xishanp/Husk/releases/tag/v0.0.21
