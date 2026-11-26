@@ -105,6 +105,9 @@ GitHub Release 的标题只写 `Husk X.Y.Z`，不拼主题或一句介绍。正�
 `# Husk X.Y.Z`、`## Husk X.Y.Z` 或 `## [X.Y.Z] - 日期` 重复标题。正文必须写：本版修了什么
 （带 evidence 编号）、已知问题、产物 sha256。**没在设备上验过的东西，不写进 release notes。**
 
+`make check` 还会检查仓库首屏结构：只能有 `Husk` 标题、六边形图标和徽章，项目介绍必须从
+`## 概览` 开始。`make release-audit` 会同时检查发布 tag 是否按 100 进位连续递增，不能跳过版本。
+
 ## 报告 bug
 
 用 issue 模板。附上它要的设备属性、完整命令、完整输出。如果运行时打了 `SIGSYS`，说清是

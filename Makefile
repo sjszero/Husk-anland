@@ -39,6 +39,7 @@ check:
 	sh tools/ci/test-locale-defaults.sh
 	sh tools/ci/check-fork-safety.sh
 	sh tools/ci/check-shell.sh
+	sh tools/ci/audit-readme-header.sh
 	@$(MAKE) --no-print-directory tools
 	$(HUSK_TOOLS) check-links
 	@$(MAKE) --no-print-directory version-check
@@ -194,8 +195,9 @@ version-check:
 version-bump:
 	@sh tools/ci/version-bump.sh
 
-# Network-backed: requires an authenticated gh CLI. Checks all published tags,
-# Release titles, duplicate tag aliases, and duplicate version headings in bodies.
+# Network-backed: requires an authenticated gh CLI. Checks the README hero,
+# contiguous base-100 tags, Release titles, duplicate tag aliases, and repeated
+# version headings in bodies.
 release-audit:
 	@sh tools/ci/audit-release-names.sh
 
