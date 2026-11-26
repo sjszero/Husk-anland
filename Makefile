@@ -8,6 +8,7 @@
 #   make bench   three-runner benchmark (needs a device)
 #   make gate-a  the 38-item acceptance gate + path/V4L2/DRM probes (needs a device)
 #   make gpu-audit  desktop shell + nested GTK app hardware-GPU inheritance (needs a device)
+#   make camera-audit  V4L2 mmap + GStreamer v4l2src through the fixture (needs a device)
 #   make docs    markdown link check
 #   make dist    release artifacts + SHA256SUMS
 
@@ -17,7 +18,7 @@ MANIFEST    := runtime/Cargo.toml
 PROFILE_DIR := runtime/target/$(TARGET)/release
 HUSK_TOOLS  := runtime/target/debug/husk-tools
 
-.PHONY: all check lint test tools nr-tools loader apk bench gate-a gpu-audit virt-race docs dist clean version-check version-bump release-audit \
+.PHONY: all check lint test tools nr-tools loader apk bench gate-a gpu-audit camera-audit virt-race docs dist clean version-check version-bump release-audit \
         libc-patch libc-verify
 
 all: lint check version-check
@@ -29,13 +30,13 @@ all: lint check version-check
 check:
 	cargo fmt --all --check --manifest-path $(MANIFEST)
 	cargo check --manifest-path $(MANIFEST) --target $(TARGET) \
-		-p runtime-core -p nr-tools -p ldconfig -p path-shim -p gpu-env -p session-env -p v4l2-preload -p v4l2-ref-probe -p fd-identity-probe -p drm-preload
+		-p runtime-core -p nr-tools -p ldconfig -p path-shim -p gpu-env -p session-env -p v4l2-preload -p v4l2-ref-probe -p v4l2-test -p camera-fixture -p fd-identity-probe -p drm-preload
 	cargo test --manifest-path $(MANIFEST) -p gpu-env -p session-env
 # No --all-targets: path-shim is no_std and its test harness collides with the
 # crate's own panic handler (duplicate lang item). Warnings there are tracked
 # separately; this gate fails on errors.
 	cargo clippy --manifest-path $(MANIFEST) --target $(TARGET) \
-		-p runtime-core -p nr-tools -p ldconfig -p path-shim -p gpu-env -p session-env -p v4l2-preload -p v4l2-ref-probe -p fd-identity-probe -p drm-preload
+		-p runtime-core -p nr-tools -p ldconfig -p path-shim -p gpu-env -p session-env -p v4l2-preload -p v4l2-ref-probe -p v4l2-test -p camera-fixture -p fd-identity-probe -p drm-preload
 	cargo check --manifest-path app-rs/Cargo.toml --target aarch64-linux-android --lib --bin husk-session-guard
 	sh tools/ci/test-locale-defaults.sh
 	sh tools/ci/check-fork-safety.sh
@@ -175,6 +176,12 @@ gate-a:
 	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.myth.husk} \
 		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-path-race-probe.sh
+
+camera-audit:
+	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.myth.husk} \
+		ROOTFS=$${ROOTFS:-/data/user/0/$${PKG:-com.linuxhub.myth.husk}/files/linux/distributions/ubuntu-24.04/rootfs} \
+		LD=$${LD:-/data/user/0/$${PKG:-com.linuxhub.myth.husk}/files/linux/husk/libld.so} \
+		sh tools/device-tests/run-camera-fixture.sh "$${DEV}"
 
 rootfd-race:
 	DEV=$${DEV:?} PKG=$${PKG:-com.linuxhub.myth.husk} \

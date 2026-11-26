@@ -4,8 +4,8 @@
 //! docs/design/v4l2-prior-art.md): stat says char 81:N, QUERYCAP, ENUM_FMT,
 //! ENUM_FRAMESIZES, S_FMT, mmap streaming with REQBUFS/QUERYBUF/QBUF/DQBUF.
 //!
-//! usage: v4l2-test [dev] [frames] [fourcc] [out-prefix]
-//!   v4l2-test /dev/video0 20 NV12 /tmp/frame
+//! usage: v4l2-test [dev] [frames] [fourcc] [out-prefix] [width] [height]
+//!   v4l2-test /dev/video0 20 NV12 /tmp/frame 1280 720
 
 use std::ffi::CString;
 
@@ -46,14 +46,16 @@ fn main() {
     let frames: usize = args.get(2).and_then(|v| v.parse().ok()).unwrap_or(10);
     let fourcc_arg = args.get(3).cloned().unwrap_or("NV12".into());
     let out = args.get(4).cloned().unwrap_or("/tmp/husk-v4l2".into());
+    let width: u32 = args.get(5).and_then(|v| v.parse().ok()).unwrap_or(640);
+    let height: u32 = args.get(6).and_then(|v| v.parse().ok()).unwrap_or(480);
     let fourcc = match fourcc_arg.as_str() {
         "YUYV" => FMT_YUYV,
         _ => FMT_NV12,
     };
-    unsafe { run(&dev, frames, fourcc, &out) }
+    unsafe { run(&dev, frames, fourcc, &out, width, height) }
 }
 
-unsafe fn run(dev: &str, frames: usize, fourcc: u32, out: &str) {
+unsafe fn run(dev: &str, frames: usize, fourcc: u32, out: &str, want_w: u32, want_h: u32) {
     use std::os::unix::ffi::OsStrExt;
     let cpath = CString::new(std::ffi::OsStr::new(dev).as_bytes()).unwrap();
 
@@ -136,11 +138,11 @@ unsafe fn run(dev: &str, frames: usize, fourcc: u32, out: &str) {
         std::process::exit(1);
     }
 
-    // 6. S_FMT 640x480
+    // 6. S_FMT requested size
     let mut fmt = [0u8; 208];
     put_u32(&mut fmt, 0, BUF_TYPE_VIDEO_CAPTURE);
-    put_u32(&mut fmt, 8, 640);
-    put_u32(&mut fmt, 12, 480);
+    put_u32(&mut fmt, 8, want_w);
+    put_u32(&mut fmt, 12, want_h);
     put_u32(&mut fmt, 16, fourcc);
     if libc::ioctl(fd, S_FMT as _, fmt.as_mut_ptr()) != 0 {
         eprintln!("v4l2test|FAIL|S_FMT: {}", std::io::Error::last_os_error());

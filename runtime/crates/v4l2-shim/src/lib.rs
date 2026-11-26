@@ -1235,46 +1235,54 @@ impl Ctx {
             let fh = field(l, b"h=")
                 .and_then(parse_u32)
                 .unwrap_or(self.devs[i].h);
-            let scratch = match self.scratch() {
-                Some(p) => p,
-                None => return -EIO,
+            if bytes == 0 {
+                return -EIO;
+            }
+            // Reserve the destination before reading the payload. NV12 needs no
+            // conversion, so the socket bytes can go straight into the guest's
+            // mmap address. The old path always read into scratch and copied a
+            // second time, which is pure overhead at 1080p.
+            let (fourcc, w, h, dst, cap) = {
+                let d = &self.devs[i];
+                let b = d.bufs[idx as usize];
+                if b.addr == 0 {
+                    return -EFAULT;
+                }
+                let cap = if d.memory == MEMORY_MMAP {
+                    d.size_image() as usize
+                } else {
+                    b.len
+                };
+                (d.fourcc, fw.min(d.w), fh.min(d.h), b.addr as *mut u8, cap)
             };
-            if bytes == 0 || bytes > self.scratch_len {
-                return -EIO;
-            }
-            if !self.recv_exact(i, scratch, bytes) {
-                return -EIO;
-            }
-            // stash what we need before borrowing mutably again
-            let d = &mut self.devs[i];
-            let fourcc = d.fourcc;
-            let (w, h) = (fw.min(d.w), fh.min(d.h));
-            let b = d.bufs[idx as usize];
-            if b.addr == 0 {
+            if cap == 0 {
                 return -EFAULT;
             }
-            let dst = b.addr as *mut u8;
-            let (used, capacity) = if fourcc == FMT_YUYV {
-                let need = (w * h * 2) as usize;
-                let cap = if d.memory == MEMORY_MMAP {
-                    d.size_image() as usize
-                } else {
-                    b.len
-                };
-                let n = need.min(cap);
-                nv12_to_yuyv(scratch, dst, w as usize, h as usize, n);
-                (n, cap)
+            let direct_nv12 = fourcc != FMT_YUYV && bytes <= cap;
+            let read_dst = if direct_nv12 {
+                dst
             } else {
-                let cap = if d.memory == MEMORY_MMAP {
-                    d.size_image() as usize
-                } else {
-                    b.len
-                };
-                let n = bytes.min(cap);
-                core::ptr::copy_nonoverlapping(scratch, dst, n);
-                (n, cap)
+                match self.scratch() {
+                    Some(p) if bytes <= self.scratch_len => p,
+                    _ => return -EIO,
+                }
             };
-            let _ = capacity;
+            if !self.recv_exact(i, read_dst, bytes) {
+                return -EIO;
+            }
+            let used = if fourcc == FMT_YUYV {
+                let need = (w * h * 2) as usize;
+                let n = need.min(cap);
+                nv12_to_yuyv(read_dst, dst, w as usize, h as usize, n);
+                n
+            } else if direct_nv12 {
+                bytes
+            } else {
+                let n = bytes.min(cap);
+                core::ptr::copy_nonoverlapping(read_dst, dst, n);
+                n
+            };
+            let d = &mut self.devs[i];
             d.bufs[idx as usize].queued = false;
             self.fill_buf(i, arg, idx);
             st32(arg, 8, used as u32);

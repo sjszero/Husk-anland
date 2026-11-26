@@ -37,6 +37,13 @@ name = "camera-client"
 version = "0.1.0"
 
 [[package]]
+name = "camera-fixture"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "capability-probe"
 version = "0.1.0"
 dependencies = [

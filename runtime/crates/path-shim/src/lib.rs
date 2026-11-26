@@ -4803,7 +4803,7 @@ unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt)
                 ));
             }
             if let Some(vn) = video_index(&gp[..n]) {
-                match v4l2_open(vn, flags) {
+                match v4l2_open_device(vn, flags) {
                     Some(Ok(fd)) => return fd,
                     Some(Err(e)) => return set_errno(e),
                     None => {}
@@ -4894,7 +4894,7 @@ unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt)
         ));
     }
     if let Some(vn) = video_index(&buf[..bl]) {
-        match v4l2_open(vn, flags) {
+        match v4l2_open_device(vn, flags) {
             Some(Ok(fd)) => return fd,
             Some(Err(e)) => return set_errno(e),
             None => {}
@@ -9931,6 +9931,8 @@ const EEXIST: CInt = 17;
 const EINVAL: CInt = 22;
 const EFAULT: CInt = 14;
 const ENOENT: CInt = 2;
+const ENODEV: CInt = 19;
+const ENOTTY: CInt = 25;
 const EACCES: CInt = 13;
 const ENOTDIR: CInt = 20;
 const ENOEXEC: CInt = 8;
@@ -13406,6 +13408,7 @@ unsafe fn v4l2_is_fake(fd: CInt) -> bool {
 }
 
 unsafe fn v4l2_dispatch_ioctl(fd: CInt, req: u64, arg: *mut u8) -> i64 {
+    v4l2_api_audit(32, b"[husk v4l2] core ioctl\n");
     v4l2_lock();
     let r = if let Some(t) = v4l2_api() {
         let f: V4l2Ioctl = core::mem::transmute(*t.add(1));
@@ -13418,6 +13421,7 @@ unsafe fn v4l2_dispatch_ioctl(fd: CInt, req: u64, arg: *mut u8) -> i64 {
 }
 
 unsafe fn v4l2_dispatch_mmap(fd: CInt, len: usize, off: i64) -> Option<*mut u8> {
+    v4l2_api_audit(64, b"[husk v4l2] core mmap\n");
     v4l2_lock();
     let out = if let Some(t) = v4l2_api() {
         let f: V4l2Mmap = core::mem::transmute(*t.add(2));
@@ -13501,7 +13505,8 @@ unsafe fn apply_v4l2_open_flags(fd: CInt, flags: CInt) -> Result<(), CInt> {
 /// open("/dev/videoN")：给一个 memfd，登记在 v4l2 表里。
 /// `None` = not our device (fall through to the normal path); `Some(Err(e))` =
 /// ours but the open failed, and the guest must see that errno.
-unsafe fn v4l2_open(n: u32, flags: CInt) -> Option<Result<CInt, CInt>> {
+unsafe fn v4l2_open_device(n: u32, flags: CInt) -> Option<Result<CInt, CInt>> {
+    v4l2_api_audit(128, b"[husk v4l2] core open\n");
     v4l2_lock();
     let out = if let Some(t) = v4l2_api() {
         let f: V4l2Open = core::mem::transmute(*t);
@@ -13532,6 +13537,100 @@ unsafe fn v4l2_open(n: u32, flags: CInt) -> Option<Result<CInt, CInt>> {
         }
         other => other,
     }
+}
+
+/* ---- libv4l2 API ----------------------------------------------------------
+ *
+ * GStreamer's `libgstvideo4linux2.so` is dlopen'ed and talks to libv4l2 through
+ * `v4l2_open` / `v4l2_ioctl` / `v4l2_mmap` / `v4l2_close`. Patching only libc's
+ * open/ioctl is not enough: the plugin can resolve those calls inside libv4l2.
+ *
+ * These exports are picked up by the loader's interpose table. `nr_repatch()`
+ * then points the dlopen'ed plugin at this Rust implementation, so the camera
+ * path needs no second state machine and no external preload DSO.
+ */
+unsafe fn v4l2_index_from_path(path: *const CChar) -> Option<u32> {
+    if path.is_null() {
+        return None;
+    }
+    video_index(bytes(path))
+}
+
+static V4L2_API_AUDIT: AtomicU8 = AtomicU8::new(0);
+
+unsafe fn v4l2_api_audit(bit: u8, line: &[u8]) {
+    if env_lookup(b"NR_V4L2_AUDIT").is_some()
+        && V4L2_API_AUDIT.fetch_or(bit, Ordering::AcqRel) & bit == 0
+    {
+        init_note(line);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn v4l2_open(path: *const CChar, flags: CInt) -> CInt {
+    let Some(n) = v4l2_index_from_path(path) else {
+        return set_errno(ENODEV);
+    };
+    v4l2_api_audit(1, b"[husk v4l2] libv4l2 v4l2_open\n");
+    match v4l2_open_device(n, flags) {
+        Some(Ok(fd)) => fd,
+        Some(Err(e)) => set_errno(e),
+        None => set_errno(ENOENT),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn v4l2_fd_open(fd: CInt, _flags: CInt) -> CInt {
+    v4l2_api_audit(2, b"[husk v4l2] libv4l2 v4l2_fd_open\n");
+    fd
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn v4l2_ioctl(fd: CInt, request: u64, arg: *mut u8) -> CInt {
+    v4l2_api_audit(4, b"[husk v4l2] libv4l2 v4l2_ioctl\n");
+    if !v4l2_is_fake(fd) {
+        return set_errno(ENOTTY);
+    }
+    let r = v4l2_dispatch_ioctl(fd, request, arg);
+    if r < 0 {
+        set_errno((-r) as CInt)
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn v4l2_mmap(
+    _start: *mut u8,
+    len: usize,
+    _prot: CInt,
+    _flags: CInt,
+    fd: CInt,
+    off: i64,
+) -> *mut u8 {
+    if !v4l2_is_fake(fd) {
+        return set_errno_ptr(ENOTTY, usize::MAX as *mut CChar) as *mut u8;
+    }
+    v4l2_api_audit(16, b"[husk v4l2] libv4l2 v4l2_mmap\n");
+    match v4l2_dispatch_mmap(fd, len, off) {
+        Some(p) => p,
+        None => set_errno_ptr(EINVAL, usize::MAX as *mut CChar) as *mut u8,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn v4l2_munmap(start: *mut u8, len: usize) -> CInt {
+    ret_or_errno(syscall4(SYS_MUNMAP_NR, start as usize, len, 0, 0))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn v4l2_close(fd: CInt) -> CInt {
+    close(fd)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn v4l2_dup(fd: CInt) -> CInt {
+    dup(fd)
 }
 
 /// fcntl: 只跟踪 O_NONBLOCK，其余原样走。glibc 的 fcntl 是可变参，第三个参数

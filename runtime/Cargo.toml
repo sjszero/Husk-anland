@@ -38,6 +38,7 @@ members = [
     "crates/v4l2-preload",
     "crates/v4l2-test",
     "crates/v4l2-ref-probe",
+    "crates/camera-fixture",
     "crates/fd-identity-probe",
 ]
 
