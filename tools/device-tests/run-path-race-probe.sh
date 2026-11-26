@@ -8,6 +8,13 @@ PKG=${PKG:-com.linuxhub.husk}
 ROOTFS=${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs}
 LD=${LD:-files/linux/husk/libld.so}
 
+# The race probe is compiled inside the guest. A distro tree without a compiler
+# is valid; skip with an explicit reason instead of failing the runtime gate.
+if ! adb -s "$DEV" shell "run-as $PKG test -x $ROOTFS/usr/bin/gcc" >/dev/null 2>&1; then
+    echo '--- path-race-probe: SKIP  (rootfs 里没有 /usr/bin/gcc；这不是运行时缺陷)'
+    exit 0
+fi
+
 APP=$(adb -s "$DEV" shell "run-as $PKG pwd" | tr -d '\r')
 SENTINEL=$APP/files/husk-path-race-sentinel
 cleanup() {

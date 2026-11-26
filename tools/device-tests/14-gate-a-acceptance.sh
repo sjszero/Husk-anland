@@ -218,7 +218,7 @@ R=$1; L=$2; shift 2
 case $R in /*) ;; *) R=$PWD/$R ;; esac
 case $L in /*) ;; *) L=$PWD/$L ;; esac
 E=
-[ -f "$R/etc/ld.so.husk-path" ] && E=$(sed -n 's|^/|'"$R"'|p' "$R/etc/ld.so.husk-path" | tr '\n' ':')
+[ -f "$R/etc/ld.so.husk-path" ] && E=$(sed -n 's|^|'"$R"'|p' "$R/etc/ld.so.husk-path" | tr '\n' ':')
 cd "$R" || exit 1
 unset XDG_CACHE_HOME XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME
 # NR_LIBRARY_PATH is the launcher-to-shim contract for *nested* execs (the app
@@ -226,6 +226,16 @@ unset XDG_CACHE_HOME XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME
 # /etc/ld.so.husk-path, which is close but not what the app does - and the gate
 # has to measure the app's launch, not a cousin of it.
 LP="$R/lib/aarch64-linux-gnu:$R/usr/lib/aarch64-linux-gnu:$E"
+if [ -f "$R/etc/ld.so.husk-path" ]; then
+    while IFS= read -r d; do
+        case "$d" in ''|'#'*) continue ;; esac
+        expected=$R$d
+        case ":$LP:" in
+            *":$expected:"*) ;;
+            *) echo "husk-exec: malformed library path for $d (expected $expected)" >&2; exit 78 ;;
+        esac
+    done < "$R/etc/ld.so.husk-path"
+fi
 HOME=/root EXPECT_PKGS=${EXPECT_PKGS:-811} \
   PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
   NR_ROOTFS=$R NR_LD=$L NR_LIBRARY_PATH="$LP" \

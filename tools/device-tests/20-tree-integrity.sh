@@ -31,6 +31,13 @@ else
     bad "etc/os-release missing"
 fi
 
+echo "== host-path leak =="
+if have "data/user/0/$PKG"; then
+    bad "data/user/0/$PKG exists: a host HOME/XDG path was mirrored inside the guest"
+else
+    ok "no app-private host path mirrored under data/user"
+fi
+
 echo "== husk install layer =="
 if have etc/husk/gpu-env; then ok "etc/husk/gpu-env present"; else bad "etc/husk/gpu-env missing: loader injects nothing, GPU falls back to llvmpipe silently"; fi
 for f in etc/profile.d/husk-gpu.sh etc/profile.d/husk-locale.sh; do
@@ -40,6 +47,26 @@ if have usr/local/share/linuxhub/husk-wallpaper-scale.js; then
     ok "usr/local/share/linuxhub/husk-wallpaper-scale.js present"
 else
     bad "usr/local/share/linuxhub/husk-wallpaper-scale.js missing"
+fi
+
+echo "== image loaders =="
+mime_sz=$(adb -s "$DEV" shell "run-as $PKG sh -c 'wc -c < $ROOTFS/usr/share/mime/mime.cache 2>/dev/null'" 2>/dev/null | tr -d '\r')
+if [ "${mime_sz:-0}" -gt 0 ]; then
+    ok "shared MIME cache present (${mime_sz} bytes)"
+else
+    bad "usr/share/mime/mime.cache missing: gdk-pixbuf cannot map image names to loaders"
+fi
+gb_cache="$ROOTFS/usr/lib/aarch64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders.cache"
+gb_n=$(adb -s "$DEV" shell "run-as $PKG sh -c 'grep -c libpixbufloader $gb_cache 2>/dev/null'" 2>/dev/null | tr -d '\r')
+if [ "${gb_n:-0}" -ge 2 ]; then
+    ok "gdk-pixbuf loader cache registers ${gb_n} guest loaders"
+else
+    bad "gdk-pixbuf loaders.cache missing or empty: PNG/SVG/icon themes fail to load"
+fi
+if have "${gb_cache#"$ROOTFS/"}" && read_ "${gb_cache#"$ROOTFS/"}" | grep -q '/data/user/'; then
+    bad "gdk-pixbuf loaders.cache contains an Android host path"
+else
+    ok "gdk-pixbuf loader paths are guest-relative"
 fi
 
 echo "== gpu layer consistent with this device =="
@@ -105,6 +132,33 @@ if [ "$EXPECT" = desktop ]; then
     n=$(adb -s "$DEV" shell "run-as $PKG sh -c 'ls $ROOTFS/usr/share/locale-langpack/zh_CN/LC_MESSAGES 2>/dev/null | wc -l'" | tr -d '\r')
     if [ "${n:-0}" -ge 400 ]; then ok "zh_CN langpack: $n .mo files"; else bad "zh_CN langpack only ${n:-0} .mo files"; fi
     if have usr/bin/dbus-daemon; then ok "dbus-daemon present"; else bad "dbus-daemon missing"; fi
+    if have usr/bin/husk-window-wait; then
+        ok "Rust X11 session probe present"
+    else
+        bad "usr/bin/husk-window-wait missing: wm/ding/wallpaper checks depend on x11-utils"
+    fi
+    if have etc/machine-id && have var/lib/dbus/machine-id; then
+        ok "D-Bus machine-id present"
+    else
+        bad "machine-id missing: DING cannot start its private D-Bus"
+    fi
+    if have root/Desktop; then ok "desktop directory present"; else bad "root/Desktop missing: DING exits during startup"; fi
+    ding_ext=usr/share/gnome-shell/extensions/ding@rastersoft.com/extension.js
+    if have "$ding_ext" && read_ "$ding_ext" | grep -Fq 'catch (e) { continue; }'; then
+        ok "DING skips unreadable /proc entries"
+    elif have "$ding_ext"; then
+        bad "DING still aborts on unreadable /proc entries (icons may silently disappear)"
+    fi
+    if have etc/ld.so.husk-path; then
+        _ldmiss=$(adb -s "$DEV" shell "run-as $PKG sh -c 'R=$ROOTFS; while IFS= read -r d; do case \"\$d\" in \"\"|\\#*) continue;; esac; test -d \"\$R\$d\" || echo \"\$d\"; done < \"\$R/etc/ld.so.husk-path\"'" 2>/dev/null | tr -d '\r')
+        if [ -z "$_ldmiss" ]; then
+            ok "ld.so.husk-path directories resolve inside the tree"
+        else
+            bad "ld.so.husk-path contains missing directories: $(printf '%s' "$_ldmiss" | tr '\n' ' ' | cut -c1-180)"
+        fi
+    else
+        bad "etc/ld.so.husk-path missing: DT_RUNPATH libraries such as libunity will not load"
+    fi
 else
     echo "  SKIP  desktop-only checks (EXPECT=base)"
 fi

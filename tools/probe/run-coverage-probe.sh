@@ -29,6 +29,14 @@ device_path() {
 ROOTFS=$(device_path "$ROOTFS")
 LD=$(device_path "$LD")
 
+# A distribution tree is not required to ship a compiler. The probe is a
+# compatibility audit, not a build gate: skip it explicitly when gcc is absent
+# instead of turning an optional package into a runtime failure.
+if ! adb -s "$DEV" shell "run-as $PKG test -x $ROOTFS/usr/bin/gcc" >/dev/null 2>&1; then
+    echo '--- coverage-probe: SKIP  (rootfs 里没有 /usr/bin/gcc；这不是运行时缺陷)'
+    exit 0
+fi
+
 adb -s "$DEV" push "$HERE/../guest/husk-session.sh" "$SESS" >/dev/null
 adb -s "$DEV" push "$HERE/coverage-probe.c" /data/local/tmp/coverage-probe.c >/dev/null
 adb -s "$DEV" shell "run-as $PKG sh -c 'cp /data/local/tmp/coverage-probe.c $ROOTFS/root/coverage-probe.c'"

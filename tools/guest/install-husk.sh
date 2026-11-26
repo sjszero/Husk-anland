@@ -251,6 +251,38 @@ fi
 mkdir -p "$DEST/dev" "$DEST/dev/shm" "$DEST/proc" "$DEST/sys" "$DEST/run" "$DEST/root" "$DEST/tmp"
 chmod 1777 "$DEST/tmp"
 
+# 2b-0. D-Bus and DING both require an identity and a real Desktop directory.
+# make-release intentionally omits /root (the verifier's home), so a clean
+# install otherwise recreates an empty home and DING exits on ENOENT.
+mkdir -p "$DEST/etc" "$DEST/var/lib/dbus" "$DEST/root/Desktop"
+chmod 755 "$DEST/root" "$DEST/root/Desktop"
+if [ ! -s "$DEST/etc/machine-id" ]; then
+    _machine_id=$(tr -d '-' < /proc/sys/kernel/random/uuid 2>/dev/null || true)
+    [ ${#_machine_id} -eq 32 ] || { echo "install-husk: cannot generate a machine-id" >&2; exit 80; }
+    printf '%s\n' "$_machine_id" > "$DEST/etc/machine-id"
+fi
+chmod 644 "$DEST/etc/machine-id"
+if [ ! -s "$DEST/var/lib/dbus/machine-id" ] || ! cmp -s "$DEST/etc/machine-id" "$DEST/var/lib/dbus/machine-id"; then
+    cp "$DEST/etc/machine-id" "$DEST/var/lib/dbus/machine-id"
+fi
+chmod 644 "$DEST/var/lib/dbus/machine-id"
+
+# 2b-1. DING announces itself by scanning /proc/<pid>/cmdline. Android hides some
+# host processes from the app UID, and the extension treats one EACCES as a fatal
+# init error: dock/DING/wallpaper never appear while gnome-shell looks healthy.
+# Skip the unreadable entry; do not weaken /proc or SELinux.
+DING_EXT="$DEST/usr/share/gnome-shell/extensions/ding@rastersoft.com/extension.js"
+if [ -f "$DING_EXT" ]; then
+    if grep -Fq 'let [binaryData, etag] = processUser.load_bytes(null);' "$DING_EXT"; then
+        sed -i 's|let \[binaryData, etag\] = processUser.load_bytes(null);|let binaryData, etag; try { [binaryData, etag] = processUser.load_bytes(null); } catch (e) { continue; }|' "$DING_EXT"
+    fi
+    grep -Fq 'catch (e) { continue; }' "$DING_EXT" || {
+        echo "install-husk: DING /proc compatibility patch did not apply; desktop icons would fail silently" >&2
+        exit 80
+    }
+    echo "   DING: unreadable /proc entries are skipped"
+fi
+
 # 2b-2. resolv.conf. A release tarball leaves it out (it is device identity), and
 #       without it `apt-get update` dies on "Temporary failure resolving" while
 #       the loader itself looks perfectly healthy. The app path gets this file
@@ -733,6 +765,18 @@ for t in husk-usermgr husk-su husk-ldconfig; do
         _tool_missing="$_tool_missing $t"
     fi
 done
+# Desktop supervision used to shell out to x11-utils/xdotool. Those are test
+# packages, not part of a minimal distro tree, so a healthy GNOME session was
+# reported as wm=no/ding=no and DING fallback silently did nothing. This helper
+# only dlopens libX11/libXtst and is required by both session entries.
+mkdir -p "$DEST/usr/bin"
+if [ -f "$HERE/husk-window-wait" ]; then
+    cp "$HERE/husk-window-wait" "$DEST/usr/bin/husk-window-wait"
+    chmod 755 "$DEST/usr/bin/husk-window-wait"
+else
+    echo "install-husk: husk-window-wait is missing from the bundle; desktop self-check would silently fail" >&2
+    exit 79
+fi
 if [ -x "$HSBIN/husk-usermgr" ]; then
     for c in useradd groupadd usermod userdel groupdel chpasswd passwd chfn chsh; do
         for d in usr/sbin usr/bin sbin bin; do
@@ -762,6 +806,106 @@ if [ -x "$HSBIN/husk-ldconfig" ]; then
     done
     ln -sf husk-ldconfig "$HSBIN/ldconfig"
 fi
+
+# DT_RUNPATH is resolved inside glibc's loader, where HusK cannot interpose the
+# path. Record every absolute RUNPATH directory once at install time; the app and
+# the session launcher turn each guest path into <rootfs><path> for
+# --library-path. Without this Nautilus cannot load libunity-protocol-private.so.0
+# even though the file is present under usr/lib/.../libunity.
+if [ -x "$HSBIN/husk-ldconfig" ]; then
+    _husk_ldpath="$DEST/etc/ld.so.husk-path"
+    ( cd "$DEST" && NR_ROOTFS="$DEST" NR_LD="$LOADER" \
+        "$LOADER" --library-path "$LIBS" usr/sbin/husk-ldconfig \
+        --library-path-file /etc/ld.so.husk-path ) || {
+        echo "install-husk: failed to generate /etc/ld.so.husk-path" >&2
+        exit 75
+    }
+    [ -s "$_husk_ldpath" ] || {
+        echo "install-husk: /etc/ld.so.husk-path is missing or empty" >&2
+        exit 75
+    }
+    _bad_ldpath=$(while IFS= read -r _d; do
+        [ -z "$_d" ] && continue
+        [ "${_d#\#}" != "$_d" ] && continue
+        [ -d "$DEST$_d" ] || printf '%s\n' "$_d"
+    done < "$_husk_ldpath")
+    [ -z "$_bad_ldpath" ] || {
+        echo "install-husk: RUNPATH directories do not exist in the tree:" >&2
+        printf '%s\n' "$_bad_ldpath" | head -10 | sed 's/^/    /' >&2
+        exit 75
+    }
+    LIBS="$LIBS:$(sed -n 's|^|'"$DEST"'|p' "$_husk_ldpath" | tr '\n' ':')"
+    echo "   wrote etc/ld.so.husk-path ($(grep -vc '^#' "$_husk_ldpath") RUNPATH directories)"
+fi
+# Image caches. A rootfs assembled by unpacking .deb files does not run their
+# postinst scripts, so both files are absent even though the packages and all
+# loader modules are installed. libgdk-pixbuf then sees only its two built-ins
+# and GTK reports "Unrecognized image file format" for PNG/SVG icons and the
+# wallpaper. Generate both caches here, where the guest tools and path shim are
+# available; a desktop tree must not report a successful install without them.
+echo "== image loader caches =="
+_mime_dir="$DEST/usr/share/mime"
+if [ -x "$DEST/usr/bin/update-mime-database" ] && [ -d "$_mime_dir/packages" ]; then
+    _mimelog="$OUT/.husk-mime.log"
+    set +e
+    guest_run usr/bin/update-mime-database /usr/share/mime > "$_mimelog" 2>&1
+    _rc_mime=$?
+    set -e
+    sed 's/^/   /' "$_mimelog"
+    rm -f "$_mimelog"
+    [ "$_rc_mime" -eq 0 ] && [ -s "$_mime_dir/mime.cache" ] || {
+        echo "install-husk: update-mime-database failed (rc=$_rc_mime); image formats will be unrecognized" >&2
+        exit 73
+    }
+    chmod 644 "$_mime_dir/mime.cache"
+    echo "   wrote usr/share/mime/mime.cache ($(wc -c < "$_mime_dir/mime.cache" | tr -d ' ') bytes)"
+else
+    echo "   (no update-mime-database or MIME package data; image MIME cache skipped)"
+fi
+
+_gb_dir="$DEST/usr/lib/aarch64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders"
+_gb_query=
+for _q in "$DEST/usr/lib/aarch64-linux-gnu/gdk-pixbuf-2.0/gdk-pixbuf-query-loaders"           "$DEST/usr/bin/gdk-pixbuf-query-loaders"; do
+    if [ -x "$_q" ]; then
+        case "$_q" in
+            "$DEST"/*) _gb_query=${_q#"$DEST"/} ;;
+        esac
+        break
+    fi
+done
+if [ -n "$_gb_query" ] && [ -d "$_gb_dir" ]; then
+    _gblog="$OUT/.husk-gdk-pixbuf.log"
+    # gdk-pixbuf looks for the cache beside the loader directory, not inside
+    # it: .../gdk-pixbuf-2.0/2.10.0/loaders.cache. Writing
+    # .../2.10.0/loaders/loaders.cache makes the install look successful while
+    # every PNG/SVG remains unregistered (caught by 20-tree-integrity.sh).
+    _gb_cache="${_gb_dir%/loaders}/loaders.cache"
+    set +e
+    guest_run "$_gb_query" > "$_gb_cache" 2> "$_gblog"
+    _rc_gb=$?
+    set -e
+    sed 's/^/   /' "$_gblog"
+    rm -f "$_gblog"
+    if [ "$_rc_gb" -ne 0 ] || [ ! -s "$_gb_cache" ]; then
+        echo "install-husk: gdk-pixbuf-query-loaders failed (rc=$_rc_gb); PNG/SVG loaders are not registered" >&2
+        exit 74
+    fi
+    _gb_n=$(grep -c '^"/usr/lib/.*/libpixbufloader-.*\.so"' "$_gb_cache" || true)
+    if [ "${_gb_n:-0}" -lt 2 ]; then
+        echo "install-husk: loaders.cache has only ${_gb_n:-0} guest loader path(s)" >&2
+        exit 74
+    fi
+    if grep -qF "$DEST/" "$_gb_cache"; then
+        echo "install-husk: loaders.cache contains a host rootfs prefix" >&2
+        exit 74
+    fi
+    chmod 644 "$_gb_cache"
+    echo "   wrote usr/lib/aarch64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders.cache ($_gb_n loaders)"
+else
+    echo "   (no gdk-pixbuf-query-loaders or loader modules; image loader cache skipped)"
+fi
+unset _mime_dir _mimelog _rc_mime _gb_dir _gb_query _q _gblog _gb_cache _rc_gb _gb_n
+
 _unreplaced=$(ls "$DEST"/usr/sbin/{useradd,groupadd,chpasswd} 2>/dev/null | while read -r f; do [ -L "$f" ] || echo "$f"; done)
 [ -z "$_unreplaced" ] || { echo "install-husk: these are still the distro tools:" >&2; echo "$_unreplaced" | sed 's/^/    /' >&2; exit 78; }
 echo "   ok: useradd/groupadd/usermod/userdel/groupdel/chpasswd/passwd/chfn/chsh -> husk-usermgr"

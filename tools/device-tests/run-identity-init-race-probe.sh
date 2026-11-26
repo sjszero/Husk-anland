@@ -23,6 +23,13 @@ device_path() {
 ROOTFS=$(device_path "$ROOTFS")
 LD=$(device_path "$LD")
 
+# This is a runtime semantic probe, not a requirement that every distro tree
+# bundles a compiler. Keep the gate honest and actionable when gcc is absent.
+if ! adb -s "$DEV" shell "run-as $PKG test -x $ROOTFS/usr/bin/gcc" >/dev/null 2>&1; then
+    echo '--- identity-init-race-probe: SKIP  (rootfs 里没有 /usr/bin/gcc；这不是运行时缺陷)'
+    exit 0
+fi
+
 adb -s "$DEV" push "$HERE/../guest/husk-session.sh" "$SESS" >/dev/null
 adb -s "$DEV" push "$HERE/../probe/identity-init-race-probe.c" /data/local/tmp/identity-init-race-probe.c >/dev/null
 adb -s "$DEV" shell "run-as $PKG sh -c 'cp /data/local/tmp/identity-init-race-probe.c $ROOTFS/root/identity-init-race-probe.c'"
