@@ -10,7 +10,7 @@ FACT：修复前远端 `v0.0.1`–`v0.0.32` 共 32 个 tag，其中 30 个是 an
 不一致只出现在 git tag 页面。
 
 FACT：本次把 32 个 tag 全部统一为 annotated tag，说明首行严格等于 `Husk X.Y.Z`。
-已逐项对比 `^{commit}`，32 个提交目标全部未变；tag 名称、GitHub Release 和附件也未变。
+已逐项对比 `^{commit}`，32 个提交目标全部未变；没有对 GitHub Release 或附件发起写操作。
 
 FACT：本地重写后的 32 个 tag 显示名全部通过检查：
 
