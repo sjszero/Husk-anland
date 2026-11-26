@@ -18,7 +18,7 @@ Husk 的目标不是给某个 Linux 应用单独开洞，而是把 Android 宿�
 | 能力 | 分类 | guest 接口 | Android 后端 | 当前状态 |
 |---|---|---|---|---|
 | GPU | 直连 | `/dev/mali0` + Vulkan/EGL | PanVK + Zink（Mali/kbase） | Mali-G77 已真机验证；Adreno/KGSL 仅有适配代码，真机 UNKNOWN |
-| 相机 | 中转 | V4L2 `/dev/videoN` facade | Camera2 NDK / `AImageReader` | 前后摄 `read`、`readv`、mmap、拍照、录像已验证；DMABUF/controls 未支持 |
+| 相机 | 中转 | V4L2 `/dev/videoN` facade | Camera2 NDK / `AImageReader` | 2026-11-27 复验：A-hw 11/0，前后摄各 3 帧 1280×720 NV12；fixture 的 V4L2/GStreamer 两档通过；DMABUF/controls 未支持 |
 | 音频输出 | 中转 | PulseAudio | Rust relay → AAudio | 真实 PCM 输出已验证 |
 | 音频采集 | 中转 | PulseAudio source | Rust relay → AAudio | 196,608 PCM bytes、peak=285 已验证 |
 | 视频解码 | 中转 | VA-API | Rust VA driver → MediaCodec | H.264 1080p30 600 秒，dropped=0 |

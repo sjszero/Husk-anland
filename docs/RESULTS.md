@@ -66,6 +66,8 @@ Gate A 的 SKIP 是离线树没有 apt package index。没有把它算成 PASS�
 | 前摄 `/dev/video1` | 5 帧，6,912,000 bytes，12.19 fps | 309 |
 | Camera2 V4L2 `read` / `readv` | 前后摄通过 | 309 |
 | GStreamer `v4l2src` | 前后摄各 3 帧 NV12 640×480，rc=0 | 309 |
+| A-hw 普通用户授权路径 | `PASS=11 FAIL=0`；前后摄各 3 帧 1280×720 NV12 | 320 |
+| V4L2 fixture + GStreamer | 640×480、1280×720 两档均 PASS | 320 |
 | AAudio 采集 | 196,608 PCM bytes，`peak=285` | 310 |
 | 传感器 IIO | 5 类默认传感器 `READY`，guest 可读 | 302 |
 | MediaCodec 解码 | H.264 1080p30，600 秒，dropped=0 | 80 |

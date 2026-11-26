@@ -59,7 +59,7 @@ Gate A 的唯一 SKIP 是离线树没有 apt package index。没有把 SKIP 计�
 | 设备类 | 分类 | guest 接口 | 当前实测 |
 |---|---|---|---|
 | GPU | 直连 | `/dev/mali0`，PanVK + Zink | Mali-G77 MC9 枚举、compute、离屏 graphics、EGL/GL；Adreno/KGSL 仅源码与主机侧测试，真机 UNKNOWN |
-| 相机 | 中转 | V4L2 `/dev/videoN` facade | 前后摄 `read` / `readv` / mmap、三帧采集、拍照、录像；DMABUF 和 controls 未支持 |
+| 相机 | 中转 | V4L2 `/dev/videoN` facade | 2026-11-27 复验：A-hw 11/0；前后摄各 3 帧 1280×720 NV12；V4L2/GStreamer fixture 两档通过；DMABUF 和 controls 未支持 |
 | 音频 | 中转 | PulseAudio → Rust relay → AAudio | 输出与采集真实 PCM；采集探针 196,608 bytes、`peak=285` |
 | 视频解码 | 中转 | VA-API → bridge → MediaCodec | H.264 1080p30 连续 600 秒，`dropped=0` |
 | 传感器 | 中转 | IIO sysfs 影子树 ← `ASensorManager_*` | 加速度、磁力、陀螺仪、环境光、距离五类可读 |
