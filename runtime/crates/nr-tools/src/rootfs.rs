@@ -10,7 +10,10 @@
 //! No root, no chroot, no debootstrap: unpacking .debs into a directory is all it
 //! takes when the kernel executes guest binaries directly.
 
-use crate::provision::{extract_tar, gunzip, http_get, parse_index, resolve, unpack_deb, Pkg};
+use crate::provision::{
+    control_stanza, extract_tar, gunzip, http_get, parse_index, resolve, unpack_deb,
+    write_dpkg_info, Pkg,
+};
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -30,6 +33,15 @@ libsystemd0 libudev1 libxxhash0 libapt-pkg6.0t64 ubuntu-keyring";
 fn die(msg: impl AsRef<str>) -> ! {
     eprintln!("{}", msg.as_ref());
     std::process::exit(1)
+}
+
+/// Does this path exist, *including* a dangling symlink?
+///
+/// usr-merge links are allowed to point at directories the package set does not
+/// provide (`sbin -> usr/sbin` in a tree with no /usr/sbin), and `Path::exists()`
+/// follows the link, so it answers false for a link that is perfectly correct.
+pub(crate) fn lexists(p: &Path) -> bool {
+    fs::symlink_metadata(p).is_ok()
 }
 
 fn write(path: &Path, what: &str, bytes: &[u8]) {
@@ -120,10 +132,9 @@ pub fn main(argv: &[String]) {
             die(format!("no .deb files in {}", dir.display()));
         }
         println!("local debs: {} file(s) in {}", files.len(), dir.display());
-        let mut installed: Vec<(String, String)> = Vec::new();
+        let mut installed: Vec<(String, String, Option<String>)> = Vec::new();
         for f in &files {
             let data = fs::read(f).unwrap_or_else(|e| die(format!("{}: {e}", f.display())));
-            unpack_deb(&data, &out);
             let stem = f
                 .file_name()
                 .unwrap_or_default()
@@ -134,7 +145,9 @@ pub fn main(argv: &[String]) {
             let mut it = stem.splitn(3, '_');
             let name = it.next().unwrap_or("").to_string();
             let version = it.next().unwrap_or("0").to_string();
-            installed.push((name, version));
+            let paths = unpack_deb(&data, &out);
+            write_dpkg_info(&out, &name, &paths, &data);
+            installed.push((name, version, control_stanza(&data)));
         }
         finish(
             out, tar, loader_out, shim, hook, patch_libc, &installed, &arch, &suite,
@@ -170,7 +183,7 @@ pub fn main(argv: &[String]) {
     }
 
     // ---------------------------------------------------------- download ---
-    let mut installed: Vec<(String, String)> = Vec::new();
+    let mut installed: Vec<(String, String, Option<String>)> = Vec::new();
     for p in &want {
         let deb = cache.join(p.filename.rsplit('/').next().unwrap_or("x.deb"));
         if !fs::metadata(&deb)
@@ -182,13 +195,23 @@ pub fn main(argv: &[String]) {
             write(&deb, "cache", &raw);
         }
         let data = fs::read(&deb).unwrap_or_else(|e| die(format!("{}: {e}", deb.display())));
-        unpack_deb(&data, &out);
-        installed.push((p.name.clone(), p.version.clone()));
+        let paths = unpack_deb(&data, &out);
+        write_dpkg_info(&out, &p.name, &paths, &data);
+        installed.push((p.name.clone(), p.version.clone(), control_stanza(&data)));
     }
     println!(
         "unpacked {} packages into {}",
         installed.len(),
         out.display()
+    );
+
+    // The index path used to stop here: packages on disk, no `var/lib/dpkg/status`,
+    // no libc patch, no loader, no tarball. A tree built that way has every file
+    // and no installed package as far as apt is concerned, and the run still
+    // exited 0. Only `--base/--debs` reached `finish()`, which is why the
+    // shipping trees were assembled through the local-deb path.
+    finish(
+        out, tar, loader_out, shim, hook, patch_libc, &installed, &arch, &suite,
     );
 
     /// Everything after the packages are on disk: usr-merge links, account files,
@@ -202,7 +225,7 @@ pub fn main(argv: &[String]) {
         shim: Option<PathBuf>,
         hook: Option<PathBuf>,
         patch_libc: bool,
-        installed: &[(String, String)],
+        installed: &[(String, String, Option<String>)],
         arch: &str,
         suite: &str,
     ) {
@@ -211,7 +234,7 @@ pub fn main(argv: &[String]) {
         // /bin, /sbin, /lib.
         for (link, target) in [("bin", "usr/bin"), ("sbin", "usr/sbin"), ("lib", "usr/lib")] {
             let p = out.join(link);
-            if !p.exists() {
+            if !lexists(&p) {
                 let _ = std::os::unix::fs::symlink(target, &p);
             }
         }
@@ -291,13 +314,35 @@ deb http://ports.ubuntu.com/ubuntu-ports {suite}-updates main universe\n"
         );
 
         // dpkg and apt only believe a package is installed if the status database
-        // says so; we did not run maintainer scripts, so we write it ourselves.
+        // says so; we did not run maintainer scripts, so we write the stanza for
+        // them. Take the package's own control fields when the .deb is at hand -
+        // `Depends` and friends are what apt resolves against installed packages,
+        // and a name+version stub makes dpkg warn about the missing Maintainer
+        // field on every single invocation.
         let mut status = String::new();
-        for (name, version) in installed {
-            status.push_str(&format!(
-            "Package: {name}\nStatus: install ok installed\nPriority: optional\nSection: misc\n\
-Architecture: {arch}\nVersion: {version}\nDescription: {name} (staged by nr-tools rootfs)\n\n"
-        ));
+        for (name, version, ctl) in installed {
+            match ctl {
+                Some(ctl) => {
+                    for line in ctl.lines() {
+                        if line.starts_with("Status:") {
+                            continue;
+                        }
+                        status.push_str(line);
+                        status.push('\n');
+                        if line.starts_with("Package:") {
+                            status.push_str("Status: install ok installed\n");
+                        }
+                    }
+                    if !status.ends_with("\n\n") {
+                        status.push('\n');
+                    }
+                }
+                None => status.push_str(&format!(
+                    "Package: {name}\nStatus: install ok installed\nPriority: optional\n\
+Section: misc\nArchitecture: {arch}\nVersion: {version}\n\
+Description: {name} (staged by nr-tools rootfs)\n\n"
+                )),
+            }
         }
         write(
             &out.join("var/lib/dpkg/status"),
@@ -362,7 +407,11 @@ Architecture: {arch}\nVersion: {version}\nDescription: {name} (staged by nr-tool
         if let Ok(rd) = fs::read_dir(out.join("usr/bin")) {
             bins = rd.count();
         }
-        let links_ok = ["bin", "sbin", "lib"].iter().all(|l| out.join(l).exists());
+        // `exists()` follows the link: a usr-merge link whose target is not part
+        // of this package set is *correct* and still reports absent, which made
+        // this line print MISSING on every minimal tree while the links were
+        // right there. Ask about the link itself.
+        let links_ok = ["bin", "sbin", "lib"].iter().all(|l| lexists(&out.join(l)));
         println!(
             "staged: {} entries in usr/bin, usr-merge links {}",
             bins,
@@ -389,5 +438,26 @@ Architecture: {arch}\nVersion: {version}\nDescription: {name} (staged by nr-tool
             let sz = fs::metadata(&t).map(|m| m.len()).unwrap_or(0);
             println!("tarball: {} ({:.0} MB)", t.display(), sz as f64 / 1e6);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A usr-merge link is allowed to dangle: `sbin -> usr/sbin` in a package set
+    /// without /usr/sbin is correct, and `Path::exists()` follows the link and
+    /// answers false - which made the staging report print "usr-merge links
+    /// MISSING" on every minimal tree while the links were in place.
+    #[test]
+    fn lexists_counts_a_dangling_symlink() {
+        let d = std::env::temp_dir().join(format!("nr-lexists-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        let link = d.join("sbin");
+        std::os::unix::fs::symlink("usr/sbin", &link).unwrap();
+        assert!(!link.exists(), "a dangling link must not report exists()");
+        assert!(lexists(&link), "lexists must see the link itself");
+        let _ = fs::remove_dir_all(&d);
     }
 }

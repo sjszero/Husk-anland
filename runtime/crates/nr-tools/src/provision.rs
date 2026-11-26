@@ -320,7 +320,15 @@ fn clear_path(p: &Path) {
     }
 }
 
-pub(crate) fn extract_tar(tar: &[u8], stage: &Path) {
+/// Extract `tar` under `stage` and return the archive-relative paths that were
+/// laid down, in archive order.
+///
+/// The names come back so callers can write `/var/lib/dpkg/info/<pkg>.list`:
+/// a tree assembled from .debs without those files looks installed to apt while
+/// `dpkg -L` answers nothing and `apt purge` cannot remove a single file
+/// (measured on the staged tree: 862 packages, 92 lists - evidence 294 §7).
+pub(crate) fn extract_tar(tar: &[u8], stage: &Path) -> Vec<String> {
+    let mut made: Vec<String> = Vec::new();
     let mut p = 0usize;
     let mut long_name: Option<String> = None;
     let mut long_link: Option<String> = None;
@@ -387,6 +395,7 @@ pub(crate) fn extract_tar(tar: &[u8], stage: &Path) {
             continue;
         }
         let dest = stage.join(&rel);
+        made.push(rel.clone());
 
         if kind == b'5' {
             // Directory. create_dir_all() *follows* an existing symlink, so a
@@ -443,25 +452,150 @@ pub(crate) fn extract_tar(tar: &[u8], stage: &Path) {
             }
         }
     }
+    made
 }
 
-fn extract_tar_bytes(tar: &[u8], stage: &Path) {
+fn extract_tar_bytes(tar: &[u8], stage: &Path) -> Vec<String> {
     extract_tar(tar, stage)
 }
 
-pub(crate) fn unpack_deb(deb: &[u8], stage: &Path) {
+pub(crate) fn unpack_deb(deb: &[u8], stage: &Path) -> Vec<String> {
     let m = ar_members(deb);
     if let Some(xz) = m.get("data.tar.xz") {
         let tar = pipe(Command::new("xz").arg("-dc"), xz);
-        extract_tar_bytes(&tar, stage);
+        extract_tar_bytes(&tar, stage)
     } else if let Some(zst) = m.get("data.tar.zst") {
         let tar = pipe(Command::new("zstd").arg("-dc"), zst);
-        extract_tar_bytes(&tar, stage);
+        extract_tar_bytes(&tar, stage)
     } else if let Some(gz) = m.get("data.tar.gz") {
         let tar = gunzip(gz);
-        extract_tar_bytes(&tar, stage);
+        extract_tar_bytes(&tar, stage)
+    } else if let Some(plain) = m.get("data.tar") {
+        extract_tar_bytes(plain, stage)
     } else {
         die("no data.tar in the .deb");
+    }
+}
+
+/// One regular file out of a tar, by exact name (`./` prefix ignored).
+fn tar_member(tar: &[u8], want: &str) -> Option<Vec<u8>> {
+    let mut p = 0usize;
+    let mut long_name: Option<String> = None;
+    let mut pax_path: Option<String> = None;
+    while p + 512 <= tar.len() {
+        let h = &tar[p..p + 512];
+        if h.iter().all(|&c| c == 0) {
+            return None;
+        }
+        let size = tar_octal(&h[124..136]) as usize;
+        let kind = h[156];
+        let body_end = p + 512 + size;
+        if body_end > tar.len() {
+            return None;
+        }
+        let body = &tar[p + 512..body_end];
+        p = body_end + ((512 - size % 512) % 512);
+
+        match kind {
+            b'L' => {
+                long_name = Some(field_str(body));
+                continue;
+            }
+            b'K' => continue,
+            b'x' | b'X' => {
+                for (k, v) in pax_records(body) {
+                    if k == "path" {
+                        pax_path = Some(v);
+                    }
+                }
+                continue;
+            }
+            b'g' => continue,
+            _ => {}
+        }
+
+        let name = pax_path
+            .take()
+            .or_else(|| long_name.take())
+            .unwrap_or_else(|| {
+                let mut n = field_str(&h[0..100]);
+                let prefix = field_str(&h[345..500]);
+                if !prefix.is_empty() {
+                    n = format!("{prefix}/{n}");
+                }
+                n
+            });
+        let trimmed = name.strip_prefix("./").unwrap_or(&name);
+        if trimmed == want {
+            return Some(body.to_vec());
+        }
+    }
+    None
+}
+
+/// The `control.tar.*` body of a .deb.
+fn control_tar(deb: &[u8]) -> Option<Vec<u8>> {
+    let m = ar_members(deb);
+    if let Some(xz) = m.get("control.tar.xz") {
+        Some(pipe(Command::new("xz").arg("-dc"), xz))
+    } else if let Some(zst) = m.get("control.tar.zst") {
+        Some(pipe(Command::new("zstd").arg("-dc"), zst))
+    } else if let Some(gz) = m.get("control.tar.gz") {
+        Some(gunzip(gz))
+    } else {
+        m.get("control.tar").cloned()
+    }
+}
+
+/// The package's own `control` stanza, verbatim.
+///
+/// The status database has to carry what the package says about itself -
+/// `Depends`, `Provides`, `Maintainer`, `Installed-Size` - not a stub with a
+/// name and a version. apt resolves dependencies of *installed* packages from
+/// this database; a stub makes it believe nothing is depended on, and dpkg
+/// complains "missing 'Maintainer' field" on every parse.
+pub(crate) fn control_stanza(deb: &[u8]) -> Option<String> {
+    let ctl = control_tar(deb)?;
+    let body = tar_member(&ctl, "control")?;
+    let text = String::from_utf8(body).ok()?;
+    if text.lines().any(|l| l.starts_with("Package:")) {
+        Some(text)
+    } else {
+        None
+    }
+}
+
+/// Write the parts of `/var/lib/dpkg/info/` that this staging path owes dpkg.
+///
+/// A package is only `install ok installed` if the *whole* record is there.
+/// `status` alone makes `dpkg -C` report "missing the list control file" for
+/// every staged package, `dpkg -L <pkg>` answer empty, and `apt purge` /
+/// `dpkg -r` leave every file behind - the tree looks installed and cannot be
+/// uninstalled. The list is written from the data.tar we just extracted, so it
+/// describes exactly what landed on disk; `md5sums` and `conffiles` are copied
+/// from the package's own control tarball when it ships them.
+pub(crate) fn write_dpkg_info(stage: &Path, name: &str, paths: &[String], deb: &[u8]) {
+    let info = stage.join("var/lib/dpkg/info");
+    fs::create_dir_all(&info).unwrap_or_else(|e| die(format!("mkdir {}: {e}", info.display())));
+
+    let mut list = String::with_capacity(paths.len() * 40 + 3);
+    list.push_str("/.\n");
+    for p in paths {
+        list.push('/');
+        list.push_str(p);
+        list.push('\n');
+    }
+    let list_path = info.join(format!("{name}.list"));
+    fs::write(&list_path, list.as_bytes())
+        .unwrap_or_else(|e| die(format!("{}: {e}", list_path.display())));
+
+    if let Some(ctl) = control_tar(deb) {
+        for (member, suffix) in [("md5sums", "md5sums"), ("conffiles", "conffiles")] {
+            if let Some(body) = tar_member(&ctl, member) {
+                let p = info.join(format!("{name}.{suffix}"));
+                fs::write(&p, &body).unwrap_or_else(|e| die(format!("{}: {e}", p.display())));
+            }
+        }
     }
 }
 
@@ -610,7 +744,7 @@ pub fn main(argv: &[String]) {
             fs::write(&deb, &raw).unwrap_or_else(|e| die(format!("{}: {e}", deb.display())));
         }
         let data = fs::read(&deb).unwrap_or_else(|e| die(format!("{}: {e}", deb.display())));
-        unpack_deb(&data, &stage);
+        let _ = unpack_deb(&data, &stage);
     }
     println!("unpacked into {}", stage.display());
 
@@ -667,5 +801,154 @@ pub fn main(argv: &[String]) {
     let st = child.wait().unwrap_or_else(|e| die(format!("adb: {e}")));
     if !st.success() {
         die("push failed");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn tar_header(name: &str, size: usize, kind: u8) -> [u8; 512] {
+        let mode = if kind == b'5' { 0o755 } else { 0o644 };
+        let mut h = [0u8; 512];
+        h[..name.len()].copy_from_slice(name.as_bytes());
+        h[100..108].copy_from_slice(format!("{mode:07o}\0").as_bytes());
+        h[108..116].copy_from_slice(b"0000000\0");
+        h[116..124].copy_from_slice(b"0000000\0");
+        h[124..136].copy_from_slice(format!("{size:011o}\0").as_bytes());
+        h[136..148].copy_from_slice(b"00000000000\0");
+        h[156] = kind;
+        h[257..263].copy_from_slice(b"ustar\0");
+        h[263..265].copy_from_slice(b"00");
+        h[148..156].copy_from_slice(b"        ");
+        let sum: u32 = h.iter().map(|&b| b as u32).sum();
+        h[148..156].copy_from_slice(format!("{sum:06o}\0 ").as_bytes());
+        h
+    }
+
+    fn tar_entry(tar: &mut Vec<u8>, name: &str, body: &[u8], kind: u8) {
+        tar.extend_from_slice(&tar_header(name, body.len(), kind));
+        tar.extend_from_slice(body);
+        tar.extend(std::iter::repeat_n(0u8, (512 - body.len() % 512) % 512));
+    }
+
+    fn tar_end(tar: &mut Vec<u8>) {
+        tar.extend(std::iter::repeat_n(0u8, 1024));
+    }
+
+    fn ar_archive(members: &[(&str, Vec<u8>)]) -> Vec<u8> {
+        let mut out = b"!<arch>\n".to_vec();
+        for (name, body) in members {
+            out.extend_from_slice(format!("{name:<16}").as_bytes());
+            out.extend_from_slice(b"0           ");
+            out.extend_from_slice(b"0     0     100644  ");
+            out.extend_from_slice(format!("{:<10}", body.len()).as_bytes());
+            out.extend_from_slice(b"`\n");
+            out.extend_from_slice(body);
+            if body.len() % 2 == 1 {
+                out.push(b'\n');
+            }
+        }
+        out
+    }
+
+    fn fixture() -> (PathBuf, Vec<u8>) {
+        let root = std::env::temp_dir().join(format!("nr-dpkg-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+
+        let mut data = Vec::new();
+        tar_entry(&mut data, "./usr/", b"", b'5');
+        tar_entry(&mut data, "./usr/bin/", b"", b'5');
+        tar_entry(&mut data, "./usr/bin/hello", b"#!/bin/sh\necho hi\n", b'0');
+        tar_end(&mut data);
+
+        let mut ctl = Vec::new();
+        tar_entry(
+            &mut ctl,
+            "./control",
+            b"Package: hello\nVersion: 1.0-1\n",
+            b'0',
+        );
+        tar_entry(
+            &mut ctl,
+            "./md5sums",
+            b"0123456789abcdef0123456789abcdef  usr/bin/hello\n",
+            b'0',
+        );
+        tar_entry(&mut ctl, "./conffiles", b"/etc/hello.conf\n", b'0');
+        tar_end(&mut ctl);
+
+        let deb = ar_archive(&[
+            ("debian-binary", b"2.0\n".to_vec()),
+            ("control.tar", ctl),
+            ("data.tar", data),
+        ]);
+        (root, deb)
+    }
+
+    /// A package staged from a .deb has to leave the *whole* dpkg record behind.
+    /// Without `<pkg>.list`, `dpkg -C` calls every staged package broken,
+    /// `dpkg -L` answers nothing and `apt purge` removes no file at all.
+    #[test]
+    fn dpkg_info_describes_what_landed_and_is_accepted_by_dpkg_checks() {
+        let (root, deb) = fixture();
+        let paths = unpack_deb(&deb, &root);
+        write_dpkg_info(&root, "hello", &paths, &deb);
+
+        let list = fs::read_to_string(root.join("var/lib/dpkg/info/hello.list")).unwrap();
+        assert!(
+            list.starts_with("/.\n"),
+            "list must start with /. : {list:?}"
+        );
+        assert!(list.contains("/usr\n"), "directory entry missing: {list:?}");
+        assert!(
+            list.contains("/usr/bin\n"),
+            "directory entry missing: {list:?}"
+        );
+        assert!(
+            list.contains("/usr/bin/hello\n"),
+            "file entry missing: {list:?}"
+        );
+        // Every entry names something that really exists on disk.
+        for line in list.lines().skip(1) {
+            let p = root.join(line.trim_start_matches('/'));
+            assert!(p.exists(), "{line} listed but not on disk");
+        }
+
+        let md5 = fs::read_to_string(root.join("var/lib/dpkg/info/hello.md5sums")).unwrap();
+        assert_eq!(md5, "0123456789abcdef0123456789abcdef  usr/bin/hello\n");
+        let conff = fs::read_to_string(root.join("var/lib/dpkg/info/hello.conffiles")).unwrap();
+        assert_eq!(conff, "/etc/hello.conf\n");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// Packages that ship no md5sums/conffiles must not get empty ones.
+    #[test]
+    fn dpkg_info_skips_control_files_the_package_does_not_ship() {
+        let root = std::env::temp_dir().join(format!("nr-dpkg-bare-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+
+        let mut data = Vec::new();
+        tar_entry(&mut data, "./usr/share/doc/", b"", b'5');
+        tar_end(&mut data);
+        let mut ctl = Vec::new();
+        tar_entry(&mut ctl, "./control", b"Package: bare\nVersion: 2\n", b'0');
+        tar_end(&mut ctl);
+        let deb = ar_archive(&[
+            ("debian-binary", b"2.0\n".to_vec()),
+            ("control.tar", ctl),
+            ("data.tar", data),
+        ]);
+
+        let paths = unpack_deb(&deb, &root);
+        write_dpkg_info(&root, "bare", &paths, &deb);
+        assert!(root.join("var/lib/dpkg/info/bare.list").exists());
+        assert!(!root.join("var/lib/dpkg/info/bare.md5sums").exists());
+        assert!(!root.join("var/lib/dpkg/info/bare.conffiles").exists());
+        let _ = fs::remove_dir_all(&root);
     }
 }
