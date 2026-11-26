@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Mount semantics audit: the eight findings of 2026-11-23, each as a check.
 #
 # Run inside the guest (see tools/device-tests/gexec.sh):
@@ -7,6 +7,11 @@
 # Every step that must observe a mount runs in its own process: the table is
 # loaded once per process (documented limitation), so a shell that mounted
 # something earlier in the same script would not see it.
+#
+# bash, not sh: B-03 truncates 127-byte paths with `${t:0:127}`, which dash
+# rejects with "Bad substitution". The shebang said /bin/sh and the file was
+# always started as `sh 05-mount-audit.sh`, so the last five checks had never
+# run to completion (evidence 294 §6).
 set -u
 PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); echo "  PASS  $1"; }

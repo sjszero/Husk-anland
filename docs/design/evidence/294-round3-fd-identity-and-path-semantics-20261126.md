@@ -110,3 +110,35 @@ PASS depth-40-on-64k-stack / 128k / 256k / 1024k   errno=0
   文件盖掉同一个号之后，ioctl 必须离开模拟层（探针里 8 条 dup 用例覆盖）。
 - `Path Shim` 仍然不是安全沙箱：静态 ELF、raw syscall、不经过 loader 的进程
   不受 GOT 改写控制。本轮没有改变这条边界，也没有在任何地方把它说成隔离容器。
+
+## 6 · 只读挂载：元数据写检查存在，但这一条从来没被验证过
+
+第 1 轮审计里"只读挂载的元数据操作没覆盖"这一条，代码侧其实已经在：
+`chmod_target` / `chown_target` / `utimens_target` 进来第一件事就是
+`ro_refuse_at()`（`runtime/crates/path-shim/src/lib.rs:5506`），失败回 `EROFS(30)`。
+缺的是**验证**。本轮把 `tools/device-tests/05-mount-audit.sh` 在真机上跑完：
+
+```
+== B-01 read-only mounts refuse every write path ==
+  PASS  table marks the bind ro
+  PASS  absolute path write / write through a directory descriptor
+  PASS  mkdir / unlink through a directory descriptor
+  PASS  content untouched
+  PASS  chmod
+  PASS  fchmodat through a directory descriptor
+  PASS  chown
+  PASS  utimensat
+  PASS  truncate
+  PASS  setxattr
+  PASS  mode untouched
+... B-02 … B-08 ...
+PASS=18 FAIL=0
+```
+
+- **FACT**：18/18 PASS。元数据类 6 条（`chmod`、`fchmodat`（走 dirfd）、`chown`、
+  `utimensat`、`truncate`、`setxattr`）全部 `EROFS`，内容与 mode 都没变。
+- **FACT（S9）**：这个脚本 `#!/bin/sh`，但 B-03 用了 `${t:0:127}`。以 `sh` 跑
+  （脚本头部注释也是这么写的）会在 B-03 直接
+  `/tmp/05.sh: 75: Bad substitution`，也就是说 **B-03…B-08 五组检查从来没有跑完过**。
+  改成 `#!/bin/bash` 并注明原因后，整份 18/18。
+  这一条不改运行时代码，但它决定了上面那张表值不值得信。
