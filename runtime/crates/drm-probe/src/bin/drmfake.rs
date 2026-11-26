@@ -6,11 +6,14 @@
 //!
 //! 语法糖：它刻意用 libc 的 open/ioctl/mmap（走 PLT），这样才测到 interpose。
 
+use std::fs::File;
 use std::fs::OpenOptions;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd};
 
 extern "C" {
     fn ioctl(fd: i32, request: u64, ...) -> i32;
+    fn dup2(oldfd: i32, newfd: i32) -> i32;
+    fn dup3(oldfd: i32, newfd: i32, flags: i32) -> i32;
     fn mmap(
         addr: *mut core::ffi::c_void,
         len: usize,
@@ -38,6 +41,126 @@ fn errno() -> i32 {
 }
 fn line(n: &str, v: &str, d: impl AsRef<str>) {
     println!("drmfake|{}|{}|{}", n, v, d.as_ref());
+}
+
+fn drm_param_ok(fd: i32) -> Result<(), i32> {
+    let mut gp = [0u8; 16];
+    let r = unsafe { ioctl(fd, GET_PARAM, gp.as_mut_ptr() as *mut core::ffi::c_void) };
+    if r == 0 {
+        Ok(())
+    } else {
+        Err(errno())
+    }
+}
+
+fn ordinary_file(name: &str) -> File {
+    OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(name)
+        .unwrap_or_else(|e| panic!("open {name}: {e}"))
+}
+
+/// `dup2`/`dup3` close the destination file description before installing the
+/// source. The shim therefore has to forget the destination's old DRM identity
+/// even when the source is an ordinary file. A stale table entry would answer
+/// DRM ioctls for the ordinary file and make a negative test look successful.
+fn check_dup_overwrite() {
+    const EACCES: i32 = 13;
+    const ENOTTY: i32 = 25;
+
+    for (name, use_dup3) in [("dup2", false), ("dup3", true)] {
+        let victim = match OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/dri/renderD128")
+        {
+            Ok(f) => f,
+            Err(e) => {
+                line(
+                    &format!("{name}-ordinary-over-fake"),
+                    "FAIL",
+                    format!("victim open errno={}", e.raw_os_error().unwrap_or(0)),
+                );
+                continue;
+            }
+        };
+        let victim_fd = victim.as_raw_fd();
+        let ordinary = ordinary_file(&format!("/tmp/drmfake-{name}-ordinary"));
+        let ordinary_fd = ordinary.as_raw_fd();
+        let r = unsafe {
+            if use_dup3 {
+                dup3(ordinary_fd, victim_fd, 0)
+            } else {
+                dup2(ordinary_fd, victim_fd)
+            }
+        };
+        if r < 0 {
+            line(
+                &format!("{name}-ordinary-over-fake"),
+                "FAIL",
+                format!("{name} failed errno={}", errno()),
+            );
+            continue;
+        }
+
+        let got = drm_param_ok(victim_fd);
+        // Once the destination has been overwritten, the ioctl must leave the
+        // DRM shim. A regular-file ioctl is normally ENOTTY; Android's app
+        // seccomp may intercept it first and return EACCES. Both prove the
+        // descriptor is no longer routed to DRM_CTX; Ok would prove stale state.
+        let left_drm = matches!(got, Err(EACCES | ENOTTY));
+        line(
+            &format!("{name}-ordinary-over-fake"),
+            if left_drm { "PASS" } else { "FAIL" },
+            format!("ioctl={got:?} expected=non-DRM fallthrough (EACCES/ENOTTY)"),
+        );
+
+        // Keep the destination old/new owners alive until after the ioctl;
+        // these drops also verify both descriptor numbers are closeable.
+        drop(victim);
+        drop(ordinary);
+    }
+
+    // The positive direction must keep working: an fd copied from a fake DRM
+    // descriptor remains fake after the source is closed.
+    let source = match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/dri/renderD128")
+    {
+        Ok(f) => f,
+        Err(e) => {
+            line(
+                "dup2-fake-preserved",
+                "FAIL",
+                format!("source open errno={}", e.raw_os_error().unwrap_or(0)),
+            );
+            return;
+        }
+    };
+    let source_fd = source.as_raw_fd();
+    const COPY_FD: i32 = 60;
+    let copied = unsafe { dup2(source_fd, COPY_FD) };
+    drop(source);
+    if copied != COPY_FD {
+        line(
+            "dup2-fake-preserved",
+            "FAIL",
+            format!("dup2 rc={copied} errno={}", errno()),
+        );
+        return;
+    }
+    let copy_owner = unsafe { File::from_raw_fd(COPY_FD) };
+    let got = drm_param_ok(COPY_FD);
+    line(
+        "dup2-fake-preserved",
+        if got.is_ok() { "PASS" } else { "FAIL" },
+        format!("ioctl={got:?} after source close"),
+    );
+    drop(copy_owner);
 }
 
 fn main() {
@@ -158,4 +281,6 @@ fn main() {
         "PASS",
         "假 renderD128 上的 DRM 语义已生效（interpose 通了）",
     );
+
+    check_dup_overwrite();
 }

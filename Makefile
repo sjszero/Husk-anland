@@ -6,7 +6,7 @@
 #   make loader  rebuild the embedded loader into the APK's jniLibs
 #   make apk     loader + ArkTS-free Rust app .so + Gradle assembleDebug
 #   make bench   three-runner benchmark (needs a device)
-#   make gate-a  the 36-item acceptance gate (needs a device, desktop running)
+#   make gate-a  the 38-item acceptance gate + path/V4L2/DRM probes (needs a device)
 #   make docs    markdown link check
 #   make dist    release artifacts + SHA256SUMS
 
@@ -71,7 +71,7 @@ libc-patch: nr-tools
 	    [ -f $$R/libc.so.6.stock ] || cp $$R/libc.so.6 $$R/libc.so.6.stock; \
 	    mv $(DEV_LIBC).husk $(DEV_LIBC); chmod 755 $(DEV_LIBC); sha256sum $(DEV_LIBC)'"
 	cp $(LIBCTMP)/libc.so.6 tools/loader/libc-nop.so.6
-	@echo "tools/loader/libc-nop.so.6 refreshed from this run (commit it)"
+	@echo "tools/loader/libc-nop.so.6 refreshed from this run (generated artifact; consumed by make dist)"
 
 # What the release artifact has to satisfy, checked without a device. Pass
 # STOCK=<a stock glibc 2.39 libc.so.6> to also prove the whole transform is
@@ -137,6 +137,7 @@ gate-a:
 	sh tools/probe/run-coverage-probe.sh "$${DEV}" "$${ROOTFS:-}" "$${LD:-}"
 	sh tools/probe/coverage-sweep.sh "$${DEV}"
 	sh tools/device-tests/run-v4l2-ref-probe.sh "$${DEV}"
+	sh tools/device-tests/run-drm-fd-probe.sh "$${DEV}"
 
 virt-race:
 	@test -n "$${DEV:-}" || { echo "set DEV=<serial> and the device paths" >&2; exit 1; }
@@ -164,7 +165,12 @@ version-check:
 # SHA256SUMS; the release notes quote those hashes.
 dist:
 	@test -n "$$NDK" || { echo "set NDK=<ndk>/bin" >&2; exit 1; }
-	sh tools/loader/build-embedded-loader.sh
+	@if [ ! -f tools/loader/libc-nop.so.6 ] && [ -z "$(LIBC)" ]; then \
+	    echo "missing guest libc artifact; set LIBC=<pristine glibc 2.39 libc.so.6> or run make libc-patch on a device" >&2; \
+	    exit 1; \
+	fi
+	LIBC="$(LIBC)" sh tools/loader/build-embedded-loader.sh
+	@test -f tools/loader/libc-nop.so.6 || { echo "guest libc artifact was not produced" >&2; exit 1; }
 	sh tools/guest-config/build-guest-tools.sh
 	@mkdir -p dist
 	cp tools/loader/ld-embedded.so dist/libld.so

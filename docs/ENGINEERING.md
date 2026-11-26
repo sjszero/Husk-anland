@@ -75,15 +75,15 @@ shim 跨度 `0x60000`；钩子地址 983,040；服务表地址 987,136；介入�
 
 | 文件 | 是什么 | sha256 |
 |---|---|---|
-| `tools/loader/ld-noble2404-ld.so` | 输入：Ubuntu 24.04 原始 loader，**入库** | `bd29514c1b45cc29b152011dd7c504e00dce240c19e4dd120196053873af9180` |
-| `ld-embedded.so` / `jniLibs/libld.so` | 产出：成品动态链接器 | `e838c8a2012cf1fc62fb1749d76a0d9684205d1358f7060d1f479a393cad0ad9` |
-| `libc-nop.so.6` | 产出：guest 用（HUSK-SLOT-1 槽位页 + clone3→ENOSYS），需要 `LIBC=` 才生成 | `32d4d3f9501a2c717cf2246a2df1a898f1361b49e0576614461d70fc94774b56` |
+| `tools/loader/ld-noble2404-ld.so` | 输入：Ubuntu 24.04 原始 loader，**入库** | `124e3f166bdc0be365eaa6dc59e415b876b0841a40463edd1b0e084b518bb7cd` |
+| `ld-embedded.so` / `jniLibs/libld.so` | 产出：成品动态链接器 | `c81f2ece22c3d130dccfb9afa70f8ff01397d5544fbc84abf60243a8a364b207` |
+| `libc-nop.so.6` | 产出：guest 用（HUSK-SLOT-1 槽位页 + clone3→ENOSYS），需要 `LIBC=` 才生成 | `69ceef3759f456d80b4db4e013712e933a8c8d876e9af639102d8c88fc80f77c` |
 | `libpath_shim.so` | 产出：嵌入前的路径层 | `ee3ac422a4d5a6909a1b265652498d7fcf9e0e1179fb09b092ba4ff6e682bd5d` |
 
-四行里只有 `ld-noble2404-ld.so` 是入库文件；另外三个都是 `make loader` 在本地产出的
-东西（`.gitignore` 挡着，`make dist` 再从产物里取）。`ld-embedded.so` 的哈希是 `path-shim`
-源码的函数：改一行路径层代码它就会变，所以这一行只对当前主干有意义，发布审计以 tag 里
-`dist/SHA256SUMS` 的记录为准。`libc-nop.so.6` 自 2026-11-24 起没有重编过，所以仍是当时的值。
+四行里只有 `ld-noble2404-ld.so` 是入库文件；另外三个都是本地构建产物（`.gitignore` 挡着）。
+`ld-embedded.so` 的哈希是 `path-shim` 源码的函数：改一行路径层代码它就会变，所以这一行
+只对当前主干有意义，发布审计以 tag 里 `dist/SHA256SUMS` 的记录为准。clean tree 构建
+`libc-nop.so.6` 时必须用固定的 glibc 2.39 stock 输入，结果应与上表哈希一致。
 
 ## 7. 环境
 

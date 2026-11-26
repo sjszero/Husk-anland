@@ -79,7 +79,8 @@ printf '0.0.3\n' > VERSION
 #    在 CHANGELOG.md 顶部加一节 ## [0.0.3] - YYYY-MM-DD，并把链接改成
 #    [0.0.3]: https://github.com/xishanp/Husk/releases/tag/v0.0.3
 make check                     # 含 version-check
-NDK=<ndk>/bin make dist        # 产出 dist/husk-arm64.tar.gz + SHA256SUMS
+LIBC=<pristine glibc 2.39 libc.so.6> NDK=<ndk>/prebuilt make dist
+# 产出 dist/husk-arm64.tar.gz + SHA256SUMS
 
 # 2. 打标签、推、建 release（annotated tag，不要轻量标签）
 git tag -a v0.0.3 -m "Husk 0.0.3"

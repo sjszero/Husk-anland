@@ -12179,8 +12179,11 @@ unsafe fn drm_inherit_fake(old: CInt, new: CInt) {
         return;
     }
     fake_fds_lock();
+    // dup2/dup3 may overwrite an existing fake descriptor. Even when the
+    // source is ordinary, the destination no longer points at the old object;
+    // keeping its table entry would route unrelated ioctls into DRM_CTX.
+    drm_forget_locked(new);
     if is_fake_fd_locked(old) {
-        drm_forget_locked(new);
         let _ = register_fake_fd_locked(new);
     }
     fake_fds_unlock();
@@ -12288,6 +12291,9 @@ unsafe fn adreno_inherit(old: CInt, new: CInt) {
     if new < 0 || old < 0 {
         return;
     }
+    // The destination descriptor, if any, was closed by dup2/dup3. Its old
+    // tracking must disappear before deciding whether the source is KGSL.
+    adreno_forget(new);
     if adreno_is_device(old) {
         let _ = adreno_register(new);
     }

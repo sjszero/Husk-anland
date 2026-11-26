@@ -7,6 +7,39 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.25] - 2026-11-26
+
+> 主题：**修掉 DRM / Adreno 假 fd 被 `dup2`、`dup3` 覆盖后留下的旧表项**。
+> 这一版只改 fd 身份记账，不改变 GPU 渲染后端，也不宣称 Adreno 已真机验证。
+
+### 修复
+
+- **`dup2`/`dup3` 覆盖假 DRM fd 时先清理目标表项**（evidence 251）。即使源 fd 是普通文件，
+  旧目标也必须从 `FAKE_FDS` 移除；否则普通文件上的 DRM ioctl 会被错误送进 `DRM_CTX`。
+- **Adreno/KGSL 表采用同一规则**（evidence 251）。`ADRENO_FDS` 在判断源 fd 前先清掉目标号码，
+  避免关闭或复用后留下伪设备身份。该分支目前只有静态审计，没有 Adreno 真机动态证据。
+- **新增 DRM fd 生命周期探针并接入门禁 A**（evidence 251）。`drmfake` 覆盖普通文件覆盖假 fd、
+  假 fd 复制到新 fd 两个方向；旧 loader 负对照稳定返回错误的 `Ok(())`，修后返回普通失败。
+- **清洁工作树的发布构建可重复**（evidence 252）。`make dist` 不再默默复制不存在的
+  `libc-nop.so.6`；缺少生成物时明确要求 `LIBC=<pristine glibc 2.39 libc.so.6>`，
+  并从该输入重建后再打包。
+
+### 验证
+
+- 旧 loader 负对照：`dup2-ordinary-over-fake|FAIL|ioctl=Ok(())`、
+  `dup3-ordinary-over-fake|FAIL|ioctl=Ok(())`。
+- 新 loader 真机：两个覆盖方向均为 `PASS`，`dup2-fake-preserved|PASS`。
+- 完整门禁 A：`PASS=38 FAIL=0`；coverage-probe 全部 PASS；coverage-sweep 扫描 1401 条候选路径；
+  V4L2 与 DRM fd 回归均通过。
+- `make check` 通过，shell 语法检查 71 个脚本全部通过。
+- clean tree 用固定 stock libc 重建 `libc-nop.so.6` 成功，`make dist` 产出发布包。
+
+### 边界
+
+- 本版探针验证 Mali-G77 上的假 DRM fd；Adreno/KGSL 同等路径仍是 UNKNOWN。
+- `SCM_RIGHTS` 跨进程传递假 DRM fd 的状态恢复仍未实现。
+- 多线程同时对同一 fd 做 `dup2`/`dup3`/`close` 的长时压力仍是 UNKNOWN。
+
 ## [0.0.24] - 2026-11-26
 
 > 主题：**修掉 V4L2 假相机 fd 的高位复制生命周期，并把相机上下文的所有访问串行化**。
@@ -1053,7 +1086,8 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.24...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.25...HEAD
+[0.0.25]: https://github.com/xishanp/Husk/releases/tag/v0.0.25
 [0.0.24]: https://github.com/xishanp/Husk/releases/tag/v0.0.24
 [0.0.23]: https://github.com/xishanp/Husk/releases/tag/v0.0.23
 [0.0.22]: https://github.com/xishanp/Husk/releases/tag/v0.0.22

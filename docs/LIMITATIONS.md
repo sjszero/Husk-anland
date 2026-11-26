@@ -363,3 +363,14 @@ Android 13 的 app seccomp 会拦截 syscall 436；glibc 的 `close_range()` 不
 **仍未支持的是 `SCM_RIGHTS` 跨进程传递假 V4L2 fd**：memfd 本身能传，但接收进程没有对应的
 设备、socket 和 buffer 表，不能保证继续模拟 V4L2。真实 Camera2 后端在高 fd 下的长时间
 STREAMON/DQBUF 与多线程压力仍未验证，UNKNOWN。
+
+## 18 · DRM / Adreno 假 fd 的覆盖写（2026-11-26）
+
+0.0.25 起，`dup2`/`dup3` 覆盖假 DRM fd 时，path-shim 会先清掉目标号码的 `FAKE_FDS` 表项；
+只有源 fd 仍是假 DRM 时才重新登记。因此普通文件覆盖旧假 fd 后，DRM ioctl 不会再被错误送进
+`DRM_CTX`，而假 fd 复制到新号码后仍保持 DRM 语义（evidence 251）。`ADRENO_FDS` 同步采用
+相同的目标清理顺序。
+
+**仍未验证的是 Adreno/KGSL 真机**：当前设备只有 Mali-G77，Adreno 分支只有源码静态审计。
+通过 `SCM_RIGHTS` 把假 DRM fd 交给另一进程后的表身份恢复仍未实现；多线程同时
+`dup2`/`dup3`/`close` 的长时压力也仍是 UNKNOWN。

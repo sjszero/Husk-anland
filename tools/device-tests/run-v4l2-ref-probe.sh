@@ -7,6 +7,7 @@ APPDIR=${APPDIR:-/data/data/$PKG/files/linux}
 ROOTFS=${ROOTFS:-$APPDIR/distributions/ubuntu-24.04/rootfs}
 LD=${LD:-$APPDIR/husk/libld.so}
 SESS=${SESS:-/data/local/tmp/husk-session.sh}
+HERE=$(cd "$(dirname "$0")" && pwd)
 case "$ROOTFS" in
     files/linux/*) ROOTFS=$APPDIR/${ROOTFS#files/linux/} ;;
 esac
@@ -14,6 +15,7 @@ case "$LD" in
     files/linux/*) LD=$APPDIR/${LD#files/linux/} ;;
 esac
 
+adb -s "$DEV" push "$HERE/../guest/husk-session.sh" "$SESS" >/dev/null
 CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \
     cargo build --manifest-path runtime/Cargo.toml \
     --target aarch64-unknown-linux-musl -p v4l2-ref-probe >/dev/null

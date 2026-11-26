@@ -7,10 +7,9 @@
 ## 接手须知（冷启动只读这一节 + 本文件的表）
 
 **设备**：一台 arm64 Android 手机（RMX3357）；序列号不入库，用 `adb devices` 的当前值。
-本仓库这条工作线当前用独立验证包 `com.linuxhub.husk`（`files/rootfs-full`）做构建、安装和
-真机回归；`com.linuxhub.myth.husk` 是 2.0 集成现场，不在这条工作线的启动/停止和资产替换范围内。
-集成现场的 rootfs 在 `files/linux/distributions/ubuntu-24.04/rootfs`，loader 在
-`files/linux/husk/libld.so`，资产版本标记见 `files/linux/husk/assets.version`。
+当前真机验证使用 `com.linuxhub.myth.husk`；rootfs 在
+`files/linux/distributions/ubuntu-24.04/rootfs`，loader 在 `files/linux/husk/libld.so`，
+资产版本标记见 `files/linux/husk/assets.version`。
 
 **启动契约（两个变量必须同时设，缺一个就"看起来像 shim 坏了"）**：
 
@@ -26,6 +25,13 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 
 **仓库布局**：`runtime/crates/{path-shim,nr-tools,runtime-core,gpu-env}`（Rust）、`tools/loader/*.S`（裸汇编，仅入口与 hook）、
 `tools/device-tests/*.sh`、`docs/design/`（设计 + `evidence/` 原始记录）。
+
+**0.0.25 DRM / Adreno fd 覆盖记账**：`dup2`/`dup3` 用普通文件覆盖假 DRM fd 时，目标号码现在
+会先从 `FAKE_FDS` 移除；源 fd 是假 DRM 时仍会重新登记，因此副本语义不变。`ADRENO_FDS` 同步
+采用先清目标、再判断 KGSL 源的顺序（evidence 251）。Mali-G77 真机的 `drmfake` 结果为
+`dup2-ordinary-over-fake|PASS`、`dup3-ordinary-over-fake|PASS`、`dup2-fake-preserved|PASS`；
+旧 loader 负对照为 `ioctl=Ok(())`，证明旧表项确实会伪成功。完整门禁 A 为 `PASS=38 FAIL=0`。
+Adreno/KGSL 真机与跨进程 `SCM_RIGHTS` 仍是 UNKNOWN。
 
 **0.0.24 V4L2 高 fd 复制与上下文锁**：假相机 fd 的引用计数改为枚举 `/proc/self/fd`，
 `dup()` 到 1024 以上后关闭原 fd 不会提前拆掉仍存活的 camera socket；path-shim 与 preload 的

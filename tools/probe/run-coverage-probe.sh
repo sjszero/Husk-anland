@@ -29,14 +29,15 @@ device_path() {
 ROOTFS=$(device_path "$ROOTFS")
 LD=$(device_path "$LD")
 
-adb push "$HERE/coverage-probe.c" /data/local/tmp/coverage-probe.c >/dev/null
-adb shell "run-as $PKG sh -c 'cp /data/local/tmp/coverage-probe.c $ROOTFS/root/coverage-probe.c'"
-if ! BUILD=$(adb shell "run-as $PKG env NR_LD=$LD sh $SESS $ROOTFS -- /usr/bin/gcc -O1 -o /root/p /root/coverage-probe.c" 2>&1); then
+adb -s "$DEV" push "$HERE/../guest/husk-session.sh" "$SESS" >/dev/null
+adb -s "$DEV" push "$HERE/coverage-probe.c" /data/local/tmp/coverage-probe.c >/dev/null
+adb -s "$DEV" shell "run-as $PKG sh -c 'cp /data/local/tmp/coverage-probe.c $ROOTFS/root/coverage-probe.c'"
+if ! BUILD=$(adb -s "$DEV" shell "run-as $PKG env NR_LD=$LD sh $SESS $ROOTFS -- /usr/bin/gcc -O1 -o /root/p /root/coverage-probe.c" 2>&1); then
     echo '--- coverage-probe: compile failed' >&2
     echo "$BUILD" >&2
     exit 1
 fi
-if ! OUT=$(adb shell "run-as $PKG env NR_LD=$LD sh $SESS $ROOTFS -- /root/p" 2>&1); then
+if ! OUT=$(adb -s "$DEV" shell "run-as $PKG env NR_LD=$LD sh $SESS $ROOTFS -- /root/p" 2>&1); then
     echo '--- coverage-probe: execution failed' >&2
     echo "$OUT" >&2
     exit 1

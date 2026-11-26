@@ -36,6 +36,8 @@
 | H-28 | 构建入口 | `make apk` 要求 NDK 指向 `<prebuilt>`，loader 却要求 `<prebuilt>/bin`；并发探针脚本也会拼出 `bin/bin/clang`。同一条 NDK 设置无法跨入口使用 | 238 |
 | H-29 | V4L2 | 假相机 fd 的引用计数只扫描 `0..1023`；`dup()` 到高 fd 后关闭原 fd，会提前拆掉仍被引用的 camera socket | 250 |
 | H-30 | V4L2 | `V4L2_CTX` 在 lazy init 之后无锁访问；path-shim 与 preload 两层都可能并发改写 socket、buffer 表和设备状态 | 250 |
+| H-31 | GPU/DRM | `dup2`/`dup3` 用普通文件覆盖假 DRM/KGSL fd 时，旧目标表项未清理；后续 ioctl 会被错误路由进假设备并可能伪成功 | 251 |
+| H-32 | 发布构建 | `libc-nop.so.6` 是被忽略的生成物，但 `make dist` 没生成也没前置拒绝；clean tree 在复制阶段失败 | 252 |
 
 ## 2 · 记录在案、不修或不完全修的（L）
 

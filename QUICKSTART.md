@@ -45,13 +45,16 @@ loader 必须和它加载的 libc 同源：`nr-tools scan-syscalls` 在构建期
 ## 3 · 打资产包
 
 ```sh
-make dist      # dist/husk-arm64.tar.gz + dist/SHA256SUMS
+make dist LIBC=<pristine glibc 2.39 libc.so.6> NDK=<ndk>/toolchains/llvm/prebuilt/<host>
+# 产出 dist/husk-arm64.tar.gz + dist/SHA256SUMS
 ```
 
 包里有：`libld.so`、`libc.so.6`、`husk-ldconfig`、`husk-usermgr`、`husk-su`、
 `install-husk.sh`、`husk-session.sh`、`husk-desktop.sh`、`husk-ding-fallback.sh`、
 `husk-wallpaper-fit.sh`、`guest/husk-wallpaper-scale.js`、`guest-config/`、`VERSION`。
 少一个文件构建就会失败（`make dist` 里有逐条 `tar tzf | grep -qx` 断言）。
+clean tree 必须提供 `LIBC`；如果设备树已经打过补丁，也可以先运行 `make libc-patch`，
+再执行不带 `LIBC` 的 `make dist`。
 
 ## 4 · 装到设备
 
