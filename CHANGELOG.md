@@ -7,6 +7,36 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.35] - 2026-11-26
+
+这一版只修发布门禁：`0.0.34` 的 Git 引用审计在提交前看不到未跟踪文件，提交后从干净检出运行
+会误判 evidence 中的历史反例。运行时行为不变。
+
+### 修复
+
+- **Git 引用审计覆盖未跟踪文件**（evidence 280）。审计改用 `git grep --untracked`，并明确排除
+  `docs/design/evidence/`，因为证据文件允许保留旧错误原文。这样新增文档在提交前后都会被检查，
+  同时不会把证据中的反例当成当前有效引用。
+
+### 验证
+
+- `make check` 通过。
+- `make release-audit` 在 0.0.35 发布后回读远端 tag、Release 标题和正文契约。
+
+### 产物
+
+| 文件 | 大小 | sha256 |
+|---|---:|---|
+| `husk-arm64.tar.gz` | 7 130 784 | `31f3a9c9f6bcf7ac8e5dfc723ce9714512e903702c1dcf783c58da7547776c33` |
+| `SHA256SUMS` | 84 | `96e1261b45a6e1fa88bb4778e9657e46eb2c04af576eb92b7f0ed8f83b87396c` |
+
+APK：`com.linuxhub.husk`，`versionCode=35`，`versionName=0.0.35`。
+
+### 边界
+
+- FACT：本版不改变 loader、path-shim、GPU、桌面或硬件接口行为。
+- FACT：`0.0.34` 的 tag 和资产不移动；本版只修静态门禁。
+
 ## [0.0.34] - 2026-11-26
 
 这一版修正桌面 GPU 自检的误报边界，并把“GNOME 有 GPU”推进到“桌面会话、普通应用和嵌套
@@ -1429,7 +1459,8 @@ GTK 应用都走同一套 Mali/PanVK 设备运行时”。
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.34...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.35...HEAD
+[0.0.35]: https://github.com/xishanp/Husk/releases/tag/v0.0.35
 [0.0.34]: https://github.com/xishanp/Husk/releases/tag/v0.0.34
 [0.0.33]: https://github.com/xishanp/Husk/releases/tag/v0.0.33
 [0.0.32]: https://github.com/xishanp/Husk/releases/tag/v0.0.32

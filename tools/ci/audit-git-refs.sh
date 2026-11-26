@@ -2,14 +2,16 @@
 # Reject documentation that points at an unpublished or deleted release tag.
 #
 # Historical source snapshots must use a commit id or a tag that still exists.
-# This catches stale `git show vX.Y.Z:path` examples after tag cleanup.
+# This catches stale `git show vX.Y.Z:path` examples after tag cleanup. Evidence
+# files are excluded because they intentionally quote failures from older trees.
 set -eu
 cd "$(dirname "$0")/../.."
 
 tmp=$(mktemp "${TMPDIR:-/tmp}/husk-git-refs.XXXXXX")
 trap 'rm -f "$tmp"' EXIT HUP INT TERM
 
-git grep -n -E 'git show v[0-9]+\.[0-9]+\.[0-9]+:' -- . ':(exclude)CHANGELOG.md' > "$tmp" || true
+git grep --untracked -n -E 'git show v[0-9]+\.[0-9]+\.[0-9]+:' -- . \
+    ':(exclude)CHANGELOG.md' ':(exclude)docs/design/evidence/**' > "$tmp" || true
 
 bad=0
 while IFS=: read -r file line text; do
