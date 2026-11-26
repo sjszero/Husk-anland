@@ -7,7 +7,7 @@
 ## 接手须知（冷启动只读这一节 + 本文件的表）
 
 **设备**：一台 arm64 Android 手机（RMX3357）；序列号不入库，用 `adb devices` 的当前值。
-当前真机验证使用 `com.linuxhub.myth.husk`；rootfs 在
+当前真机验证使用 `com.linuxhub.husk`；rootfs 在
 `files/linux/distributions/ubuntu-24.04/rootfs`，loader 在 `files/linux/husk/libld.so`，
 资产版本标记见 `files/linux/husk/assets.version`。
 
@@ -36,9 +36,8 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 **App 直接 PTY 与全部 fork 子路径（同一候选）**：`Term::spawn()` 已和 shell session
 共用 locale 选择规则，不再硬编码 `LANG=C.UTF-8`。guest PTY leader、会话 guard、SIGSYS
 启动自检和 trace 诊断四条 fork 子路径都在父进程准备参数，子进程不再分配 `Vec`/字符串。
-`make check`、四路径静态门禁和真机门禁 A 已通过，APK 已完整构建；但当前设备上的
-`com.linuxhub.myth.husk` 不能安全覆盖为 `com.linuxhub.husk`，App 动态 fork 压力仍为
-`UNVERIFIED`（evidence 263、265）。
+`make check`、四路径静态门禁和真机门禁 A 已通过，APK 已完整构建；旧测试包
+不能原地覆盖为新包，App 动态 fork 压力仍为 `UNVERIFIED`（evidence 263、265）。
 
 **0.0.32 文件模式、所有权与 access 主体**：`O_CREAT` 不再偷偷追加 `0600`；dpkg 重开
 `0440` conffile 时只临时加 owner-write，返回 fd 前恢复原模式。`fchown(fd)` 现在会更新虚构
@@ -402,8 +401,8 @@ sudo/PAM 一条按"不需要"结案：`husk-su` 已覆盖提权路径，PAM 的 
 ## 桌面帧出屏（2026-11-24：首帧已出屏）
 
 FACT：11:14 的截屏上就是 GNOME 46 桌面（顶栏 / Ubuntu 壁纸 / DING 桌面图标 / 左侧 dock /
-通知气泡），会话进程树是 `com.linuxhub.myth.husk` → `libld.so` → `gnome-shell` + DING /
-Nautilus / gvfs / tracker。整条链路四个独立故障与修法见 evidence 147；这里保留的是当年
+通知气泡），会话进程树当时使用已退役的旧应用包（准确包名见 evidence 147）→
+`libld.so` → `gnome-shell` + DING / Nautilus / gvfs / tracker。整条链路四个独立故障与修法见 evidence 147；这里保留的是当年
 为"不靠 X"而做的协议层调研结论。
 
 

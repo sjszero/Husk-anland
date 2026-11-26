@@ -13,7 +13,7 @@
 # 用法: sh tools/probe/coverage-sweep.sh <device-serial> [workload…]
 set -eu
 DEV=${1:?device serial}; shift || true
-PKG=${PKG:-com.linuxhub.myth.husk}
+PKG=${PKG:-com.linuxhub.husk}
 APPDIR=${APPDIR:-/data/data/$PKG/files/linux}
 ROOTFS=${ROOTFS:-$APPDIR/distributions/ubuntu-24.04/rootfs}
 LD=${LD:-$APPDIR/husk/libld.so}

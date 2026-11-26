@@ -3,7 +3,7 @@
 # leak / no real seccomp trap - all measured inside the guest, on whatever rootfs
 # the caller points at.
 #
-#   DEV=UKHMMB8PYTGECMNV PKG=com.linuxhub.myth.husk \
+#   DEV=UKHMMB8PYTGECMNV PKG=com.linuxhub.husk \
 #   ROOTFS=files/linux/husk-clean/rootfs LD=files/linux/husk/libld.so \
 #     ./14-gate-a-acceptance.sh
 #
@@ -11,7 +11,7 @@
 # create temporary files in this data domain) and then copied into the rootfs.
 set -eu
 DEV=${DEV:?usage: DEV=<serial> PKG=<package> ROOTFS=<rel rootfs> LD=<rel loader> $0}
-PKG=${PKG:-com.linuxhub.myth.husk}
+PKG=${PKG:-com.linuxhub.husk}
 ROOTFS=${ROOTFS:-files/linux/husk-clean/rootfs}
 LD=${LD:-files/linux/husk/libld.so}
 

@@ -66,6 +66,9 @@ jobs:
       - name: release version contract
         run: sh tools/ci/test-version-bump.sh
 
+      - name: runtime package id contract
+        run: sh tools/ci/audit-runtime-package.sh
+
       - name: sh -n every script
         run: |
           set -eu

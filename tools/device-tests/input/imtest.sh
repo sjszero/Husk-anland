@@ -1,5 +1,5 @@
 #!/bin/sh
-F=/data/user/0/com.linuxhub.myth.husk/files/linux
+F=/data/user/0/com.linuxhub.husk/files/linux
 R=$F/distributions/ubuntu-24.04/rootfs
 L=$R/tmp/imtest.log
 : > "$L"

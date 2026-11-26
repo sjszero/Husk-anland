@@ -9,7 +9,7 @@
 #   默认值取自 LinuxHub 2.0 安装树（可用环境变量 ROOTFS/LD 覆盖）。
 set -eu
 DEV=${1:?device serial}
-PKG=${PKG:-com.linuxhub.myth.husk}
+PKG=${PKG:-com.linuxhub.husk}
 APPDIR=${APPDIR:-/data/data/$PKG/files/linux}
 ROOTFS=${ROOTFS:-$APPDIR/distributions/ubuntu-24.04/rootfs}
 LD=${LD:-$APPDIR/husk/libld.so}

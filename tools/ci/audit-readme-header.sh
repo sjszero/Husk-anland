@@ -1,19 +1,28 @@
 #!/bin/sh
-# Keep the repository landing page to title, mark, and badges.
+# Enforce the repository landing-page hero contract.
 #
-# The project description starts at "## 概览".  A plain paragraph or heading in
-# the HTML hero block makes the GitHub landing page drift into an introduction.
+# Exact order before "## 概览":
+#   1. the single centered <h1>Husk</h1>;
+#   2. one centered paragraph containing exactly one icon <img>;
+#   3. one centered paragraph containing badges only;
+#   4. "## 概览", where project prose begins.
+#
+# This keeps a project introduction, theme line, or version text out of the
+# title page. HTML comments and blank lines are ignored.
 set -eu
 cd "$(dirname "$0")/../.."
 
 awk '
+    function reject(message) {
+        print "README header: " message > "/dev/stderr"
+        bad = 1
+        exit
+    }
     BEGIN {
         in_comment = 0
-        first = ""
-        h1 = 0
-        images = 0
+        stage = 0
+        icon_images = 0
         badges = 0
-        overview = 0
         bad = 0
     }
     in_comment {
@@ -24,54 +33,64 @@ awk '
         if ($0 !~ /-->/) in_comment = 1
         next
     }
-    /^##[[:space:]]+概览[[:space:]]*$/ {
-        overview = 1
+    /^[[:space:]]*$/ { next }
+
+    stage == 0 {
+        if ($0 != "<h1 align=\"center\">Husk</h1>")
+            reject("first visible element must be the Husk h1")
+        stage = 1
+        next
+    }
+    stage == 1 {
+        if ($0 != "<p align=\"center\">")
+            reject("the icon must be in the first centered paragraph below the h1")
+        stage = 2
+        next
+    }
+    stage == 2 {
+        if ($0 !~ /^[[:space:]]*<img[[:space:]]/)
+            reject("the icon paragraph must contain exactly one image")
+        icon_images++
+        stage = 3
+        next
+    }
+    stage == 3 {
+        if ($0 != "</p>")
+            reject("the icon paragraph must contain exactly one image")
+        stage = 4
+        next
+    }
+    stage == 4 {
+        if ($0 != "<p align=\"center\">")
+            reject("badges must be in their own centered paragraph below the icon")
+        stage = 5
+        next
+    }
+    stage == 5 {
+        if ($0 == "</p>") {
+            if (badges == 0)
+                reject("the badge paragraph is empty")
+            stage = 6
+            next
+        }
+        if ($0 ~ /^[[:space:]]*<a[[:space:]].*<\/a>[[:space:]]*$/ ||
+            $0 ~ /^[[:space:]]*<img[[:space:]].*>?[[:space:]]*$/) {
+            if ($0 ~ /<img[[:space:]]/) badges++
+            next
+        }
+        reject("the badge paragraph may contain only badge links and images")
+    }
+    stage == 6 {
+        if ($0 != "## 概览")
+            reject("project prose must start at ## 概览")
+        stage = 7
         exit
     }
-    /^[[:space:]]*$/ { next }
-    $0 == "<h1 align=\"center\">Husk</h1>" {
-        h1++
-        if (first == "") first = "h1"
-        next
-    }
-    $0 == "<p align=\"center\">" { next }
-    $0 == "</p>" { next }
-    /^[[:space:]]*<img[[:space:]]/ {
-        images++
-        next
-    }
-    /^[[:space:]]*<a[[:space:]]/ {
-        badges++
-        next
-    }
-    /^[[:space:]]*<\/a>[[:space:]]*$/ { next }
-    {
-        print "README header: unexpected content before ## 概览: " $0
-        bad = 1
-    }
     END {
-        if (!overview) {
-            print "README header: missing ## 概览"
-            bad = 1
-        }
-        if (h1 != 1) {
-            print "README header: expected exactly one Husk h1, found " h1
-            bad = 1
-        }
-        if (first != "h1") {
-            print "README header: the first visible element must be the Husk h1"
-            bad = 1
-        }
-        if (images < 1) {
-            print "README header: missing Husk mark"
-            bad = 1
-        }
-        if (badges < 1) {
-            print "README header: missing badges"
-            bad = 1
-        }
+        if (!bad && stage != 7)
+            reject("hero ended before ## 概览")
         exit bad
     }
 ' README.md
 
-echo "README header: PASS"
+echo "README header: PASS (title -> icon -> badges -> 概览)"

@@ -4,7 +4,7 @@
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 DEV=${DEV:?usage: DEV=<serial> sh run-path-race-probe.sh}
-PKG=${PKG:-com.linuxhub.myth.husk}
+PKG=${PKG:-com.linuxhub.husk}
 ROOTFS=${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs}
 LD=${LD:-files/linux/husk/libld.so}
 

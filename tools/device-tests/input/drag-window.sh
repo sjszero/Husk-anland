@@ -3,8 +3,8 @@
 #
 # usage: drag-window.sh <rootfs-abs> [loader-abs] [extra-libpath]
 #   例（本机开发布局）:
-#     sh drag-window.sh /data/user/0/com.linuxhub.myth.husk/files/linux/distributions/ubuntu-24.04/rootfs \
-#        /data/user/0/com.linuxhub.myth.husk/files/linux/husk/libld.so
+#     sh drag-window.sh /data/user/0/com.linuxhub.husk/files/linux/distributions/ubuntu-24.04/rootfs \
+#        /data/user/0/com.linuxhub.husk/files/linux/husk/libld.so
 #
 # 期望输出（0.0.6 实测）：Super+拖前后坐标一字不差，alt+F7 之后坐标变化。
 # 需要：X server 在 :0 上活着、guest 里有 xev/xdotool/xwininfo。

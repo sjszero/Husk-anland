@@ -5,7 +5,7 @@
 set -eu
 
 DEV=${1:?usage: $0 <adb-serial>}
-PKG=${PKG:-com.linuxhub.myth.husk}
+PKG=${PKG:-com.linuxhub.husk}
 ROOTFS=${ROOTFS:-/data/user/0/$PKG/files/linux/distributions/ubuntu-24.04/rootfs}
 LD=${LD:-/data/user/0/$PKG/files/linux/husk/libld.so}
 SESS=${SESS:-/data/local/tmp/husk-session.sh}

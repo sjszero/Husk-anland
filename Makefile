@@ -42,6 +42,7 @@ check:
 	sh tools/ci/check-fork-safety.sh
 	sh tools/ci/check-shell.sh
 	sh tools/ci/audit-readme-header.sh
+	sh tools/ci/audit-runtime-package.sh
 	sh tools/ci/audit-git-refs.sh
 	sh tools/ci/test-version-bump.sh
 	sh tools/ci/test-release-notes.sh
@@ -66,7 +67,7 @@ nr-tools:
 # transforms to whatever libc the tree has now, with the assertions the old
 # shell script could not make (nr-tools libc-patch; evidence 170).
 DEV        ?= UKHMMB8PYTGECMNV
-PKG        ?= com.linuxhub.myth.husk
+PKG        ?= com.linuxhub.husk
 DEV_ROOTFS ?= files/linux/distributions/ubuntu-24.04/rootfs
 DEV_LIBC   := $(DEV_ROOTFS)/usr/lib/aarch64-linux-gnu/libc.so.6
 LIBCTMP    := runtime/target/libc-patch
@@ -140,14 +141,14 @@ bench:
 # 门禁 A = 38 项验收 + 覆盖度探针 + 补充组/session locale/身份初始化/组表竞态/session guard/rootfd/最终 symlink 真机回归。
 # 探针单列一步，因为 locale 看 env -i 后的真实值，竞态看宿主哨兵是否被改动。
 gpu-audit:
-	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.myth.husk} \
+	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.husk} \
 		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} \
 		LD=$${LD:-files/linux/husk/libld.so} \
 		ENV=DISPLAY=:0,XDG_RUNTIME_DIR=/tmp/runtime-husk \
 		sh tools/device-tests/run-guest.sh 15-gpu-global-audit.sh
 
 gate-a:
-	DEV=$${DEV:?} PKG=$${PKG:-com.linuxhub.myth.husk} \
+	DEV=$${DEV:?} PKG=$${PKG:-com.linuxhub.husk} \
 		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} \
 		LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/14-gate-a-acceptance.sh
@@ -157,41 +158,41 @@ gate-a:
 	sh tools/device-tests/run-v4l2-ref-probe.sh "$${DEV}"
 	sh tools/device-tests/run-drm-fd-probe.sh "$${DEV}"
 	sh tools/device-tests/run-fd-identity-probe.sh "$${DEV}"
-	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.myth.husk} \
+	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.husk} \
 		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-guest.sh audit-supplementary-groups.sh
-	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.myth.husk} \
+	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.husk} \
 		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-session-locale-probe.sh
-	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.myth.husk} \
+	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.husk} \
 		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-identity-init-race-probe.sh
-	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.myth.husk} \
+	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.husk} \
 		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-groups-race-probe.sh
 	DEV=$${DEV} sh tools/device-tests/run-session-guard-probe.sh
-	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.myth.husk} \
+	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.husk} \
 		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-rootfd-close-range-probe.sh
-	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.myth.husk} \
+	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.husk} \
 		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-path-race-probe.sh
 
 camera-audit:
-	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.myth.husk} \
-		ROOTFS=$${ROOTFS:-/data/user/0/$${PKG:-com.linuxhub.myth.husk}/files/linux/distributions/ubuntu-24.04/rootfs} \
-		LD=$${LD:-/data/user/0/$${PKG:-com.linuxhub.myth.husk}/files/linux/husk/libld.so} \
+	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.husk} \
+		ROOTFS=$${ROOTFS:-/data/user/0/$${PKG:-com.linuxhub.husk}/files/linux/distributions/ubuntu-24.04/rootfs} \
+		LD=$${LD:-/data/user/0/$${PKG:-com.linuxhub.husk}/files/linux/husk/libld.so} \
 		sh tools/device-tests/run-camera-fixture.sh "$${DEV}"
 
 rootfd-race:
-	DEV=$${DEV:?} PKG=$${PKG:-com.linuxhub.myth.husk} \
+	DEV=$${DEV:?} PKG=$${PKG:-com.linuxhub.husk} \
 		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-rootfd-close-range-probe.sh
 
 virt-race:
 	@test -n "$${DEV:-}" || { echo "set DEV=<serial> and the device paths" >&2; exit 1; }
 	sh tools/device-tests/run-virt-concurrency-probe.sh \
-		"$${DEV}" "$${PKG:-com.linuxhub.myth.husk}" \
+		"$${DEV}" "$${PKG:-com.linuxhub.husk}" \
 		"$${ROOTFS:?set ROOTFS}" "$${LD:?set LD}" "$${ROUNDS:-4000}"
 
 docs: tools

@@ -147,6 +147,8 @@ gh api "repos/$repo/releases?per_page=100" \
         ((.body // "") | split("\n") | map(select(test("\\S"))) | .[1] // ""),
         ([(.body // "") | split("\n")[] | select(test("^### "))] | length),
         ((.body // "") | test("(?m)^#{1,6}[[:space:]]+(Husk[[:space:]]+)?v?[0-9]+\\.[0-9]+\\.[0-9]+([^0-9.]|$)"))
+        ,
+        ([.assets[].name] | join(","))
     ] | @tsv' \
     > "$tmp/releases.tsv"
 cut -f1 "$tmp/releases.tsv" | sort -u > "$tmp/release-tags"
@@ -159,7 +161,7 @@ if [ -s "$tmp/tag-release-diff" ]; then
 fi
 
 release_count=0
-while IFS="$(printf '\t')" read -r tag name first_line second_line h3_count duplicate_version; do
+while IFS="$(printf '\t')" read -r tag name first_line second_line h3_count duplicate_version asset_names; do
     [ -n "$tag" ] || continue
     release_count=$((release_count + 1))
     case "$tag" in
@@ -199,6 +201,29 @@ while IFS="$(printf '\t')" read -r tag name first_line second_line h3_count dupl
     fi
     if [ "$duplicate_version" != "false" ]; then
         echo "release body repeats a version heading: $tag" >&2
+        fail=1
+    fi
+
+    old_ifs=$IFS
+    IFS=,
+    set -- $asset_names
+    IFS=$old_ifs
+    has_bundle=0
+    has_sums=0
+    for asset in "$@"; do
+        [ -n "$asset" ] || continue
+        case "$asset" in
+            husk-arm64.tar.gz) has_bundle=1 ;;
+            SHA256SUMS) has_sums=1 ;;
+            husk-rootfs-*.tar.gz|husk-*.apk) ;;
+            *)
+                echo "noncanonical release asset: $tag/$asset" >&2
+                fail=1
+                ;;
+        esac
+    done
+    if [ "$has_bundle" -ne 1 ] || [ "$has_sums" -ne 1 ]; then
+        echo "release assets missing husk-arm64.tar.gz or SHA256SUMS: $tag" >&2
         fail=1
     fi
 done < "$tmp/releases.tsv"

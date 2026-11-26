@@ -8,7 +8,7 @@
 #
 # Original header follows: proot-distro's invocation profile - same proot binary, different flags
 # (--kill-on-exit --sysvipc, no extra binds beyond the three standard ones).
-B=/data/user/0/com.linuxhub.myth.husk/files/linux
+B=/data/user/0/com.linuxhub.husk/files/linux
 D=$B/bench/proot
 R=$B/distributions/ubuntu-24.04/rootfs
 export LD_LIBRARY_PATH=$D

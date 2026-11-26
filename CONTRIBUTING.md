@@ -122,6 +122,14 @@ GitHub Release 只承载版本页：标题只写 `Husk X.Y.Z`，不拼主题或�
 `###`。正文必须写：本版修了什么（带 evidence 编号）、已知问题、产物 sha256。
 **没在设备上验过的东西，不写进 release notes。**
 
+活动运行路径、Makefile 默认值、设备测试、探针和供给工具统一使用 Android 包名
+`com.linuxhub.husk`。退役包名只允许留在不可改写的 `docs/design/evidence/` 和已发布
+`CHANGELOG` 历史段里；`make check` 的 `runtime package audit` 会拦截写回活动代码的旧默认值。
+
+Release 附件也只有一个命名面：启动器与运行时包固定为 `husk-arm64.tar.gz`，校验文件固定为
+`SHA256SUMS`；发行版 rootfs 只能是 `husk-rootfs-<发行版>.tar.gz`，APK 只能是
+`husk-<版本>.apk`。`make release-audit` 会逐页回读附件名，缺主包或校验文件直接失败。
+
 `make check` 还会检查仓库首屏结构与 Release 正文生成器：首屏只能有 `Husk` 标题、六边形图标和
 徽章，项目介绍必须从 `## 概览` 开始；Release 正文必须以 `## 概要` 开始，且不能混入项目总介绍
 或三级章节。`make release-audit` 会同时检查全部远端 Release 的正文契约，以及 tag 是否按 100

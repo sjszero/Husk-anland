@@ -1,5 +1,5 @@
 #!/bin/sh
-F=/data/user/0/com.linuxhub.myth.husk/files/linux
+F=/data/user/0/com.linuxhub.husk/files/linux
 R=$F/distributions/ubuntu-24.04/rootfs
 x() { DISPLAY=:0 sh $F/xe-husk.sh "$@" 2>/dev/null; }
 cg() { x usr/bin/xwininfo -id "$1" 2>/dev/null | sed -n 's/^  Absolute upper-left X: *\([-0-9]*\).*/X=\1/p;s/^  Absolute upper-left Y: *\([-0-9]*\).*/Y=\1/p;s/^  Width: *\([0-9]*\).*/W=\1/p;s/^  Height: *\([0-9]*\).*/H=\1/p' | tr '\n' ' '; }
