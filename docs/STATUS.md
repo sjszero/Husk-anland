@@ -298,14 +298,17 @@ APK 版本元数据和 NDK 构建入口，共记录 **28 条已修缺陷（H-01�
    零拷贝能拿回的全部价值就是那 30.27 ms。替代路线只有「自建 AHB present（客户端把 surface 做成
    AHB 经 SCM_RIGHTS 交给应用内 X server）」，验收标准已写进 evidence 290；MIT-SHM 改 memfd
    收益更小不先做，换合成器已否决。
-   另记一条会挡住 GPU 验收的现场事实（FACT，本轮核过设备上所有树）：设备上现在两棵树都**没有
-   Vulkan ICD** —— `rootfs` 是 0.0.36 的干净 base 安装（93 包，没有 mesa/GNOME）；
-   `rootfs-broken-20261126` 有 GNOME + stock Ubuntu Mesa **25.2.8**，但 `usr/share/vulkan` 不存在、
-   只有 `libvulkan.so.1` 加载器，`zink_dri.so` 在却没有 Vulkan 实现可指。所以两棵树的 GL 都只能是
-   llvmpipe。evidence 179/245/278 用的那棵带 **FristOneRR 1.2.0 / Mesa 26.3.0-devel** 的 GPU 树
-   现在既不在设备上、也不在仓库里（`make dist` 的 tarball 里也没有任何 ICD）。
-   → 第 6 轮「GPU 全局原生化」的前置条件是先把那份 guest PanVK/Mesa artifact 重新构建并装回树里，
-   否则只能验 llvmpipe。这一条不要用「参数开关」绕过去。
+   另记一条现场事实（FACT）：19:37/19:44 两轮核设备时，两棵树都**没有 Vulkan ICD** ——
+   `rootfs` 是 0.0.36 的干净 base 安装（93 包，没有 mesa/GNOME）；
+   `rootfs-broken-20261126` 有 GNOME + stock Ubuntu Mesa **25.2.8**，但 `usr/share/vulkan` 不存在。
+   **同日 19:46 已补回**：把 `husk-panvk-builder` 容器里的 FristOneRR X11 构建装成
+   `libvulkan_panfrost_frist370_execva.so` + `usr/share/vulkan/icd.d/husk_panvk_guest.json`，
+   19:49 写 `etc/husk/gpu-env`。此后**不带任何 GPU 环境变量**、只经加载器启动的进程拿到
+   `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`，`NR_GPU_DEFAULT_OFF=1` 与 `HUSK_GPU=llvmpipe`
+   都掉回 llvmpipe（门禁 `18-gpu-loader-defaults.sh` PASS=9 FAIL=0，evidence 291）。
+   这棵桌面树同时缺 `etc/ld.so.husk-path`、`usr/local/share/linuxhub/`、`etc/profile.d` 那几份
+   —— 它不是安装器产出的树，Husk 的安装层整个不在；之前那些 zink 记录（179/245/278）用的是
+   另一棵带 ICD 的树。别再让它静默掉回软件：这条现在是门禁项。
    真实客户端：`gnome-text-editor`（GTK 4.14 ngl）与 `gnome-control-center`（GTK 4 + Adwaita）
    完整出画，键盘 XTEST 敲进去标题与正文都更新（evidence 176/180）；**`nautilus` 46 内容区空白**
    ——能开窗、能枚举，但 `cairo`/`ngl`、`list`/`icon`、**proot 也同样空白**，根因 UNKNOWN

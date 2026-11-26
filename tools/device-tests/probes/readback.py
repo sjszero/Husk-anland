@@ -437,9 +437,25 @@ def main():
             gles.glFinish()
         read_ms = (time.perf_counter() - t) * 1000.0 / frames
         mp = W * H / 1e6
+        # One whole-block call per frame: this is what a present/screenshot path
+        # actually does internally. The data lands misplaced (see evidence 289),
+        # so this times the transfer + pack work, not a correct copy.
+        def block_read():
+            gles.glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE,
+                              ctypes.cast(arr, ctypes.c_void_p))
+
+        block_read()
+        gles.glFinish()
+        t = time.perf_counter()
+        for _ in range(frames):
+            block_read()
+            gles.glFinish()
+        block_ms = (time.perf_counter() - t) * 1000.0 / frames
         print("COST %dx%d (%.3f MP) frames=%d" % (W, H, mp, frames))
-        print("COST render   %.2f ms/frame  (%.2f ms/MP)" % (render_ms, render_ms / mp))
-        print("COST readback %.2f ms/frame  (%.2f ms/MP)  row-at-a-time %d calls"
+        print("COST render      %.2f ms/frame  (%.2f ms/MP)" % (render_ms, render_ms / mp))
+        print("COST read-1call  %.2f ms/frame  (%.2f ms/MP)  single glReadPixels WxH"
+              % (block_ms, block_ms / mp))
+        print("COST read-perrow %.2f ms/frame  (%.2f ms/MP)  %d calls of Wx1"
               % (read_ms, read_ms / mp, H))
         return 0
 

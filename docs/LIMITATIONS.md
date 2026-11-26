@@ -130,7 +130,9 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
    每行只有前 4 个像素落在该去的地方。宽度 1–40 全扫一遍，只有 W=4 恰好「对」。
    截图类工具会拿到错位画面而 `glGetError()` 仍是 0。
    **逐行读（`W×1` 调 H 次）与逐像素读实测 256/256 正确**；单列读（`1×H`）同样坏、
-   proot 下还会写到缓冲区外。
+   proot 下还会写到缓冲区外。但"逐行读是绕法"只在 llvmpipe 上成立：zink/PanVK 上每行一次
+   `glReadPixels` 就是一次 Vulkan 同步，2400×1080 一帧 **1344 ms**（llvmpipe 7.07 ms、
+   zink 整块 35.53 ms，evidence 291）。zink 上截图/录屏目前不存在"便宜且正确"的路径。
    归属也核过了：llvmpipe / zink / proot 三处一致，换 Mesa 自己的 `eglGetProcAddress` 入口、
    读进 PBO、换 `GL_RGBA4` 目标都一致，抹掉 libglvnd 也不变；树里的
    `libgallium-…0.24.04.5.so` sha256 与 Ubuntu 官方包**逐字节相同**，进程里也只加载这一份，
@@ -246,7 +248,7 @@ socket 协议，数据在应用侧过一次。逐类理由见
 | GPU：Vulkan compute / 离屏 graphics（`/dev/mali0` + kbase） | 直连 | 可用 | evidence 156 |
 | GPU：GL/EGL 经 Zink 落到 GPU（默认上限 GLES 3.2，靠 override；真实应用未验） | 直连 | 可用；默认值由加载器注入，非登录执行也吃得到 | evidence 156、161、167、182 |
 | GPU：X11 窗口呈现（EGL window surface + swap） | 直连（呈现这一跳不是） | 可用，呈现走回读+拷贝（DRI3 未通，代价 24.8 ms/MP） | evidence 165、174 |
-| GL 整块读回（`glReadPixels` W×H） | — | **坏**：目的行距 = `align_up(bpp×PACK_ALIGNMENT,4)`；逐行/逐像素读正确 | evidence 289 |
+| GL 整块读回（`glReadPixels` W×H） | — | **坏**：目的行距 = `align_up(bpp×PACK_ALIGNMENT,4)`；逐行/逐像素读正确，但 zink 上逐行 1344 ms/帧 | evidence 289 / 291 |
 | GPU：桌面合成器（gnome-shell 46 on zink/PanVK） | 直连 | 可用，出帧；轻负载 fps 不如 llvmpipe | evidence 165、168 |
 | 显示上屏（dma-buf → AHB → `SurfaceControl`） | 应用侧，零拷贝 | 可用（10 000 帧 ring） | evidence 59 |
 | 硬件视频解码（平台 MediaCodec，应用侧） | 中转 | 有实测链路，未产品化 | evidence 80 |

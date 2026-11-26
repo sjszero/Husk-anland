@@ -53,6 +53,14 @@ dri/                        有 zink_dri.so、panfrost_dri.so、kms_swrast_dri.s
 （树里已经有 PanVK 驱动）在这里不成立，脚本自身也会打印
 `no PanVK driver in the tree`。所以下面凡是 zink 的数字都不是在本树上测的，来源单独标注。
 
+> **2026-11-26 19:46 补记（本节结论已过时，原文按当时现场保留）**：这棵树随后装回了
+> `libvulkan_panfrost_frist370_execva.so` + `usr/share/vulkan/icd.d/husk_panvk_guest.json`
+> （来自 `husk-panvk-builder` 的 FristOneRR X11 构建），19:49 写了 `etc/husk/gpu-env`。
+> 现在**同一棵树上**不带任何 GPU 环境变量的进程就是 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`，
+> zink 的 2400×1080 渲染/回读已在树上实测（render 2.36 ms、整块读 35.53 ms、逐行读 1344 ms），
+> 见 evidence 291。第 1 节里"路径层假设备"和 DRI3 的判定链不受影响（那些是 shim 视角与
+> DRM 节点的事实，与 ICD 无关）。
+
 ## 2 · DRI3 定论
 
 **结论：在本布局里 DRI3 结构性不可达，不是参数问题，也不是 path-shim 能补的。**
