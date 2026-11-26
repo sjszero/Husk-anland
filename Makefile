@@ -41,6 +41,7 @@ check:
 	sh tools/ci/check-fork-safety.sh
 	sh tools/ci/check-shell.sh
 	sh tools/ci/audit-readme-header.sh
+	sh tools/ci/audit-git-refs.sh
 	sh tools/ci/test-version-bump.sh
 	sh tools/ci/test-release-notes.sh
 	sh tools/ci/test-session-gpu-escape.sh

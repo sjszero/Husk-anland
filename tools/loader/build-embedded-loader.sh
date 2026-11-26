@@ -8,7 +8,7 @@
 #
 # The ELF surgery is `nr-tools` (Rust, runtime/crates/nr-tools) and it is the only
 # implementation. The Python scripts it replaced were kept as an oracle until the
-# port reproduced them byte for byte; they are in the git history at tag v0.1.0.
+# port reproduced them byte for byte; recover them from commit 665ec31^.
 #
 # Prints the numbers nr-tools asserted/derived. Nothing here is a hard-coded
 # offset: the tool checks the loader it is given and refuses to patch a different

@@ -7,6 +7,46 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.34] - 2026-11-26
+
+这一版修正桌面 GPU 自检的误报边界，并把“GNOME 有 GPU”推进到“桌面会话、普通应用和嵌套
+GTK 应用都走同一套 Mali/PanVK 设备运行时”。
+
+### 修复
+
+- **桌面 GPU 自检改为读真实进程状态**（evidence 278）。旧检查要求 `VK_ICD_FILENAMES` 出现在
+  `/proc/<pid>/environ`，但 loader 的 `/etc/husk/gpu-env` 默认值只回答 `getenv`，不会反写
+  environ，导致已使用 PanVK 的 GNOME 被误判为 `unknown`。现在同时检查 zink 环境、真实
+  `/dev/mali0`（或 Adreno `/dev/kgsl-3d0`）fd，以及已加载的 PanVK/Freedreno Vulkan 后端；
+  缺一项就降级为 `zink-partial`、`llvmpipe` 或 `unknown`。
+- **新增 `make gpu-audit`**（evidence 278）。真机先跑无 GPU 变量的 `glxinfo -B`，确认
+  `Device: zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`、`Accelerated: yes`；再检查 GNOME，
+  并通过 loader 新起一个 `gnome-text-editor`，验证嵌套应用也继承 zink 环境和设备 fd。
+- **版本引用改为单一事实来源**（evidence 279）。清掉运行文档中写死的旧版本示例，并把历史
+  Python 工具的取回方式从已删除的 `v0.1.0` tag 改为不可变提交号 `665ec31^`。`make check`
+  新增 Git 引用审计，文档里的 `git show vX.Y.Z:<path>` 只要指向不存在的 tag 就失败。
+
+### 验证
+
+- `DEV=UKHMMB8PYTGECMNV make gpu-audit`：`PASS=3 FAIL=0`。
+- 完整门禁 A：`PASS=38 FAIL=0`；coverage-probe、coverage-sweep、V4L2、DRM 和 fd identity
+  均通过。
+- `make check`：通过。
+
+### 产物
+
+| 文件 | 大小 | sha256 |
+|---|---:|---|
+| `husk-arm64.tar.gz` | 7 130 795 | `cb7fdd85a981350ffeed474522f400811c985121ee10cfc9b60ef7687d188a14` |
+| `SHA256SUMS` | 84 | `f3d4b38d289ab45cf9bda6812a1a99db19a815fb5489ab1c0ff8003c739c8756` |
+
+### 边界
+
+- FACT：当前 GTK4 仍默认 `GSK_RENDERER=cairo`，所以 GTK UI 绘制仍是 CPU 路径；本版证明的是
+  zink/PanVK 设备运行时在桌面进程和嵌套应用中的继承链，不是 GTK UI 已经全部 GPU 化。
+- FACT：X11 窗口内容到 X server 仍走回读/SHM，不是端到端零拷贝。
+- UNKNOWN：Adreno、其他 Android 版本和 16 KiB/64 KiB 真机。
+
 ## [0.0.33] - 2026-11-26
 
 这一版把显式 GPU 软件回退从 session 入口推进到嵌套 exec，并让缺少 D-Bus 的最小 rootfs
@@ -1389,7 +1429,8 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.33...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.34...HEAD
+[0.0.34]: https://github.com/xishanp/Husk/releases/tag/v0.0.34
 [0.0.33]: https://github.com/xishanp/Husk/releases/tag/v0.0.33
 [0.0.32]: https://github.com/xishanp/Husk/releases/tag/v0.0.32
 [0.0.31]: https://github.com/xishanp/Husk/releases/tag/v0.0.31

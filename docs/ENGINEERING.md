@@ -69,7 +69,7 @@ shim 跨度 `0x60000`；钩子地址 983,040；服务表地址 987,136；介入�
 | `nr-tools provision` | 供应 gcc / make 工具链 | 阶段目录逐文件比对，2,866 项内容差异为零 |
 
 三个工具都是唯一实现。迁移期间的 Python / sh 参考实现在逐字节对拍通过后已从工作树删除
-（`git show v0.1.0:tools/loader/nr-embed.py` 可取回），构建路径上不存在第二种实现。
+（`git show 665ec31^:tools/loader/nr-embed.py` 可取回），构建路径上不存在第二种实现。
 
 ## 6. 产物指纹
 

@@ -7,8 +7,8 @@
 #
 # The implementation is `nr-tools provision` (Rust, runtime/crates/nr-tools), the
 # same crate as the loader surgery. The sh+python version this port was checked
-# against (2,866 staged files, zero differences) has been removed; it is in the
-# git history at tag v0.1.0.
+# against (2,866 staged files, zero differences) has been removed; recover it
+# with `git show 665ec31^:tools/device-tests/provision-toolchain-legacy.sh`.
 #
 # No root, no chroot, no namespaces; transport is a plain HTTP GET on port 80.
 #

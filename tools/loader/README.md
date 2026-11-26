@@ -33,7 +33,8 @@ The ELF surgery is `runtime/crates/nr-tools` (Rust, no dependencies) and it is t
 only implementation. The Python scripts it replaces were kept as an oracle until the
 port reproduced them byte for byte; evidence/22 records that comparison (identical
 stdout, identical sha256) and the two porting bugs it caught. The oracle was then
-removed from the tree - recover it with `git show v0.1.0:tools/loader/nr-embed.py`.
+removed from the tree - recover it with
+`git show 665ec31^:tools/loader/nr-embed.py`.
 
 The same crate also carries `nr-tools provision`, which replaces the sh+python
 toolchain provisioning script (`../device-tests/provision-toolchain.sh`
