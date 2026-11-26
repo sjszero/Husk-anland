@@ -37,7 +37,8 @@
 | `/dev/mali0` 直开 | 可用 | evidence 156 |
 | PanVK（kbase 后端）枚举 + compute + 离屏 graphics | 可用，`Mali-G77 MC9` | evidence 156 |
 | GL/EGL 经 Zink 落到 GPU | 可用，renderer `zink Vulkan 1.3(Mali-G77 MC9)`；GLES 上限 3.2（靠 `MESA_GLES_VERSION_OVERRIDE`，zink 默认只报 ES 2.0，真实应用未验） | evidence 156、182 |
-| 桌面硬件加速（WSI / 窗口呈现） | 已通：X11 窗口化 EGL + GLX 跑真程序 600 秒，GNOME / Nautilus / 嵌套 GTK 均在 zink + `/dev/mali0` 上；**但呈现不是零拷贝**（SHM 拷贝，24.8 ms/兆像素） | evidence 165、245、278；`docs/LIMITATIONS.md` §7 |
+| GPU 并发与长稳（无 X） | 4 路并发 × 300 s：每路 579 fps，fd/RSS 不涨、GL 错误 0；固定管线（即时模式 + 光照）320 fps | evidence 292 |
+| 桌面硬件加速（WSI / 窗口呈现） | 通的都是**2.0 包的 X server**（2.0 包（另一个 APK）里的 `:x11` 进程）：X11 窗口化 EGL + GLX 跑真程序 600 秒，GNOME / Nautilus / 嵌套 GTK 均在 zink + `/dev/mali0` 上；**Husk 自己的 APK 与树都不带 X server，本应用起不了桌面会话**；呈现也不是零拷贝（SHM 拷贝，24.8 ms/兆像素） | evidence 165、245、278、292；`docs/LIMITATIONS.md` §7 |
 
 不开 Zink 时 GL 落在 `llvmpipe`；开了 zink 但用发行版自带的 `panfrost_icd.json` 会
 `VK_ERROR_INCOMPATIBLE_DRIVER`，因为它要的是 DRM render node，本机只有 kbase。

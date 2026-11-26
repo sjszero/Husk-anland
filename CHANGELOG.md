@@ -16,6 +16,12 @@
 
 ### 新增
 
+- **GPU 并发长稳 + 安装层完整性两条门禁**（`tools/device-tests/probes/glsoak.py`、
+  `probes/fixedgl.py`、`20-tree-integrity.sh`，evidence 291/292）。4 路并发、每路 300 s、
+  2400×1080 `glClear`+`glFinish`：每路 **579 fps**（峰值 606–615），fd 与 RSS 不涨、
+  `/dev/mali0` fd 恒为 2、GL 错误 0；固定管线（即时模式 + 光照 + 平滑着色）无 X 直测
+  **320 fps**。完整性门禁把「这棵树没有 Husk 安装层」从静默变成 FAIL：当前桌面树 11/0，
+  0.0.36 干净树 7/0。
 - **运行时权限四类验收 + A-hw 门禁组**（`app-rs/src/permissions.rs`、
   `tools/device-tests/17-gate-a-hw.sh`，evidence 288）。`hasCode="false"` 没动，Activity 实例
   仍只从 `ANativeActivity.clazz` 取。首次申请、拒绝（toast 说明原因）、第二次拒绝（toast +
@@ -26,6 +32,15 @@
 
 ### 修复
 
+- **GPU 默认值在真机上第一次真的生效**（evidence 291）。桌面树
+  `rootfs-broken-20261126` 整棵没有 `etc/husk/`、没有 ICD —— 它不是安装器产出的树，
+  以前那些 zink 记录用的是另一棵。补回驱动 + `etc/husk/gpu-env` 之后，不带任何 GPU 环境
+  变量的进程拿到 `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`，`NR_GPU_DEFAULT_OFF=1` 与
+  `HUSK_GPU=llvmpipe` 两个反向控制都掉回 llvmpipe（门禁 `18-gpu-loader-defaults.sh` 9/0）。
+- **系统总线配置随安装器落盘**（`tools/guest-config/linuxhub-system-bus.conf`，evidence 292）。
+  这个文件以前只存在于 2.0 的树里，Husk 安装的树没有，于是 `husk-session.sh` 静默跳过启动
+  系统总线，gnome-shell 在 `main.js` 抛 `Couldn't connect to system bus`。现在安装器写
+  `usr/local/share/linuxhub/linuxhub-system-bus.conf`，dbus 握手实测通过。
 - **权限没给时进程一启动就 SIGABRT**（`app-rs/src/permissions.rs`）。`NewObjectArray` 收的是
   类名不是描述符，传 `"java/lang/String;"` 让 `FindClass` 直接 abort：
   `JNI DETECTED ERROR: illegal class name 'java/lang/String;' ... from onResumeNative`。
@@ -165,6 +180,10 @@
 - 符号链接深度仍是 16（Linux 语义约 40），这一条**没有**在本版修：40 层需要先把
   `resolve_at` 的 4 KiB 栈缓冲挪出递归帧，否则是拿栈溢出换 `ELOOP`。
 - `usermgr` 四库仍非事务，`fsync` / `chmod` 失败仍被 `.ok()` 吞掉。
+- **本应用起不了桌面会话**（evidence 292，FACT）：APK 里没有任何 X server 二进制，945 包的
+  桌面树里也没有 `usr/bin/Xorg`，而 2.0 包的 `:x11` 从本应用 uid 连是 `EPERM`（跨应用 unix
+  socket）。以前"桌面 zink / GLX 600 秒"的记录用的都是 2.0 的 X server。要选一条路：把 X server
+  搬进 guest，或在 APK 里带一个 bionic X server。`glxgears` 因此本轮没有重测。
 
 ## [0.0.35] - 2026-11-26
 

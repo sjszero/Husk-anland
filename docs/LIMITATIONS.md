@@ -52,6 +52,14 @@ guest 里 `/proc/self/fd/1` 是 socket。`make` 往它写完（309 字节就够�
 `nautilus` 46 的内容区实测完整（evidence 207）。还没消掉的是「窗口内容 → X server」那一次
 回读 + 拷贝，以及这颗 SoC 上没有 DRI3 要的 render 节点。
 
+**2026-11-26 20:05 补记（桌面这条链缺一环，FACT，evidence 292）**：上面"gnome-shell 46 跑在
+zink 上"那些记录，测的都是 **2.0 包（另一个 APK）的 X server**
+（2.0 包（另一个 APK）里的 `:x11` 进程，evidence 245 文件头自己写着"测试对象是现有 2.0 包的 X server"）。
+`com.linuxhub.husk` 的 APK 里没有任何 X server 二进制；945 包的桌面树里有完整 X 客户端和
+`Xwayland`，但没有 `usr/bin/Xorg`。从本应用 uid 连 2.0 那个 abstract socket 直接 `EPERM`
+（跨应用 unix socket 限制，路径层绕不过）。所以：**本应用现在起不了桌面会话**，得先有 X server
+（搬进 guest，或在 APK 里带一个 bionic X server）才能重跑桌面与长稳。桌面以外的 GPU 路径不受影响。
+
 **已经是 FACT（evidence 156，2026-11-24，当前版本的树）**：guest 进程直开 `/dev/mali0`；
 kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，compute 与离屏 graphics
 都能跑并回读 GPU 写入的值；开 Zink 后 EGL/GL 的 renderer 是
@@ -204,6 +212,12 @@ maps 已加载 `libvulkan_panfrost_x11.so`；`nautilus`（29077）与嵌套 GTK 
 
 仍然成立的边界：GTK4 默认 `GSK_RENDERER=cairo`，UI 绘制那部分不能算硬件加速；呈现仍是
 回读 + 拷贝；多应用并发与长稳仍是 UNKNOWN；单程序回退开关仍是 `HUSK_GPU=llvmpipe`。
+
+**2026-11-26 并发与长稳（FACT，evidence 292）**：4 路并发、每路 300 s、2400×1080
+clear+`glFinish`，每路 **579 fps**（峰值 606–615），RSS 373 MB 上下浮动 1 MB、fd 恒为 7、
+`/dev/mali0` fd 恒为 2、GL 错误 0。固定管线（即时模式 + 光照 + 平滑着色 + 深度测试）无 X 直测
+**320 fps**；`PANVK_DXVK_COMPAT` 取 0 或 1 都通过 —— 这个开关既不是 `glxgears` 崩溃的病因
+也不是解药，不能当修复写。
 
 ### 7.1 这三条路各自落在哪一层（能不能只改 Linux 运行层）
 

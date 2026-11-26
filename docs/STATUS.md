@@ -309,6 +309,11 @@ APK 版本元数据和 NDK 构建入口，共记录 **28 条已修缺陷（H-01�
    这棵桌面树同时缺 `etc/ld.so.husk-path`、`usr/local/share/linuxhub/`、`etc/profile.d` 那几份
    —— 它不是安装器产出的树，Husk 的安装层整个不在；之前那些 zink 记录（179/245/278）用的是
    另一棵带 ICD 的树。别再让它静默掉回软件：这条现在是门禁项。
+   **同日 20:05（evidence 292）**：4 路并发 × 300 s 每路 **579 fps**、fd/RSS 不涨、GL 错误 0；
+   固定管线即时模式 + 光照 320 fps；`PANVK_DXVK_COMPAT` 取 0 或 1 都通过（这个开关不是修复）。
+   同时核清一条硬阻塞：**本应用没有 X server** —— APK 三个 `.so` 里没有，桌面树没有
+   `usr/bin/Xorg`，2.0 包的 `:x11` 从本应用 uid 连是 `EPERM`。以前那些桌面 zink 记录用的都是
+   2.0 的 X server。所以「桌面 + 多应用并发 + 长稳」这半条第 6 轮现在做不了，先要有 X server。
    真实客户端：`gnome-text-editor`（GTK 4.14 ngl）与 `gnome-control-center`（GTK 4 + Adwaita）
    完整出画，键盘 XTEST 敲进去标题与正文都更新（evidence 176/180）；**`nautilus` 46 内容区空白**
    ——能开窗、能枚举，但 `cairo`/`ngl`、`list`/`icon`、**proot 也同样空白**，根因 UNKNOWN

@@ -267,6 +267,19 @@ if [ -f "$HERE/guest/husk-wallpaper-scale.js" ]; then
     mkdir -p "$DEST/usr/local/share/linuxhub"
     cp "$HERE/guest/husk-wallpaper-scale.js" "$DEST/usr/local/share/linuxhub/husk-wallpaper-scale.js"
     chmod 644 "$DEST/usr/local/share/linuxhub/husk-wallpaper-scale.js"
+
+    # The system bus config the desktop scripts point dbus-daemon at. Ubuntu's
+    # own /usr/share/dbus-1/system.conf wants systemd activation and polkit;
+    # without a working system bus gnome-shell dies in main.js and the user only
+    # sees the "security mode" fallback. Trees produced outside this installer
+    # (2.0 trees, hand-assembled desktop trees) do not necessarily carry it, and
+    # its absence is silent -- the session scripts just skip starting the bus.
+    if [ -f "$HERE/guest-config/linuxhub-system-bus.conf" ]; then
+        cp "$HERE/guest-config/linuxhub-system-bus.conf" \
+            "$DEST/usr/local/share/linuxhub/linuxhub-system-bus.conf"
+        chmod 644 "$DEST/usr/local/share/linuxhub/linuxhub-system-bus.conf"
+        echo "   wrote usr/local/share/linuxhub/linuxhub-system-bus.conf (system bus)"
+    fi
     echo "   wrote usr/local/share/linuxhub/husk-wallpaper-scale.js (wallpaper pre-scale)"
 else
     echo "   WARNING: no guest/husk-wallpaper-scale.js next to the installer;" >&2
