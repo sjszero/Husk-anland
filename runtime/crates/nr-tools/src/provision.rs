@@ -38,10 +38,38 @@ fn die(msg: impl AsRef<str>) -> ! {
 
 // ------------------------------------------------------------------ transport
 
+/// Fetch with a bounded, retried request.
+///
+/// A single shot is not trustworthy here. Measured 2026-11-26 while assembling the
+/// 729-package desktop tree: the run sat at 123/787 debs for 10+ minutes with no
+/// socket open and no error printed - `TcpStream::connect((host, 80))` resolves
+/// DNS through `ToSocketAddrs`, which has no timeout at all, so one resolver
+/// hang stops the whole build silently. (A single connection also gets dropped
+/// mid-body often enough that one attempt is a coin flip.)
+///
+/// So: resolve once with a bound, connect with a bound, read with a bound, and
+/// retry the request a few times before giving up.
 pub(crate) fn http_get(path: &str) -> Option<Vec<u8>> {
-    let mut stream = TcpStream::connect((HOST, 80)).ok()?;
+    for attempt in 0..3u64 {
+        if let Some(body) = http_get_once(path) {
+            return Some(body);
+        }
+        if attempt < 2 {
+            std::thread::sleep(std::time::Duration::from_secs(1 + attempt));
+        }
+    }
+    None
+}
+
+fn http_get_once(path: &str) -> Option<Vec<u8>> {
+    use std::net::ToSocketAddrs;
+    let addr = (HOST, 80u16).to_socket_addrs().ok()?.next()?;
+    let mut stream = TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(20)).ok()?;
     stream
-        .set_read_timeout(Some(std::time::Duration::from_secs(180)))
+        .set_read_timeout(Some(std::time::Duration::from_secs(60)))
+        .ok()?;
+    stream
+        .set_write_timeout(Some(std::time::Duration::from_secs(20)))
         .ok()?;
     let req = format!(
         "GET {path} HTTP/1.0\r\nHost: {HOST}\r\nUser-Agent: nr-tools\r\nConnection: close\r\n\r\n"
@@ -732,16 +760,34 @@ pub fn main(argv: &[String]) {
     println!("{} packages, {:.1} MB", want.len(), total as f64 / 1e6);
 
     // ----------------------------------------------------------- download ---
-    for p in &want {
+    // Say where we are: a 787-package run is minutes long, and "fetch <pkg>" lines
+    // alone cannot tell a slow run from a stuck one.
+    let n_want = want.len();
+    let mut fetched = 0usize;
+    for (i, p) in want.iter().enumerate() {
         let deb = cache.join(p.filename.rsplit('/').next().unwrap_or("x.deb"));
         let ok = fs::metadata(&deb)
             .map(|m| m.len() == p.size)
             .unwrap_or(false);
         if !ok {
-            println!("fetch {} {}", p.name, p.version);
             let raw = http_get(&format!("{POOL}{}", p.filename))
                 .unwrap_or_else(|| die(format!("download failed: {}", p.filename)));
+            // A short write must not be cached as if it were the real deb: the
+            // size check above is the only thing standing between a truncated
+            // file and a tree that unpacks half a package.
+            if raw.len() as u64 != p.size {
+                die(format!(
+                    "short download: {} (got {} of {} bytes)",
+                    p.filename,
+                    raw.len(),
+                    p.size
+                ));
+            }
             fs::write(&deb, &raw).unwrap_or_else(|e| die(format!("{}: {e}", deb.display())));
+            fetched += 1;
+            if fetched % 25 == 0 || i + 1 == n_want {
+                println!("fetched {fetched} new ({}/{n_want} total)", i + 1);
+            }
         }
         let data = fs::read(&deb).unwrap_or_else(|e| die(format!("{}: {e}", deb.display())));
         let _ = unpack_deb(&data, &stage);
