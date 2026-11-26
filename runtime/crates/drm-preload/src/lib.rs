@@ -195,7 +195,7 @@ unsafe fn fake_drm_open() -> i32 {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn open(path: *const u8, flags: i32, _mode: i32) -> i32 {
+pub unsafe extern "C" fn open(path: *const u8, flags: i32, mode: i32) -> i32 {
     if is_drm_node(path) {
         return fake_drm_open();
     }
@@ -208,30 +208,38 @@ pub unsafe extern "C" fn open(path: *const u8, flags: i32, _mode: i32) -> i32 {
         dbgw(b"[preload open] ", core::slice::from_raw_parts(path, n));
         sycall_write(b"\n");
     }
-    open_raw(core::slice::from_raw_parts(path, n + 1), flags, 0)
+    open_raw(core::slice::from_raw_parts(path, n + 1), flags, mode)
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn open64(path: *const u8, flags: i32, _mode: i32) -> i32 {
-    open(path, flags, 0)
+pub unsafe extern "C" fn open64(path: *const u8, flags: i32, mode: i32) -> i32 {
+    open(path, flags, mode)
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn openat(dirfd: i32, path: *const u8, flags: i32, _mode: i32) -> i32 {
+pub unsafe extern "C" fn openat(dirfd: i32, path: *const u8, flags: i32, mode: i32) -> i32 {
     if is_drm_node(path) {
         return fake_drm_open();
     }
-    let r = syscall(SYS_OPENAT, dirfd as i64, path as i64, flags as i64, 0i64);
-    if r < 0 && r > -4096 {
-        set_errno((-r) as i32);
+    // `syscall` here is glibc's wrapper: it already returns -1 and writes errno.
+    // Interpreting -1 as a raw -errno used to overwrite ENOENT with EPERM, and
+    // dropping `mode` made every O_CREAT file mode 000 before umask.
+    let r = syscall(
+        SYS_OPENAT,
+        dirfd as i64,
+        path as i64,
+        flags as i64,
+        mode as i64,
+    );
+    if r < 0 {
         return -1;
     }
     r as i32
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn openat64(dirfd: i32, path: *const u8, flags: i32, _mode: i32) -> i32 {
-    openat(dirfd, path, flags, 0)
+pub unsafe extern "C" fn openat64(dirfd: i32, path: *const u8, flags: i32, mode: i32) -> i32 {
+    openat(dirfd, path, flags, mode)
 }
 
 #[no_mangle]

@@ -26,6 +26,11 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 **仓库布局**：`runtime/crates/{path-shim,nr-tools,runtime-core,gpu-env}`（Rust）、`tools/loader/*.S`（裸汇编，仅入口与 hook）、
 `tools/device-tests/*.sh`、`docs/design/`（设计 + `evidence/` 原始记录）。
 
+**0.0.28 DRM preload open ABI**：`libdrm_preload.so` 的 `openat` 失败不再把 glibc 已设置的
+`ENOENT` 改写成 `EPERM`；`open` / `open64` / `openat` / `openat64` 都保留创建 mode，
+`O_CREAT` 文件不再固定创建成 000。旧 0.0.27 负对照为 `errno=1` 和 `mode=0`，修后为
+`errno=2`、`mode=640`（evidence 255）。路径 shim 不在场时的非 DRM 路径翻译边界仍是 UNKNOWN。
+
 **0.0.27 DRM preload fd 覆盖身份**：`libdrm_preload.so` 不再用私有 fd 号码表认定假 DRM。
 每次检查都读取 `/proc/self/fd` 的内核目标，因此 `dup2` 用普通文件覆盖旧假 fd 后会退出 DRM
 模拟层；假 fd 复制到新号码、源关闭后仍能识别。旧 0.0.26 `.so` 的负对照为

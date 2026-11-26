@@ -375,6 +375,15 @@ STREAMON/DQBUF 与多线程压力仍未验证，UNKNOWN。
 通过 `SCM_RIGHTS` 把假 DRM fd 交给另一进程后的表身份恢复仍未实现；多线程同时
 `dup2`/`dup3`/`close` 的长时压力也仍是 UNKNOWN。
 
+## 21 · DRM preload 的 open ABI（2026-11-26）
+
+0.0.28 起，`libdrm_preload.so` 的 `openat` 失败会保留 glibc 给出的真实 errno；`open`、
+`open64`、`openat`、`openat64` 也都会把创建 mode 交给内核。旧实现的 `ENOENT → EPERM`
+改写和 `O_CREAT` 文件 mode=000 已在真机负对照里复现并修掉（evidence 255）。
+
+**仍需单独审计的是**：当这个 preload 在路径 shim 之外直接处理非 DRM 路径时，绝对路径翻译和
+跨进程路径语义没有在这三项里证明；不能把 open ABI 通过写成完整路径隔离已经成立。
+
 ## 20 · DRM preload 假 fd 的覆盖写（2026-11-26）
 
 0.0.27 起，`libdrm_preload.so` 不再保存 fd 号码身份表。每次判定都通过 `/proc/self/fd/<n>`

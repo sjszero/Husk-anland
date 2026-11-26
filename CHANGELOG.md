@@ -7,6 +7,35 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.28] - 2026-11-26
+
+> 主题：**修掉 `libdrm_preload.so` 的 `openat` errno 改写与创建 mode 丢失**。
+> 这一版只改 preload 的文件打开 ABI，不改变路径解析、GPU 后端或隔离边界。
+
+### 修复
+
+- **`openat` 失败保留真实 errno**（evidence 255）。旧实现调用 glibc `syscall()` 后把已经变成
+  `-1` 的返回值继续当原始 `-errno` 处理，导致不存在的文件从 `ENOENT(2)` 被改写成
+  `EPERM(1)`；现在直接保留 glibc 写入的 errno。
+- **四个 open 入口都保留创建 mode**（evidence 255）。`open`、`open64`、`openat`、`openat64`
+  不再丢弃 `mode`；`O_CREAT` 文件从固定的 000 恢复为调用方请求的权限，再交给 umask。
+- **fd identity 真机门禁新增三项**（evidence 255）。覆盖 `open` 失败 ABI、`openat` 失败 errno
+  和 `openat(O_CREAT, 0640)` 的实际文件 mode。
+
+### 验证
+
+- 旧 0.0.27 `libdrm_preload.so` 负对照：
+  `drm-preload-openat-failure-errno|FAIL|rc=-1 errno=1`；
+  `drm-preload-openat-create-mode|FAIL|mode=0`。
+- 修后真机：两个失败测试都返回 `-1/ENOENT`，创建文件 mode 为 `640`。
+- 完整门禁 A、`make check` 与发布构建结果见 evidence 255。
+
+### 边界
+
+- FACT：动态证据来自 RMX3357 / MT6893 / Mali-G77 / Android 13 / kernel 4.19.191 / 4 KiB。
+- UNKNOWN：路径 shim 不在场时，preload 对非 DRM 路径的翻译边界仍需单独审计。
+- UNKNOWN：Adreno/KGSL 真机的同路径。
+
 ## [0.0.27] - 2026-11-26
 
 > 主题：**修掉 `libdrm_preload.so` 把 fd 号码当永久身份的问题**。
@@ -1152,7 +1181,8 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.27...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.28...HEAD
+[0.0.28]: https://github.com/xishanp/Husk/releases/tag/v0.0.28
 [0.0.27]: https://github.com/xishanp/Husk/releases/tag/v0.0.27
 [0.0.26]: https://github.com/xishanp/Husk/releases/tag/v0.0.26
 [0.0.25]: https://github.com/xishanp/Husk/releases/tag/v0.0.25

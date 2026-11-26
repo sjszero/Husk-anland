@@ -10,7 +10,7 @@
 //! private table that still calls that descriptor number a fake device is stale.
 //! The ioctl/getsockname result must prove the descriptor left the emulation.
 
-use std::ffi::c_void;
+use std::ffi::{c_void, CString};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
@@ -403,6 +403,16 @@ fn test_drm_preload() {
     }
     let fake_open: unsafe extern "C" fn() -> RawFd = unsafe { std::mem::transmute(open_sym) };
     let is_fake: unsafe extern "C" fn(RawFd) -> i32 = unsafe { std::mem::transmute(fake_sym) };
+    let open_sym = unsafe { libc::dlsym(handle, b"open\0".as_ptr() as *const libc::c_char) };
+    let openat_sym = unsafe { libc::dlsym(handle, b"openat\0".as_ptr() as *const libc::c_char) };
+    if open_sym.is_null() || openat_sym.is_null() {
+        line(NAME, false, "missing open or openat");
+        return;
+    }
+    let preload_open: unsafe extern "C" fn(*const libc::c_char, i32, i32) -> RawFd =
+        unsafe { std::mem::transmute(open_sym) };
+    let preload_openat: unsafe extern "C" fn(i32, *const libc::c_char, i32, i32) -> RawFd =
+        unsafe { std::mem::transmute(openat_sym) };
 
     let victim = unsafe { fake_open() };
     if victim < 0 {
@@ -469,6 +479,65 @@ fn test_drm_preload() {
     );
     unsafe {
         libc::close(COPY_FD);
+    }
+
+    const FAILURE: &str = "drm-preload-open-failure-abi";
+    let missing = CString::new("/definitely-missing-husk-drm-open").unwrap();
+    let rc = unsafe { preload_open(missing.as_ptr(), libc::O_RDONLY, 0) };
+    let error = errno();
+    line(
+        FAILURE,
+        rc == -1 && error == libc::ENOENT,
+        format!("rc={rc} errno={error} expected=-1/{}", libc::ENOENT),
+    );
+
+    const OPENAT_FAILURE: &str = "drm-preload-openat-failure-errno";
+    let missing_at = CString::new("/definitely-missing-husk-drm-openat").unwrap();
+    let rc_at = unsafe { preload_openat(libc::AT_FDCWD, missing_at.as_ptr(), libc::O_RDONLY, 0) };
+    let error_at = errno();
+    line(
+        OPENAT_FAILURE,
+        rc_at == -1 && error_at == libc::ENOENT,
+        format!(
+            "rc={} errno={} expected=-1/{}",
+            rc_at,
+            error_at,
+            libc::ENOENT
+        ),
+    );
+
+    const CREATE: &str = "drm-preload-openat-create-mode";
+    let create_path = std::env::var("NR_ROOTFS")
+        .ok()
+        .map(|root| format!("{root}/root/fdidentity-drm-openat-mode"))
+        .unwrap_or_else(|| "/tmp/fdidentity-drm-openat-mode".into());
+    let create_c = CString::new(create_path.clone()).unwrap();
+    unsafe {
+        libc::unlink(create_c.as_ptr());
+    }
+    let fd = unsafe {
+        preload_openat(
+            libc::AT_FDCWD,
+            create_c.as_ptr(),
+            libc::O_CREAT | libc::O_WRONLY | libc::O_TRUNC,
+            0o640,
+        )
+    };
+    if fd < 0 {
+        line(CREATE, false, format!("openat rc={fd} errno={}", errno()));
+    } else {
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        let stat_rc = unsafe { libc::fstat(fd, &mut st) };
+        let mode = if stat_rc == 0 { st.st_mode & 0o777 } else { 0 };
+        unsafe {
+            libc::close(fd);
+            libc::unlink(create_c.as_ptr());
+        }
+        line(
+            CREATE,
+            stat_rc == 0 && mode == 0o640,
+            format!("stat_rc={stat_rc} mode={mode:o} expected=640 path={create_path}"),
+        );
     }
 }
 
