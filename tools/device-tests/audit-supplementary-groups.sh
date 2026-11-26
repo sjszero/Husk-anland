@@ -8,8 +8,9 @@ ok()  { PASS=$((PASS+1)); echo "  PASS  $1"; }
 bad() { FAIL=$((FAIL+1)); echo "  FAIL  $1"; }
 
 echo "== G-01 supplementary groups survive setgroups and grant group access =="
-groupdel huskgroup 2>/dev/null || true
 userdel -r huskuser 2>/dev/null || true
+groupdel huskgroup 2>/dev/null || true
+groupdel huskuser 2>/dev/null || true
 groupadd -g 1500 huskuser || { bad "primary groupadd"; exit 1; }
 groupadd -g 4242 huskgroup || { bad "groupadd"; exit 1; }
 useradd -u 1500 -g 1500 -m -s /bin/bash huskuser || { bad "useradd"; exit 1; }
@@ -66,10 +67,11 @@ PY
 rc=$?
 if [ "$rc" -eq 0 ]; then ok "supplementary group child probe"; else bad "supplementary group child probe"; fi
 
-# Cleanup must not hide a failed assertion.
+# Cleanup must not hide a failed assertion. Remove the user before its primary
+# group, otherwise userdel leaves an orphan group behind.
+userdel -r huskuser 2>/dev/null || true
 groupdel huskgroup 2>/dev/null || true
 groupdel huskuser 2>/dev/null || true
-userdel -r huskuser 2>/dev/null || true
 rm -rf /tmp/husk-group-audit
 
 echo
