@@ -42,6 +42,7 @@ check:
 	sh tools/ci/audit-readme-header.sh
 	sh tools/ci/test-version-bump.sh
 	sh tools/ci/test-release-notes.sh
+	sh tools/ci/test-session-gpu-escape.sh
 	@$(MAKE) --no-print-directory tools
 	$(HUSK_TOOLS) check-links
 	@$(MAKE) --no-print-directory version-check

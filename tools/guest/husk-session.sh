@@ -18,7 +18,9 @@
 #
 # Environment:
 #   NR_LD      our loader (default: <parent of rootfs>/libld.so)
-#   NR_FORCE_SOFTWARE_GPU   pass-through test hook (see device-adapters.md)
+#   HUSK_GPU=llvmpipe        force the software graphics path for this session
+#   NR_GPU_DEFAULT_OFF       disable loader GPU defaults (truthy values)
+#   NR_FORCE_SOFTWARE_GPU   force software graphics and pin the plan to software
 #
 # IMPORTANT: NR_ROOTFS and NR_LD must be re-exported into the child's
 # environment. `env -i` (and su/login/sg) wipe the environment, and the shim
@@ -104,12 +106,28 @@ LIBS="$ROOTFS/lib/aarch64-linux-gnu:$ROOTFS/usr/lib/aarch64-linux-gnu"
 [ -d "$ROOTFS/usr/lib/gnome-shell" ] && LIBS="$LIBS:$ROOTFS/usr/lib/gnome-shell"
 [ -d "$ROOTFS/usr/lib/aarch64-linux-gnu/gvfs" ] && LIBS="$LIBS:$ROOTFS/usr/lib/aarch64-linux-gnu/gvfs"
 
-# An empty-but-present variable is not the same as an absent one: the GPU plan
-# treats "NR_FORCE_SOFTWARE_GPU exists" as the trigger, so it is only forwarded
-# when it actually has a value.
-force_gpu=
+# GPU escape variables cross the final env -i boundary explicitly. Forwarding
+# only NR_FORCE_SOFTWARE_GPU made the documented `HUSK_GPU=llvmpipe` entry point
+# silently ineffective: env -i removed it, then the loader re-applied the
+# hardware defaults from /etc/husk/gpu-env.
+software_gpu=false
+if [ "${HUSK_GPU:-}" = llvmpipe ]; then
+    software_gpu=true
+fi
 if [ -n "${NR_FORCE_SOFTWARE_GPU:-}" ]; then
-    force_gpu="NR_FORCE_SOFTWARE_GPU=$NR_FORCE_SOFTWARE_GPU"
+    software_gpu=true
+fi
+
+safe_gpu_off=
+gpu_defaults_disabled=false
+if [ -n "${NR_GPU_DEFAULT_OFF:-}" ]; then
+    case "$NR_GPU_DEFAULT_OFF" in
+        0|false|FALSE|False|no|NO|off|OFF)
+            safe_gpu_off="NR_GPU_DEFAULT_OFF=$NR_GPU_DEFAULT_OFF" ;;
+        *)
+            safe_gpu_off=NR_GPU_DEFAULT_OFF=1
+            gpu_defaults_disabled=true ;;
+    esac
 fi
 
 # Language has to be set at the env -i boundary. /etc/profile.d only runs for a
@@ -140,15 +158,20 @@ fi
 # GPU: when the tree carries the kbase-backed PanVK ICD, point Vulkan at it and
 # send GL through Zink, so EGL/GL calls execute on the Mali GPU instead of
 # llvmpipe (evidence 156: renderer goes from "llvmpipe (LLVM …)" to
-# "zink Vulkan 1.3(Mali-G77 MC9)"). HUSK_GPU=llvmpipe keeps the software path,
-# which is what you want while bisecting a rendering bug or on a tree without the
-# ICD. The API ceiling of that combination is GLES 2.0 for now (LIMITATIONS 7).
+# "zink Vulkan 1.3(Mali-G77 MC9)"). Explicit software variables win over that
+# hardware block. The API ceiling of the hardware combination is GLES 2.0 for
+# now (LIMITATIONS 7).
 gpu_env=
 icd=usr/share/vulkan/icd.d/husk_panvk_guest.json
-if [ -r "$ROOTFS/$icd" ] && [ "${HUSK_GPU:-zink}" != llvmpipe ]; then
+if [ "$software_gpu" = true ]; then
+    gpu_defaults_disabled=true
+    gpu_env="HUSK_GPU=llvmpipe LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe MESA_LOADER_DRIVER_OVERRIDE=swrast"
+    [ -n "${NR_FORCE_SOFTWARE_GPU:-}" ] && gpu_env="$gpu_env NR_FORCE_SOFTWARE_GPU=1"
+elif [ "$gpu_defaults_disabled" != true ] && [ -r "$ROOTFS/$icd" ]; then
     gpu_env="VK_ICD_FILENAMES=/$icd VK_DRIVER_FILES=/$icd"
     gpu_env="$gpu_env MESA_LOADER_DRIVER_OVERRIDE=zink GALLIUM_DRIVER=zink"
 fi
+[ -n "$safe_gpu_off" ] && gpu_env="$gpu_env $safe_gpu_off"
 
 # Two things every desktop session needs and that nothing else creates.
 # (evidence 191: both were hit one after the other while restarting a session for real)
@@ -168,7 +191,9 @@ chmod 755 "$ROOTFS$home/Desktop" 2>/dev/null || true
 #    reached: "Couldn't connect to system bus ... Execution of main.js threw
 #    exception". The tree carries the config; start it only when the socket is
 #    gone, and point the child at it either way.
-if [ ! -S "$ROOTFS/run/dbus/system_bus_socket" ]; then
+dbus_config=$ROOTFS/usr/local/share/linuxhub/linuxhub-system-bus.conf
+if [ ! -S "$ROOTFS/run/dbus/system_bus_socket" ] && \
+   [ -x "$ROOTFS/usr/bin/dbus-daemon" ] && [ -f "$dbus_config" ]; then
     mkdir -p "$ROOTFS/run/dbus" 2>/dev/null || true
     rm -f "$ROOTFS/run/dbus/system_bus_socket" "$ROOTFS/run/dbus/pid" 2>/dev/null || true
     ( cd "$ROOTFS" && "$NR_LD" --library-path "$LIBS" usr/bin/env -i \
@@ -218,5 +243,4 @@ exec "$NR_LD" --library-path "$LIBS" usr/bin/env -i -C "$CWD" \
     DBUS_SYSTEM_BUS_ADDRESS="unix:path=/run/dbus/system_bus_socket" \
     NR_FAKE_UID="$uid" NR_FAKE_GID="$gid" \
     $gpu_env \
-    $force_gpu \
     "$@"

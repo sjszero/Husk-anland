@@ -47,12 +47,20 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 为 `PASS=38 FAIL=0`，coverage-sweep 1400 条无泄漏，dpkg `0440` conffile、V4L2、DRM 和
 fd identity 全通过。`make check` 检查 73 个 shell 脚本、284 个 Markdown 文件。
 
-**0.0.32 之后候选修复（尚未发版）**：补充组语义已落到当前 `libld.so` 候选。假用户从
+**0.0.33 发布候选**：补充组语义已落到当前 `libld.so` 候选。假用户从
 guest `/etc/group` 自动得到 `[1500, 4242]`，`setgroups([4242])` 后为 `[4242]`，
 `initgroups()` 后为 `[1500, 4242]`；组权限文件的 `access(R_OK/W_OK)` 也按补充组判断。
 真机门禁 A `PASS=38 FAIL=0`，挂载专项 `PASS=18 FAIL=0`；coverage-sweep 因 rootfs 没有
 `strace` 为 `SKIP`，不能算通过（evidence 260）。**这不是已发布的 0.0.32 资产，发布前仍需
 按版本流程生成 0.0.33 包并重新上传 GitHub Release 资产。**
+
+**GPU 软件逃逸与可选 D-Bus（0.0.33 候选）**：`HUSK_GPU=llvmpipe`、
+`NR_FORCE_SOFTWARE_GPU=1` 和真值 `NR_GPU_DEFAULT_OFF` 现在都穿过 session 的 `env -i`；
+loader 在软件模式下强制 Mesa 软件驱动并隐藏父环境继承的 PanVK/Vulkan 选择器。修前父环境
+已继承 PanVK 时，孙子进程显式切软件仍报 `zink Vulkan 1.3(Mali-G77 MC9)`；修后同一入口报
+`llvmpipe`，默认入口仍是 PanVK。最小 rootfs 缺少 `dbus-daemon` 或 bus 配置时 session 直接
+跳过，不再空等六秒。完整门禁 A `PASS=38 FAIL=0`，coverage-probe PASS，coverage-sweep 因
+rootfs 没有 `strace` 为 `SKIP`（不能算通过）；证据见 277。
 
 **XKB 与 PanVK 加载器默认值（同一候选）**：loader 在 guest 未显式设置
 `XKB_CONFIG_ROOT` 时返回 `<rootfs>/usr/share/X11/xkb`，覆盖登录 shell、桌面 fork、

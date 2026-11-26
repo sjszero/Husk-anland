@@ -7,7 +7,10 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
-## [未发布]
+## [0.0.33] - 2026-11-26
+
+这一版把显式 GPU 软件回退从 session 入口推进到嵌套 exec，并让缺少 D-Bus 的最小 rootfs
+不再空等；同时收口前几轮已完成的身份、组表和路径加固。
 
 ### 修复
 
@@ -37,6 +40,14 @@
   `LANG=zh_CN.UTF-8`、`LANGUAGE=zh_CN:zh`，显式 `en_US.UTF-8` 仍原样保留；只设置
   英文 `LANG`、不设置 `LANGUAGE` 时也不会再被中文 `LANGUAGE` 覆盖。登录 shell 的
   `profile.d` 与 `husk-desktop.sh` 使用同一规则，并新增无需设备的 shell 语义测试。
+- **显式软件 GPU 逃逸真正覆盖嵌套 exec**（evidence 277）。`HUSK_GPU=llvmpipe` 和
+  `NR_FORCE_SOFTWARE_GPU=1` 现在穿过 session 的 `env -i` 边界；loader 在软件模式下强制
+  `LIBGL_ALWAYS_SOFTWARE=1`、`GALLIUM_DRIVER=llvmpipe`、`MESA_LOADER_DRIVER_OVERRIDE=swrast`
+  并隐藏父环境继承的 PanVK/Vulkan 选择器。默认路径仍选择 PanVK；修复前父环境继承 PanVK 后
+  孙子进程显式切软件仍报 `zink`，修复后同一探针报 `llvmpipe`。
+- **最小 rootfs 不再等待不存在的 D-Bus**（evidence 277）。session 只有在
+  `dbus-daemon` 可执行且 bus 配置存在时才尝试启动系统总线，测试夹具不再依赖 `nc -lU`；
+  缺少 daemon/配置时直接跳过，避免六秒空等和 Linux CI 假失败。
 
 ### 发布工程
 
@@ -1378,7 +1389,8 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.32...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.33...HEAD
+[0.0.33]: https://github.com/xishanp/Husk/releases/tag/v0.0.33
 [0.0.32]: https://github.com/xishanp/Husk/releases/tag/v0.0.32
 [0.0.31]: https://github.com/xishanp/Husk/releases/tag/v0.0.31
 [0.0.30]: https://github.com/xishanp/Husk/releases/tag/v0.0.30

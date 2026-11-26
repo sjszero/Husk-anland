@@ -197,7 +197,7 @@ unsafe fn has_slot(name: &[u8]) -> bool {
     false
 }
 
-unsafe fn push_fill(name: &[u8], value: &[u8]) {
+unsafe fn push_rule(name: &[u8], value: &[u8], mode: u8) {
     if name.is_empty()
         || name.len() >= NAME_MAX
         || value.len() >= VALUE_MAX
@@ -211,8 +211,36 @@ unsafe fn push_fill(name: &[u8], value: &[u8]) {
     s.value[..value.len()].copy_from_slice(value);
     s.value[value.len()] = 0;
     s.vlen = value.len() as u16;
-    s.mode = MODE_FILL;
+    s.mode = mode;
     SLOT_N += 1;
+}
+
+unsafe fn push_fill(name: &[u8], value: &[u8]) {
+    push_rule(name, value, MODE_FILL);
+}
+
+unsafe fn push_force(name: &[u8], value: &[u8]) {
+    push_rule(name, value, MODE_FORCE);
+}
+
+unsafe fn push_hide(name: &[u8]) {
+    push_rule(name, b"", MODE_HIDE);
+}
+
+// `HUSK_GPU=llvmpipe` must mean software for the whole exec boundary, not just
+// "stop adding hardware defaults". A shell already launched by Husk carries the
+// hardware VK/Mesa variables in environ; a child `env HUSK_GPU=llvmpipe prog`
+// would otherwise inherit them and still select PanVK. Force the software
+// variables and hide the hardware selectors before materialising envp.
+unsafe fn add_software_defaults() {
+    push_force(b"LIBGL_ALWAYS_SOFTWARE", b"1");
+    push_force(b"GALLIUM_DRIVER", b"llvmpipe");
+    push_force(b"MESA_LOADER_DRIVER_OVERRIDE", b"swrast");
+    push_hide(b"VK_ICD_FILENAMES");
+    push_hide(b"VK_DRIVER_FILES");
+    push_hide(b"__EGL_VENDOR_LIBRARY_FILENAMES");
+    push_hide(b"MESA_GLES_VERSION_OVERRIDE");
+    push_hide(b"PANVK_DXVK_COMPAT");
 }
 
 unsafe fn add_builtin_defaults() {
@@ -222,11 +250,17 @@ unsafe fn add_builtin_defaults() {
 }
 
 unsafe fn load() {
-    // 逃逸开关先看，看命中就不必碰文件系统。
+    // 逃逸开关先看，看命中就不必碰文件系统。显式软件请求还要覆盖父进程已继承的
+    // 硬件变量；只“停止注入”不够。
     if let Some(v) = crate::env_lookup(b"HUSK_GPU") {
         if v == b"llvmpipe" {
+            add_software_defaults();
             return;
         }
+    }
+    if crate::env_lookup(b"NR_FORCE_SOFTWARE_GPU").is_some() {
+        add_software_defaults();
+        return;
     }
     // 值要按布尔看：只要变量存在就关，会让 `NR_GPU_DEFAULT_OFF=0` 也关掉注入
     // （实证过：0/false 写进去，登录 shell 里 `gl-probe` 报 llvmpipe）。
