@@ -74,12 +74,15 @@ const AT_FDCWD: CInt = -100;
 // mount made by one process is visible to processes started after it. A mount
 // made while another process is already running is not retroactively visible
 // to that process; that is the documented difference from a real namespace.
-const MNT_MAX: usize = 8;
+// 8 条不够：实机跑 `05-mount-audit.sh` 时 B-03 先放满 8 条，B-04 再挂就直接
+// ENOSPC（evidence 286 §9）——而一个 systemd/桌面会话动辄就要十几条 tmpfs/bind。
+// 64 条 = 最坏 64 × 261 = 16 704 字节，落在 MNT_SAVE_MAX 里。
+const MNT_MAX: usize = 64;
 const MNT_P: usize = 128;
-// Worst case 8 entries of 1+3+127+1+127+1 = 260 bytes = 2080. The old 2048
+// Worst case 64 entries of 1+3+127+1+127+1 = 261 bytes = 16 704. The old 2048
 // byte buffer made a full table truncate its last line, which parses back as
 // a *different* mount.
-const MNT_SAVE_MAX: usize = 4096;
+const MNT_SAVE_MAX: usize = 20480;
 const MNT_FILE: &[u8] = b"/run/husk/mounts\0";
 // 写侧先写这个再 rename() 覆盖 MNT_FILE。见 mnt_save_atomic()。
 const MNT_FILE_TMP: &[u8] = b"/run/husk/mounts.tmp\0";
@@ -108,6 +111,9 @@ static mut MNT: [MntE; MNT_MAX] = [MntE {
     tmpfs: 0,
 }; MNT_MAX];
 static mut MNT_N: usize = 0;
+/// 表超过一个 4 KiB 栈缓冲时（>15 条）的落点。只有持 MNT_LOCK 的线程会碰它，
+/// 因此不会重演 mnt_read_file 注释里那次「两个线程写同一块 static」的事故。
+static mut MNT_IO: [u8; MNT_SAVE_MAX] = [0; MNT_SAVE_MAX];
 // 0 = not loaded, 1 = one thread is reading the file, 2 = ready. The reader is
 // recorded so a re-entrant call from that same thread (abs_guest() inside the
 // read) does not wait for itself.
@@ -2293,8 +2299,45 @@ unsafe fn mnt_read_file() {
         return;
     }
     let nn = (n as usize).min(CAP);
-    let buf = core::slice::from_raw_parts(base as *const u8, nn);
+    if nn < CAP {
+        // 整张表都在这个 4 KiB 栈缓冲里，解析不必持锁读文件。
+        syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+        let buf = core::slice::from_raw_parts(base as *const u8, nn);
+        mnt_lock();
+        mnt_parse(buf);
+        mnt_unlock();
+        return;
+    }
+    // 表 ≥ 4 KiB（多于 15 条）：重新从 0 读，边读边落到 static 缓冲，并在
+    // MNT_LOCK 里完成「读 + 解析」。这是慢路径，只有大表才会走到。
+    syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+    let fd = mnt_open_table(0, 0);
+    if fd < 0 {
+        return;
+    }
     mnt_lock();
+    let dst = core::ptr::addr_of_mut!(MNT_IO) as *mut u8;
+    let mut total = 0usize;
+    while total < MNT_SAVE_MAX {
+        let r = syscall4(
+            SYS_READ,
+            fd as usize,
+            dst.add(total) as usize,
+            MNT_SAVE_MAX - total,
+            0,
+        );
+        if r <= 0 {
+            break;
+        }
+        total += r as usize;
+    }
+    syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+    let buf = core::slice::from_raw_parts(dst as *const u8, total);
+    mnt_parse(buf);
+    mnt_unlock();
+}
+
+unsafe fn mnt_parse(buf: &[u8]) {
     MNT_N = 0;
     let mut i = 0usize;
     while i < buf.len() && MNT_N < MNT_MAX {
@@ -2330,7 +2373,6 @@ unsafe fn mnt_read_file() {
         ent.tmpfs = if f[0] == b"t" { 1 } else { 0 };
         MNT_N += 1;
     }
-    mnt_unlock();
 }
 
 /// Make sure the table is in memory before anybody reads it. The loading thread

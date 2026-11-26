@@ -256,5 +256,21 @@ umount: /mnt/ro: must be superuser to unmount.
    要么看的是 `/run/mount/utab` 的属主——**根因 UNKNOWN，本轮没改**。
    表只进不出，于是 `store directories left behind` 也一起出现。
 
-这两条记为新缺陷 A-20（挂载表只进不出 + `umount` 在 guest 里不可用），归属第 3 轮挂载语义，
-下一轮开工先解它。
+这两条记为新缺陷 A-20（挂载表只进不出 + `umount` 在 guest 里不可用），归属第 3 轮挂载语义。
+
+### 修一半：容量 8 → 64（FACT）
+
+`MNT_MAX = 8` 就是这个 ENOSPC 的来源。改成 64（最坏 64 × 261 = 16 704 字节），
+`MNT_SAVE_MAX` 4096 → 20480，读表拆两条路：整表 < 4 KiB 时仍走原来的栈缓冲（不持锁读），
+≥ 4 KiB 时重读进 static 缓冲并在 `MNT_LOCK` 里「读 + 解析」（static 只在持锁线程手里，
+不会重演注释里那次两线程写同一块 static 的事故）。重跑同一个脚本：**15/3 → 16/2**，
+B-04 的 `No space left on device` 消失。
+
+### 新缺陷 A-21（FACT，未修）
+
+剩下的两项里，`resolution errors: EBADF: '/usr/bin/bash'` 现在**稳定复现**
+（连跑两次都是同样三条：`/usr/bin/bash`、`/usr/bin/bash`、`usr/bin/bash`），只在
+B-05/B-06 的「多线程解析 + 挂载 churn」下出现，普通路径解析不复现。
+`/usr/bin/bash` 不是被 churn 的路径，所以嫌疑在 `rootfd()` 的高位 fd 重新验证/重开那条
+路径（`lib.rs:1335` `rootfd_alive`、`:1566` `rootfd`）：多线程同时判定失效并重开时，
+可能有一个线程把另一个正在用的号关掉。下一轮从这里查。
