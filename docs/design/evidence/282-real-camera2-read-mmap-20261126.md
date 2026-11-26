@@ -106,4 +106,3 @@ UNKNOWN：换到正常光照场景后的画面质量、白平衡、曝光收敛�
 |---|---|
 | `rootfs-full/root/libld.so` | `c7d8577ed233fb95a6280d50b3ce891378e5a0e1f9a08daa0bb891ec2c0fabc4` |
 | `rootfs-full/root/v4l2-test` | `d5ce7f498fdbb74a1441775651f0b750937f94870aa3eb68e3895c91f8a44645` |
-
