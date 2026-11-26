@@ -263,6 +263,10 @@ struct Db {
 
 impl Db {
     fn load() -> Db {
+        // A previous run may have died between the two renames of one file.
+        // Callers hold lock_pwdb() before calling this, so the repair cannot
+        // race another husk-usermgr.
+        recover_backups_in(&[PASSWD, SHADOW, GROUP, GSHADOW]);
         Db {
             passwd: read_entries(PASSWD, parse_pw),
             shadow: read_entries(SHADOW, parse_sh),
@@ -304,14 +308,7 @@ impl Db {
             }
         }
 
-        for (index, (path, tmp)) in staged.iter().enumerate() {
-            if let Err(e) = fs::rename(tmp, path) {
-                for (_, rest) in staged.iter().skip(index) {
-                    let _ = fs::remove_file(rest);
-                }
-                return Err(format!("cannot rename {tmp} -> {path}: {e}"));
-            }
-        }
+        install_staged(&staged)?;
 
         // The directory entry changes are the part a crash can lose even after
         // the file contents are durable.
@@ -371,6 +368,91 @@ impl Db {
                 _ => None,
             })
             .collect()
+    }
+}
+
+/// Suffix of the last complete copy of a database, kept for the duration of the
+/// swap only.
+const BAK: &str = ".husk-bak";
+
+fn bak_of(path: &str) -> String {
+    format!("{path}{BAK}")
+}
+
+/// Swap the staged files in, or put every database back the way it was.
+///
+/// `save()` stages all four first, so a failure before this call touches
+/// nothing. This function covers the remaining window: the four renames. Before
+/// it, a failure on the third rename left `passwd` and `shadow` new and `group`
+/// old, with an error but no way back — the account database is then simply
+/// inconsistent.
+///
+/// Each target is moved aside to `<name>.husk-bak` before the staged file takes
+/// its place, and a failure anywhere rolls the already-installed ones back. A
+/// crash *between* those two renames leaves only the backup, which
+/// [`recover_backups_in`] puts back on the next run.
+fn install_staged(staged: &[(&str, String)]) -> R<()> {
+    let mut installed: Vec<&str> = Vec::with_capacity(staged.len());
+    for (index, (path, tmp)) in staged.iter().enumerate() {
+        let bak = bak_of(path);
+        // Anything already there is a leftover from a swap that completed.
+        let _ = fs::remove_file(&bak);
+        if Path::new(path).exists() {
+            if let Err(e) = fs::rename(path, &bak) {
+                rollback(&installed);
+                for (_, rest) in staged.iter().skip(index) {
+                    let _ = fs::remove_file(rest);
+                }
+                return Err(format!("cannot move {path} aside: {e}"));
+            }
+        }
+        if let Err(e) = fs::rename(tmp, path) {
+            if Path::new(&bak).exists() {
+                let _ = fs::rename(&bak, path);
+            }
+            rollback(&installed);
+            for (_, rest) in staged.iter().skip(index + 1) {
+                let _ = fs::remove_file(rest);
+            }
+            return Err(format!("cannot rename {tmp} -> {path}: {e}"));
+        }
+        installed.push(path);
+    }
+    // Everything landed: the backups are stale copies of the old database.
+    for path in installed.iter() {
+        let _ = fs::remove_file(bak_of(path));
+    }
+    Ok(())
+}
+
+/// Undo the renames already done, newest first.
+fn rollback(installed: &[&str]) {
+    for path in installed.iter().rev() {
+        let bak = bak_of(path);
+        let _ = fs::remove_file(path);
+        if Path::new(&bak).exists() {
+            let _ = fs::rename(&bak, path);
+        }
+    }
+}
+
+/// Finish or discard whatever a crashed swap left behind.
+///
+/// One backup plus a missing database means the crash happened between "move the
+/// old file aside" and "put the new one in place": the backup is the last
+/// complete state, so restore it. Both present means the swap finished and only
+/// the cleanup was lost. Neither present needs nothing.
+fn recover_backups_in(paths: &[&str]) {
+    for path in paths.iter() {
+        let bak = bak_of(path);
+        if !Path::new(&bak).exists() {
+            continue;
+        }
+        if Path::new(path).exists() {
+            let _ = fs::remove_file(&bak);
+        } else {
+            let _ = fs::rename(&bak, path);
+        }
     }
 }
 
@@ -2100,6 +2182,88 @@ mod tests {
                 "{n}.husk.tmp left behind"
             );
         }
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    /// A failure on the third rename has to put the first two back. Before this,
+    /// `passwd` and `shadow` stayed new while `group` was still the old file - a
+    /// mixed account database, reported as an error but impossible to undo.
+    #[test]
+    fn install_staged_rolls_back_when_a_later_file_cannot_be_replaced() {
+        let d = tmpdir("rollback");
+        let names = ["passwd", "shadow", "group", "gshadow"];
+        for n in names.iter() {
+            fs::write(format!("{d}/{n}"), format!("old-{n}\n")).unwrap();
+        }
+        let mut paths: Vec<String> = Vec::new();
+        let mut tmps: Vec<String> = Vec::new();
+        for n in names.iter().copied() {
+            let path = format!("{d}/{n}");
+            let body = format!("new-{n}\n");
+            tmps.push(write_tmp(&path, &body, 0o644).unwrap());
+            paths.push(path);
+        }
+        let staged: Vec<(&str, String)> = paths
+            .iter()
+            .map(|p| p.as_str())
+            .zip(tmps.iter().cloned())
+            .collect();
+        // A non-empty directory in the backup slot makes `rename(path -> bak)`
+        // fail for the third database, after two have already been swapped.
+        let squatter = format!("{d}/group{BAK}");
+        fs::create_dir_all(format!("{squatter}/squat")).unwrap();
+
+        let err = install_staged(&staged).unwrap_err();
+        assert!(err.contains("cannot move"), "unexpected error: {err}");
+
+        for n in ["passwd", "shadow"] {
+            assert_eq!(
+                fs::read_to_string(format!("{d}/{n}")).unwrap(),
+                format!("old-{n}\n"),
+                "{n} was not rolled back"
+            );
+        }
+        assert!(
+            !Path::new(&format!("{d}/passwd{BAK}")).exists(),
+            "rolled-back backup left behind"
+        );
+        assert!(
+            !Path::new(&format!("{d}/gshadow.husk.tmp")).exists(),
+            "staged file after the failure left behind"
+        );
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    /// Crash between "old file moved aside" and "new file in place": only the
+    /// backup exists. It is the last complete state, so it wins.
+    #[test]
+    fn recover_restores_a_backup_left_by_a_crashed_swap() {
+        let d = tmpdir("recover-restore");
+        let path = format!("{d}/passwd");
+        fs::write(bak_of(&path), "old\n").unwrap();
+        recover_backups_in(&[path.as_str()]);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "old\n");
+        assert!(!Path::new(&bak_of(&path)).exists(), "backup not consumed");
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    /// Both present means the swap completed and only the cleanup was lost.
+    #[test]
+    fn recover_drops_a_stale_backup_when_the_target_exists() {
+        let d = tmpdir("recover-stale");
+        let path = format!("{d}/shadow");
+        fs::write(&path, "new\n").unwrap();
+        fs::write(bak_of(&path), "older\n").unwrap();
+        recover_backups_in(&[path.as_str()]);
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "new\n",
+            "a completed swap must not be undone"
+        );
+        assert!(
+            !Path::new(&bak_of(&path)).exists(),
+            "stale backup left behind"
+        );
         let _ = fs::remove_dir_all(&d);
     }
 }
