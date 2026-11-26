@@ -375,6 +375,18 @@ STREAMON/DQBUF 与多线程压力仍未验证，UNKNOWN。
 通过 `SCM_RIGHTS` 把假 DRM fd 交给另一进程后的表身份恢复仍未实现；多线程同时
 `dup2`/`dup3`/`close` 的长时压力也仍是 UNKNOWN。
 
+## 23 · DRM 假节点的 O_CLOEXEC 与初始化失败（2026-11-26）
+
+0.0.30 起，path-shim 和 preload 返回的 DRM 假 fd 会保留调用方请求的 `O_CLOEXEC`；旧实现
+固定返回没有该标志的 fd，导致 `exec` 后意外继承。真机负对照为 `fdflags=0`，修后为
+`fdflags=1`（evidence 257）。
+
+kbase 初始化失败路径也会关闭临时 mali fd，并把负 errno 返回给 open 调用方。该分支没有在
+真机上人为制造失败，因此只能算源码审计修复，不能写成设备已验证。
+
+独立 `libdrm_preload.so` 仍是内部/实验组件，当前发布 tar 不包含它；path-shim 的同项修复
+随 `libld.so` 发布。
+
 ## 22 · DRM preload 的 mmap / ioctl 失败语义（2026-11-26）
 
 0.0.29 起，`libdrm_preload.so` 的 `mmap` 失败按 ABI 返回 `MAP_FAILED`，并保留内核给出的

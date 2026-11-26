@@ -4771,13 +4771,13 @@ unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt)
                 // fd itself is the interface, and kbase DRM_CTX would be wrong.
                 if plan::gpu_family() != plan::GPU_ADRENO {
                     if let Some(api) = drm_api() {
-                        return drm_api_open(&api);
+                        return drm_api_open(&api, flags);
                     }
                 }
                 if !drm_shim_off() {
                     match plan::gpu_family() {
                         // Our DRM semantics layer on top of the vendor kbase.
-                        plan::GPU_MALI => return drm_fake_open(),
+                        plan::GPU_MALI => return drm_fake_open(flags),
                         // Adreno: present a render node backed by the real
                         // /dev/kgsl-3d0. KGSL ioctls and mmap stay direct.
                         plan::GPU_ADRENO => return adreno_open(flags),
@@ -4859,11 +4859,11 @@ unsafe fn openat_inner(dirfd: CInt, path: *const CChar, flags: CInt, mode: CInt)
     if is_drm_node(&buf[..bl]) {
         if plan::gpu_family() != plan::GPU_ADRENO {
             if let Some(api) = drm_api() {
-                return drm_api_open(&api);
+                return drm_api_open(&api, flags);
             }
         }
         match plan::gpu_family() {
-            plan::GPU_MALI => return drm_fake_open(),
+            plan::GPU_MALI => return drm_fake_open(flags),
             plan::GPU_ADRENO => return adreno_open(flags),
             plan::GPU_DRM => {}
             _ => {
@@ -12030,7 +12030,7 @@ fn dev_major_minor(rdev: u64) -> (u32, u32) {
  * 共用一份 DRM 状态（一个 kbase context），所以由 preload 独占，我们把调用转过去。
  * 表：[fake_open, ioctl, mmap, is_fake]，地址由 preload 的构造函数写进环境变量。
  */
-type DrmFakeOpen = unsafe extern "C" fn() -> CInt;
+type DrmFakeOpen = unsafe extern "C" fn(CInt) -> CInt;
 type DrmIoctlFn = unsafe extern "C" fn(CInt, u64, *mut u8) -> CInt;
 type DrmMmapFn = unsafe extern "C" fn(*mut u8, usize, CInt, CInt, CInt, i64) -> *mut u8;
 type DrmIsFakeFn = unsafe extern "C" fn(CInt) -> CInt;
@@ -12065,9 +12065,16 @@ unsafe fn drm_api_is_fake(api: &[usize; 4], fd: CInt) -> bool {
     f(fd) != 0
 }
 
-unsafe fn drm_api_open(api: &[usize; 4]) -> CInt {
+unsafe fn drm_api_open(api: &[usize; 4], flags: CInt) -> CInt {
     let f: DrmFakeOpen = core::mem::transmute(api[0]);
-    f()
+    let fd = f(flags);
+    if fd >= 0 && flags & O_CLOEXEC != 0 {
+        if let Err(e) = fd_set_cloexec(fd) {
+            syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+            return set_errno(e);
+        }
+    }
+    fd
 }
 
 unsafe fn drm_api_ioctl(api: &[usize; 4], fd: CInt, request: u64, arg: *mut u8) -> CInt {
@@ -12490,9 +12497,27 @@ unsafe fn drm_unlock() {
     DRM_LOCK.store(false, Ordering::Release);
 }
 
-/// 假节点打开：懒初始化 kbase context，然后给调用方一个真 fd（/dev/null），
+unsafe fn fd_set_cloexec(fd: CInt) -> Result<(), CInt> {
+    let old = syscall4(SYS_FCNTL, fd as usize, F_GETFD, 0, 0);
+    if old < 0 {
+        return Err((-old) as CInt);
+    }
+    let r = syscall4(
+        SYS_FCNTL,
+        fd as usize,
+        F_SETFD,
+        (old as usize) | FD_CLOEXEC,
+        0,
+    );
+    if r < 0 {
+        return Err((-r) as CInt);
+    }
+    Ok(())
+}
+
+/// 假节点打开：懒初始化 kbase context，然后给调用方一个真 fd（/dev/mali0），
 /// 这样 close/poll/dup 都不会炸；对它的 ioctl/mmap 都进我们这里。
-unsafe fn drm_fake_open() -> CInt {
+unsafe fn drm_fake_open(flags: CInt) -> CInt {
     if verbose_on() {
         dbg(&[b"nrshim drm: fake open\n"]);
     }
@@ -12514,9 +12539,15 @@ unsafe fn drm_fake_open() -> CInt {
                 return set_errno(2);
             }
             DRM_MALI_FD = fd as CInt;
-            let _ = DRM_CTX.init(DRM_MALI_FD, |f, req, arg| {
+            let init = DRM_CTX.init(DRM_MALI_FD, |f, req, arg| {
                 syscall4(SYS_IOCTL, f as usize, req as usize, arg as usize, 0) as i64
             });
+            if let Err(e) = init {
+                syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+                DRM_MALI_FD = -1;
+                once_end(&DRM_STATE, false);
+                return set_errno(-e);
+            }
             once_end(&DRM_STATE, true);
         } else if DRM_STATE.load(Ordering::Acquire) != 2 {
             // 别的线程正在初始化（或刚失败）：这次按「拿不到设备」答，不假装成功。
@@ -12528,6 +12559,12 @@ unsafe fn drm_fake_open() -> CInt {
     let fd = syscall4(SYS_MEMFD_CREATE, b"husk-drm\0".as_ptr() as usize, 0, 0, 0);
     if fd < 0 {
         return set_errno(5);
+    }
+    if flags & O_CLOEXEC != 0 {
+        if let Err(e) = fd_set_cloexec(fd as CInt) {
+            syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+            return set_errno(e);
+        }
     }
     if !register_fake_fd(fd as CInt) {
         // 8 个槽位用完了：这个 fd 不会被接管，对它的 ioctl/mmap 会落到 memfd 上。

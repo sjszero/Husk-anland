@@ -23,10 +23,15 @@ extern "C" {
 
 const SYS_OPENAT: i64 = 56;
 const SYS_IOCTL: i64 = 29;
+const SYS_FCNTL: i64 = 25;
+const F_GETFD: i64 = 1;
+const F_SETFD: i64 = 2;
+const FD_CLOEXEC: i64 = 1;
 const SYS_MMAP: i64 = 222;
 const SYS_CLOSE: i64 = 57;
 const AT_FDCWD: i32 = -100;
 const O_RDWR: i32 = 2;
+const O_CLOEXEC: i32 = 0o2000000;
 
 static LOCK: AtomicBool = AtomicBool::new(false);
 static mut CTX: drm_shim::DrmCtx = drm_shim::DrmCtx::empty();
@@ -82,6 +87,20 @@ unsafe fn raw_syscall3(num: i64, a: i64, b: i64, c: i64) -> i64 {
         options(nostack)
     );
     ret
+}
+
+unsafe fn apply_cloexec(fd: i32) -> i32 {
+    let old = raw_syscall3(SYS_FCNTL, fd as i64, F_GETFD, 0);
+    if old < 0 {
+        set_errno((-old) as i32);
+        return -1;
+    }
+    let r = raw_syscall3(SYS_FCNTL, fd as i64, F_SETFD, old | FD_CLOEXEC);
+    if r < 0 {
+        set_errno((-r) as i32);
+        return -1;
+    }
+    0
 }
 
 fn ioctl_raw(fd: i32, req: u64, arg: *mut u8) -> i64 {
@@ -180,8 +199,8 @@ unsafe fn is_drm_node(p: *const u8) -> bool {
     s == b"/dev/dri/renderD128" || s == b"/dev/dri/card0"
 }
 
-/// 假节点：懒初始化 kbase context，返回真 fd（/dev/null）
-unsafe fn fake_drm_open() -> i32 {
+/// 假节点：懒初始化 kbase context，返回真 fd（/dev/mali0）
+unsafe fn fake_drm_open(flags: i32) -> i32 {
     if debug_on() {
         sycall_write(b"[preload] fake_drm_open enter\n");
     }
@@ -200,21 +219,30 @@ unsafe fn fake_drm_open() -> i32 {
                 b"[preload] CTX.init FAIL\n"
             });
         }
-        if ir.is_err() {
+        if let Err(e) = ir {
+            raw_syscall3(SYS_CLOSE, mali as i64, 0, 0);
             unlock();
+            set_errno(-e);
             return -1;
         }
     }
     unlock();
     // 用真的 /dev/mali0：dup 出来的 fd 靠 readlink 里的 "mali" 认回来，
     // libdrm 那边 fstat 也能看到一个合法的字符设备（memfd 的 st_rdev 是 0:0，会被当成非 DRM 设备）。
-    open_raw(b"/dev/mali0\0", O_RDWR, 0)
+    let fd = open_raw(b"/dev/mali0\0", O_RDWR, 0);
+    if fd >= 0 && flags & O_CLOEXEC != 0 && apply_cloexec(fd) < 0 {
+        let e = *__errno_location();
+        raw_syscall3(SYS_CLOSE, fd as i64, 0, 0);
+        set_errno(e);
+        return -1;
+    }
+    fd
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn open(path: *const u8, flags: i32, mode: i32) -> i32 {
     if is_drm_node(path) {
-        return fake_drm_open();
+        return fake_drm_open(flags);
     }
     if path.is_null() {
         set_errno(22);
@@ -236,7 +264,7 @@ pub unsafe extern "C" fn open64(path: *const u8, flags: i32, mode: i32) -> i32 {
 #[no_mangle]
 pub unsafe extern "C" fn openat(dirfd: i32, path: *const u8, flags: i32, mode: i32) -> i32 {
     if is_drm_node(path) {
-        return fake_drm_open();
+        return fake_drm_open(flags);
     }
     // `syscall` here is glibc's wrapper: it already returns -1 and writes errno.
     // Interpreting -1 as a raw -errno used to overwrite ENOENT with EPERM, and
@@ -509,8 +537,13 @@ extern "C" {
 const ENVIRON: *mut *mut u8 = &raw mut environ as *mut *mut u8;
 
 #[no_mangle]
+pub unsafe extern "C" fn husk_drm_fake_open_flags(flags: i32) -> i32 {
+    fake_drm_open(flags)
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn husk_drm_fake_open() -> i32 {
-    fake_drm_open()
+    fake_drm_open(0)
 }
 
 #[no_mangle]
@@ -552,7 +585,7 @@ static mut API: [usize; 4] = [0; 4];
 static mut API_ENV: [u8; 32] = [0; 32];
 
 unsafe extern "C" fn api_init() {
-    API[0] = husk_drm_fake_open as usize;
+    API[0] = husk_drm_fake_open_flags as usize;
     API[1] = husk_drm_ioctl as usize;
     API[2] = husk_drm_mmap as usize;
     API[3] = husk_drm_is_fake as usize;

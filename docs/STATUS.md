@@ -26,6 +26,12 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 **仓库布局**：`runtime/crates/{path-shim,nr-tools,runtime-core,gpu-env}`（Rust）、`tools/loader/*.S`（裸汇编，仅入口与 hook）、
 `tools/device-tests/*.sh`、`docs/design/`（设计 + `evidence/` 原始记录）。
 
+**0.0.30 DRM 假节点 O_CLOEXEC**：path-shim 与 preload 对 `/dev/dri/renderD128` 的假 fd
+现在保留调用方传入的 `O_CLOEXEC`。旧 loader 的负对照是 `fdflags=0`，修后真机两项都是
+`fdflags=1`（evidence 257）。同一轮修复了 kbase 初始化失败时的 mali fd 泄漏和 errno
+丢失；失败分支没有人为注入，标为 UNVERIFIED。path-shim 的修复进入发布包的 `libld.so`，
+独立 `libdrm_preload.so` 仍不在发布 tar 中。
+
 **0.0.29 DRM preload mmap/ioctl 失败语义**：`libdrm_preload.so` 的 `mmap` 失败现在返回
 `MAP_FAILED` 并保留 `EBADF`，不再返回 `NULL`/`EPERM`；普通 fd 的 `ioctl` 失败保留
 `ENOTTY`，DRM 回调则拿到原始负 errno。旧 0.0.28 负对照为 `mmap rc=0 errno=1`、

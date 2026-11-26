@@ -7,6 +7,36 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.30] - 2026-11-26
+
+> 主题：**补齐 DRM 假节点的 `O_CLOEXEC` 语义，并清理 kbase 初始化失败路径**。
+> 这一版不改变 GPU 后端，不把 preload 的实验边界写成已经产品化。
+
+### 修复
+
+- **path-shim 的 DRM 假节点保留 `O_CLOEXEC`**（evidence 257）。旧 loader 对
+  `/dev/dri/renderD128` 返回的 memfd 始终是 `FD_CLOEXEC=0`，带 `O_CLOEXEC` 打开也会泄漏到
+  `exec` 子进程；现在按调用方 flags 设置，失败则关闭 fd 并返回真实 errno。
+- **preload 的 DRM 假节点也保留 `O_CLOEXEC`**（evidence 257）。`open` / `open64` /
+  `openat` / `openat64` 不再丢弃这个描述符标志；API 交接表改为把 flags 传进来。
+- **kbase 初始化失败不再泄漏 mali fd**（evidence 257）。两层都会关闭初始化用的 fd，并把
+  `DrmCtx::init` 的负 errno 还给调用方；旧 path-shim 还曾把失败的上下文标记为 ready。
+- **fd identity 门禁新增两项**：path-shim 和 preload 的 `O_CLOEXEC` 各一条。
+
+### 验证
+
+- 旧 0.0.29 负对照：`pathshim-drm-open-cloexec|FAIL|fdflags=0`、
+  `drm-preload-open-cloexec|FAIL|fdflags=0`。
+- 修后真机：两项均为 `PASS|fdflags=1`。
+- 完整门禁 A、`make check` 与发布构建结果见 evidence 257。
+
+### 边界
+
+- FACT：动态证据来自 RMX3357 / MT6893 / Mali-G77 / Android 13 / kernel 4.19.191 / 4 KiB。
+- FACT：path-shim 的修复进入 `libld.so`；独立 `libdrm_preload.so` 仍不在发布 tar 中。
+- UNKNOWN：Adreno/KGSL 真机上的同路径。
+- UNVERIFIED：kbase 初始化失败分支没有在真实 Mali 设备上人为注入失败，结论来自代码路径审计。
+
 ## [0.0.29] - 2026-11-26
 
 > 主题：**修掉 `libdrm_preload.so` 的 `mmap` 失败返回值和 `ioctl` errno 语义**。
@@ -1209,7 +1239,8 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.29...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.30...HEAD
+[0.0.30]: https://github.com/xishanp/Husk/releases/tag/v0.0.30
 [0.0.29]: https://github.com/xishanp/Husk/releases/tag/v0.0.29
 [0.0.28]: https://github.com/xishanp/Husk/releases/tag/v0.0.28
 [0.0.27]: https://github.com/xishanp/Husk/releases/tag/v0.0.27

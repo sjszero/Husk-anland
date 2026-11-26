@@ -14,6 +14,7 @@ use std::ffi::{c_void, CString};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
+use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -35,6 +36,27 @@ fn line(name: &str, ok: bool, detail: impl AsRef<str>) {
         if ok { "PASS" } else { "FAIL" },
         detail.as_ref()
     );
+}
+
+fn test_pathshim_drm_open_cloexec() {
+    const NAME: &str = "pathshim-drm-open-cloexec";
+    match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_CLOEXEC)
+        .open("/dev/dri/renderD128")
+    {
+        Ok(file) => {
+            let fd = file.as_raw_fd();
+            let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+            line(
+                NAME,
+                flags >= 0 && flags & libc::FD_CLOEXEC != 0,
+                format!("fd={fd} fdflags={flags} expected_cloexec=1"),
+            );
+        }
+        Err(e) => line(NAME, false, format!("open /dev/dri/renderD128: {e}")),
+    }
 }
 
 fn open_video() -> Result<File, String> {
@@ -511,6 +533,27 @@ fn test_drm_preload() {
         format!("rc={rc} errno={error} expected=-1/{}", libc::ENOENT),
     );
 
+    const OPEN_CLOEXEC: &str = "drm-preload-open-cloexec";
+    let render = CString::new("/dev/dri/renderD128").unwrap();
+    let render_fd = unsafe { preload_open(render.as_ptr(), libc::O_RDWR | libc::O_CLOEXEC, 0) };
+    if render_fd < 0 {
+        line(
+            OPEN_CLOEXEC,
+            false,
+            format!("open rc={render_fd} errno={}", errno()),
+        );
+    } else {
+        let fdflags = unsafe { libc::fcntl(render_fd, libc::F_GETFD) };
+        line(
+            OPEN_CLOEXEC,
+            fdflags >= 0 && fdflags & libc::FD_CLOEXEC != 0,
+            format!("fd={render_fd} fdflags={fdflags} expected_cloexec=1"),
+        );
+        unsafe {
+            libc::close(render_fd);
+        }
+    }
+
     const MMAP_FAILURE: &str = "drm-preload-mmap-failure-errno";
     let mapped = unsafe {
         preload_mmap(
@@ -602,6 +645,7 @@ fn main() {
     let rootfs = std::env::var("NR_ROOTFS").unwrap_or_else(|_| "/".into());
     line("start", true, format!("rootfs={rootfs}"));
 
+    test_pathshim_drm_open_cloexec();
     test_v4l2_overwrite(&rootfs, false, "v4l2-dup2-ordinary-over-fake");
     test_v4l2_overwrite(&rootfs, true, "v4l2-dup3-ordinary-over-fake");
     test_v4l2_dup_preserved(&rootfs);

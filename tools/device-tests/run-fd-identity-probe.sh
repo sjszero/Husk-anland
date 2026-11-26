@@ -94,9 +94,11 @@ want 'fdidentity|netlink-dup3-ordinary-over-fake|PASS|' 'netlink dup3 普通 soc
 want 'fdidentity|netlink-dup2-fake-preserved|PASS|' 'netlink 假 fd 的 dup2 副本在源关闭后仍是 AF_NETLINK'
 want 'fdidentity|drm-preload-dup2-ordinary-over-fake|PASS|' 'drm preload 的假 fd 被普通文件覆盖后不再认成 DRM'
 want 'fdidentity|drm-preload-dup2-fake-preserved|PASS|' 'drm preload 的假 fd 复制副本在源关闭后仍有效'
+want 'fdidentity|pathshim-drm-open-cloexec|PASS|' 'path-shim 的 DRM open 保留 O_CLOEXEC'
 want 'fdidentity|drm-preload-open-failure-abi|PASS|' 'drm preload 的 open 失败保持 -1/errno ABI'
 want 'fdidentity|drm-preload-openat-failure-errno|PASS|' 'drm preload 的 openat 失败不把 ENOENT 改写成 EPERM'
 want 'fdidentity|drm-preload-openat-create-mode|PASS|' 'drm preload 的 openat 创建文件保留请求 mode'
+want 'fdidentity|drm-preload-open-cloexec|PASS|' 'drm preload 的 DRM open 保留 O_CLOEXEC'
 want 'fdidentity|drm-preload-mmap-failure-errno|PASS|' 'drm preload 的 mmap 失败返回 MAP_FAILED 并保留 errno'
 want 'fdidentity|drm-preload-ioctl-failure-errno|PASS|' 'drm preload 的普通 fd ioctl 失败保留 ENOTTY'
 
