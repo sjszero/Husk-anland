@@ -109,6 +109,26 @@ struct Rec {
     nudged: bool,
 }
 
+impl Rec {
+    /// A granted state is authoritative. Clear the refusal history even when
+    /// the grant came from the system settings page instead of the dialog:
+    /// that path has `pending=false`, so only clearing counters inside the
+    /// pending branch leaves `asks=2` behind and prevents every future ask.
+    fn mark_granted(&mut self) -> bool {
+        let changed = self.asks != 0
+            || self.denials != 0
+            || self.pending
+            || self.nudged
+            || self.last != Some(State::Granted);
+        self.asks = 0;
+        self.denials = 0;
+        self.pending = false;
+        self.nudged = false;
+        self.last = Some(State::Granted);
+        changed
+    }
+}
+
 fn short(permission: &str) -> &'static str {
     if permission == CAMERA {
         "相机"
@@ -413,17 +433,20 @@ pub unsafe fn on_resume(a: *mut ANativeActivity) {
 
     for (permission, state) in states {
         let rec = map.get_mut(permission).expect("seeded above");
-        if rec.pending && (!matches!(state, State::Denied) || settled) {
+        if matches!(state, State::Granted) {
+            let was_pending = rec.pending;
+            changed |= rec.mark_granted();
+            if was_pending {
+                crate::log(&format!("permissions|RESULT|{permission}=granted"));
+            }
+        } else if rec.pending && settled {
             rec.pending = false;
             changed = true;
             match state {
-                State::Granted => {
-                    rec.denials = 0;
-                    rec.nudged = false;
-                    crate::log(&format!("permissions|RESULT|{permission}=granted"));
-                }
+                State::Granted => unreachable!("handled above"),
                 State::Denied => {
                     rec.denials += 1;
+                    rec.last = Some(State::Denied);
                     crate::log(&format!(
                         "permissions|RESULT|{permission}=denied (denial #{})",
                         rec.denials
@@ -460,6 +483,7 @@ pub unsafe fn on_resume(a: *mut ANativeActivity) {
                     }
                 }
                 State::Unknown => {
+                    rec.last = Some(State::Unknown);
                     crate::log(&format!("permissions|RESULT|{permission}=unknown"));
                 }
             }
