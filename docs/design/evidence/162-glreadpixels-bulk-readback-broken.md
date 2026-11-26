@@ -1,3 +1,5 @@
+> **更正（evidence 314）**：本文的“整块读坏”结论由探针常量错配造成。`GL_PACK_ALIGNMENT` 是 `0x0D05`，`GL_PACK_ROW_LENGTH` 是 `0x0D02`；旧探针把两者写反，实际把 RowLength 设成了 4。修正后整块读必须重新验收；以下保留原始现象，不能继续当作 Mesa 缺陷证据。
+
 # evidence 162 — 整块 `glReadPixels` 只写第一行+第一列（FACT，两个驱动都一样）
 
 设备/安装/时间同 evidence 161。探针：最小绘制程序 + 两种驱动对照。

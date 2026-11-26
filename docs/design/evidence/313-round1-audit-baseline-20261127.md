@@ -85,19 +85,17 @@ worktree   clean（本文件提交前除外）
 - 负向测试：普通路径、错误后缀、越界 V4L2 编号、另一种 memfd 必须返回 `None`。
 - 门禁：`cargo test -p husk-fd-identity` + fd-identity 设备探针；状态 **FIXED**。
 
-### A-06 · 整块 `glReadPixels` 行距错误
+### A-06 · 整块 `glReadPixels` 行距错误（已更正：探针常量错配）
 
 - 证据：`docs/design/evidence/162-glreadpixels-bulk-readback-broken.md:5-34`；
   evidence 289 §结果；evidence 299 §0；`tools/device-tests/probes/readback-suite.py`。
-- 修前/现状：整块读的目的行距被错误地按对齐宽度推进；`16×16` 只写对 76/256，宽度边界
-  仍有 907/1024 字节错误，而 `glGetError()` 为 0。逐行 `W×1` 读取正确。
-- 复现：在目标 guest 运行 `python3 tools/device-tests/probes/readback-suite.py`，看 T3 负向
-  断言是否仍报告 `whole-block read is CORRECT now`；当前应仍报告错误。
-- 修法：不能只继续逐行规避；需要定位并修复 guest Mesa/公共 dispatch 的行距参数，
-  然后让 T3 从“要求坏”转成“必须对”。
-- 负向测试：整块读、PBO、`GL_PACK_ALIGNMENT`、`GL_PACK_ROW_LENGTH`、宽度 1–65 和金丝雀。
-- 门禁：`readback-suite.py` + 截图/像素比对；状态 **OUT-OF-SCOPE（当前账本）**，
-  但原始第 5 轮目标仍要求真正修复，不能算完成。
+- 更正：`GL_PACK_ALIGNMENT` 是 `0x0D05`，`GL_PACK_ROW_LENGTH` 是 `0x0D02`；旧探针把两者
+  写反，实际把 `PACK_ROW_LENGTH` 设为 4，才产生“16 字节行距”。这不是 Mesa 缺陷。
+- 复现：运行 `python3 tools/device-tests/probes/readback-suite.py`；修正后 T3 必须对整块读
+  做精确断言，并检查金丝雀和 `glGetError()=0`。
+- 修法：修正 `readback.py`、`readback-suite.py`、`gl-probe` 的常量，并把 T3 从负向改成正向。
+- 负向测试：旧常量组合必须被状态断言抓到；整块读、PBO、宽度 1–65、金丝雀。
+- 门禁：`readback-suite.py` + 截图/像素比对；状态 **FIXED（探针错误）**，证据 314。
 
 ## B · 源码级风险
 
@@ -200,12 +198,12 @@ worktree   clean（本文件提交前除外）
 ### C-04 · 第 5 轮读回账本把 C1 标成 OUT-OF-SCOPE，但原始目标要求修公共读回
 
 - 位置：`docs/design/defect-ledger.md:56`；evidence 162、289、299；原始目标第 5 轮。
-- 冲突：账本以“缺陷在 guest Mesa 打包层”将它排除；目标要求“定位 Mesa 公共读回层，修整块
-  glReadPixels 目的行距”。当前工程只采用逐行规避，不能把规避写成已完成。
-- 复现：运行 `readback-suite.py` 的 T3；若仍打印整块读错误，说明真实层未修。
-- 修法：保留逐行兜底，同时继续定位 Mesa/GLVND dispatch 的实际参数路径；以 T3 转绿为关闭条件。
-- 负向测试：整块读、PBO、不同 alignment/row length、宽度边界、金丝雀。
-- 门禁：readback-suite + 截图路径；状态 **OPEN（原始目标未满足）**。
+- 更正：旧账本把探针常量错配误判成 Mesa 缺陷。正确常量为
+  `GL_PACK_ALIGNMENT=0x0D05`、`GL_PACK_ROW_LENGTH=0x0D02`；修正后整块读应通过。
+- 复现：运行修正后的 `readback-suite.py`；T3 现在必须是正向断言，不能再用“希望它坏”掩盖错误。
+- 修法：修正探针常量，补状态和整块读断言；不再把逐行读取当成 Mesa 缺陷的兜底。
+- 负向测试：故意换回旧常量，T3 和状态检查必须失败。
+- 门禁：readback-suite + 截图路径；状态 **FIXED（探针错误）**，证据 314。
 
 ## D · 未实现、未验证、环境跳过
 
@@ -280,12 +278,11 @@ worktree   clean（本文件提交前除外）
 ### D-08 · 整块 `glReadPixels` 真实修复
 
 - 位置：evidence 289 §UNKNOWN/UNVERIFIED；evidence 299 §边界；C-04。
-- 当前：逐行路径已通过 17/0，但整块读仍然错误；这是原始第 5 轮明确要求。
-- 复现：设备上执行 `python3 tools/device-tests/probes/readback-suite.py`，检查 T3 是否仍打印
-  `whole-block read is CORRECT now` 的反面。
-- 修法：定位 Mesa/GLVND dispatch 的实际调用参数，修公共层；逐行读取只作为临时兜底。
-- 负向测试：T3、PBO、alignment/row-length、宽度边界、金丝雀；修好后 T3 必须转绿。
-- 门禁：读回门禁 + 截图/录屏；状态 **OPEN（原始目标未完成）**。
+- 当前：旧探针的 16 字节行距是常量错配，不是运行时缺陷；修正后以 evidence 314 的真机结果为准。
+- 复现：设备上执行修正后的 `readback-suite.py`；整块读、金丝雀和错误码必须同时通过。
+- 修法：修正 `readback.py`、`readback-suite.py`、`gl-probe` 的常量，并把 T3 改成正向断言。
+- 负向测试：故意换回旧常量时，T3 必须红；宽度边界、PBO、金丝雀仍必须绿。
+- 门禁：读回门禁 + 截图/录屏；状态 **FIXED（探针错误，evidence 314 真机日志已归档）**。
 
 ## 结论
 

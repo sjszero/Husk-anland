@@ -1,3 +1,5 @@
+> **更正（evidence 314）**：本文的 16 字节行距来自探针常量错配，不是 Mesa 的 pack 层。旧探针把 `GL_PACK_ALIGNMENT=0x0D02`、`GL_PACK_ROW_LENGTH=0x0D05` 写反；正确值分别是 `0x0D05` 和 `0x0D02`。
+
 # 179 · `glReadPixels` 多行读回：目的行距恒为 16 字节
 
 日期：2026-11-25 08:05（CST）。设备 RMX3357（MT6893 / Mali-G77 MC9 / Android 13），

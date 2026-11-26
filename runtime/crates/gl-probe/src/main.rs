@@ -14,9 +14,11 @@
 //!                     X server, so a PanVK/Bifrost compiler crash is separable
 //!                     from the window/presentation layer.
 //!
-//! Why 1x1 readbacks: this guest's `glReadPixels` writes only the first row and
-//! the first column of a block read (evidence 162), so a block read would hide
-//! real errors and invent fake ones.
+//! The `readback` subcommand tests the whole-block path. The older 1x1 reads in
+//! the workload probes remain useful for localizing one bad pixel, but are no
+//! longer a workaround for a block-read defect: evidence 314 showed that the
+//! former 16-byte pitch was caused by swapped PixelStore enum constants in the
+//! probes themselves.
 
 use std::ffi::CString;
 use std::io::Write;
@@ -113,8 +115,8 @@ const GL_TRIANGLE_STRIP: c_uint = 0x0005;
 const GL_TEXTURE0: c_uint = 0x84C0;
 const GL_DEPTH_TEST: c_uint = 0x0B71;
 const GL_UNPACK_ALIGNMENT: c_uint = 0x0CF5;
-const GL_PACK_ALIGNMENT: c_uint = 0x0D02;
-const GL_PACK_ROW_LENGTH: c_uint = 0x0D05;
+const GL_PACK_ALIGNMENT: c_uint = 0x0D05;
+const GL_PACK_ROW_LENGTH: c_uint = 0x0D02;
 const GL_RENDERER: c_uint = 0x1F01;
 const GL_VERSION: c_uint = 0x1F02;
 const GL_SHADING_LANGUAGE_VERSION: c_uint = 0x8B8C;
@@ -974,7 +976,8 @@ fn run_es3() -> i32 {
     }
     say!("绘制后 err={:#x}", unsafe { (gl.get_error)() });
 
-    // Per-pixel 1x1 readback (evidence 162: block reads only fill row 0/col 0).
+    // Per-pixel 1x1 readback keeps failures attributable to one attachment/pixel.
+    // Whole-block correctness is covered separately by `gl-probe readback`.
     let mut px = [[0u8; 16 * 16 * 4]; 2];
     for (i, attachment) in [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1]
         .iter()

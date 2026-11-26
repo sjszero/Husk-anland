@@ -1,3 +1,5 @@
+> **更正（evidence 314）**：文中“整块 glReadPixels 仍坏”的旧结论来自探针 PixelStore 常量错配；修正后整块读在真机通过（evidence 314）。
+
 # evidence 161 — 真 ES3 workload 在 zink + PanVK 上跑对了（不是只清屏）
 
 设备：RMX3357 / MT6893 / Mali-G77 MC9 / Android 13 / 4.19.191 / 4 KiB。

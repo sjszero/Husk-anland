@@ -1,3 +1,5 @@
+> **更正（evidence 314）**：本文的“16 字节行距定律”和“Mesa 打包层缺陷”结论作废。根因是探针常量错配：`GL_PACK_ALIGNMENT` 是 `0x0D05`，`GL_PACK_ROW_LENGTH` 是 `0x0D02`；旧探针把它写反，默认把 RowLength 设为 4。修正后整块读通过，不能再把逐行读取当作运行时缺陷。
+
 # 289 · 整块 `glReadPixels` 的目的行距 = `align_up(每像素字节 × GL_PACK_ALIGNMENT, 4)`
 
 日期：2026-11-26 20:05（CST）。设备 RMX3357（MT6893 / Mali-G77 MC9 / Android 13 /

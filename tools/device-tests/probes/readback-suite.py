@@ -1,24 +1,25 @@
 #!/usr/bin/env python3
 """Round-5 readback suite: width boundaries, canary overrun, screenshot path.
 
-evidence 162/179/289 established the defect (a whole-block glReadPixels on this
-tree writes rows 16 bytes apart) and the workaround (read one row at a time).
-What was missing is the part that keeps it fixed:
+Round-5 readback suite: width boundaries, whole-block reads, canary overrun,
+and the screenshot-shaped row loop.
 
-  T1  the *supported* path, across widths that are and are not multiples of 4;
+History: evidence 162/179/289 reported a 16-byte destination pitch because the
+probes used the two PixelStore enum values in the wrong order. GL_PACK_ALIGNMENT
+is 0x0D05 and GL_PACK_ROW_LENGTH is 0x0D02. With the corrected constants the
+whole-block path is a positive test, not a known defect.
+
+  T1  the supported path, across widths that are and are not multiples of 4;
   T2  the same path with a canary tail, so "it works" cannot mean "it wrote past
       the end of the buffer";
-  T3  the *unsupported* path measured as a negative test: it must not silently
-      look fine, and if it ever starts producing correct bytes this script says
-      so (that is the day the workaround can be retired);
+  T3  whole-block WxH read, exact bytes and untouched canary;
   T4  the exact call our screenshot code makes (row loop into W*H*4), compared
       byte for byte against ground truth.
 
-Ground truth is per-pixel 1x1 reads (the known-good path) cross-checked against
-the uploaded pattern, so a broken texture upload cannot masquerade as a broken
-readback.
+Ground truth is per-pixel 1x1 reads cross-checked against the uploaded pattern,
+so a broken texture upload cannot masquerade as a broken readback.
 
-usage: readback-suite.py            (exit 0 iff every T1/T2/T4 assertion holds)
+usage: readback-suite.py            (exit 0 iff every T1/T2/T3/T4 assertion holds)
 """
 import ctypes
 import sys
@@ -30,9 +31,9 @@ GL_RGBA8 = 0x8058
 GL_FRAMEBUFFER = 0x8D40
 GL_COLOR_ATTACHMENT0 = 0x8CE0
 GL_FRAMEBUFFER_COMPLETE = 0x8CD5
-GL_PACK_ALIGNMENT = 0x0D02
+GL_PACK_ALIGNMENT = 0x0D05
 GL_UNPACK_ALIGNMENT = 0x0CF5
-GL_PACK_ROW_LENGTH = 0x0D05
+GL_PACK_ROW_LENGTH = 0x0D02
 
 EGL_PLATFORM_SURFACELESS_MESA = 0x31DD
 EGL_OPENGL_ES_API = 0x30A0
@@ -251,7 +252,7 @@ def main():
             bad("W=%d H=%d: head %s, tail written in %d byte(s)"
                 % (w, h, "exact" if head == bytes(want) else "WRONG", over))
 
-    print("== T3 whole-block read: must not look correct (negative test) ==")
+    print("== T3 whole-block read: exact bytes and canary ==")
     for (w, h) in ((16, 16), (65, 4)):
         gl.frame(w, h)
         want = bytearray()
@@ -264,14 +265,13 @@ def main():
         err = gl.gles.glGetError()
         head, beyond = got[: w * h * 4], got[w * h * 4:]
         over = sum(1 for v in beyond if v != 0xAA)
-        if head == bytes(want):
-            print("  INFO  W=%d H=%d: whole-block read is CORRECT now - the row-wise "
-                  "workaround can be retired, re-measure before doing it" % (w, h))
+        if head == bytes(want) and over == 0 and err == 0:
+            ok("W=%d H=%d: whole-block exact, %d-byte tail untouched, glGetError=0"
+               % (w, h, tail))
         else:
-            wrong = sum(1 for i in range(len(want)) if head[i] != bytes(want)[i])
-            print("  INFO  W=%d H=%d: whole-block read wrong in %d/%d bytes, "
-                  "overrun %d byte(s), glGetError=0x%x (known defect, not a pass)"
-                  % (w, h, wrong, len(want), over, err))
+            wrong = sum(1 for a, b in zip(head, want) if a != b) + (len(want) - len(head))
+            bad("W=%d H=%d: whole-block %d/%d bytes differ, tail written in %d byte(s), "
+                "glGetError=0x%x" % (w, h, wrong, len(want), over, err))
 
     print("== T4 screenshot path: row loop into W*H*4 ==")
     w, h = 240, 135

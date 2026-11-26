@@ -3,6 +3,8 @@
 设备 `UKHMMB8PYTGECMNV`（Mali-G77 MC9 / Android 13 / 4.19.191），树
 `files/linux/distributions/ubuntu-24.04/rootfs`（862 包，Mesa 25.2.8），loader `files/linux/husk/libld.so`。
 
+> **更正（evidence 314）**：本文的 `PASS=17` 是旧 T3 负向套的输出。探针 PixelStore 常量错配修正后，同一读回套为 `PASS=19 FAIL=0`；此处的三进程并发结论仍有效，但没有按修正后的 19 项套重跑。
+
 ## 0. 结论
 
 - **FACT**：不经登录 shell（`bash -c`，不读 `/etc/profile.d`）启动的进程，环境里已经有

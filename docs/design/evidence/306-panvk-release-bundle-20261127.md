@@ -1,3 +1,5 @@
+> **更正（evidence 314）**：文中“整块 glReadPixels 仍坏”的旧结论来自探针 PixelStore 常量错配；修正后整块读在真机通过（evidence 314）。
+
 # 306 · Mali kbase PanVK 进入发行包，并在干净安装树复验
 
 日期：2026-11-27（CST）
@@ -133,7 +135,7 @@ TAG renderer=zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK)) version=OpenGL ES 3.2 Me
 
 - 驱动会打印 `KBASE_IOCTL_MEM_EXEC_INIT failed: Operation not permitted`，但本轮 Vulkan/Zink
   建实例、渲染和读回全部通过；这是警告，不是“已消除”的错误。
-- 整块 `glReadPixels` 的 16 字节行距缺陷仍在；本仓库的截图和读回路径逐行读取，T3 负向测试
-  继续把它标为 known defect（wrong 907/1024 bytes，`glGetError=0`）。
+- **历史记录（已被 evidence 314 更正）**：当时把 16 字节行距误判为运行时缺陷；根因是读回
+  探针的 PixelStore 常量错配。修正后整块读通过，读回套为 `PASS=19 FAIL=0`。
 - 发行包提供的是 Mali kbase 快照，不是通用 GPU 驱动；Adreno/KGSL 仍为 UNKNOWN。
 - 本轮没有把“安装后默认有 GPU”扩大成“所有桌面应用、所有 GPU、所有 Android 内核都通过”。

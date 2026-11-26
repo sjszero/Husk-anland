@@ -11,7 +11,7 @@
 #   GALLIUM_DRIVER=llvmpipe            -> 对照组，它自己就报 ES3.2
 #
 # 判定：att0 每个纹理色各出现 64 次（4 实例 × 16 像素）、异常像素 0；att1 == 1-att0。
-# 逐像素 1x1 读回是故意的：这棵树的 glReadPixels 整块读只写第一行+第一列（evidence 162）。
+# 逐像素 1x1 读回用于把失败定位到单个附件/像素；整块读由 `gl-probe readback` 单独验证（evidence 314 已确认旧“16 字节行距”是探针常量错配）。
 set -u
 BIN=${1:-/tmp/gl-probe}
 [ -x "$BIN" ] || { echo "找不到 $BIN（先推 gl-probe）" >&2; exit 64; }

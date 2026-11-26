@@ -6,6 +6,8 @@
 树：`files/release-tree-vendor/root`（由发行 bundle 安装到空目录）
 Loader：`files/linux-clean/libld.so`
 
+> **更正（evidence 314）**：本文的 `PASS=17` 和“T3 已知负向缺陷”是旧探针常量错配造成的错误结论。修正后整块读通过，同一读回套为 `PASS=19 FAIL=0`；以下原始日志保留为历史记录。
+
 ## 0 · 结论
 
 - **FACT**：发行树体检 `TREE_INTEGRITY PASS=14 FAIL=0`。树内有 807 个 dpkg
@@ -16,8 +18,8 @@ Loader：`files/linux-clean/libld.so`
 - **FACT**：GPU loader 默认值 `PASS=9 FAIL=0`。不带任何 GPU 环境变量的进程报
   `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))`；
   `NR_GPU_DEFAULT_OFF=1` 与 `HUSK_GPU=llvmpipe` 两个反向控制都落到 `llvmpipe`。
-- **FACT**：Mesa 读回套 `PASS=17 FAIL=0`；T3 仍按已知负向缺陷记录：
-  `16x16` 整块读错 907/1024 字节，`glGetError=0`。
+- **历史记录（已被 evidence 314 更正）**：当时旧套为 `PASS=17 FAIL=0`，T3 把探针常量错配
+  造成的 `16x16` 整块读错误当成预期；修正后整块读通过，读回套为 `PASS=19 FAIL=0`。
 - **UNVERIFIED**：A-hw 的前后摄真实出帧本轮没有通过。App 的 CAMERA /
   RECORD_AUDIO 权限均为 `granted=true`、无 `USER_FIXED`，App 日志也读到
   `permissions|OK|all hardware permissions granted`，但相机服务在打开设备时拒绝。
