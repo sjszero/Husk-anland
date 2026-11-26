@@ -66,14 +66,18 @@ eq "cleanup" "gone" "$(id nrtest >/dev/null 2>&1 && echo present || echo gone)"
 
 echo "== dpkg =="
 eq "dpkg -C clean before" "0" "$(dpkg -C >/tmp/dpkgC.1 2>&1; wc -l < /tmp/dpkgC.1 | tr -d ' ')"
-# Package count is a property of the rootfs, not of the runtime: a tree with
-# mesa-vulkan-drivers installed carries more packages than the bare one this
-# gate was written against. Judge dpkg health (below) plus a floor, and print
-# the exact number instead of demanding one magic value.
+# Package count is a property of the rootfs, not of the runtime, so the floor
+# must match the kind of tree under test:
+#   bare ubuntu-base tarball  -> ~93 packages   -> EXPECT_PKGS_MIN=90  (default)
+#   full desktop distro tree  -> ~700-900       -> EXPECT_PKGS_MIN=700 must be set
+# The default is the base floor. A desktop tree run without the override still
+# passes (more packages), so the override only guards against a truncated
+# desktop tree; state the number explicitly instead of hiding it in a magic 700.
 pkg_n=$(dpkg-query -W -f='${Status}\n' | grep -c 'install ok installed')
-[ "$pkg_n" -ge "${EXPECT_PKGS_MIN:-700}" ] \
-  && ok "installed packages ($pkg_n >= ${EXPECT_PKGS_MIN:-700})" \
-  || bad "installed packages (want >= ${EXPECT_PKGS_MIN:-700} got $pkg_n)"
+PKGS_MIN=${EXPECT_PKGS_MIN:-90}
+[ "$pkg_n" -ge "$PKGS_MIN" ] \
+  && ok "installed packages ($pkg_n >= $PKGS_MIN)" \
+  || bad "installed packages (want >= $PKGS_MIN got $pkg_n)"
 eq "unpacked packages" "0" "$(dpkg-query -W -f='${Status}\n' | grep -c 'install ok unpacked')"
 # A .deb to re-install. The App tree removes its offline cache once the
 # initialisation ends, so discovery has to look in more than one place; when
