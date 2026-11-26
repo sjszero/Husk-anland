@@ -119,12 +119,25 @@ kbase 后端的 PanVK（FristOneRR，Mesa 26.3）枚举出 `Mali-G77 MC9`，comp
    （FACT，evidence 176）。**INFERENCE**：它挡的是「CPU 可执行映射」那条路，GPU 侧着色器执行
    不受影响——同一棵树里 compute 与离屏图形回读的值都是对的（evidence 156、161）。
    内核为什么拒这一条（`untrusted_app` 策略、还是 kbase 的 flag 组合）：**UNKNOWN**。
-   另外这棵树的整块 `glReadPixels` 是坏的：目的行距恒为 **16 字节**（与宽度无关），
-   每行只有前 4 个像素落在该去的地方，写入量 = `H×16 + (W×4 − 16)` 字节
-   （evidence 179 把地址学量出来了，evidence 162 是最初的现象）。截图类工具会拿到错位画面
-   而 `glGetError()` 仍是 0。**逐行读（`W×1` 调 H 次）与逐像素读实测 100% 正确**，
-   单列读（`1×H`）同样坏、proot 下还会写到缓冲区外。llvmpipe、zink、proot 三处完全一致，
-   所以不在 path-shim、也不在 Mali/PanVK 后端，落在这版 Mesa 的公共读回层（具体文件 UNKNOWN）。
+   另外这棵树的整块 `glReadPixels` 是坏的，规律已经定死了（evidence 289）：
+
+   ```
+   目的行距(字节) = align_up(每像素字节数 × GL_PACK_ALIGNMENT, 4)
+   ```
+
+   也就是打包层把 `GL_PACK_ALIGNMENT` 当成行长度用了：宽度不参与、`GL_PACK_ROW_LENGTH`
+   完全无效，四舍五入的模数是默认的 4。默认 `ALIGN=4` + RGBA8 时行距就是 16 字节，
+   每行只有前 4 个像素落在该去的地方。宽度 1–40 全扫一遍，只有 W=4 恰好「对」。
+   截图类工具会拿到错位画面而 `glGetError()` 仍是 0。
+   **逐行读（`W×1` 调 H 次）与逐像素读实测 256/256 正确**；单列读（`1×H`）同样坏、
+   proot 下还会写到缓冲区外。
+   归属也核过了：llvmpipe / zink / proot 三处一致，换 Mesa 自己的 `eglGetProcAddress` 入口、
+   读进 PBO、换 `GL_RGBA4` 目标都一致，抹掉 libglvnd 也不变；树里的
+   `libgallium-…0.24.04.5.so` sha256 与 Ubuntu 官方包**逐字节相同**，进程里也只加载这一份，
+   没有 `ld.so.preload`；换成官方 `0ubuntu0.24.04.2` 构建仍然一样。
+   所以**不在** Husk 的任何一层、不在 Mali/PanVK 后端、也不在 glvnd。
+   但同一份 25.2.8 源码按代码读不可能算出这个行距，两个独立构建却都能复现 ——
+   「二进制与源码不一致」的具体成因（构建问题还是另有执行路径）**UNKNOWN，没定到文件和行**。
 2. **窗口呈现能跑，但不是零拷贝**（evidence 165/167）：X11 窗口化 EGL 已经通了
    （重编 PanVK 打开 `-Dplatforms=x11` 后 `VK_KHR_xcb_surface` 才进表），`gl-probe window`
    `stage 7→10`、60 次 swap 全过。但客户端的帧是**经 SHM 拷贝**进 X server 的：
@@ -221,7 +234,7 @@ socket 协议，数据在应用侧过一次。逐类理由见
 | GPU：Vulkan compute / 离屏 graphics（`/dev/mali0` + kbase） | 直连 | 可用 | evidence 156 |
 | GPU：GL/EGL 经 Zink 落到 GPU（默认上限 GLES 3.2，靠 override；真实应用未验） | 直连 | 可用；默认值由加载器注入，非登录执行也吃得到 | evidence 156、161、167、182 |
 | GPU：X11 窗口呈现（EGL window surface + swap） | 直连（呈现这一跳不是） | 可用，呈现走回读+拷贝（DRI3 未通，代价 24.8 ms/MP） | evidence 165、174 |
-| GL 整块读回（`glReadPixels` W×H） | — | **坏**：目的行距恒 16 字节；逐行/逐像素读正确 | evidence 179 |
+| GL 整块读回（`glReadPixels` W×H） | — | **坏**：目的行距 = `align_up(bpp×PACK_ALIGNMENT,4)`；逐行/逐像素读正确 | evidence 289 |
 | GPU：桌面合成器（gnome-shell 46 on zink/PanVK） | 直连 | 可用，出帧；轻负载 fps 不如 llvmpipe | evidence 165、168 |
 | 显示上屏（dma-buf → AHB → `SurfaceControl`） | 应用侧，零拷贝 | 可用（10 000 帧 ring） | evidence 59 |
 | 硬件视频解码（平台 MediaCodec，应用侧） | 中转 | 有实测链路，未产品化 | evidence 80 |
