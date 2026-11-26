@@ -7627,30 +7627,11 @@ unsafe fn forget_fake_fd(fd: CInt) {
     alias_refresh(fd);
 }
 
-/// Android's app seccomp policy traps syscall 436 and our SIGSYS handler turns
-/// it into ENOSYS, but glibc's close_range() has no fallback. The loader
-/// therefore has to implement the call in user space. Enumerate the live fd
-/// table first, then close only numbers in range; 3..UINT_MAX is a normal
-/// call shape and must not turn into a four-billion-iteration loop.
-#[no_mangle]
-pub unsafe extern "C" fn close_range(first: u32, last: u32, flags: CInt) -> CInt {
-    const EINVAL: CInt = 22;
+/// Highest live descriptor number, read from `/proc/self/fd`. The directory
+/// descriptor itself is always included, so callers get a safe upper bound
+/// even when the process has closed 0..2.
+unsafe fn max_live_fd() -> Result<u32, CInt> {
     const EIO: CInt = 5;
-    const EBADF: CInt = 9;
-    const EOPNOTSUPP: CInt = 95;
-    const CLOSE_RANGE_UNSHARE: CInt = 1 << 1;
-    const CLOSE_RANGE_CLOEXEC: CInt = 1 << 2;
-
-    if first > last || flags < 0 || flags & !(CLOSE_RANGE_UNSHARE | CLOSE_RANGE_CLOEXEC) != 0 {
-        return set_errno(EINVAL);
-    }
-    // Sharing the descriptor table is a kernel operation (unshare(2)); there
-    // is no correctness-preserving userspace simulation. Refuse it instead of
-    // silently closing descriptors belonging to another thread.
-    if flags & CLOSE_RANGE_UNSHARE != 0 {
-        return set_errno(EOPNOTSUPP);
-    }
-
     let path = b"/proc/self/fd\0";
     let dfd = syscall4(
         SYS_OPENAT,
@@ -7660,14 +7641,13 @@ pub unsafe extern "C" fn close_range(first: u32, last: u32, flags: CInt) -> CInt
         0,
     );
     if dfd < 0 {
-        return set_errno((-dfd) as CInt);
+        return Err((-dfd) as CInt);
     }
 
-    // Linux dirent64: d_reclen at +16, d_name at +19. Take the maximum live fd
-    // from the directory before closing anything. Reading and closing in the
-    // same pass can make /proc/self/fd's offsets skip entries.
+    // Linux dirent64: d_reclen at +16, d_name at +19. Read the whole directory
+    // before closing anything; mutating the fd table during getdents can make
+    // /proc/self/fd skip entries.
     let mut maxfd: u32 = 0;
-    let mut anyfd = false;
     let mut buf = [0u8; 4096];
     loop {
         let n = syscall4(
@@ -7680,7 +7660,7 @@ pub unsafe extern "C" fn close_range(first: u32, last: u32, flags: CInt) -> CInt
         if n < 0 {
             let e = (-n) as CInt;
             syscall4(SYS_CLOSE, dfd as usize, 0, 0, 0);
-            return set_errno(e);
+            return Err(e);
         }
         if n == 0 {
             break;
@@ -7690,13 +7670,13 @@ pub unsafe extern "C" fn close_range(first: u32, last: u32, flags: CInt) -> CInt
         while off < n {
             if off + 20 > n {
                 syscall4(SYS_CLOSE, dfd as usize, 0, 0, 0);
-                return set_errno(EIO);
+                return Err(EIO);
             }
             let reclen =
                 core::ptr::read_unaligned(buf.as_ptr().add(off + 16) as *const u16) as usize;
             if reclen < 20 || off + reclen > n {
                 syscall4(SYS_CLOSE, dfd as usize, 0, 0, 0);
-                return set_errno(EIO);
+                return Err(EIO);
             }
             let name = buf.as_ptr().add(off + 19);
             let name_max = reclen - 19;
@@ -7722,22 +7702,44 @@ pub unsafe extern "C" fn close_range(first: u32, last: u32, flags: CInt) -> CInt
                 };
                 k += 1;
             }
-            if digit {
-                if !anyfd || fd > maxfd {
-                    maxfd = fd;
-                    anyfd = true;
-                }
+            if digit && fd > maxfd {
+                maxfd = fd;
             }
             off += reclen;
         }
     }
+    syscall4(SYS_CLOSE, dfd as usize, 0, 0, 0);
+    Ok(maxfd)
+}
 
-    let rfd = rootfd();
-    let hi = if anyfd {
-        last.min(maxfd)
-    } else {
-        first.saturating_sub(1)
+/// Android's app seccomp policy traps syscall 436 and our SIGSYS handler turns
+/// it into ENOSYS, but glibc's close_range() has no fallback. The loader
+/// therefore implements the call in user space. `3..UINT_MAX` is a normal call
+/// shape, so enumerate once and cap the numeric loop at the highest live fd.
+#[no_mangle]
+pub unsafe extern "C" fn close_range(first: u32, last: u32, flags: CInt) -> CInt {
+    const EINVAL: CInt = 22;
+    const EBADF: CInt = 9;
+    const EOPNOTSUPP: CInt = 95;
+    const CLOSE_RANGE_UNSHARE: CInt = 1 << 1;
+    const CLOSE_RANGE_CLOEXEC: CInt = 1 << 2;
+
+    if first > last || flags < 0 || flags & !(CLOSE_RANGE_UNSHARE | CLOSE_RANGE_CLOEXEC) != 0 {
+        return set_errno(EINVAL);
+    }
+    // Sharing the descriptor table is a kernel operation (unshare(2)); there
+    // is no correctness-preserving userspace simulation. Refuse it instead of
+    // silently closing descriptors belonging to another thread.
+    if flags & CLOSE_RANGE_UNSHARE != 0 {
+        return set_errno(EOPNOTSUPP);
+    }
+
+    let maxfd = match max_live_fd() {
+        Ok(v) => v,
+        Err(e) => return set_errno(e),
     };
+    let rfd = rootfd();
+    let hi = last.min(maxfd);
     let mut first_err = 0;
     let mut f = first;
     while f <= hi {
@@ -7781,13 +7783,6 @@ pub unsafe extern "C" fn close_range(first: u32, last: u32, flags: CInt) -> CInt
             break;
         }
         f += 1;
-    }
-
-    // The directory fd is ours, not the caller's. If it fell inside a close
-    // range it was already closed by the loop; otherwise close it now. For
-    // CLOEXEC it already carries FD_CLOEXEC and must not leak.
-    if flags & CLOSE_RANGE_CLOEXEC != 0 || !(first <= dfd as u32 && dfd as u32 <= last) {
-        syscall4(SYS_CLOSE, dfd as usize, 0, 0, 0);
     }
 
     if first_err != 0 {
@@ -14573,8 +14568,14 @@ unsafe fn nl_unlock() {
 }
 
 unsafe fn nl_slot(fd: CInt) -> Option<usize> {
+    if fd < 0 {
+        return None;
+    }
+    // Find by socket inode, not fd number. dup()/dup2()/fcntl(F_DUPFD*) then
+    // keep the netlink emulation after the original descriptor is closed.
+    let ino = nl_fd_ino(fd)?;
     for i in 0..NL_MAX {
-        if NL_SLOTS[i].client == fd && fd >= 0 {
+        if NL_SLOTS[i].client >= 0 && NL_SLOTS[i].client_ino == ino {
             return Some(i);
         }
     }
@@ -14596,18 +14597,88 @@ unsafe fn nl_is_fake(fd: CInt) -> bool {
     if NL_COUNT.load(Ordering::Relaxed) == 0 {
         return false;
     }
-    let Some(idx) = nl_slot(fd) else {
-        return false;
-    };
-    // A slot can outlive a close() that happened inside libc. Match the socket
-    // inode, not just AF_UNIX + fd number: both are reused in ordinary
-    // processes, and a false positive feeds netlink replies into an unrelated
-    // socket.
-    if nl_fd_ino(fd) != Some(NL_SLOTS[idx].client_ino) {
-        nl_forget(fd);
-        return false;
+    if nl_slot(fd).is_some() {
+        return true;
     }
-    true
+    // A slot can outlive a close() that happened inside libc, leaving the
+    // descriptor number free for reuse. Reap only that stale direct match;
+    // do not confuse an unrelated socket with a live dup of ours.
+    for i in 0..NL_MAX {
+        if NL_SLOTS[i].client == fd {
+            nl_forget(fd);
+            break;
+        }
+    }
+    false
+}
+
+unsafe fn nl_fd_refs(ino: u64) -> usize {
+    let Ok(maxfd) = max_live_fd() else {
+        return 0;
+    };
+    let mut refs = 0usize;
+    let mut fd = 0u32;
+    while fd <= maxfd {
+        if nl_fd_ino(fd as CInt) == Some(ino) {
+            refs += 1;
+        }
+        if fd == u32::MAX {
+            break;
+        }
+        fd += 1;
+    }
+    refs
+}
+
+unsafe fn nl_forget(fd: CInt) {
+    let fd_ino = nl_fd_ino(fd);
+    nl_lock();
+    let mut hit = None;
+    for i in 0..NL_MAX {
+        if NL_SLOTS[i].client >= 0
+            && (NL_SLOTS[i].client == fd
+                || (fd_ino.is_some() && NL_SLOTS[i].client_ino == fd_ino.unwrap()))
+        {
+            hit = Some(i);
+            break;
+        }
+    }
+    let Some(i) = hit else {
+        nl_unlock();
+        return;
+    };
+
+    let client_ino = NL_SLOTS[i].client_ino;
+    let refs = nl_fd_refs(client_ino);
+    let closing_live_ref = fd_ino == Some(client_ino);
+    // A dup shares the same socket inode. Keep the emulation and private peer
+    // while another live descriptor still points at it. For a stale fd-number
+    // match, even one remaining inode reference is a live dup and must win.
+    if (closing_live_ref && refs > 1) || (!closing_live_ref && refs > 0) {
+        nl_unlock();
+        return;
+    }
+
+    let peer = NL_SLOTS[i].peer;
+    let peer_ino = NL_SLOTS[i].peer_ino;
+    NL_SLOTS[i] = NlSlot {
+        client: -1,
+        peer: -1,
+        client_ino: 0,
+        peer_ino: 0,
+        proto: -1,
+        seq: 0,
+        ack: 0,
+    };
+    let c = NL_COUNT.load(Ordering::Relaxed);
+    NL_COUNT.store(c.saturating_sub(1), Ordering::Relaxed);
+    // The peer is private to the shim. Leaving it open leaked one fd for every
+    // closed AF_NETLINK socket. Verify its inode before closing a possibly
+    // recycled descriptor number.
+    if peer >= 0 && peer != fd && nl_fd_ino(peer) == Some(peer_ino) {
+        syscall4(SYS_CLOSE, peer as usize, 0, 0, 0);
+    }
+    nl_unlock();
 }
 
 unsafe fn nl_install(
@@ -14637,35 +14708,6 @@ unsafe fn nl_install(
     }
     nl_unlock();
     ok
-}
-
-unsafe fn nl_forget(fd: CInt) {
-    nl_lock();
-    for i in 0..NL_MAX {
-        if NL_SLOTS[i].client == fd {
-            let peer = NL_SLOTS[i].peer;
-            let peer_ino = NL_SLOTS[i].peer_ino;
-            NL_SLOTS[i] = NlSlot {
-                client: -1,
-                peer: -1,
-                client_ino: 0,
-                peer_ino: 0,
-                proto: -1,
-                seq: 0,
-                ack: 0,
-            };
-            let c = NL_COUNT.load(Ordering::Relaxed);
-            NL_COUNT.store(c.saturating_sub(1), Ordering::Relaxed);
-            // The peer is private to the shim. Leaving it open leaked one fd
-            // for every closed AF_NETLINK socket and kept NL_MAX-sized use
-            // cycles accumulating hidden descriptors.
-            if peer >= 0 && peer != fd && nl_fd_ino(peer) == Some(peer_ino) {
-                syscall4(SYS_CLOSE, peer as usize, 0, 0, 0);
-            }
-            break;
-        }
-    }
-    nl_unlock();
 }
 
 #[no_mangle]

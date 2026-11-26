@@ -31,6 +31,14 @@ static int open_fd_count(void)
     return n;
 }
 
+static int sock_family(int fd)
+{
+    struct sockaddr_storage ss;
+    socklen_t len = sizeof ss;
+    if (getsockname(fd, (struct sockaddr *)&ss, &len) != 0) return -1;
+    return ((struct sockaddr *)&ss)->sa_family;
+}
+
 int main(void)
 {
     char line[256];
@@ -99,6 +107,30 @@ int main(void)
 
     /* 8 close_range：Android seccomp 拦 436，必须由 shim 用用户态枚举兜底。
        同时验证 netlink 私有的 peer 端会随 client 一起注销。 */
+    { int before = open_fd_count();
+      int fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+      int dupfd = fd >= 0 ? dup(fd) : -1;
+      int dup2fd = fd >= 0 ? dup2(fd, 63) : -1;
+      int fcntlfd = fd >= 0 ? fcntl(fd, F_DUPFD_CLOEXEC, 64) : -1;
+      int f0 = sock_family(fd);
+      int f1 = sock_family(dupfd);
+      int f2 = sock_family(dup2fd);
+      int f3 = sock_family(fcntlfd);
+      if (fd >= 0) close(fd);
+      int f4 = sock_family(dupfd);
+      int f5 = sock_family(dup2fd);
+      int f6 = sock_family(fcntlfd);
+      if (dupfd >= 0) close(dupfd);
+      int f7 = sock_family(dup2fd);
+      int f8 = sock_family(fcntlfd);
+      if (dup2fd >= 0) close(dup2fd);
+      int f9 = sock_family(fcntlfd);
+      if (fcntlfd >= 0) close(fcntlfd);
+      int after = open_fd_count();
+      printf("NETLINK_DUP before=%d opened=%d families=%d,%d,%d,%d dup=%d,%d,%d final=%d,%d,%d after=%d\n",
+             before, fcntlfd >= 0 ? before + 5 : -1,
+             f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, after); }
+
     { int before = open_fd_count();
       int fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
       int opened = open_fd_count();

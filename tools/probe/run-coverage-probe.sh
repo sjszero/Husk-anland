@@ -63,6 +63,8 @@ want '^PATHCONF v=255'                              'pathconf 翻译'
 want '^TRUNCATE64 rc=0 errno=0 size=3'             'truncate64 别名'
 want '^UTIME rc=0 errno=0'                          'utime(3) 翻译'
 want '^HARDLINK_STDIO link_rc=0 link_errno=0 content=AAABBB' '硬链接复制后备跟随 stdio fclose'
+want '^NETLINK_DUP before=[0-9]* opened=[0-9]* families=16,16,16,16 dup=16,16,16 final=16,16,16 after=[0-9]*' \
+     'netlink dup/dup2/fcntl 在逐级关闭后仍是 AF_NETLINK'
 want '^CLOSE_RANGE_NETLINK before=[0-9]* opened=[0-9]* rc=0 errno=0 after=[0-9]*' \
      'close_range 用户态兜底关闭 netlink client 与 peer'
 want '^CLOSE_RANGE_PIPE pipe=0 rc=0 errno=0 fd0=-1 fd1=-1' 'close_range 关闭普通 fd'

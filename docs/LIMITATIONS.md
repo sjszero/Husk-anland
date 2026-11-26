@@ -344,3 +344,12 @@ Android 13 的 app seccomp 会拦截 syscall 436；glibc 的 `close_range()` 不
 **不支持的是 `CLOSE_RANGE_UNSHARE`**：fd table 的 unshare 是内核语义，用户态假装成功会让另一个
 线程仍共享同一张表。当前明确返回 `EOPNOTSUPP`。多线程并发 open/close 与 V4L2、Adreno 真机上的
 批量关闭仍未压测，UNKNOWN。
+
+## 16 · 假 netlink fd 的复制与跨进程边界（2026-11-26）
+
+0.0.23 起，假 netlink socket 用 client / peer 的 socket inode 识别，`dup`、`dup2`、
+`fcntl(F_DUPFD_CLOEXEC)` 都算同一 socket 的引用；关闭原 fd 不会拆掉仍存活的复制 fd，
+最后一个引用关闭时才清理私有 peer（evidence 249）。
+
+**仍未支持的是 `SCM_RIGHTS` 跨进程传递假 netlink fd**：接收进程没有对应的 `NL_SLOTS` 状态，
+不能保证继续模拟 netlink。多线程同时 dup/close 的极端竞态也没有专项压测，UNKNOWN。

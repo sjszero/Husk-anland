@@ -7,6 +7,33 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.23] - 2026-11-26
+
+> 主题：**让假 netlink socket 在 `dup`、`dup2`、`fcntl(F_DUPFD*)` 后仍保持同一语义**。
+> 这一版修 fd 身份与生命周期记账，不改网络数据面，也不把 netlink 模拟扩展成完整内核实现。
+
+### 修复
+
+- **netlink fd 改为按 socket inode 识别**（evidence 249）。旧表只记原始 client fd 号，
+  `dup()` 出来的副本会被当成普通 `AF_UNIX` socket；关闭原 fd 时还会把共享 peer 一并拆掉。
+  现在 `dup`、`dup2`、`fcntl(F_DUPFD_CLOEXEC)` 都能继续得到 `AF_NETLINK` 语义。
+- **按 live 引用关闭私有 peer**（evidence 249）。同一 client inode 还有复制 fd 时，槽位和 peer
+  保持存活；只有最后一个引用关闭后才统一清理。peer fd 号复用时还要通过 inode 校验，避免误关。
+- **共享 live-fd 上界实现**（evidence 249）。`close_range` 与 netlink 引用计数共用
+  `/proc/self/fd` 枚举，不把 1024 当作硬上限。
+
+### 验证
+
+- 真机输出：`families=16,16,16,16`，逐级关闭后仍有 `AF_NETLINK`，最后一个引用关闭后 fd 回到基线。
+- `close_range(3,~0U)` 子进程仍能通过 guest 路径创建文件，root fd 保留。
+- coverage-probe 全部 PASS，门禁 A `PASS=38 FAIL=0`，`cargo check` 通过。
+
+### 边界
+
+- 通过 `SCM_RIGHTS` 传到另一进程的假 netlink fd 尚无跨进程槽位，仍是 UNKNOWN。
+- 多线程同时 dup/close 同一 netlink inode 的极端竞态未做专项压力测试。
+- `CLOSE_RANGE_UNSHARE` 仍明确返回 `EOPNOTSUPP`，本版没有改变这个边界。
+
 ## [0.0.22] - 2026-11-26
 
 > 主题：**让 `close_range(2)` 在 Android app 域真正可用，并补齐批量关闭时的私有 fd 记账**。
@@ -996,7 +1023,8 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.22...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.23...HEAD
+[0.0.23]: https://github.com/xishanp/Husk/releases/tag/v0.0.23
 [0.0.22]: https://github.com/xishanp/Husk/releases/tag/v0.0.22
 [0.0.21]: https://github.com/xishanp/Husk/releases/tag/v0.0.21
 [0.0.20]: https://github.com/xishanp/Husk/releases/tag/v0.0.20

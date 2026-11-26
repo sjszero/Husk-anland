@@ -27,6 +27,12 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 **仓库布局**：`runtime/crates/{path-shim,nr-tools,runtime-core,gpu-env}`（Rust）、`tools/loader/*.S`（裸汇编，仅入口与 hook）、
 `tools/device-tests/*.sh`、`docs/design/`（设计 + `evidence/` 原始记录）。
 
+**0.0.23 netlink 复制 fd 生命周期**：假 netlink socket 现在按 client / peer 的 socket inode
+识别，`dup`、`dup2`、`fcntl(F_DUPFD_CLOEXEC)` 产生的新 fd 仍保持 `AF_NETLINK` 语义；
+关闭原 fd 不会拆掉其他复制 fd 共用私有 peer，最后一个引用关闭后才清理。真机探针输出
+`families=16,16,16,16`，逐级关闭后仍为 16，最终 fd 回到基线（evidence 249）。
+`SCM_RIGHTS` 跨进程传递假 netlink fd 与多线程 dup/close 竞态仍是 UNKNOWN。
+
 **0.0.22 `close_range` 与私有 fd 记账**：Android app seccomp 拦截 syscall 436 后，
 `close_range()` 过去直接返回 `ENOSYS`。现在 path-shim 枚举 `/proc/self/fd`，按真实上界执行原始
 `close(57)`，跳过内部 root fd；普通关闭、`CLOEXEC`、`3..UINT_MAX` 都在真机探针里通过。
