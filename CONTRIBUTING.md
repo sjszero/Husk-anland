@@ -96,6 +96,9 @@ sh tools/ci/release-notes.sh > "$notes"
 gh release create v0.0.33 dist/husk-arm64.tar.gz dist/SHA256SUMS \
   --title "Husk 0.0.33" --notes-file "$notes"
 rm "$notes"
+
+# 3. 回读发布页，检查 tag、Release 标题和正文首行
+make release-audit
 ```
 
 GitHub Release 的标题只写 `Husk X.Y.Z`，不拼主题或一句介绍。正文从本版结论开始，不再用

@@ -16,7 +16,7 @@ MANIFEST    := runtime/Cargo.toml
 PROFILE_DIR := runtime/target/$(TARGET)/release
 HUSK_TOOLS  := runtime/target/debug/husk-tools
 
-.PHONY: all check lint test tools nr-tools loader apk bench gate-a virt-race docs dist clean version-check version-bump \
+.PHONY: all check lint test tools nr-tools loader apk bench gate-a virt-race docs dist clean version-check version-bump release-audit \
         libc-patch libc-verify
 
 all: lint check version-check
@@ -193,6 +193,11 @@ version-check:
 	echo "version ok: $$v"
 version-bump:
 	@sh tools/ci/version-bump.sh
+
+# Network-backed: requires an authenticated gh CLI. Checks all published tags,
+# Release titles, duplicate tag aliases, and duplicate version headings in bodies.
+release-audit:
+	@sh tools/ci/audit-release-names.sh
 
 # Two artifacts: the launcher bundle (loader + installer + session script) and,
 # built on a device from a verified tree, the rootfs tarball itself. Both get a
