@@ -112,6 +112,23 @@ if [ -n "${NR_FORCE_SOFTWARE_GPU:-}" ]; then
     force_gpu="NR_FORCE_SOFTWARE_GPU=$NR_FORCE_SOFTWARE_GPU"
 fi
 
+# Language has to be set at the env -i boundary. /etc/profile.d only runs for a
+# login shell, and this launcher deliberately starts every process with env -i;
+# leaving LANG=C.UTF-8 here makes the same rootfs open in English even when the
+# tree contains zh_CN.utf8 and /etc/default/locale says Chinese. Keep an explicit
+# caller value, otherwise prefer Chinese when the locale archive is present.
+case "${LANG:-}" in
+    ''|POSIX|C|C.UTF-8)
+        if [ -f "$ROOTFS/usr/lib/locale/locale-archive" ] || [ -d "$ROOTFS/usr/lib/locale/zh_CN.utf8" ]; then
+            SESSION_LANG=zh_CN.UTF-8
+        else
+            SESSION_LANG=C.UTF-8
+        fi ;;
+    *) SESSION_LANG=$LANG ;;
+esac
+: "${LANGUAGE:=zh_CN:zh}"
+SESSION_LANGUAGE=$LANGUAGE
+
 # GPU: when the tree carries the kbase-backed PanVK ICD, point Vulkan at it and
 # send GL through Zink, so EGL/GL calls execute on the Mali GPU instead of
 # llvmpipe (evidence 156: renderer goes from "llvmpipe (LLVM …)" to
@@ -188,7 +205,7 @@ esac
 
 exec "$NR_LD" --library-path "$LIBS" usr/bin/env -i -C "$CWD" \
     HOME="$home" USER="$USER_NAME" LOGNAME="$USER_NAME" SHELL="$shell" \
-    PATH="$PATH_GUEST" LANG=C.UTF-8 TERM="${TERM:-xterm-256color}" COLORTERM=truecolor \
+    PATH="$PATH_GUEST" LANG="$SESSION_LANG" LANGUAGE="$SESSION_LANGUAGE" TERM="${TERM:-xterm-256color}" COLORTERM=truecolor \
     NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" NR_SESSION_ID="${NR_SESSION_ID:-}" \
     DBUS_SYSTEM_BUS_ADDRESS="unix:path=/run/dbus/system_bus_socket" \
     NR_FAKE_UID="$uid" NR_FAKE_GID="$gid" \
