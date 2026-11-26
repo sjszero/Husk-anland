@@ -11,6 +11,11 @@
 
 ### 修复
 
+- **会话 guard 不再把扫描失败伪装成清理成功，并修正启动 fd 重映射**（evidence 267）。
+  `/proc` 扫描现在返回 `Result`；失败时日志写 `remaining=UNKNOWN`，guard 以 70 退出，
+  只有扫描成功且列表为空才写 `clean=true`。guard 启动先用 `F_DUPFD_CLOEXEC` 稳定复制
+  管道端，避免 fd 3/4 源碰撞；ready 超时会杀掉卡住的 helper。真机 marker 清理通过，
+  不存在 proc 根路径的负对照返回 70，完整门禁 A 仍为 38/38。
 - **组表并发读写不再越界，也不在信号重入时自锁**（evidence 266）。旧 `getgroups()` 用
   第一次读到的组数量校验调用方缓冲区，解锁后却在复制阶段重新读取可能已被并发
   `setgroups()` 扩大的长度；旧 loader 负对照 20 轮中 19 轮触发 `buffer-overrun` 和
@@ -32,6 +37,13 @@
   `LANG=zh_CN.UTF-8`、`LANGUAGE=zh_CN:zh`，显式 `en_US.UTF-8` 仍原样保留；只设置
   英文 `LANG`、不设置 `LANGUAGE` 时也不会再被中文 `LANGUAGE` 覆盖。登录 shell 的
   `profile.d` 与 `husk-desktop.sh` 使用同一规则，并新增无需设备的 shell 语义测试。
+
+### 发布工程
+
+- **Release 标题与版本序列统一**（evidence 268）。`v0.0.24`、`v0.0.26`–`v0.0.32`
+  的标题曾把主题拼在版本号后，现已统一回 `Husk X.Y.Z`，正文和资产不变。发布序号明确按
+  100 进位（`0.0.99` 的下一版是 `0.1.0`），新增 `make version-bump`；
+  `make version-check` 会拒绝大于 99 的分量。
 
 ### 验证
 

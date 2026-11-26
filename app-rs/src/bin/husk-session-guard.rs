@@ -8,7 +8,7 @@
 
 use core::ffi::{c_int, c_void};
 use std::fs::OpenOptions;
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -75,6 +75,8 @@ fn main() {
     let mut ready_fd = -1;
     let mut session_id = String::new();
     let mut log_path = None;
+    let mut proc_root = String::from("/proc");
+    let mut test_lease_eof = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -86,6 +88,10 @@ fn main() {
             }
             "--session-id" => session_id = args.next().unwrap_or_default(),
             "--log" => log_path = args.next(),
+            // Test hook: point the marker scan at an empty/inaccessible
+            // directory to verify that "scan failed" cannot become "empty".
+            "--proc-root" => proc_root = args.next().unwrap_or_else(|| String::from("/proc")),
+            "--test-lease-eof" => test_lease_eof = true,
             _ => {}
         }
     }
@@ -110,38 +116,48 @@ fn main() {
         }
     }
 
-    let arm = read_arm(lease_fd, &mut log);
+    let arm = if test_lease_eof {
+        log.line("test lease EOF: using marker-only cleanup");
+        GuardArm::default()
+    } else {
+        read_arm(lease_fd, &mut log)
+    };
     if arm.magic == GUARD_MAGIC && arm.version == GUARD_VERSION {
         log.line(&format!(
             "armed leader={} start_ticks={}",
             arm.leader_pid, arm.leader_start_ticks
         ));
-    } else {
+    } else if !test_lease_eof {
         log.line("lease closed before arm; using marker-only cleanup");
     }
 
-    // Any byte means the App deliberately closed the session; EOF means the App
-    // process died. Both take the same cleanup path.
-    let mut byte = 0u8;
-    loop {
-        let n = unsafe { read(lease_fd, &mut byte as *mut u8 as *mut c_void, 1) };
-        if n > 0 {
-            log.line("lease command received");
+    if !test_lease_eof {
+        // Any byte means the App deliberately closed the session; EOF means the
+        // App process died. Both take the same cleanup path.
+        let mut byte = 0u8;
+        loop {
+            let n = unsafe { read(lease_fd, &mut byte as *mut u8 as *mut c_void, 1) };
+            if n > 0 {
+                log.line("lease command received");
+                break;
+            }
+            if n == 0 {
+                log.line("lease EOF: App process is gone");
+                break;
+            }
+            let errno = unsafe { *__errno() };
+            if errno == EINTR {
+                continue;
+            }
+            log.line(&format!("lease read failed errno={errno}"));
             break;
         }
-        if n == 0 {
-            log.line("lease EOF: App process is gone");
-            break;
-        }
-        let errno = unsafe { *__errno() };
-        if errno == EINTR {
-            continue;
-        }
-        log.line(&format!("lease read failed errno={errno}"));
-        break;
     }
 
-    terminate(&session_id, &arm, &mut log);
+    let clean = terminate(&session_id, &arm, &proc_root, &mut log);
+    if !clean {
+        std::process::exit(70);
+    }
 }
 
 fn read_arm(fd: c_int, log: &mut Logger) -> GuardArm {
@@ -178,14 +194,28 @@ fn read_arm(fd: c_int, log: &mut Logger) -> GuardArm {
     arm
 }
 
-fn marker_pids(session_id: &str) -> Vec<i32> {
+#[derive(Default)]
+struct MarkerScan {
+    pids: Vec<i32>,
+    skipped_entries: usize,
+}
+
+/// A failed `/proc` scan is not the same as an empty one. Returning `Result`
+/// keeps the cleanup log honest: an unavailable procfs or an fd-limit failure
+/// must never be rendered as `remaining=[]`.
+fn marker_pids(session_id: &str, proc_root: &str) -> io::Result<MarkerScan> {
     let needle = format!("NR_SESSION_ID={session_id}");
     let self_pid = std::process::id() as i32;
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return Vec::new();
-    };
-    let mut pids = Vec::new();
-    for entry in entries.flatten() {
+    let entries = std::fs::read_dir(proc_root)?;
+    let mut scan = MarkerScan::default();
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => {
+                scan.skipped_entries += 1;
+                continue;
+            }
+        };
         let Some(pid) = entry
             .file_name()
             .to_str()
@@ -196,16 +226,38 @@ fn marker_pids(session_id: &str) -> Vec<i32> {
         if pid <= 0 || pid == self_pid {
             continue;
         }
-        let Ok(env) = std::fs::read(format!("/proc/{pid}/environ")) else {
+        let Ok(env) = std::fs::read(format!("{proc_root}/{pid}/environ")) else {
             continue;
         };
         if env.split(|b| *b == 0).any(|item| item == needle.as_bytes()) {
-            pids.push(pid);
+            scan.pids.push(pid);
         }
     }
-    pids.sort_unstable();
-    pids.dedup();
-    pids
+    scan.pids.sort_unstable();
+    scan.pids.dedup();
+    Ok(scan)
+}
+
+fn scan_markers(
+    session_id: &str,
+    proc_root: &str,
+    phase: &str,
+    log: &mut Logger,
+) -> io::Result<MarkerScan> {
+    match marker_pids(session_id, proc_root) {
+        Ok(scan) => {
+            log.line(&format!(
+                "{phase} marker_pids={:?} skipped_entries={}",
+                scan.pids, scan.skipped_entries
+            ));
+            Ok(scan)
+        }
+        Err(err) => {
+            let errno = err.raw_os_error().unwrap_or(-1);
+            log.line(&format!("{phase} marker scan failed errno={errno}"));
+            Err(err)
+        }
+    }
 }
 
 fn start_ticks(pid: i32) -> u64 {
@@ -240,23 +292,43 @@ fn signal_pids(pids: &[i32], sig: c_int, log: &mut Logger) {
     }
 }
 
-fn terminate(session_id: &str, arm: &GuardArm, log: &mut Logger) {
-    let mut pids = marker_pids(session_id);
-    log.line(&format!("cleanup marker_pids={pids:?}"));
+fn terminate(session_id: &str, arm: &GuardArm, proc_root: &str, log: &mut Logger) -> bool {
+    let first = scan_markers(session_id, proc_root, "cleanup", log).ok();
     if group_alive(arm.leader_pid, arm.leader_start_ticks) {
         unsafe { kill(-arm.leader_pid, SIGTERM) };
         log.line(&format!("sent signal={SIGTERM} group={}", arm.leader_pid));
     }
-    signal_pids(&pids, SIGTERM, log);
+    if let Some(scan) = &first {
+        signal_pids(&scan.pids, SIGTERM, log);
+    }
 
     std::thread::sleep(Duration::from_millis(300));
 
-    pids = marker_pids(session_id);
+    let second = scan_markers(session_id, proc_root, "post-term", log).ok();
     if group_alive(arm.leader_pid, arm.leader_start_ticks) {
         unsafe { kill(-arm.leader_pid, SIGKILL) };
         log.line(&format!("sent signal={SIGKILL} group={}", arm.leader_pid));
     }
-    signal_pids(&pids, SIGKILL, log);
+    if let Some(scan) = &second {
+        signal_pids(&scan.pids, SIGKILL, log);
+    }
     std::thread::sleep(Duration::from_millis(100));
-    log.line(&format!("done remaining={:?}", marker_pids(session_id)));
+
+    let group_alive = group_alive(arm.leader_pid, arm.leader_start_ticks);
+    match scan_markers(session_id, proc_root, "final", log) {
+        Ok(scan) => {
+            let clean = scan.pids.is_empty() && scan.skipped_entries == 0 && !group_alive;
+            log.line(&format!(
+                "done remaining={:?} skipped_entries={} group_alive={} clean={}",
+                scan.pids, scan.skipped_entries, group_alive, clean
+            ));
+            clean
+        }
+        Err(_) => {
+            log.line(&format!(
+                "done remaining=UNKNOWN group_alive={group_alive} clean=false"
+            ));
+            false
+        }
+    }
 }

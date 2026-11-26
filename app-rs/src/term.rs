@@ -189,14 +189,31 @@ fn spawn_guard(libdir: &str, rootfs: &str, session_id: &str) -> Option<(i32, i32
     }
     if guard_pid == 0 {
         unsafe {
-            setsid();
+            if setsid() < 0 {
+                _exit(126);
+            }
+            // Move both pipe ends above the stdio destinations before touching
+            // fd 3/4. If lease[0] == 4 and ready[1] == 3, the old in-place
+            // dup2() order closed the ready write end before it could be moved:
+            // the guard then inherited a read end on fd 4, never sent "ready",
+            // and every session failed to start. F_DUPFD_CLOEXEC gives each
+            // source a stable temporary fd first.
+            let lease_copy = fcntl(lease[0], F_DUPFD_CLOEXEC, 10);
+            let ready_copy = fcntl(ready[1], F_DUPFD_CLOEXEC, 10);
+            if lease_copy < 0 || ready_copy < 0 {
+                _exit(127);
+            }
+            // Close the originals before writing fd 3/4. A source can itself be
+            // fd 3 or 4 (the layout this code exists to handle); closing after
+            // dup2 would then close the freshly mapped destination.
+            close(lease[0]);
             close(ready[0]);
-            if lease[0] != 3 && dup2(lease[0], 3) < 0 {
+            close(ready[1]);
+            if dup2(lease_copy, 3) < 0 || dup2(ready_copy, 4) < 0 {
                 _exit(127);
             }
-            if ready[1] != 4 && dup2(ready[1], 4) < 0 {
-                _exit(127);
-            }
+            close(lease_copy);
+            close(ready_copy);
             let mut fd = 0;
             while fd < 1024 {
                 if fd != 3 && fd != 4 {
@@ -232,8 +249,13 @@ fn spawn_guard(libdir: &str, rootfs: &str, session_id: &str) -> Option<(i32, i32
     }
     unsafe { close(ready[0]) };
     if !is_ready {
-        unsafe { close(lease[1]) };
-        crate::log(&format!("session: guard pid={guard_pid} failed to exec"));
+        unsafe {
+            kill(guard_pid, SIGKILL);
+            close(lease[1]);
+        }
+        crate::log(&format!(
+            "session: guard pid={guard_pid} failed to become ready; killed and lease closed"
+        ));
         return None;
     }
     crate::log(&format!("session: guard pid={guard_pid} ready"));

@@ -16,7 +16,7 @@ MANIFEST    := runtime/Cargo.toml
 PROFILE_DIR := runtime/target/$(TARGET)/release
 HUSK_TOOLS  := runtime/target/debug/husk-tools
 
-.PHONY: all check lint test tools nr-tools loader apk bench gate-a virt-race docs dist clean version-check \
+.PHONY: all check lint test tools nr-tools loader apk bench gate-a virt-race docs dist clean version-check version-bump \
         libc-patch libc-verify
 
 all: lint check version-check
@@ -130,7 +130,7 @@ bench:
 	@$(MAKE) --no-print-directory tools
 	$(HUSK_TOOLS) bench-compare docs/design/evidence/bench-*-il.log
 
-# 门禁 A = 38 项验收 + 覆盖度探针 + 补充组/session locale/身份初始化/组表竞态/rootfd/最终 symlink 真机回归。
+# 门禁 A = 38 项验收 + 覆盖度探针 + 补充组/session locale/身份初始化/组表竞态/session guard/rootfd/最终 symlink 真机回归。
 # 探针单列一步，因为 locale 看 env -i 后的真实值，竞态看宿主哨兵是否被改动。
 gate-a:
 	DEV=$${DEV:?} PKG=$${PKG:-com.linuxhub.myth.husk} \
@@ -155,6 +155,7 @@ gate-a:
 	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.myth.husk} \
 		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-groups-race-probe.sh
+	DEV=$${DEV} sh tools/device-tests/run-session-guard-probe.sh
 	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.myth.husk} \
 		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-rootfd-close-range-probe.sh
@@ -180,6 +181,9 @@ docs: tools
 # the newest CHANGELOG heading, and the release-tag link that heading points at.
 version-check:
 	@v=$$(cat VERSION); \
+	printf '%s\n' "$$v" | awk -F. 'NF != 3 || $$1 !~ /^[0-9]+$$/ || $$2 !~ /^[0-9]+$$/ || $$3 !~ /^[0-9]+$$/ || $$1 > 99 || $$2 > 99 || $$3 > 99 { exit 1 }' || { \
+	    echo "invalid version (expected X.Y.Z with components 0..99): $$v" >&2; exit 1; \
+	}; \
 	c=$$(sed -n 's/^## \[\([^]]*\)\].*/\1/p' CHANGELOG.md | grep -v -e '^Unreleased$$' -e '^未发布$$' | head -1); \
 	if [ "$$v" != "$$c" ]; then \
 	    echo "version mismatch: VERSION=$$v CHANGELOG=$$c" >&2; exit 1; \
@@ -187,6 +191,8 @@ version-check:
 	grep -q "releases/tag/v$$v" CHANGELOG.md || { \
 	    echo "CHANGELOG has no releases/tag/v$$v link" >&2; exit 1; }; \
 	echo "version ok: $$v"
+version-bump:
+	@sh tools/ci/version-bump.sh
 
 # Two artifacts: the launcher bundle (loader + installer + session script) and,
 # built on a device from a verified tree, the rootfs tarball itself. Both get a

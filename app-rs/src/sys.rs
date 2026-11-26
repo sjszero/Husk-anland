@@ -49,6 +49,7 @@ pub const O_RDWR: c_int = 2;
 pub const O_NOCTTY: c_int = 0o400;
 pub const O_NONBLOCK: c_int = 0o4000;
 pub const F_SETFL: c_int = 4;
+pub const F_DUPFD_CLOEXEC: c_int = 1030;
 pub const TIOCSCTTY: usize = 0x540E;
 pub const TIOCSWINSZ: usize = 0x5414;
 

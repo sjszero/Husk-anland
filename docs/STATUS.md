@@ -54,6 +54,12 @@ guest `/etc/group` 自动得到 `[1500, 4242]`，`setgroups([4242])` 后为 `[42
 `strace` 为 `SKIP`，不能算通过（evidence 260）。**这不是已发布的 0.0.32 资产，发布前仍需
 按版本流程生成 0.0.33 包并重新上传 GitHub Release 资产。**
 
+**会话 guard 清理真实性（同一候选）**：`marker_pids()` 的 `/proc` 扫描失败不再返回空
+列表冒充成功；最终无法确认时写 `remaining=UNKNOWN` 并以 70 退出，只有扫描成功、无跳过项
+且进程组消失才写 `clean=true`。guard 启动的 fd 3/4 映射改为先 `F_DUPFD_CLOEXEC` 复制，
+ready 超时会 SIGKILL 卡住的 helper。真机 marker 清理 PASS，缺失 proc 根路径负对照返回 70，
+新增 guard 探针已接入门禁 A（evidence 267）。
+
 **组表并发越界写（同一候选）**：`getgroups()` 的长度读取、缓冲区校验和复制现在位于
 同一 owner-TID 锁区间，不再允许并发 `setgroups()` 在检查与复制之间扩大组表。旧 loader
 负对照 20 轮中 19 轮出现 `buffer-overrun`/stack smashing；新 loader 20/20 轮通过，并接入

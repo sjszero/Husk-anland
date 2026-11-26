@@ -114,7 +114,7 @@ Husk 是**用户层运行时**（和容器同一层），不是桌面。所以�
 |---|---|---|---|
 | D1 | 关停顺序：先挂断（关 master），再 SIGTERM，再 SIGKILL | `teardown` (lib.rs:172) + `escalate` (lib.rs:531) | 日志有 `teardown(...)` → `group gone after SIGHUP`（或 SIGTERM/SIGKILL 两级） |
 | D2 | teardown 同时挂在 onDestroy 与 PTY-close 两条路上 | `on_destroy` (lib.rs:385)、`Term::close_master` | `am force-stop` 后无残留 libld |
-| D2b | App 进程单独死亡时由独立 Rust 看门狗收 lease EOF，按 `NR_SESSION_ID` 清理脱离会话组的进程 | `husk-session-guard.rs`、`Term::spawn/close_guard` | 看门狗日志 `lease EOF`；独立 marker daemon 测试 `remaining=[]`（evidence 234） |
+| D2b | App 进程单独死亡时由独立 Rust 看门狗收 lease EOF，按 `NR_SESSION_ID` 清理脱离会话组的进程；扫描失败不能伪装成空结果 | `husk-session-guard.rs`、`Term::spawn/close_guard` | 看门狗日志 `lease EOF`；独立 marker daemon 测试 `remaining=[]`、`clean=true`（evidence 234、267）；用不存在的 proc 根路径验证返回 `remaining=UNKNOWN`、退出 70（evidence 267） |
 | D3 | 进程退出前 APP 置空并 teardown | `run()` 收尾 (lib.rs:584 之后) | `loop exit` 后日志有 `teardown(loop exit)` |
 
 ### E. 观测与退出信息
