@@ -27,6 +27,14 @@ NR_ROOTFS=<rootfs 绝对路径> NR_LD=<我们的 loader 绝对路径> NR_LIBRARY
 **仓库布局**：`runtime/crates/{path-shim,nr-tools,runtime-core,gpu-env}`（Rust）、`tools/loader/*.S`（裸汇编，仅入口与 hook）、
 `tools/device-tests/*.sh`、`docs/design/`（设计 + `evidence/` 原始记录）。
 
+**0.0.22 `close_range` 与私有 fd 记账**：Android app seccomp 拦截 syscall 436 后，
+`close_range()` 过去直接返回 `ENOSYS`。现在 path-shim 枚举 `/proc/self/fd`，按真实上界执行原始
+`close(57)`，跳过内部 root fd；普通关闭、`CLOEXEC`、`3..UINT_MAX` 都在真机探针里通过。
+单 fd 与批量关闭共用 V4L2 / netlink / DRM / Adreno 注销逻辑，netlink 私有 peer 也随 client
+一起关闭。`CLOSE_RANGE_UNSHARE` 明确返回 `EOPNOTSUPP`，没有伪成功。完整门禁 A 为
+`PASS=38 FAIL=0`，coverage-sweep 扫 1400 条候选路径无泄漏（evidence 248）。
+用户态 `realpath` / `glob` / `nftw` / `statvfs` 当前均正确落到 guest 路径（evidence 247）。
+
 **0.0.21 stdio 硬链接刷新**：`fclose()` 已接入 path-shim 的硬链接别名刷新。应用调用
 `fopen` / `fputs` / `fclose` 写入时，先 flush 流，再按 `fileno` 刷新复制后备，最后调用真实
 libc `fclose`。coverage-probe 输出 `content=AAABBB`，完整门禁 A 为 `PASS=38 FAIL=0`，

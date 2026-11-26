@@ -63,8 +63,28 @@ want '^PATHCONF v=255'                              'pathconf 翻译'
 want '^TRUNCATE64 rc=0 errno=0 size=3'             'truncate64 别名'
 want '^UTIME rc=0 errno=0'                          'utime(3) 翻译'
 want '^HARDLINK_STDIO link_rc=0 link_errno=0 content=AAABBB' '硬链接复制后备跟随 stdio fclose'
+want '^CLOSE_RANGE_NETLINK before=[0-9]* opened=[0-9]* rc=0 errno=0 after=[0-9]*' \
+     'close_range 用户态兜底关闭 netlink client 与 peer'
+want '^CLOSE_RANGE_PIPE pipe=0 rc=0 errno=0 fd0=-1 fd1=-1' 'close_range 关闭普通 fd'
+want '^CLOSE_RANGE_CLOEXEC pipe=0 rc=0 errno=0 fd0=1 fd1=1' 'close_range CLOEXEC 不关闭 fd'
+want '^CLOSE_RANGE_UNSHARE rc=-1 errno=95'             'close_range UNHARE 明确拒绝而非伪成功'
+want '^CLOSE_RANGE_ALL child=[0-9]* exit=0 exists=1'  'close_range(3,~0) 不遍历四亿号且保留 rootfd'
 want '^RAW_OPENAT fd=-1 errno=2'                   'raw syscall 仍然绕过（已知边界，不是 bug）'
 want '^SCANDIRAT n=[1-9][0-9]* errno=0'             'scandirat 翻译（自己实现的扫描体）'
+
+nl=$(echo "$OUT" | grep '^CLOSE_RANGE_NETLINK before=' | tail -1)
+if [ -n "$nl" ]; then
+    before=$(echo "$nl" | sed -n 's/.*before=\([0-9]*\).*/\1/p')
+    opened=$(echo "$nl" | sed -n 's/.*opened=\([0-9]*\).*/\1/p')
+    after=$(echo "$nl" | sed -n 's/.*after=\([0-9]*\).*/\1/p')
+    if [ "$opened" -ne $((before + 2)) ] || [ "$after" -ne "$before" ]; then
+        printf 'FAIL close_range netlink fd 净变化   before=%s opened=%s after=%s\n' \
+            "$before" "$opened" "$after"
+        fail=1
+    else
+        printf 'ok   close_range netlink client+peer 无残留\n'
+    fi
+fi
 
 if [ "$fail" -ne 0 ]; then
     echo '--- coverage-probe: FAIL' >&2

@@ -15,12 +15,15 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <ftw.h>
+#include <glob.h>
 #include <semaphore.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <sys/types.h>
@@ -33,6 +36,13 @@ extern int __fxstatat(int, int, const char *, struct stat *, int);
 static void rep(const char *what, long rc, int e) {
   if (rc < 0) printf("%-26s FAIL errno=%d (%s)\n", what, e, strerror(e));
   else        printf("%-26s ok   rc=%ld\n", what, rc);
+}
+
+static int nftw_seen;
+static int nftw_cb(const char *path, const struct stat *st, int type, struct FTW *ftw) {
+  (void)st; (void)type; (void)ftw;
+  if (path) nftw_seen++;
+  return 0;
 }
 
 int main(void) {
@@ -106,6 +116,37 @@ int main(void) {
     if (pid > 0) { waitpid(pid, &st, 0); }
     printf("%-26s child exit=%d  (raw syscall，设计边界)\n", "syscall(SYS_execveat)",
            WIFEXITED(st) ? WEXITSTATUS(st) : -1);
+  }
+
+  /* 目录遍历/路径规范化的真实用户态入口：确认它们最终仍走已翻译的底层调用 */
+  {
+    char rp[4096];
+    errno = 0; char *rr = realpath("/root/gap-tmp/c", rp); e = errno;
+    rep("realpath", rr ? 0 : -1, e);
+    if (rr) printf("   realpath=%s\n", rr);
+
+    errno = 0; char *cr = canonicalize_file_name("/root/gap-tmp/c"); e = errno;
+    rep("canonicalize_file_name", cr ? 0 : -1, e);
+    if (cr) printf("   canonical=%s\n", cr);
+    free(cr);
+
+    glob_t gl; memset(&gl, 0, sizeof gl);
+    errno = 0; int gr = glob("/root/gap-tmp/*", 0, NULL, &gl); e = errno;
+    rep("glob", gr, e);
+    printf("   glob_count=%zu\n", gl.gl_pathc);
+    globfree(&gl);
+
+    errno = 0; int nr = nftw("/root/gap-tmp", nftw_cb, 8, FTW_PHYS); e = errno;
+    rep("nftw", nr, e);
+    printf("   nftw_seen=%d\n", nftw_seen);
+  }
+
+  {
+    struct statvfs sv;
+    errno = 0; int svr = statvfs("/root", &sv); e = errno;
+    rep("statvfs", svr, e);
+    printf("   statvfs_bsize=%lu blocks=%llu\n", (unsigned long)sv.f_bsize,
+           (unsigned long long)sv.f_blocks);
   }
 
   /* 权限本来就不给的那几个：跟钩不钩无关，结论只会是 EPERM */

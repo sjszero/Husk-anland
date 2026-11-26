@@ -333,3 +333,14 @@ guest 视图（`/root`、`/`），但 `open("/proc/self/cwd/x")`、`ls -l /proc/
 忽略）、`SigCgt=0x400004c8`，与同一台机器上 `adb shell` 直接 `cat /proc/self/status` 逐位相同
 ——也就是说 loader 既不添也不清。会话不是 `login(1)` 起的，别指望信号表是干净的。
 evidence 222 §5。
+
+## 15 · `close_range`：用户态兜底可用，但不模拟 fd-table unshare（2026-11-26）
+
+Android 13 的 app seccomp 会拦截 syscall 436；glibc 的 `close_range()` 不会在
+`ENOSYS` 后自动回退。0.0.22 起由 path-shim 枚举 `/proc/self/fd`，按真实最大 fd 执行原始
+`close(57)`，所以普通关闭与 `CLOSE_RANGE_CLOEXEC` 可用，`3..UINT_MAX` 也不会退化成超大循环
+（evidence 248）。
+
+**不支持的是 `CLOSE_RANGE_UNSHARE`**：fd table 的 unshare 是内核语义，用户态假装成功会让另一个
+线程仍共享同一张表。当前明确返回 `EOPNOTSUPP`。多线程并发 open/close 与 V4L2、Adreno 真机上的
+批量关闭仍未压测，UNKNOWN。

@@ -144,7 +144,7 @@ const O_RDONLY0: CInt = 0;
 const SYS_WRITE: usize = 64;
 const SYS_OPENAT: usize = 56;
 const SYS_CLOSE: usize = 57;
-const SYS_CLOSE_RANGE: usize = 436;
+const SYS_GETDENTS64: usize = 61;
 const SYS_FCNTL: usize = 25;
 const SYS_DUP: usize = 23;
 const F_GETFD: usize = 1;
@@ -7602,6 +7602,16 @@ pub unsafe extern "C" fn close(fd: CInt) -> CInt {
         dbg(&[b"close preserved rootfd\n"]);
         return 0;
     }
+    if fd >= 0 {
+        forget_fake_fd(fd);
+    }
+    ret_or_errno(syscall4(SYS_CLOSE, fd as usize, 0, 0, 0))
+}
+
+/// Drop every private table that identifies `fd` as a Husk fake descriptor.
+/// The caller closes the descriptor itself: inside `close_range()` the raw
+/// close loop must not recurse through this exported `close()` entry point.
+unsafe fn forget_fake_fd(fd: CInt) {
     if fd >= 0 && v4l2_is_fake(fd) {
         v4l2_forget(fd);
     }
@@ -7615,59 +7625,176 @@ pub unsafe extern "C" fn close(fd: CInt) -> CInt {
         adreno_forget(fd);
     }
     alias_refresh(fd);
-    ret_or_errno(syscall4(SYS_CLOSE, fd as usize, 0, 0, 0))
 }
 
-/// Same rule for a bulk close. Preserve the root fd by punching a one-fd hole
-/// in the requested range instead of walking a potentially enormous range in
-/// user space.
+/// Android's app seccomp policy traps syscall 436 and our SIGSYS handler turns
+/// it into ENOSYS, but glibc's close_range() has no fallback. The loader
+/// therefore has to implement the call in user space. Enumerate the live fd
+/// table first, then close only numbers in range; 3..UINT_MAX is a normal
+/// call shape and must not turn into a four-billion-iteration loop.
 #[no_mangle]
 pub unsafe extern "C" fn close_range(first: u32, last: u32, flags: CInt) -> CInt {
-    let rfd = rootfd();
-    if rfd >= 0 {
-        let r = rfd as u32;
-        if first <= r && r <= last {
-            if first < r {
-                let rc = syscall4(
-                    SYS_CLOSE_RANGE,
-                    first as usize,
-                    (r - 1) as usize,
-                    flags as usize,
-                    0,
-                );
-                if rc < 0 {
-                    return ret_or_errno(rc);
+    const EINVAL: CInt = 22;
+    const EIO: CInt = 5;
+    const EBADF: CInt = 9;
+    const EOPNOTSUPP: CInt = 95;
+    const CLOSE_RANGE_UNSHARE: CInt = 1 << 1;
+    const CLOSE_RANGE_CLOEXEC: CInt = 1 << 2;
+
+    if first > last || flags < 0 || flags & !(CLOSE_RANGE_UNSHARE | CLOSE_RANGE_CLOEXEC) != 0 {
+        return set_errno(EINVAL);
+    }
+    // Sharing the descriptor table is a kernel operation (unshare(2)); there
+    // is no correctness-preserving userspace simulation. Refuse it instead of
+    // silently closing descriptors belonging to another thread.
+    if flags & CLOSE_RANGE_UNSHARE != 0 {
+        return set_errno(EOPNOTSUPP);
+    }
+
+    let path = b"/proc/self/fd\0";
+    let dfd = syscall4(
+        SYS_OPENAT,
+        AT_FDCWD as usize,
+        path.as_ptr() as usize,
+        (O_RDONLY0 | O_DIRECTORY | O_CLOEXEC) as usize,
+        0,
+    );
+    if dfd < 0 {
+        return set_errno((-dfd) as CInt);
+    }
+
+    // Linux dirent64: d_reclen at +16, d_name at +19. Take the maximum live fd
+    // from the directory before closing anything. Reading and closing in the
+    // same pass can make /proc/self/fd's offsets skip entries.
+    let mut maxfd: u32 = 0;
+    let mut anyfd = false;
+    let mut buf = [0u8; 4096];
+    loop {
+        let n = syscall4(
+            SYS_GETDENTS64,
+            dfd as usize,
+            buf.as_mut_ptr() as usize,
+            buf.len(),
+            0,
+        );
+        if n < 0 {
+            let e = (-n) as CInt;
+            syscall4(SYS_CLOSE, dfd as usize, 0, 0, 0);
+            return set_errno(e);
+        }
+        if n == 0 {
+            break;
+        }
+        let n = n as usize;
+        let mut off = 0usize;
+        while off < n {
+            if off + 20 > n {
+                syscall4(SYS_CLOSE, dfd as usize, 0, 0, 0);
+                return set_errno(EIO);
+            }
+            let reclen =
+                core::ptr::read_unaligned(buf.as_ptr().add(off + 16) as *const u16) as usize;
+            if reclen < 20 || off + reclen > n {
+                syscall4(SYS_CLOSE, dfd as usize, 0, 0, 0);
+                return set_errno(EIO);
+            }
+            let name = buf.as_ptr().add(off + 19);
+            let name_max = reclen - 19;
+            let mut k = 0usize;
+            let mut fd = 0u32;
+            let mut digit = false;
+            while k < name_max && *name.add(k) != 0 {
+                let c = *name.add(k);
+                if !c.is_ascii_digit() {
+                    digit = false;
+                    break;
+                }
+                digit = true;
+                fd = match fd
+                    .checked_mul(10)
+                    .and_then(|v| v.checked_add((c - b'0') as u32))
+                {
+                    Some(v) => v,
+                    None => {
+                        digit = false;
+                        break;
+                    }
+                };
+                k += 1;
+            }
+            if digit {
+                if !anyfd || fd > maxfd {
+                    maxfd = fd;
+                    anyfd = true;
                 }
             }
-            if r < last {
-                let rc = syscall4(
-                    SYS_CLOSE_RANGE,
-                    (r + 1) as usize,
-                    last as usize,
-                    flags as usize,
-                    0,
-                );
-                if rc < 0 {
-                    return ret_or_errno(rc);
-                }
-            }
-            drm_forget_range(first, last);
-            adreno_forget_range(first, last);
-            return 0;
+            off += reclen;
         }
     }
-    let r = ret_or_errno(syscall4(
-        SYS_CLOSE_RANGE,
-        first as usize,
-        last as usize,
-        flags as usize,
-        0,
-    ));
-    if r == 0 {
-        drm_forget_range(first, last);
-        adreno_forget_range(first, last);
+
+    let rfd = rootfd();
+    let hi = if anyfd {
+        last.min(maxfd)
+    } else {
+        first.saturating_sub(1)
+    };
+    let mut first_err = 0;
+    let mut f = first;
+    while f <= hi {
+        if f == rfd as u32 {
+            f += 1;
+            continue;
+        }
+        if flags & CLOSE_RANGE_CLOEXEC != 0 {
+            let old = syscall4(SYS_FCNTL, f as usize, F_GETFD, 0, 0);
+            if old < 0 {
+                let e = (-old) as CInt;
+                if e != EBADF && first_err == 0 {
+                    first_err = e;
+                }
+            } else if old & FD_CLOEXEC as isize == 0 {
+                let r = syscall4(
+                    SYS_FCNTL,
+                    f as usize,
+                    F_SETFD,
+                    (old as usize) | FD_CLOEXEC,
+                    0,
+                );
+                if r < 0 {
+                    let e = (-r) as CInt;
+                    if e != EBADF && first_err == 0 {
+                        first_err = e;
+                    }
+                }
+            }
+        } else {
+            forget_fake_fd(f as CInt);
+            let r = syscall4(SYS_CLOSE, f as usize, 0, 0, 0);
+            if r < 0 {
+                let e = (-r) as CInt;
+                if e != EBADF && first_err == 0 {
+                    first_err = e;
+                }
+            }
+        }
+        if f == u32::MAX {
+            break;
+        }
+        f += 1;
     }
-    r
+
+    // The directory fd is ours, not the caller's. If it fell inside a close
+    // range it was already closed by the loop; otherwise close it now. For
+    // CLOEXEC it already carries FD_CLOEXEC and must not leak.
+    if flags & CLOSE_RANGE_CLOEXEC != 0 || !(first <= dfd as u32 && dfd as u32 <= last) {
+        syscall4(SYS_CLOSE, dfd as usize, 0, 0, 0);
+    }
+
+    if first_err != 0 {
+        set_errno(first_err)
+    } else {
+        0
+    }
 }
 
 // dup 家族：Mesa 复制渲染节点就靠它们（见 drm_inherit_fake 的注释）。
@@ -12048,20 +12175,6 @@ unsafe fn drm_forget(fd: CInt) {
     fake_fds_unlock();
 }
 
-/// close_range 一次关掉一整段：把落在区间里的槽位一起清掉，否则同样是泄漏。
-unsafe fn drm_forget_range(first: u32, last: u32) {
-    fake_fds_lock();
-    let mut i = 0;
-    while i < FAKE_FDS.len() {
-        let f = FAKE_FDS[i];
-        if f >= 0 && (f as u32) >= first && (f as u32) <= last {
-            FAKE_FDS[i] = -1;
-        }
-        i += 1;
-    }
-    fake_fds_unlock();
-}
-
 /// dup 出来的新 fd 指向同一个对象，对它的 ioctl/mmap 必须和原 fd 一样被接管。
 ///
 /// 这一条不是抄来的：Mesa 拿渲染节点时会 fcntl(F_DUPFD) 复制一份再在副本上问
@@ -12140,19 +12253,6 @@ unsafe fn adreno_tracked(fd: CInt) -> bool {
 unsafe fn adreno_forget(fd: CInt) {
     fake_fds_lock();
     adreno_forget_locked(fd);
-    fake_fds_unlock();
-}
-
-unsafe fn adreno_forget_range(first: u32, last: u32) {
-    fake_fds_lock();
-    let mut i = 0;
-    while i < ADRENO_FDS.len() {
-        let f = ADRENO_FDS[i];
-        if f >= 0 && (f as u32) >= first && (f as u32) <= last {
-            ADRENO_FDS[i] = -1;
-        }
-        i += 1;
-    }
     fake_fds_unlock();
 }
 
@@ -14437,6 +14537,8 @@ const NL_MAX: usize = 16;
 struct NlSlot {
     client: CInt,
     peer: CInt,
+    client_ino: u64,
+    peer_ino: u64,
     proto: CInt,
     seq: u32,
     ack: u8,
@@ -14445,6 +14547,8 @@ struct NlSlot {
 static mut NL_SLOTS: [NlSlot; NL_MAX] = [NlSlot {
     client: -1,
     peer: -1,
+    client_ino: 0,
+    peer_ino: 0,
     proto: -1,
     seq: 0,
     ack: 0,
@@ -14477,41 +14581,42 @@ unsafe fn nl_slot(fd: CInt) -> Option<usize> {
     None
 }
 
+unsafe fn nl_fd_ino(fd: CInt) -> Option<u64> {
+    if fd < 0 {
+        return None;
+    }
+    let mut st = [0u8; 128];
+    if syscall4(SYS_FSTAT, fd as usize, st.as_mut_ptr() as usize, 0, 0) < 0 {
+        return None;
+    }
+    Some(core::ptr::read_unaligned(st.as_ptr().add(8) as *const u64))
+}
+
 unsafe fn nl_is_fake(fd: CInt) -> bool {
     if NL_COUNT.load(Ordering::Relaxed) == 0 {
         return false;
     }
-    if nl_slot(fd).is_none() {
+    let Some(idx) = nl_slot(fd) else {
         return false;
-    }
-    // A slot outlives a close() that happened inside libc (that path does not
-    // come through our close()), and the descriptor number is then free for any
-    // later socket. Treat it as ours only while it still answers as one of our
-    // AF_UNIX datagram ends; otherwise drop the stale slot. Without this, a
-    // recycled descriptor gets netlink answers on a UDP socket and glibc's
-    // getaddrinfo sees a source address of family AF_NETLINK.
-    let mut addr = [0u8; 128];
-    let mut alen: u32 = 128;
-    let r = syscall4(
-        204, // getsockname
-        fd as usize,
-        addr.as_mut_ptr() as usize,
-        core::ptr::addr_of_mut!(alen) as usize,
-        0,
-    );
-    if r < 0 {
-        nl_forget(fd);
-        return false;
-    }
-    let fam = core::ptr::read_unaligned(addr.as_ptr() as *const u16);
-    if fam != AF_UNIX_DOM as u16 {
+    };
+    // A slot can outlive a close() that happened inside libc. Match the socket
+    // inode, not just AF_UNIX + fd number: both are reused in ordinary
+    // processes, and a false positive feeds netlink replies into an unrelated
+    // socket.
+    if nl_fd_ino(fd) != Some(NL_SLOTS[idx].client_ino) {
         nl_forget(fd);
         return false;
     }
     true
 }
 
-unsafe fn nl_install(client: CInt, peer: CInt, proto: CInt) -> bool {
+unsafe fn nl_install(
+    client: CInt,
+    peer: CInt,
+    client_ino: u64,
+    peer_ino: u64,
+    proto: CInt,
+) -> bool {
     nl_lock();
     let mut ok = false;
     for i in 0..NL_MAX {
@@ -14519,6 +14624,8 @@ unsafe fn nl_install(client: CInt, peer: CInt, proto: CInt) -> bool {
             NL_SLOTS[i] = NlSlot {
                 client,
                 peer,
+                client_ino,
+                peer_ino,
                 proto,
                 seq: 0,
                 ack: 0,
@@ -14536,15 +14643,25 @@ unsafe fn nl_forget(fd: CInt) {
     nl_lock();
     for i in 0..NL_MAX {
         if NL_SLOTS[i].client == fd {
+            let peer = NL_SLOTS[i].peer;
+            let peer_ino = NL_SLOTS[i].peer_ino;
             NL_SLOTS[i] = NlSlot {
                 client: -1,
                 peer: -1,
+                client_ino: 0,
+                peer_ino: 0,
                 proto: -1,
                 seq: 0,
                 ack: 0,
             };
             let c = NL_COUNT.load(Ordering::Relaxed);
             NL_COUNT.store(c.saturating_sub(1), Ordering::Relaxed);
+            // The peer is private to the shim. Leaving it open leaked one fd
+            // for every closed AF_NETLINK socket and kept NL_MAX-sized use
+            // cycles accumulating hidden descriptors.
+            if peer >= 0 && peer != fd && nl_fd_ino(peer) == Some(peer_ino) {
+                syscall4(SYS_CLOSE, peer as usize, 0, 0, 0);
+            }
             break;
         }
     }
@@ -14574,7 +14691,17 @@ pub unsafe extern "C" fn socket(domain: CInt, typ: CInt, proto: CInt) -> CInt {
         // The client end never blocks: once a dump has been consumed there is
         // simply nothing more, which netlink clients already handle as EAGAIN.
         syscall4(SYS_FCNTL, fds[0] as usize, 4 /* F_SETFL */, 0o4000, 0);
-        if !nl_install(fds[0], fds[1], proto) {
+        let Some(client_ino) = nl_fd_ino(fds[0]) else {
+            syscall4(SYS_CLOSE, fds[0] as usize, 0, 0, 0);
+            syscall4(SYS_CLOSE, fds[1] as usize, 0, 0, 0);
+            return set_errno(5);
+        };
+        let Some(peer_ino) = nl_fd_ino(fds[1]) else {
+            syscall4(SYS_CLOSE, fds[0] as usize, 0, 0, 0);
+            syscall4(SYS_CLOSE, fds[1] as usize, 0, 0, 0);
+            return set_errno(5);
+        };
+        if !nl_install(fds[0], fds[1], client_ino, peer_ino, proto) {
             syscall4(SYS_CLOSE, fds[0] as usize, 0, 0, 0);
             syscall4(SYS_CLOSE, fds[1] as usize, 0, 0, 0);
             return set_errno(23); // ENFILE

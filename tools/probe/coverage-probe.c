@@ -10,12 +10,26 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <dirent.h>
+#include <linux/netlink.h>
 #include <sys/inotify.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
 #include <utime.h>
 
 static int exists(const char *p) { struct stat st; return stat(p, &st) == 0; }
+
+static int open_fd_count(void)
+{
+    DIR *d = opendir("/proc/self/fd");
+    if (!d) return -1;
+    int n = 0;
+    struct dirent *e;
+    while ((e = readdir(d))) if (e->d_name[0] != '.') n++;
+    closedir(d);
+    return n;
+}
 
 int main(void)
 {
@@ -82,6 +96,44 @@ int main(void)
     { errno = 0;
       int fd = (int)syscall(SYS_openat, AT_FDCWD, "/root/.p-rawopen", O_WRONLY | O_CREAT, 0644);
       printf("RAW_OPENAT fd=%d errno=%d\n", fd, errno); if (fd >= 0) close(fd); }
+
+    /* 8 close_range：Android seccomp 拦 436，必须由 shim 用用户态枚举兜底。
+       同时验证 netlink 私有的 peer 端会随 client 一起注销。 */
+    { int before = open_fd_count();
+      int fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+      int opened = open_fd_count();
+      errno = 0; int r = close_range((unsigned)fd, (unsigned)fd, 0);
+      int after = open_fd_count();
+      printf("CLOSE_RANGE_NETLINK before=%d opened=%d rc=%d errno=%d after=%d\n",
+             before, opened, r, errno, after); }
+
+    /* close_range 的普通关闭与 CLOEXEC 语义 */
+    { int pfd[2]; int pr = pipe(pfd); errno = 0;
+      int r = pr == 0 ? close_range((unsigned)pfd[0], (unsigned)pfd[1], 0) : -1;
+      int e = errno;
+      int a = pr == 0 ? fcntl(pfd[0], F_GETFD) : -1;
+      int b = pr == 0 ? fcntl(pfd[1], F_GETFD) : -1;
+      printf("CLOSE_RANGE_PIPE pipe=%d rc=%d errno=%d fd0=%d fd1=%d\n", pr, r, e, a, b); }
+    { int pfd[2]; int pr = pipe(pfd); errno = 0;
+      int r = pr == 0 ? close_range((unsigned)pfd[0], (unsigned)pfd[1], 4) : -1;
+      int e = errno;
+      int a = pr == 0 ? fcntl(pfd[0], F_GETFD) : -1;
+      int b = pr == 0 ? fcntl(pfd[1], F_GETFD) : -1;
+      printf("CLOSE_RANGE_CLOEXEC pipe=%d rc=%d errno=%d fd0=%d fd1=%d\n", pr, r, e, a, b);
+      if (pr == 0) { close(pfd[0]); close(pfd[1]); } }
+    { errno = 0; int r = close_range(3, 3, 2);
+      printf("CLOSE_RANGE_UNSHARE rc=%d errno=%d\n", r, errno); }
+    { const char *p = "/root/.p-close-range-root"; unlink(p);
+      pid_t pid = fork();
+      if (pid == 0) {
+          int r = close_range(3, ~0U, 0);
+          int fd = open(p, O_WRONLY | O_CREAT, 0600);
+          _exit(r == 0 && fd >= 0 ? 0 : 3);
+      }
+      int status = -1; waitpid(pid, &status, 0);
+      printf("CLOSE_RANGE_ALL child=%d exit=%d exists=%d\n", pid,
+             WIFEXITED(status) ? WEXITSTATUS(status) : -1, exists(p));
+      unlink(p); }
 
     (void)line;
     return 0;

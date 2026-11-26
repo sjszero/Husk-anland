@@ -7,6 +7,38 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.22] - 2026-11-26
+
+> 主题：**让 `close_range(2)` 在 Android app 域真正可用，并补齐批量关闭时的私有 fd 记账**。
+> 这一版修的是运行时接口，不改 X11/GPU 呈现路径，也不把 fd-table unshare 说成已支持。
+
+### 修复
+
+- **`close_range` 不再被 seccomp 的 ENOSYS 卡死**（evidence 248）。Android 13 的 app seccomp
+  拦截 syscall 436，旧实现把 SIGSYS 回成 `ENOSYS` 后，glibc 没有回退，调用方直接失败。
+  现在 path-shim 枚举 `/proc/self/fd`，按真实 fd 上界执行原始 `close(57)`；`3..UINT_MAX`
+  不会遍历四十多亿个编号，同时跳过内部 root fd。
+- **`CLOSE_RANGE_CLOEXEC` 与 `UNSHARE` 分清语义**（evidence 248）。前者只设置 `FD_CLOEXEC`，
+  不注销仍在使用的假 fd；后者无法在用户态正确模拟，明确返回 `EOPNOTSUPP`，不伪造成功。
+- **批量关闭统一清理 V4L2 / netlink / DRM / Adreno 记账**（evidence 248）。单 fd 与批量路径
+  共用 `forget_fake_fd()`；netlink 槽位记录 client / peer 的 socket inode，注销时只在 inode 匹配的前提下关闭私有 peer，既修掉 fd 泄漏，也避免 fd 号复用后误关无关 fd。
+- **用户态路径入口复核**（evidence 247）。`realpath`、`canonicalize_file_name`、`glob`、
+  `nftw`、`statvfs` 在当前 loader 下均落到 guest 路径；这是覆盖复核，不是新增五项代码修复。
+
+### 验证
+
+- coverage-probe 真机输出：netlink `before=6 opened=8 after=6`；pipe 两 fd 均关闭；
+  `CLOEXEC` 两 fd 均保留且 `F_GETFD=1`；`close_range(3,~0U)` 子进程仍能通过 guest 路径创建文件。
+- 同一枚 loader 跑完整门禁 A：`PASS=38 FAIL=0`；coverage-probe 全部 PASS；
+  coverage-sweep 扫描 1400 条候选路径，未发现未翻译的 guest 绝对路径。
+- `cargo check --target aarch64-unknown-linux-gnu -p path-shim` 通过，loader interpose 表为 199 项。
+
+### 边界
+
+- `CLOSE_RANGE_UNSHARE` 仍不支持；依赖 fd-table unshare 的调用会得到 `EOPNOTSUPP`。
+- 多线程并发 fd churn 没有做压力测试；V4L2 相机与 Adreno 真机上的 `close_range` 仍是 UNKNOWN。
+- 本版没有改变“X11 窗口内容进入 X server 仍是一次 SHM 回读加拷贝”的边界。
+
 ## [0.0.21] - 2026-11-26
 
 > 主题：**修掉 stdio 写入后硬链接复制后备不刷新的兼容性缺口**。这一版只改 path-shim 的
@@ -964,7 +996,8 @@
 - 传感器、GPS、USB、蓝牙、NFC、指纹、硬件视频解码、WSI：未开始。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
-[未发布]: https://github.com/xishanp/Husk/compare/v0.0.21...HEAD
+[未发布]: https://github.com/xishanp/Husk/compare/v0.0.22...HEAD
+[0.0.22]: https://github.com/xishanp/Husk/releases/tag/v0.0.22
 [0.0.21]: https://github.com/xishanp/Husk/releases/tag/v0.0.21
 [0.0.20]: https://github.com/xishanp/Husk/releases/tag/v0.0.20
 [0.0.19]: https://github.com/xishanp/Husk/releases/tag/v0.0.19
