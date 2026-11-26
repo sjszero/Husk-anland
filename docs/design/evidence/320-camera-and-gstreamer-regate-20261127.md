@@ -108,6 +108,9 @@ camera-fixture: PASS (raw + GStreamer, 640x480 and 1280x720)
 `VIDIOC_CROPCAP` 和“不确定 buffer 数量”的 GStreamer 警告仍存在；它们是当前 facade 的已知
 协议缺口，不影响这两档取帧通过，不能写成“所有 V4L2 control 已支持”。
 
+后续：`VIDIOC_CROPCAP` 与时间戳相关性警告已在 evidence 321 修复；copy-threshold 警告是
+GStreamer 在没有 downstream allocation pool 时的预期策略，不等同于 REQBUFS 少返回。
+
 ## 4 · 同轮门禁
 
 ```text

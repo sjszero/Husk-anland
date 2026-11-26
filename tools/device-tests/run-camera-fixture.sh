@@ -73,7 +73,7 @@ run_gst() {
     name=$1
     width=$2
     height=$3
-    adb -s "$DEV" shell "run-as $PKG sh -c '
+    out=$(adb -s "$DEV" shell "run-as $PKG sh -c '
         rm -f $ROOTFS/run/husk/camera.sock $ROOTFS/root/v4l2-audit-$name.log
         NR_LD=$LD sh $SESS $ROOTFS -- /usr/bin/env \
             NR_V4L2_AUDIT=1 \
@@ -83,10 +83,16 @@ run_gst() {
             GST_REGISTRY_UPDATE=yes GST_DEBUG=2 \
             /root/camera-fixture --gst $width $height 3
         rc=\$?
-        echo "--- v4l2 audit $name ---"
+        echo \"--- v4l2 audit $name ---\"
         cat $ROOTFS/root/v4l2-audit-$name.log 2>/dev/null || true
         exit \$rc
-    '"
+    '" 2>&1) || { printf '%s\n' "$out"; exit 1; }
+    printf '%s\n' "$out"
+    if printf '%s\n' "$out" | grep -Eq \
+        'VIDIOC_CROPCAP failed|Timestamp does not correlate with any clock'; then
+        echo "camera-fixture: FAIL (V4L2 crop/timestamp warning regressed)" >&2
+        exit 1
+    fi
 }
 
 run_raw 640 640 480

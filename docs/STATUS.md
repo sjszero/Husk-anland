@@ -59,7 +59,7 @@ Gate A 的唯一 SKIP 是离线树没有 apt package index。没有把 SKIP 计�
 | 设备类 | 分类 | guest 接口 | 当前实测 |
 |---|---|---|---|
 | GPU | 直连 | `/dev/mali0`，PanVK + Zink | Mali-G77 MC9 枚举、compute、离屏 graphics、EGL/GL；Adreno/KGSL 仅源码与主机侧测试，真机 UNKNOWN |
-| 相机 | 中转 | V4L2 `/dev/videoN` facade | 2026-11-27 复验：A-hw 11/0；前后摄各 3 帧 1280×720 NV12；V4L2/GStreamer fixture 两档通过；DMABUF 和 controls 未支持 |
+| 相机 | 中转 | V4L2 `/dev/videoN` facade | 2026-11-27 复验：A-hw 11/0；前后摄各 3 帧 1280×720 NV12；V4L2/GStreamer fixture 两档通过；crop/selection 与 monotonic PTS 已验；DMABUF、通用 controls、非整帧裁剪未支持 |
 | 音频 | 中转 | PulseAudio → Rust relay → AAudio | 输出与采集真实 PCM；采集探针 196,608 bytes、`peak=285` |
 | 视频解码 | 中转 | VA-API → bridge → MediaCodec | H.264 1080p30 连续 600 秒，`dropped=0` |
 | 传感器 | 中转 | IIO sysfs 影子树 ← `ASensorManager_*` | 加速度、磁力、陀螺仪、环境光、距离五类可读 |
@@ -131,7 +131,7 @@ ls: files/rootfs-full/usr/lib/xorg/Xorg: No such file or directory
 - Adreno/KGSL、其他 Android 版本、其他厂商 seccomp/SELinux 策略。
 - 定位、USB、蓝牙的完整链路。
 - 传感器通过 `iio-sensor-proxy` 的 D-Bus 输出。
-- 相机 DMABUF、V4L2 controls、跨进程假 fd。
+- 相机 DMABUF、通用 V4L2 controls、非整帧裁剪、真实 Camera2 的 GStreamer PTS、跨进程假 fd。
 - 窗口内容到 X server 的零拷贝。
 - 长时间负载型 soak；现有 30 分钟为空载，GPU 有 300 秒并发探针。
 

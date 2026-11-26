@@ -68,6 +68,7 @@ Gate A 的 SKIP 是离线树没有 apt package index。没有把它算成 PASS�
 | GStreamer `v4l2src` | 前后摄各 3 帧 NV12 640×480，rc=0 | 309 |
 | A-hw 普通用户授权路径 | `PASS=11 FAIL=0`；前后摄各 3 帧 1280×720 NV12 | 320 |
 | V4L2 fixture + GStreamer | 640×480、1280×720 两档均 PASS | 320 |
+| V4L2 crop/selection + monotonic PTS | 两档契约通过；GStreamer 无 `CROPCAP`/时间戳相关性警告 | 321 |
 | AAudio 采集 | 196,608 PCM bytes，`peak=285` | 310 |
 | 传感器 IIO | 5 类默认传感器 `READY`，guest 可读 | 302 |
 | MediaCodec 解码 | H.264 1080p30，600 秒，dropped=0 | 80 |
@@ -85,7 +86,7 @@ GNOME/X11 桌面为 **UNVERIFIED**。不得把其他 App 或旧 PRoot 树的 X s
 - 16 KiB / 64 KiB 真机运行；
 - Adreno/KGSL 真机；
 - 其他 Android 版本、厂商 seccomp/SELinux；
-- 相机 DMABUF、V4L2 controls、跨进程假 fd；
+- 相机 DMABUF、通用 V4L2 controls、非整帧裁剪、真实 Camera2 的 GStreamer PTS、跨进程假 fd；
 - 定位、USB、蓝牙完整链路；
 - `iio-sensor-proxy` D-Bus 输出；
 - 窗口内容到 X server 的零拷贝；

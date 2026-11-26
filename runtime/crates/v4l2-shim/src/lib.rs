@@ -30,9 +30,13 @@ const SYS_SOCKET: usize = 198;
 const SYS_CONNECT: usize = 203;
 const SYS_MEMFD_CREATE: usize = 279;
 const SYS_READLINKAT: usize = 78;
+const SYS_CLOCK_GETTIME: usize = 113;
 const AT_FDCWD: isize = -100;
 const O_DIRECTORY: usize = 0o40000; // AArch64 UAPI, not asm-generic 0o200000
 const O_CLOEXEC: usize = 0o2000000;
+const CLOCK_MONOTONIC: usize = 1;
+const CLOCK_BOOTTIME: usize = 7;
+const CLOCK_REALTIME: usize = 0;
 
 // ---- ioctls (verified on the guest header, aarch64) ----
 pub const QUERYCAP: u64 = 0x8068_5600;
@@ -55,6 +59,11 @@ pub const G_PRIORITY: u64 = 0x8004_5643;
 pub const S_PRIORITY: u64 = 0x4004_5644;
 pub const ENUM_FRAMESIZES: u64 = 0xc02c_564a;
 pub const ENUM_FRAMEINTERVALS: u64 = 0xc034_564b;
+pub const CROPCAP: u64 = 0xc02c_563a;
+pub const G_CROP: u64 = 0xc014_563b;
+pub const S_CROP: u64 = 0x4014_563c;
+pub const G_SELECTION: u64 = 0xc040_565e;
+pub const S_SELECTION: u64 = 0xc040_565f;
 
 // ---- constants ----
 pub const BUF_TYPE_VIDEO_CAPTURE: u32 = 1;
@@ -75,6 +84,9 @@ pub const BUF_FLAG_TIMESTAMP_MONOTONIC: u32 = 8192;
 pub const INPUT_TYPE_CAMERA: u32 = 2;
 pub const FMT_NV12: u32 = 0x3231_564e;
 pub const FMT_YUYV: u32 = 0x5659_5559;
+pub const SEL_TGT_CROP: u32 = 0;
+pub const SEL_TGT_CROP_DEFAULT: u32 = 1;
+pub const SEL_TGT_CROP_BOUNDS: u32 = 2;
 const PRIORITY_DEFAULT: u32 = 2;
 const EINVAL: i64 = 22;
 const EACCES: i64 = 13;
@@ -86,6 +98,7 @@ const ENOTTY: i64 = 25;
 const EFAULT: i64 = 14;
 const EIO: i64 = 5;
 const BUFFER_OFFSET_SHIFT: u32 = 24;
+const MAX_TIMESTAMP_AGE_NS: u64 = 10_000_000_000;
 const SCRATCH_BYTES: usize = 1920 * 1080 * 3 / 2 + 4096;
 const READV_BYTES: usize = 1920 * 1080 * 2 + 4096;
 
@@ -807,6 +820,9 @@ impl Ctx {
             ENUM_FRAMEINTERVALS => self.enum_frameintervals(i, arg),
             G_FMT | S_FMT | TRY_FMT => self.fmt(i, req, arg),
             G_PARM | S_PARM => self.parm(i, arg),
+            CROPCAP => self.cropcap(i, arg),
+            G_CROP | S_CROP => self.crop(i, req, arg),
+            G_SELECTION | S_SELECTION => self.selection(i, req, arg),
             ENUMINPUT => self.enum_input(i, arg),
             G_INPUT => {
                 st32(arg, 0, 0);
@@ -1010,6 +1026,74 @@ impl Ctx {
         st32(arg, 12, 1);
         st32(arg, 16, 30);
         st32(arg, 24, 2);
+        0
+    }
+
+    unsafe fn write_rect(&self, i: usize, base: *mut u8, off: usize) {
+        let d = &self.devs[i];
+        st32(base, off, 0);
+        st32(base, off + 4, 0);
+        st32(base, off + 8, d.w);
+        st32(base, off + 12, d.h);
+    }
+
+    unsafe fn rect_is_full_frame(&self, i: usize, base: *const u8, off: usize) -> bool {
+        let d = &self.devs[i];
+        ld32(base, off) == 0
+            && ld32(base, off + 4) == 0
+            && ld32(base, off + 8) == d.w
+            && ld32(base, off + 12) == d.h
+    }
+
+    /// The host bridge always delivers the complete negotiated frame. Expose that
+    /// geometry through the legacy crop API and the modern selection API instead of
+    /// returning ENOTTY: GStreamer probes both before streaming and warns twice when
+    /// neither is present. A non-full crop would require the bridge to crop pixels,
+    /// so it is rejected rather than silently ignored.
+    unsafe fn cropcap(&self, i: usize, arg: *mut u8) -> i64 {
+        if ld32(arg, 0) != BUF_TYPE_VIDEO_CAPTURE {
+            return -EINVAL;
+        }
+        zero(arg, 44);
+        st32(arg, 0, BUF_TYPE_VIDEO_CAPTURE);
+        self.write_rect(i, arg, 4);
+        self.write_rect(i, arg, 20);
+        st32(arg, 36, 1);
+        st32(arg, 40, 1);
+        0
+    }
+
+    unsafe fn crop(&mut self, i: usize, req: u64, arg: *mut u8) -> i64 {
+        if ld32(arg, 0) != BUF_TYPE_VIDEO_CAPTURE {
+            return -EINVAL;
+        }
+        if req == S_CROP && !self.rect_is_full_frame(i, arg, 4) {
+            return -EINVAL;
+        }
+        self.write_rect(i, arg, 4);
+        0
+    }
+
+    unsafe fn selection(&mut self, i: usize, req: u64, arg: *mut u8) -> i64 {
+        if ld32(arg, 0) != BUF_TYPE_VIDEO_CAPTURE {
+            return -EINVAL;
+        }
+        let target = ld32(arg, 4);
+        if target != SEL_TGT_CROP && target != SEL_TGT_CROP_DEFAULT && target != SEL_TGT_CROP_BOUNDS
+        {
+            // Compose targets are output-only. ENOTTY tells GStreamer this capture
+            // facade does not implement them, which is the documented no-op path.
+            return -ENOTTY;
+        }
+        if req == S_SELECTION
+            && (target != SEL_TGT_CROP || ld32(arg, 8) != 0 || !self.rect_is_full_frame(i, arg, 12))
+        {
+            return -EINVAL;
+        }
+        zero(arg, 64);
+        st32(arg, 0, BUF_TYPE_VIDEO_CAPTURE);
+        st32(arg, 4, target);
+        self.write_rect(i, arg, 12);
         0
     }
 
@@ -1446,8 +1530,9 @@ impl Ctx {
             self.fill_buf(i, arg, idx);
             st32(arg, 8, used as u32);
             st32(arg, 56, seq);
-            st64(arg, 24, ts / 1_000_000);
-            st64(arg, 32, ts % 1_000_000);
+            let ts = normalize_timestamp(ts);
+            st64(arg, 24, ts / 1_000_000_000);
+            st64(arg, 32, (ts % 1_000_000_000) / 1_000);
             return 0;
         }
     }
@@ -1552,6 +1637,61 @@ fn parse_u64(s: &[u8]) -> Option<u64> {
         Some(v)
     } else {
         None
+    }
+}
+
+unsafe fn clock_ns(clock: usize) -> Option<u64> {
+    let mut ts = [0u64; 2];
+    if syscall3(SYS_CLOCK_GETTIME, clock, ts.as_mut_ptr() as usize, 0) != 0 {
+        return None;
+    }
+    ts[0]
+        .checked_mul(1_000_000_000)
+        .and_then(|v| v.checked_add(ts[1]))
+}
+
+fn timestamp_age(now: u64, stamp: u64) -> Option<u64> {
+    if stamp == 0 || stamp > now {
+        return None;
+    }
+    let age = now - stamp;
+    (age <= MAX_TIMESTAMP_AGE_NS).then_some(age)
+}
+
+/// Camera2 timestamps can use the monotonic, boot-time (Android's
+/// `elapsedRealtimeNanos`) or realtime clock. V4L2 only has one monotonic flag, so
+/// convert a source timestamp that correlates with one of those clocks into the
+/// monotonic base GStreamer checks. If none correlate, use frame-arrival time rather
+/// than exposing a bogus timestamp such as zero.
+unsafe fn normalize_timestamp(stamp: u64) -> u64 {
+    let now = match clock_ns(CLOCK_MONOTONIC) {
+        Some(v) => v,
+        None => return stamp,
+    };
+    let sources = [
+        (now, 0u8),
+        (clock_ns(CLOCK_BOOTTIME).unwrap_or(0), 1u8),
+        (clock_ns(CLOCK_REALTIME).unwrap_or(0), 2u8),
+    ];
+    let mut best_age = u64::MAX;
+    let mut best_source = 3u8;
+    let mut k = 0;
+    while k < sources.len() {
+        let (source_now, source) = sources[k];
+        if source_now != 0 {
+            if let Some(age) = timestamp_age(source_now, stamp) {
+                if age < best_age {
+                    best_age = age;
+                    best_source = source;
+                }
+            }
+        }
+        k += 1;
+    }
+    match best_source {
+        0 => stamp,
+        1 | 2 => now.saturating_sub(best_age),
+        _ => now,
     }
 }
 
