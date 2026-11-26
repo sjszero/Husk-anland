@@ -113,13 +113,15 @@ eq "host paths only in internal NR_ vars" "0" \
 # guest seeing *another* Android app: our own package (and its :x11 process) is
 # expected - it is the container - anything else is a leak.
 # The exclusion has to name the package under test, not the one this script was
-# first written against. Hard-coding com.linuxhub.myth.husk made *our own*
-# processes count as a leak on com.linuxhub.husk (measured 2026-11-26: the count
-# was 1 on a tree with no other app running at all). HUSK_PKG comes from the host
-# invocation; the old name stays excluded so an old install still reads clean.
+# first written against: hard-coding another id made *our own* processes count as
+# a leak (measured 2026-11-26: the count was 1 on a tree with no other app running
+# at all). HUSK_PKG comes from the host invocation. No other package id is
+# written here on purpose - tools/ci/audit-runtime-package.sh rejects a retired id
+# anywhere in a live script, and "anything that is not the package under test is a
+# leak" is the invariant this check is supposed to state.
 own=${HUSK_PKG:-com.linuxhub.husk}
 leaked=$(ps -e -o args= 2>/dev/null | grep -oE 'com\.[a-z0-9_.]+' \
-           | grep -v -x -e "$own" -e com.linuxhub.myth.husk | sort -u || true)
+           | grep -v -x -e "$own" | sort -u || true)
 [ -n "$leaked" ] && { echo "  offenders:"; printf '%s\n' "$leaked" | head -5 | sed 's/^/    /'; }
 eq "ps exposes no Android app other than this one" "0" "$(printf '%s' "$leaked" | grep -c . || true)"
 # 把命中的行打出来：只报一个计数的话，出现 1 的时候没法判断是宿主泄漏还是

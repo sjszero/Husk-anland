@@ -70,19 +70,53 @@ DEV        ?= UKHMMB8PYTGECMNV
 PKG        ?= com.linuxhub.husk
 DEV_ROOTFS ?= files/linux/distributions/ubuntu-24.04/rootfs
 DEV_LIBC   := $(DEV_ROOTFS)/usr/lib/aarch64-linux-gnu/libc.so.6
+# `husk-session` refuses to start a tree whose guest libc is not the one the
+# install recorded, and restores it from the copy that sits next to the rootfs.
+# Both therefore have to move together with the patch, or the repair the error
+# message recommends ("re-run make libc-patch") leaves a tree that then refuses
+# to start - measured 2026-11-26: libc 19554f2783e2, recorded 69ceef3759f4,
+# exit 74.
+BUNDLED_LIBC := $(patsubst %/rootfs,%,$(DEV_ROOTFS))/libc.so.6
+INSTALL_STATE := $(patsubst %/rootfs,%,$(DEV_ROOTFS))/.husk-install-state
 LIBCTMP    := runtime/target/libc-patch
+
+# Where the pristine libc comes from. The installer ships a libc that is
+# *already* patched, so the tree's own copy cannot be re-patched ("no clone3 site
+# left"). Pass STOCK=<a stock glibc 2.39 libc.so.6>, or keep a .stock copy next
+# to the live one on the device.
+STOCK      ?=
 
 libc-patch: nr-tools
 	@mkdir -p $(LIBCTMP)
-	adb -s $(DEV) shell "run-as $(PKG) sh -c 'cat $(DEV_LIBC)'" > $(LIBCTMP)/libc.so.6.stock
+	@if [ -n "$(STOCK)" ]; then \
+	    cp "$(STOCK)" $(LIBCTMP)/libc.so.6.stock; \
+	    echo "stock libc from $(STOCK)"; \
+	elif adb -s $(DEV) shell "run-as $(PKG) sh -c 'test -f $(DEV_LIBC).stock'" >/dev/null 2>&1; then \
+	    adb -s $(DEV) shell "run-as $(PKG) sh -c 'cat $(DEV_LIBC).stock'" > $(LIBCTMP)/libc.so.6.stock; \
+	    echo "stock libc from $(DEV_LIBC).stock"; \
+	else \
+	    adb -s $(DEV) shell "run-as $(PKG) sh -c 'cat $(DEV_LIBC)'" > $(LIBCTMP)/libc.so.6.stock; \
+	    echo "stock libc from the live tree (fails if it is already patched; pass STOCK=)"; \
+	fi
 	runtime/target/debug/nr-tools libc-patch $(LIBCTMP)/libc.so.6.stock $(LIBCTMP)/libc.so.6 \
 	    --table tools/loader/libc-interpose.txt
 	adb -s $(DEV) shell "run-as $(PKG) sh -c 'cat > $(DEV_LIBC).husk'" < $(LIBCTMP)/libc.so.6
-	adb -s $(DEV) shell "run-as $(PKG) sh -c 'R=$$(dirname $(DEV_LIBC)); \
-	    [ -f $$R/libc.so.6.stock ] || cp $$R/libc.so.6 $$R/libc.so.6.stock; \
-	    mv $(DEV_LIBC).husk $(DEV_LIBC); chmod 755 $(DEV_LIBC); sha256sum $(DEV_LIBC)'"
+	@# Do not park a copy of the *patched* libc as .stock: the pull above would
+	@# then treat it as pristine and the transform would fail with "no clone3 site
+	@# left" on a tree that was fine.
+	adb -s $(DEV) shell "run-as $(PKG) sh -c 'mv $(DEV_LIBC).husk $(DEV_LIBC); chmod 755 $(DEV_LIBC); sha256sum $(DEV_LIBC)'"
 	cp $(LIBCTMP)/libc.so.6 tools/loader/libc-nop.so.6
 	@echo "tools/loader/libc-nop.so.6 refreshed from this run (generated artifact; consumed by make dist)"
+	@# Keep the bundle and the recorded hash in step with the tree (see the note
+	@# above BUNDLED_LIBC): the launcher compares the two, and a tree whose libc
+	@# no longer matches its own record is refused at startup.
+	adb -s $(DEV) shell "run-as $(PKG) sh -c 'cat > $(BUNDLED_LIBC)'" < $(LIBCTMP)/libc.so.6
+	adb -s $(DEV) shell "run-as $(PKG) sh -c 'chmod 755 $(BUNDLED_LIBC)'"
+	@sha=$$(cd $(LIBCTMP) && sha256sum libc.so.6 | cut -d' ' -f1); \
+	 echo "recording libc_sha256=$$sha in $(INSTALL_STATE)"; \
+	 adb -s $(DEV) shell "run-as $(PKG) sh -c 'S=$(INSTALL_STATE); \
+	     [ -f \$$S ] || exit 0; \
+	     sed -i s/^libc_sha256=.*/libc_sha256=$$sha/ \$$S'" 
 
 # What the release artifact has to satisfy, checked without a device. Pass
 # STOCK=<a stock glibc 2.39 libc.so.6> to also prove the whole transform is

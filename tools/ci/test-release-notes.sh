@@ -30,7 +30,10 @@ if grep -Eq '^#{1,6} .*v?[0-9]+\.[0-9]+\.[0-9]+' "$tmp"; then
     exit 1
 fi
 
-if ! grep -q '^## 修复$\|^## 变更$\|^## 验证$' "$tmp"; then
+# ERE, not BRE alternation: `a\|b` is a GNU extension and BSD grep answers
+# "no match" for it, so this check passed on CI and failed on every macOS
+# checkout with a body that was perfectly fine (measured 2026-11-26).
+if ! grep -Eq '^## (修复|变更|验证)$' "$tmp"; then
     echo "release-notes test: release body has no expected section heading" >&2
     exit 1
 fi
