@@ -63,6 +63,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: release version contract
+        run: sh tools/ci/test-version-bump.sh
+
       - name: sh -n every script
         run: |
           set -eu

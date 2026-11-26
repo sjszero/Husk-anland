@@ -105,6 +105,38 @@ elif [ "$last_version" != "$version" ]; then
 fi
 
 repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+
+# Tag annotations are not Release titles. Historical tags predate the strict
+# contract; every new tag from 0.0.33 onward must use the exact visible subject.
+tag_contract_start=0.0.33
+if awk -v have="$version" -v start="$tag_contract_start" '
+    function cmp(a, b, i, aa, bb) {
+        split(a, aa, "."); split(b, bb, ".")
+        for (i = 1; i <= 3; i++) {
+            if (aa[i] + 0 < bb[i] + 0) return -1
+            if (aa[i] + 0 > bb[i] + 0) return 1
+        }
+        return 0
+    }
+    BEGIN { exit cmp(have, start) < 0 }
+'; then
+    latest_ref="refs/tags/v$version"
+    tag_object=$(awk -v ref="$latest_ref" '$2 == ref { print $1 }' "$tmp/remote-tags")
+    if [ -z "$tag_object" ]; then
+        echo "latest tag object not found: v$version" >&2
+        fail=1
+    elif awk -v ref="$latest_ref^{}" '$2 == ref { found = 1 } END { exit !found }' "$tmp/remote-tags"; then
+        tag_subject=$(gh api "repos/$repo/git/tags/$tag_object" --jq '.message | split("\n")[0]')
+        if [ "$tag_subject" != "Husk $version" ]; then
+            echo "tag annotation subject mismatch: v$version has '$tag_subject', expected 'Husk $version'" >&2
+            fail=1
+        fi
+    else
+        echo "latest tag must be annotated: v$version" >&2
+        fail=1
+    fi
+fi
+
 gh api "repos/$repo/releases?per_page=100" \
     --jq '.[] | [.tag_name, .name, (.body | split("\n")[0])] | @tsv' \
     > "$tmp/releases.tsv"

@@ -40,6 +40,7 @@ check:
 	sh tools/ci/check-fork-safety.sh
 	sh tools/ci/check-shell.sh
 	sh tools/ci/audit-readme-header.sh
+	sh tools/ci/test-version-bump.sh
 	@$(MAKE) --no-print-directory tools
 	$(HUSK_TOOLS) check-links
 	@$(MAKE) --no-print-directory version-check
