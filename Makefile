@@ -5,12 +5,9 @@
 #   make test    unit tests; needs an arm64 Linux host (the shim is inline asm)
 #   make loader  rebuild the embedded loader into the APK's jniLibs
 #   make apk     loader + ArkTS-free Rust app .so + Gradle assembleDebug
-#   make xlorie  rebuild the checked-in embedded X11 server from pinned source
 #   make bench   three-runner benchmark (needs a device)
 #   make gate-a  the 38-item acceptance gate + path/V4L2/DRM probes (needs a device)
 #   make server-parity  90-item Linux surface matrix; Rust libc checks (needs a device)
-#   make desktop-acceptance  embedded X11 readiness/frame/GPU/input gate (needs a device)
-#   make desktop-multiapp  three concurrent GUI apps + GPU/process/frame soak (needs a device)
 #   make readback-audit  complete 19-case Rust GPU readback suite (needs a device)
 #   make gpu-audit  desktop shell + nested GTK app hardware-GPU inheritance (needs a device)
 #   make gpu-soak  4 concurrent Rust GPU soaks, 300 s each (needs a device)
@@ -26,7 +23,7 @@ HUSK_TOOLS  := runtime/target/debug/husk-tools
 NDK_BIN     := $(if $(filter %/bin,$(NDK)),$(NDK),$(NDK)/bin)
 GUEST_SYSROOT ?= /tmp/nr-toolchain/root
 
-.PHONY: all check lint test tools nr-tools loader preloads xlorie apk bench gate-a desktop-acceptance desktop-multiapp readback-audit gpu-audit gpu-soak camera-audit server-parity virt-race docs dist clean version-check version-bump release-audit \
+.PHONY: all check lint test tools nr-tools loader preloads apk bench gate-a readback-audit gpu-audit gpu-soak camera-audit server-parity virt-race docs dist clean version-check version-bump release-audit \
         libc-patch libc-verify
 
 all: lint check version-check
@@ -57,8 +54,6 @@ check:
 	cargo check --manifest-path app-rs/Cargo.toml --target aarch64-linux-android --lib --bin husk-session-guard
 	sh tools/ci/test-locale-defaults.sh
 	sh tools/ci/test-guest-rootfs-selection.sh
-	sh tools/ci/check-desktop-input-routing.sh
-	sh tools/ci/check-desktop-session-contract.sh
 	sh tools/ci/check-fork-safety.sh
 	sh tools/ci/check-shell.sh
 	sh tools/ci/audit-readme-header.sh
@@ -70,7 +65,7 @@ check:
 	sh tools/ci/test-session-gpu-escape.sh
 	sh tools/ci/test-session-rootfs-bundle.sh
 	sh tools/ci/audit-panvk-bundle.sh
-	sh tools/ci/audit-xlorie-asset.sh
+	sh tools/ci/test-runtime-boundary.sh
 	@$(MAKE) --no-print-directory tools
 	$(HUSK_TOOLS) check-links
 	@$(MAKE) --no-print-directory version-check
@@ -200,14 +195,13 @@ preloads:
 JNI := app/app/src/main/jniLibs/arm64-v8a
 CC_ANDROID := $(NDK_BIN)/aarch64-linux-android24-clang
 
-xlorie:
-	@test -n "$(NDK)" || { echo "set NDK=<ndk-root-or-bin>" >&2; exit 1; }
-	ANDROID_NDK_HOME=$(patsubst %/bin,%,$(NDK)) third_party/xlorie/build.sh
-
 apk:
 	@test -n "$$NDK" || { echo "set NDK=<ndk>/bin (needs clang, llvm-objcopy, llvm-ar)" >&2; exit 1; }
 	@$(MAKE) --no-print-directory loader
 	mkdir -p $(JNI)
+	# Xlorie-era builds left this file behind in the ignored jniLibs directory;
+	# AGP would package any stale .so even after the source dependency is gone.
+	rm -f $(JNI)/libXlorie.so
 	CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$(CC_ANDROID) \
 	CC_aarch64_linux_android=$(CC_ANDROID) AR_aarch64_linux_android=$(NDK_BIN)/llvm-ar \
 	  cargo build --release --manifest-path app-rs/Cargo.toml --target aarch64-linux-android \
@@ -217,7 +211,6 @@ apk:
 	# guard's .so suffix so the package manager extracts it, even though it is a
 	# PIE executable rather than a shared library.
 	cp app-rs/target/aarch64-linux-android/release/husk-session-guard $(JNI)/libhuskguard.so
-	cp third_party/xlorie/arm64-v8a/libXlorie.so $(JNI)/libXlorie.so
 	chmod 755 $(JNI)/libhuskguard.so
 	cd app && ./gradlew :app:assembleDebug
 	@ls -l $(JNI) app/app/build/outputs/apk/debug/*.apk
@@ -236,7 +229,7 @@ release-tree-check:
 	adb -s "$$DEV" push "$$TAR" /data/local/tmp/husk-release-tree.tar.gz >/dev/null && \
 	adb -s "$$DEV" shell "run-as $${PKG:-com.linuxhub.husk} sh -c 'cat /data/local/tmp/husk-release-tree.tar.gz > files/release-tree.tar.gz'" && \
 	adb -s "$$DEV" shell "run-as $${PKG:-com.linuxhub.husk} sh -c 'cd $$BUNDLE && TMPDIR=/data/data/$${PKG:-com.linuxhub.husk}/files/tmp sh install-husk.sh --rootfs ../release-tree.tar.gz --dest ../release-tree/root --loader ./libld.so'"
-	DEV=$$DEV PKG=$${PKG:-com.linuxhub.husk} ROOTFS=$${DEST:-files/release-tree/root} EXPECT=desktop \
+	DEV=$$DEV PKG=$${PKG:-com.linuxhub.husk} ROOTFS=$${DEST:-files/release-tree/root} EXPECT=$${EXPECT:-base} \
 		sh tools/device-tests/20-tree-integrity.sh
 	DEV=$$DEV PKG=$${PKG:-com.linuxhub.husk} ROOTFS=$${DEST:-files/release-tree/root} \
 		LD=$${BUNDLE:-files/linux-clean}/libld.so EXPECT_PKGS_MIN=$${EXPECT_PKGS_MIN:-700} \
@@ -277,12 +270,6 @@ gpu-soak:
 		GL_PROBE=$${GL_PROBE:-$(PROFILE_DIR)/gl-probe} \
 		SECONDS=$${SECONDS:-300} JOBS=$${JOBS:-4} SIZE=$${SIZE:-2400x1080} \
 		sh tools/device-tests/21-gpu-soak-audit.sh
-
-desktop-acceptance:
-	DEV=$(DEV) ROOTFS=$${ROOTFS:-files/rootfs-full} sh tools/device-tests/22-desktop-acceptance.sh
-
-desktop-multiapp:
-	DEV=$(DEV) ROOTFS=$${ROOTFS:-files/rootfs-full} RUN_SECS=$${RUN_SECS:-60} sh tools/device-tests/23-desktop-multiapp.sh
 
 server-parity:
 	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.husk} \
@@ -378,12 +365,13 @@ dist:
 	LIBC="$(LIBC)" sh tools/loader/build-embedded-loader.sh
 	@test -f tools/loader/libc-nop.so.6 || { echo "guest libc artifact was not produced" >&2; exit 1; }
 	sh tools/guest-config/build-guest-tools.sh
+	sh tools/guest-config/build-logd.sh
 	@mkdir -p dist
 	cp tools/loader/ld-embedded.so dist/libld.so
 	@chmod 755 dist/libld.so   # tar keeps the mode; a 644 loader is "not executable"
 	cp $(PROFILE_DIR)/husk-ldconfig $(PROFILE_DIR)/husk-usermgr \
 	   $(PROFILE_DIR)/husk-su $(PROFILE_DIR)/husk-symlinks \
-	   $(PROFILE_DIR)/husk-window-wait dist/
+	   $(PROFILE_DIR)/husk-window-wait $(PROFILE_DIR)/husk-logd dist/
 	cp tools/loader/libc-nop.so.6 dist/libc.so.6   # the artifact `make libc-patch` refreshed
 	cp tools/guest/install-husk.sh tools/guest/husk-session.sh \
 	   tools/guest/husk-desktop.sh tools/guest/husk-ding-fallback.sh \
@@ -397,7 +385,8 @@ dist:
 	   tools/guest-config/linuxhub-system-bus.conf \
 	   tools/guest-config/provision-accounts.sh tools/guest-config/guest-accounts.txt \
 	   tools/guest-config/net.hadess.SensorProxy.policy \
-	   tools/guest-config/60-husk-sensor-proxy.rules dist/guest-config/
+	   tools/guest-config/60-husk-sensor-proxy.rules \
+	   tools/guest-config/mksys-net.sh dist/guest-config/
 	@mkdir -p dist/vendor/panvk
 	cp -R vendor/panvk/fristonerr-1.2.0-mali-g77 dist/vendor/panvk/
 	cp VERSION dist/VERSION
@@ -410,9 +399,10 @@ dist:
 	fi
 	COPYFILE_DISABLE=1 tar czf dist/husk-arm64.tar.gz -C dist \
 	    libld.so libc.so.6 husk-ldconfig husk-usermgr husk-su husk-symlinks \
-	    husk-window-wait guest guest-config vendor install-husk.sh husk-session.sh husk-desktop.sh \
+	    husk-window-wait husk-logd guest guest-config vendor install-husk.sh husk-session.sh husk-desktop.sh \
 	    husk-ding-fallback.sh husk-wallpaper-fit.sh husk-system-services.sh \
 	    husk-lang-zh.tar.gz VERSION
+	@sh tools/ci/audit-runtime-boundary.sh dist/husk-arm64.tar.gz
 # The installer writes /etc/profile.d/husk-gpu.sh from guest-config/, and skips it
 # silently when the file is not next to it: a bundle without it installs a tree
 # with no GPU defaults and no error. Asserted on the tarball, not on dist/.
@@ -425,6 +415,10 @@ dist:
 	fi
 	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/husk-gpu-defaults.sh' || \
 	    { echo "dist: bundle is missing guest-config/husk-gpu-defaults.sh" >&2; exit 1; }
+	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'husk-logd' || \
+	    { echo "dist: bundle is missing husk-logd; /dev/log and syslog would be absent" >&2; exit 1; }
+	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/mksys-net.sh' || \
+	    { echo "dist: bundle is missing guest-config/mksys-net.sh; /sys/class/net would be absent" >&2; exit 1; }
 # 少了 locale 默认值，装出来的树不会报错，只是桌面回到英文界面、中文按日文字形渲染。
 	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/husk-locale.sh' || \
 	    { echo "dist: bundle is missing guest-config/husk-locale.sh" >&2; exit 1; }
@@ -466,7 +460,7 @@ dist:
 	        { echo "dist: bundle is missing $$f" >&2; exit 1; }; \
 	done
 	@rm -f dist/libld.so dist/libc.so.6 dist/husk-ldconfig dist/husk-usermgr \
-	    dist/husk-su dist/husk-symlinks dist/husk-window-wait dist/install-husk.sh dist/husk-session.sh \
+	    dist/husk-su dist/husk-symlinks dist/husk-window-wait dist/husk-logd dist/install-husk.sh dist/husk-session.sh \
 	    dist/husk-desktop.sh dist/husk-ding-fallback.sh dist/husk-wallpaper-fit.sh \
 	    dist/husk-system-services.sh \
 	    dist/husk-lang-zh.tar.gz dist/VERSION

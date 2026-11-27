@@ -251,6 +251,32 @@ fi
 mkdir -p "$DEST/dev" "$DEST/dev/shm" "$DEST/proc" "$DEST/sys" "$DEST/run" "$DEST/root" "$DEST/tmp"
 chmod 1777 "$DEST/tmp"
 
+# Android denies /proc/version to untrusted_app and gets /sys/class/net from
+# the platform. The path shim routes both names into the guest root, so the
+# installer has to materialise the values that are honest for this device.
+# Without these files, configure scripts and network tools see ENOENT even
+# though the loader itself is healthy.
+_krel=$(uname -r 2>/dev/null || true)
+_kver=$(uname -v 2>/dev/null || true)
+_kmach=$(uname -m 2>/dev/null || true)
+[ -n "$_krel" ] || _krel=unknown
+[ -n "$_kmach" ] || _kmach=arm64
+mkdir -p "$DEST/proc/sys/kernel"
+if [ ! -s "$DEST/proc/version" ]; then
+    printf 'Linux version %s (%s) %s\n' "$_krel" "$_kver" "$_kmach" > "$DEST/proc/version"
+fi
+if [ ! -s "$DEST/proc/sys/kernel/osrelease" ]; then
+    printf '%s\n' "$_krel" > "$DEST/proc/sys/kernel/osrelease"
+fi
+chmod 444 "$DEST/proc/version" "$DEST/proc/sys/kernel/osrelease"
+
+if [ -f "$HERE/guest-config/mksys-net.sh" ]; then
+    sh "$HERE/guest-config/mksys-net.sh" "$DEST" >/dev/null
+    echo "   wrote /sys/class/net/lo (guest-local network view)"
+else
+    echo "install-husk: guest-config/mksys-net.sh missing; /sys/class/net will be absent" >&2
+fi
+
 # 2b-0. D-Bus and DING both require an identity and a real Desktop directory.
 # make-release intentionally omits /root (the verifier's home), so a clean
 # install otherwise recreates an empty home and DING exits on ENOENT.
@@ -808,6 +834,15 @@ else
     echo "install-husk: husk-window-wait is missing from the bundle; desktop self-check would silently fail" >&2
     exit 79
 fi
+if [ -f "$HERE/husk-logd" ]; then
+    mkdir -p "$DEST/usr/bin"
+    cp "$HERE/husk-logd" "$DEST/usr/bin/husk-logd"
+    chmod 755 "$DEST/usr/bin/husk-logd"
+    echo "   installed usr/bin/husk-logd (guest /dev/log sink)"
+else
+    echo "install-husk: husk-logd missing; guest syslog and /dev/log will be absent" >&2
+fi
+
 if [ -x "$HSBIN/husk-usermgr" ]; then
     for c in useradd groupadd usermod userdel groupdel chpasswd passwd chfn chsh; do
         for d in usr/sbin usr/bin sbin bin; do

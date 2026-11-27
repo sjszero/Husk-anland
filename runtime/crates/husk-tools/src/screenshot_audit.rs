@@ -1,8 +1,7 @@
 //! Audit an Android `screencap` raw frame without decoding PNG or adding a
 //! dependency. The command is deliberately narrow: it answers whether the
 //! centre of the frame is an all-black/uniform surface or has a large missing
-//! quadrant, which are the two failure modes observed around the embedded X11
-//! desktop. It does not try to recognise a desktop or a particular theme.
+//! quadrant, which are useful checks for host-captured X11/desktop frames. It does not try to recognise a desktop or a particular theme.
 
 use std::collections::HashSet;
 use std::fs;

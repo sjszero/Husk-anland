@@ -43,12 +43,6 @@ if have etc/husk/gpu-env; then ok "etc/husk/gpu-env present"; else bad "etc/husk
 for f in etc/profile.d/husk-gpu.sh etc/profile.d/husk-locale.sh; do
     if have "$f"; then ok "$f present"; else bad "$f missing: login shells get no GPU/locale defaults"; fi
 done
-if have usr/local/share/linuxhub/wallpaper-scale; then
-    ok "usr/local/share/linuxhub/wallpaper-scale present"
-else
-    bad "usr/local/share/linuxhub/wallpaper-scale missing"
-fi
-
 echo "== image loaders =="
 mime_sz=$(adb -s "$DEV" shell "run-as $PKG sh -c 'wc -c < $ROOTFS/usr/share/mime/mime.cache 2>/dev/null'" 2>/dev/null | tr -d '\r')
 if [ "${mime_sz:-0}" -gt 0 ]; then
@@ -124,6 +118,11 @@ esac
 
 echo "== desktop session requirements =="
 if [ "$EXPECT" = desktop ]; then
+    if have usr/local/share/linuxhub/wallpaper-scale; then
+        ok "usr/local/share/linuxhub/wallpaper-scale present"
+    else
+        bad "usr/local/share/linuxhub/wallpaper-scale missing (host desktop helper)"
+    fi
     if have usr/local/share/linuxhub/linuxhub-system-bus.conf; then
         ok "linuxhub-system-bus.conf present"
     else

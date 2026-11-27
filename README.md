@@ -168,6 +168,8 @@ loader 在程序没有显式设置时注入，因此登录 shell、非登录进�
 
 交付形态和 proot 方案一样：**把运行时作为 assets 打进 APP**，首次使用时解压到应用私有目录。
 
+仓库里的终端 APK 只用于运行时和宿主接口验证，不是最终桌面产品。X11 保留，但 X server、输入注入和 Surface 呈现属于宿主 App；Husk 发行资产不内嵌 X server。
+
 ```text
 APK assets/husk/arm64-v8a/
   libld.so          loader（内嵌 path-shim）

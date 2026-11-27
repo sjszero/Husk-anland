@@ -218,13 +218,8 @@ fn probe_all() {
     } else {
         "surfaceview=absent"
     };
-    let desktop = match (crate::desktop::active(), crate::desktop::ready()) {
-        (true, true) => "x11=ready",
-        (true, false) => "x11=starting",
-        _ => "x11=absent",
-    };
     display.detail = format!(
-        "{view}, {desktop}, {}",
+        "{view}, {}",
         match crate::surface::side_control_present() {
             true => "control-cache=cached".to_string(),
             false => "control-cache=not-fetched (lazy: read on first guest present)".to_string(),

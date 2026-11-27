@@ -312,6 +312,7 @@ impl Term {
             return None;
         }
 
+        provision_platform_views(rootfs);
         provision_identity(rootfs);
 
         let session_id = format!(
@@ -878,6 +879,22 @@ mod tests {
     }
 
     #[test]
+    fn platform_views_are_materialized() {
+        let root = std::env::temp_dir().join(format!("husk-views-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        provision_platform_views(root.to_str().unwrap());
+
+        let version = std::fs::read_to_string(root.join("proc/version")).unwrap();
+        assert!(version.starts_with("Linux version "), "{version}");
+        let net = std::fs::read_to_string(root.join("sys/class/net/lo/address")).unwrap();
+        assert_eq!(net, "00:00:00:00:00:00\n");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn writes_and_wraps() {
         let mut t = Term::blank(4, 2);
         t.feed(b"abcdef");
@@ -971,6 +988,86 @@ mod tests {
 }
 
 // --------------------------------------------------------- provisioning ---
+
+fn uts_string(value: &[u8; 65]) -> String {
+    let end = value.iter().position(|b| *b == 0).unwrap_or(value.len());
+    String::from_utf8_lossy(&value[..end]).into_owned()
+}
+
+fn write_loopback_view(rootfs: &str) {
+    let net = std::path::Path::new(rootfs).join("sys/class/net/lo");
+    if net.exists() {
+        return;
+    }
+    let stats = net.join("statistics");
+    if std::fs::create_dir_all(&stats).is_err() {
+        return;
+    }
+    for (name, value) in [
+        ("address", "00:00:00:00:00:00\n"),
+        ("addr_len", "6\n"),
+        ("type", "772\n"),
+        ("flags", "0x9\n"),
+        ("mtu", "65536\n"),
+        ("carrier", "1\n"),
+        ("operstate", "unknown\n"),
+        ("ifindex", "0\n"),
+    ] {
+        let _ = std::fs::write(net.join(name), value);
+    }
+    for name in [
+        "rx_bytes",
+        "rx_packets",
+        "rx_errors",
+        "rx_dropped",
+        "tx_bytes",
+        "tx_packets",
+        "tx_errors",
+        "tx_dropped",
+    ] {
+        let _ = std::fs::write(stats.join(name), "0\n");
+    }
+}
+
+/// Materialise the two host views Android withholds from an app. The path shim
+/// resolves these names inside the guest root, so writing them here is enough
+/// for both the terminal app and a normal guest session.
+fn provision_platform_views(rootfs: &str) {
+    let proc = std::path::Path::new(rootfs).join("proc");
+    let kernel = proc.join("sys/kernel");
+    let _ = std::fs::create_dir_all(&kernel);
+    let release = proc.join("version");
+    if !release.is_file() {
+        let mut uts = unsafe { core::mem::zeroed::<UtsName>() };
+        if unsafe { uname(&mut uts) } == 0 {
+            let line = format!(
+                "Linux version {} ({}) {}\n",
+                uts_string(&uts.release),
+                uts_string(&uts.version),
+                uts_string(&uts.machine)
+            );
+            let _ = std::fs::write(&release, line);
+            let _ = std::fs::write(
+                kernel.join("osrelease"),
+                format!("{}\n", uts_string(&uts.release)),
+            );
+        }
+    }
+    write_loopback_view(rootfs);
+
+    let logd = std::path::Path::new(rootfs).join("usr/bin/husk-logd");
+    let socket = std::path::Path::new(rootfs).join("dev/log");
+    if logd.is_file() && !socket.exists() {
+        let _ = std::fs::create_dir_all(std::path::Path::new(rootfs).join("dev"));
+        let _ = std::fs::create_dir_all(std::path::Path::new(rootfs).join("var/log"));
+        let _ = std::process::Command::new(&logd)
+            .arg(rootfs)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+    }
+}
 
 /// Mirror the Android process identity into the rootfs' passwd/group files.
 ///

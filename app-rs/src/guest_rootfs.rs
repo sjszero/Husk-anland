@@ -22,18 +22,6 @@ pub(crate) fn resolve(files: &Path) -> Result<PathBuf, String> {
     ))
 }
 
-pub(crate) fn resolve_desktop(files: &Path) -> Result<PathBuf, String> {
-    let rootfs = resolve(files)?;
-    let bash = rootfs.join("usr/bin/bash");
-    if !bash.is_file() {
-        return Err(format!(
-            "Linux rootfs {} is missing usr/bin/bash",
-            rootfs.display()
-        ));
-    }
-    Ok(rootfs)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -81,17 +69,6 @@ mod tests {
         let err = resolve(&files).unwrap_err();
         assert!(err.contains("rootfs-full/"), "{err}");
         assert!(err.contains("rootfs/"), "{err}");
-        std::fs::remove_dir_all(files).unwrap();
-    }
-
-    #[test]
-    fn desktop_rejects_an_incomplete_current_tree() {
-        let files = temp_files();
-        std::fs::create_dir_all(files.join(CURRENT)).unwrap();
-        std::fs::create_dir_all(files.join(LEGACY).join("usr/bin")).unwrap();
-        std::fs::write(files.join(LEGACY).join("usr/bin/bash"), b"test").unwrap();
-        let err = resolve_desktop(&files).unwrap_err();
-        assert!(err.contains("missing usr/bin/bash"), "{err}");
         std::fs::remove_dir_all(files).unwrap();
     }
 }

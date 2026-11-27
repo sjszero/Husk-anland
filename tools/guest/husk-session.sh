@@ -59,6 +59,21 @@ BUNDLE=$(dirname "$ROOTFS")
 NR_LD=${NR_LD:-$BUNDLE/libld.so}
 [ -x "$NR_LD" ] || { echo "husk-session: loader not executable: $NR_LD" >&2; exit 69; }
 
+# /dev/log is a guest-local datagram socket. Start the static sink before the
+# first guest process so syslog(3), dbus and other daemons have somewhere to
+# send instead of getting ENOENT. The helper is idempotent when another
+# instance already owns the socket.
+if [ -x "$ROOTFS/usr/bin/husk-logd" ] && [ ! -S "$ROOTFS/dev/log" ]; then
+    mkdir -p "$ROOTFS/dev" "$ROOTFS/var/log" 2>/dev/null || true
+    setsid -d "$ROOTFS/usr/bin/husk-logd" "$ROOTFS" </dev/null >/dev/null 2>&1 &
+    _logd_tries=0
+    while [ ! -S "$ROOTFS/dev/log" ] && [ "$_logd_tries" -lt 10 ]; do
+        sleep 0.1
+        _logd_tries=$((_logd_tries + 1))
+    done
+    unset _logd_tries
+fi
+
 # The guest libc is not stock: it carries the shim's slot page and clone3 ->
 # ENOSYS (docs/LIMITATIONS.md 4). `apt upgrade` of libc6 replaces it with the
 # distro's own copy and the symptom appears much later and far away from the

@@ -16,6 +16,20 @@ ok() { if [ "$1" = 0 ]; then echo PASS; else echo FAIL; fi; }
 RUNTIME_PROBE=${RUNTIME_PROBE:-/root/runtime-probe}
 SP() { "$RUNTIME_PROBE" server-parity "$@"; }
 
+# /dev/log is SOCK_DGRAM: syslog(3) returns once the datagram is queued, not
+# after husk-logd appends it. Give the sink a bounded window before declaring
+# the libc path broken; the earlier immediate read raced on real hardware.
+wait_log() {
+    _needle=$1
+    _tries=0
+    while [ "$_tries" -lt 30 ]; do
+        tail -n 10 /var/log/syslog 2>/dev/null | grep -Fq "$_needle" && return 0
+        sleep 0.1
+        _tries=$((_tries + 1))
+    done
+    return 1
+}
+
 # ---------------------------------------------------------------- identity ---
 S id uid "$(id -u >/dev/null 2>&1; ok $?)" "$(id 2>&1 | cut -c1-60)"
 cap=$(SP cap-eff 2>/dev/null)
@@ -101,7 +115,7 @@ S svc syslog "$( [ -S /dev/log ] && SP syslog husk "parity probe" 2>/dev/null; o
 # syslog(3) reaches connect(2) through glibc's *internal* alias, which has no GOT
 # slot. connect/bind are in the libc slot list now, so this exercises the
 # interposed internal path (this Rust probe calls syslog(3) directly).
-S svc syslog_libc "$(SP syslog parity "syslog3 probe" >/dev/null 2>&1 && tail -n 3 /var/log/syslog 2>/dev/null | grep -q 'parity: syslog3 probe'; ok $?)" "$(tail -1 /var/log/syslog 2>/dev/null | cut -c1-60)"
+S svc syslog_libc "$(SP syslog parity "syslog3 probe" >/dev/null 2>&1 && wait_log 'parity: syslog3 probe'; ok $?)" "$(tail -1 /var/log/syslog 2>/dev/null | cut -c1-60)"
 S svc systemd PARTIAL "systemd binary present but needs PID 1 + libsystemd-core (not shipped)"
 S svc su PARTIAL "no CAP_SETUID"
 

@@ -1,11 +1,10 @@
 #!/bin/sh
-# Assert the APK really carries the native pieces it needs.
+# Assert the APK really carries the three native pieces it needs.
 #
-# libhuskapp/libhuskguard/libld are build outputs and are not tracked, so
-# "gradlew assembleDebug succeeded" proves nothing about
+# jniLibs/{libhuskapp.so,libhuskguard.so,libld.so} are build outputs and none of
+# them is tracked, so "gradlew assembleDebug succeeded" proves nothing about
 # what went into the package. Missing libld.so = an APK that cannot start a
-# guest at all; missing libhuskapp.so = an app with no code (hasCode=false);
-# missing libXlorie.so = an app with no X11 display server.
+# guest at all; missing libhuskapp.so = an app with no code (hasCode=false).
 set -eu
 cd "$(dirname "$0")/../.."
 
@@ -18,12 +17,22 @@ esac
 apk=$1
 
 fail=0
-for lib in libhuskapp.so libhuskguard.so libld.so libXlorie.so; do
+for lib in libhuskapp.so libhuskguard.so libld.so; do
     if unzip -l "$apk" | grep -q "lib/arm64-v8a/$lib\$"; then
         echo "OK   lib/arm64-v8a/$lib"
     else
         echo "FAIL lib/arm64-v8a/$lib missing from $apk" >&2
         fail=1
+    fi
+done
+# The APK is a runtime/debug shell, not the final desktop host. A stale
+# libXlorie from the superseded embedded-X11 experiment must never ship again.
+for lib in libXlorie.so; do
+    if unzip -l "$apk" | grep -q "lib/arm64-v8a/$lib\$"; then
+        echo "FAIL forbidden host UI native piece in $apk: lib/arm64-v8a/$lib" >&2
+        fail=1
+    else
+        echo "OK   forbidden lib/arm64-v8a/$lib absent"
     fi
 done
 exit "$fail"

@@ -195,10 +195,6 @@ jobs:
         run: make apk
       - name: APK carries all native pieces
         run: sh tools/ci/audit-apk-contents.sh apk
-      - name: Xlorie asset is pinned and stripped
-        env:
-          NDK: ${{ steps.ndk.outputs.ndk }}/toolchains/llvm/prebuilt/linux-x86_64/bin
-        run: sh tools/ci/audit-xlorie-asset.sh
       - name: APK version matches VERSION
         run: sh tools/ci/audit-apk-version.sh
       - uses: actions/upload-artifact@v4
@@ -223,6 +219,9 @@ jobs:
 
       - name: runtime package id contract
         run: sh tools/ci/audit-runtime-package.sh
+
+      - name: runtime boundary contract
+        run: sh tools/ci/test-runtime-boundary.sh
 
       - name: sh -n every script
         run: |
