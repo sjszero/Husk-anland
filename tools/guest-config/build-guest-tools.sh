@@ -42,6 +42,13 @@ SYSROOT=${SYSROOT:-/tmp/nr-toolchain/root}
 # Accept both spellings: build-embedded-loader.sh wants <prebuilt>/bin because it
 # calls $NDK/clang, this script wants <prebuilt> because it calls $NDK/bin/clang.
 case "$NDK" in */bin) NDK=${NDK%/bin} ;; esac
+# Rust crates with C/assembly components (for example rustls' ring backend) use
+# the cc crate independently of Rust's linker setting. Point that path at the
+# same NDK driver and staged aarch64 glibc sysroot so guest tools stay
+# reproducible on a clean host.
+export CC_aarch64_unknown_linux_gnu="$NDK/bin/clang"
+export CFLAGS_aarch64_unknown_linux_gnu="--target=aarch64-linux-gnu --sysroot=$SYSROOT"
+export AR_aarch64_unknown_linux_gnu="$NDK/bin/llvm-ar"
 [ -x "$NDK/bin/clang" ] || { echo "$0: no clang at $NDK/bin/clang" >&2; exit 1; }
 for f in usr/lib/aarch64-linux-gnu/crt1.o usr/lib/aarch64-linux-gnu/libc.so lib/ld-linux-aarch64.so.1; do
   [ -e "$SYSROOT/$f" ] || { echo "$0: incomplete sysroot: $SYSROOT/$f missing" >&2; exit 1; }

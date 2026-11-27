@@ -37,6 +37,7 @@ jobs:
         with:
           workspaces: runtime
       - run: rustup target add $TARGET
+      - run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
       # --workspace, not a hand-written -p list: the list used to name 8 of the
       # 39 crates, so a break in any other crate (audio, video, camera, session
       # guard, probe) stayed invisible. No --all-targets here on purpose: the
@@ -44,6 +45,9 @@ jobs:
       # runtime-core, husk-init, logd) carry their own panic handler, so a test
       # harness target collides with it. Tests are a separate, explicit job.
       - run: cargo check --manifest-path runtime/Cargo.toml --target $TARGET --workspace
+        env:
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
 
   clippy:
     name: cargo clippy
@@ -57,8 +61,12 @@ jobs:
         with:
           workspaces: runtime
       - run: rustup target add $TARGET
+      - run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
       # Warnings are allowed (the shim keeps several on purpose); errors are not.
       - run: cargo clippy --manifest-path runtime/Cargo.toml --target $TARGET --workspace
+        env:
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
 
   test:
     name: cargo test (host)

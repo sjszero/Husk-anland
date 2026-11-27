@@ -9,5 +9,7 @@ description = "Guest-side Path Shim semantic and race probes"
 name = "runtime-probe"
 path = "src/main.rs"
 
-[dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"

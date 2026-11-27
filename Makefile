@@ -22,6 +22,8 @@ TARGET      := aarch64-unknown-linux-gnu
 MANIFEST    := runtime/Cargo.toml
 PROFILE_DIR := runtime/target/$(TARGET)/release
 HUSK_TOOLS  := runtime/target/debug/husk-tools
+NDK_BIN     := $(if $(filter %/bin,$(NDK)),$(NDK),$(NDK)/bin)
+GUEST_SYSROOT ?= /tmp/nr-toolchain/root
 
 .PHONY: all check lint test tools nr-tools loader preloads xlorie apk bench gate-a desktop-acceptance desktop-multiapp readback-audit gpu-audit gpu-soak camera-audit virt-race docs dist clean version-check version-bump release-audit \
         libc-patch libc-verify
@@ -39,12 +41,18 @@ check:
 # stayed invisible to `make check` and CI while `cargo check --workspace` saw it.
 # Measured 2026-11-26 (evidence 293): injected E0308 in audio-relay -> the 12-crate
 # list exited 0, --workspace failed. Same rule as .github/workflows/ci.yml.
-	cargo check --manifest-path $(MANIFEST) --target $(TARGET) --workspace
+	CC_aarch64_unknown_linux_gnu=$(NDK_BIN)/clang \
+	CFLAGS_aarch64_unknown_linux_gnu="--target=aarch64-linux-gnu --sysroot=$(GUEST_SYSROOT)" \
+	AR_aarch64_unknown_linux_gnu=$(NDK_BIN)/llvm-ar \
+	  cargo check --manifest-path $(MANIFEST) --target $(TARGET) --workspace
 	cargo test --manifest-path $(MANIFEST) -p gpu-env -p session-env -p usermgr -p nr-tools -p location-probe -p audio-capture-probe -p husk-tools
 # No --all-targets: path-shim is no_std and its test harness collides with the
 # crate's own panic handler (duplicate lang item). Warnings there are tracked
 # separately; this gate fails on errors.
-	cargo clippy --manifest-path $(MANIFEST) --target $(TARGET) --workspace
+	CC_aarch64_unknown_linux_gnu=$(NDK_BIN)/clang \
+	CFLAGS_aarch64_unknown_linux_gnu="--target=aarch64-linux-gnu --sysroot=$(GUEST_SYSROOT)" \
+	AR_aarch64_unknown_linux_gnu=$(NDK_BIN)/llvm-ar \
+	  cargo clippy --manifest-path $(MANIFEST) --target $(TARGET) --workspace
 	cargo check --manifest-path app-rs/Cargo.toml --target aarch64-linux-android --lib --bin husk-session-guard
 	sh tools/ci/test-locale-defaults.sh
 	sh tools/ci/test-guest-rootfs-selection.sh
@@ -189,7 +197,6 @@ preloads:
 # (jniLibs/libld.so) and the App's own .so (jniLibs/libhuskapp.so). Both are
 # build outputs and neither is tracked, so a clean clone builds them here.
 JNI := app/app/src/main/jniLibs/arm64-v8a
-NDK_BIN := $(if $(filter %/bin,$(NDK)),$(NDK),$(NDK)/bin)
 CC_ANDROID := $(NDK_BIN)/aarch64-linux-android24-clang
 
 xlorie:

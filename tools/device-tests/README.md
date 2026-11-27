@@ -56,7 +56,7 @@ Overrides: `PKG=`, `ROOTFS=`, `LD=` (all relative to the app's data dir).
 | `10-device-nodes.sh` | device node surface by name, plus the three platform walls (`/dev` listing, `/dev/full`, `/dev/tty`) asserted as known limits | `sh gexec.sh rootfs-full usr/bin/bash tmp/10.sh` |
 | `11-process-view.sh` | guest processes carry their real names (`ps`/`top`/`pgrep`), and another app's `/proc/<pid>` stays unreadable | `sh gexec.sh rootfs-full usr/bin/bash tmp/11.sh` |
 | `12-supervisor.sh` | `husk-init`: services run, crash restarts with backoff, `once`/`on-failure` policies, SIGTERM stops in 0.5s, zero leftovers and zero zombies. Not run through `gexec.sh` (the supervisor is a static binary, ld.so cannot run it) | `adb shell 'run-as com.linuxhub.husk sh /data/local/tmp/12.sh'` |
-| `13-egress.sh` | outbound network: DNS, `send()` on a real socket, HTTP, HTTPS/TLS, and raw ICMP asserted as a known limit. Needs real connectivity | `sh gexec.sh rootfs-full usr/bin/bash tmp/13.sh` |
+| `13-egress.sh` | outbound network: DNS, `send()` on a real socket, HTTP, HTTPS/TLS, and raw ICMP asserted as a known limit. The probe is Rust and needs no guest Python/curl/ping. Needs real connectivity | `DEV=<serial> sh run-egress-probe.sh` |
 | `provision-toolchain.sh` | host-side: resolve, unpack and push the Ubuntu gcc/make toolchain (skips libc6 on purpose). Thin wrapper over `nr-tools provision` (Rust), the only implementation | `./provision-toolchain.sh` |
 
 `run-guest.sh` environment knobs: `DEV=` device id, `ENV=K=V,K2=V2` extra environment

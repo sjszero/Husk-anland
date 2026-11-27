@@ -7,6 +7,8 @@
 
 #[cfg(target_os = "linux")]
 mod coverage;
+#[cfg(any(target_os = "linux", test))]
+mod egress;
 #[cfg(target_os = "linux")]
 mod groups_race;
 #[cfg(target_os = "linux")]
@@ -23,7 +25,7 @@ mod symbol_gap;
 #[cfg(target_os = "linux")]
 fn usage() {
     eprintln!(
-        "usage: runtime-probe <coverage|groups-race|identity-init-race|path-race SENTINEL|rootfd-close-range|supplementary-groups|symbol-gap>"
+        "usage: runtime-probe <coverage|egress|groups-race|identity-init-race|path-race SENTINEL|rootfd-close-range|supplementary-groups|symbol-gap>"
     );
 }
 
@@ -32,6 +34,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let code = match args.get(1).map(String::as_str) {
         Some("coverage") => coverage::run(),
+        Some("egress") => egress::run(),
         Some("groups-race") => groups_race::run(),
         Some("identity-init-race") => identity_race::run(),
         Some("path-race") => {
