@@ -10,6 +10,19 @@ ROOTFS=${ROOTFS:-/data/user/0/$PKG/files/rootfs-full}
 LD=${LD:-/data/user/0/$PKG/files/linux/husk/libld.so}
 SESS=${SESS:-/data/local/tmp/husk-session.sh}
 HERE=$(cd "$(dirname "$0")" && pwd)
+
+# Paths passed to adb shell are resolved by the app process, not by the caller's
+# checkout. Normalize repository-relative `files/...` arguments before they
+# cross the device boundary; otherwise the guest tries to load a host-relative
+# path such as `files/husk-dist-current/libld.so` and cannot find it.
+device_path() {
+    case "$1" in
+        files/*) printf '/data/data/%s/%s\n' "$PKG" "$1" ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+ROOTFS=$(device_path "$ROOTFS")
+LD=$(device_path "$LD")
 ROOT=$(cd "$HERE/../.." && pwd)
 NDK=${NDK:-${ANDROID_NDK_HOME:-${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64}}
 SYSROOT=${SYSROOT:-/tmp/nr-toolchain/root}
@@ -63,6 +76,9 @@ run_raw() {
         sleep 1
         NR_LD=$LD sh $SESS $ROOTFS -- /root/v4l2-test /dev/video0 10 NV12 /tmp/frame-$name $width $height
         rc=\$?
+        if [ \$rc -ne 0 ]; then
+            kill \$p 2>/dev/null || true
+        fi
         wait \$p || true
         cat $ROOTFS/root/fixture-$name.log
         exit \$rc
