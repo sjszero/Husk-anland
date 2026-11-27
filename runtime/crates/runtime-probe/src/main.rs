@@ -20,6 +20,8 @@ mod path_race;
 #[cfg(target_os = "linux")]
 mod rootfd_race;
 #[cfg(target_os = "linux")]
+mod server_parity;
+#[cfg(target_os = "linux")]
 mod supplementary_groups;
 #[cfg(target_os = "linux")]
 mod symbol_gap;
@@ -27,7 +29,7 @@ mod symbol_gap;
 #[cfg(target_os = "linux")]
 fn usage() {
     eprintln!(
-        "usage: runtime-probe <coverage|egress|groups-race|identity-init-race|mount-audit CMD|path-race SENTINEL|rootfd-close-range|supplementary-groups|symbol-gap>"
+        "usage: runtime-probe <coverage|egress|groups-race|identity-init-race|mount-audit CMD|path-race SENTINEL|rootfd-close-range|server-parity CMD|supplementary-groups|symbol-gap>"
     );
 }
 
@@ -49,6 +51,7 @@ fn main() {
             }
         }
         Some("rootfd-close-range") => rootfd_race::run(),
+        Some("server-parity") => server_parity::run(&args[2..]),
         Some("supplementary-groups") => supplementary_groups::run(),
         Some("symbol-gap") => symbol_gap::run(),
         Some("-h" | "--help") => {

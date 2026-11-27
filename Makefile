@@ -8,6 +8,7 @@
 #   make xlorie  rebuild the checked-in embedded X11 server from pinned source
 #   make bench   three-runner benchmark (needs a device)
 #   make gate-a  the 38-item acceptance gate + path/V4L2/DRM probes (needs a device)
+#   make server-parity  90-item Linux surface matrix; Rust libc checks (needs a device)
 #   make desktop-acceptance  embedded X11 readiness/frame/GPU/input gate (needs a device)
 #   make desktop-multiapp  three concurrent GUI apps + GPU/process/frame soak (needs a device)
 #   make readback-audit  complete 19-case Rust GPU readback suite (needs a device)
@@ -25,7 +26,7 @@ HUSK_TOOLS  := runtime/target/debug/husk-tools
 NDK_BIN     := $(if $(filter %/bin,$(NDK)),$(NDK),$(NDK)/bin)
 GUEST_SYSROOT ?= /tmp/nr-toolchain/root
 
-.PHONY: all check lint test tools nr-tools loader preloads xlorie apk bench gate-a desktop-acceptance desktop-multiapp readback-audit gpu-audit gpu-soak camera-audit virt-race docs dist clean version-check version-bump release-audit \
+.PHONY: all check lint test tools nr-tools loader preloads xlorie apk bench gate-a desktop-acceptance desktop-multiapp readback-audit gpu-audit gpu-soak camera-audit server-parity virt-race docs dist clean version-check version-bump release-audit \
         libc-patch libc-verify
 
 all: lint check version-check
@@ -45,7 +46,7 @@ check:
 	CFLAGS_aarch64_unknown_linux_gnu="--target=aarch64-linux-gnu --sysroot=$(GUEST_SYSROOT)" \
 	AR_aarch64_unknown_linux_gnu=$(NDK_BIN)/llvm-ar \
 	  cargo check --manifest-path $(MANIFEST) --target $(TARGET) --workspace
-	cargo test --manifest-path $(MANIFEST) -p gpu-env -p session-env -p usermgr -p nr-tools -p location-probe -p audio-capture-probe -p husk-tools
+	cargo test --manifest-path $(MANIFEST) -p gpu-env -p session-env -p usermgr -p nr-tools -p location-probe -p audio-capture-probe -p runtime-probe -p husk-tools
 # No --all-targets: path-shim is no_std and its test harness collides with the
 # crate's own panic handler (duplicate lang item). Warnings there are tracked
 # separately; this gate fails on errors.
@@ -282,6 +283,13 @@ desktop-acceptance:
 
 desktop-multiapp:
 	DEV=$(DEV) ROOTFS=$${ROOTFS:-files/rootfs-full} RUN_SECS=$${RUN_SECS:-60} sh tools/device-tests/23-desktop-multiapp.sh
+
+server-parity:
+	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.husk} \
+		ROOTFS=$${ROOTFS:-files/rootfs-full} \
+		LD=$${LD:-files/linux/husk/libld.so} \
+		RUNTIME_PROBE=$${RUNTIME_PROBE:-$(PROFILE_DIR)/runtime-probe} \
+		sh tools/device-tests/run-server-parity.sh
 
 gate-a:
 	DEV=$${DEV:?} PKG=$${PKG:-com.linuxhub.husk} \
