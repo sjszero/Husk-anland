@@ -23,7 +23,7 @@ HUSK_TOOLS  := runtime/target/debug/husk-tools
 NDK_BIN     := $(if $(filter %/bin,$(NDK)),$(NDK),$(NDK)/bin)
 GUEST_SYSROOT ?= /tmp/nr-toolchain/root
 
-.PHONY: all check lint test tools nr-tools loader preloads apk bench gate-a readback-audit gpu-audit gpu-soak camera-audit server-parity virt-race docs dist clean version-check version-bump release-audit \
+.PHONY: all check lint test tools nr-tools loader preloads apk bench gate-a readback-audit gpu-audit gpu-soak camera-audit audio-audit server-parity virt-race docs dist clean version-check version-bump release-audit \
         libc-patch libc-verify
 
 all: lint check version-check
@@ -316,6 +316,13 @@ camera-audit:
 		LD=$${LD:-/data/user/0/$${PKG:-com.linuxhub.husk}/files/linux/husk/libld.so} \
 		sh tools/device-tests/run-camera-fixture.sh "$${DEV}"
 
+audio-audit:
+	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.husk} \
+		ROOTFS=$${ROOTFS:-files/rootfs-full} \
+		LD=$${LD:-files/linux/husk/libld.so} \
+		PROFILE_DIR=$${PROFILE_DIR:-$(PROFILE_DIR)} \
+		sh tools/device-tests/22-audio-audit.sh
+
 rootfd-race:
 	DEV=$${DEV:?} PKG=$${PKG:-com.linuxhub.husk} \
 		ROOTFS=$${ROOTFS:-files/rootfs-full} LD=$${LD:-files/linux/husk/libld.so} \
@@ -371,7 +378,9 @@ dist:
 	@chmod 755 dist/libld.so   # tar keeps the mode; a 644 loader is "not executable"
 	cp $(PROFILE_DIR)/husk-ldconfig $(PROFILE_DIR)/husk-usermgr \
 	   $(PROFILE_DIR)/husk-su $(PROFILE_DIR)/husk-symlinks \
-	   $(PROFILE_DIR)/husk-window-wait $(PROFILE_DIR)/husk-logd dist/
+	   $(PROFILE_DIR)/husk-window-wait $(PROFILE_DIR)/husk-logd \
+	   $(PROFILE_DIR)/audio-setup $(PROFILE_DIR)/audio-relay \
+	   $(PROFILE_DIR)/audio-capture $(PROFILE_DIR)/audio-probe dist/
 	cp tools/loader/libc-nop.so.6 dist/libc.so.6   # the artifact `make libc-patch` refreshed
 	cp tools/guest/install-husk.sh tools/guest/husk-session.sh \
 	   tools/guest/husk-desktop.sh tools/guest/husk-ding-fallback.sh \
@@ -399,7 +408,8 @@ dist:
 	fi
 	COPYFILE_DISABLE=1 tar czf dist/husk-arm64.tar.gz -C dist \
 	    libld.so libc.so.6 husk-ldconfig husk-usermgr husk-su husk-symlinks \
-	    husk-window-wait husk-logd guest guest-config vendor install-husk.sh husk-session.sh husk-desktop.sh \
+	    husk-window-wait husk-logd audio-setup audio-relay audio-capture audio-probe \
+	    guest guest-config vendor install-husk.sh husk-session.sh husk-desktop.sh \
 	    husk-ding-fallback.sh husk-wallpaper-fit.sh husk-system-services.sh \
 	    husk-lang-zh.tar.gz VERSION
 	@sh tools/ci/audit-runtime-boundary.sh dist/husk-arm64.tar.gz

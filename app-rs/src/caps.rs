@@ -114,7 +114,7 @@ fn husk_state(class: &str) -> (&'static str, &'static str) {
         ),
         "sensors" => (
             "degraded",
-            "NDK ASensorManager -> IIO shadow tree; five default sensor classes are readable from guest (evidence 302); iio-sensor-proxy D-Bus remains UNVERIFIED",
+            "NDK ASensorManager -> IIO shadow tree; five default sensor classes are readable through /sys/class, /sys/bus and /sys/subsystem IIO views, with continuous-stream checks in A-hw; iio-sensor-proxy D-Bus claims verified (evidence 302/322/344)",
         ),
         "platform-peripherals" => (
             "degraded",

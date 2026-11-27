@@ -42,6 +42,10 @@ for required in \
     husk-su \
     husk-symlinks \
     husk-logd \
+    audio-setup \
+    audio-relay \
+    audio-capture \
+    audio-probe \
     install-husk.sh \
     husk-session.sh \
     guest-config/husk-gpu-defaults.sh \

@@ -827,6 +827,17 @@ done
 # reported as wm=no/ding=no and DING fallback silently did nothing. This helper
 # only dlopens libX11/libXtst and is required by both session entries.
 mkdir -p "$DEST/usr/bin"
+# Audio is a standard Linux interface: the app owns the AAudio bridge, while
+# these guest helpers provision PulseAudio and move PCM between its pipe
+# modules and the app sockets. Keep them in the bundle instead of requiring a
+# manual copy from a developer checkout.
+for t in audio-setup audio-relay audio-capture audio-probe; do
+    if [ -f "$HERE/$t" ]; then
+        cp "$HERE/$t" "$DEST/usr/bin/$t" && chmod 755 "$DEST/usr/bin/$t"
+    else
+        echo "install-husk: $t is missing from the bundle; audio setup/playback may be unavailable" >&2
+    fi
+done
 if [ -f "$HERE/husk-window-wait" ]; then
     cp "$HERE/husk-window-wait" "$DEST/usr/bin/husk-window-wait"
     chmod 755 "$DEST/usr/bin/husk-window-wait"

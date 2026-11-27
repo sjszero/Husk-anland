@@ -21,7 +21,9 @@ DEV=${DEV:?usage: DEV=<serial> $0}
 PKG=${PKG:-com.linuxhub.husk}
 ROOTFS_REL=${ROOTFS_REL:-files/rootfs-full}
 LOADER_REL=${LOADER_REL:-files/linux/husk/libld.so}
+SESS=${SESS:-/data/local/tmp/husk-session.sh}
 REPO_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+SENSOR_PROBE=${SENSOR_PROBE:-$REPO_ROOT/tools/device-tests/husk-sensor-probe.sh}
 LOCATION_PROBE=${LOCATION_PROBE:-$REPO_ROOT/runtime/target/aarch64-unknown-linux-gnu/release/location-probe}
 AUDIO_CAPTURE_PROBE=${AUDIO_CAPTURE_PROBE:-$REPO_ROOT/runtime/target/aarch64-unknown-linux-gnu/release/audio-capture-probe}
 PASS=0; FAIL=0
@@ -112,6 +114,33 @@ case "$caps" in
 esac
 caps_has "caps|audio-in|present=yes" && ok "audio capture device present" \
     || bad "audio capture device not present"
+
+# A matrix entry is not a sensor stream. Read all five default classes through
+# the three standard IIO views and require continuous classes to keep updating.
+echo "== five default sensors are readable through Linux IIO =="
+sensor_probe=/data/local/tmp/husk-sensor-probe
+sensor_out=
+if adb -s "$DEV" push "$SENSOR_PROBE" "$sensor_probe" >/dev/null 2>&1 \
+   && adb -s "$DEV" push "$REPO_ROOT/tools/guest/husk-session.sh" "$SESS" >/dev/null 2>&1; then
+    case "$ROOTFS_REL" in
+        /*) sensor_rootfs=$ROOTFS_REL ;;
+        *) sensor_rootfs=/data/data/$PKG/$ROOTFS_REL ;;
+    esac
+    case "$LOADER_REL" in
+        /*) sensor_loader=$LOADER_REL ;;
+        *) sensor_loader=/data/data/$PKG/$LOADER_REL ;;
+    esac
+    adb_ "run-as $PKG sh -c 'cp $sensor_probe $sensor_rootfs/root/husk-sensor-probe && chmod 755 $sensor_rootfs/root/husk-sensor-probe'" >/dev/null 2>&1 || true
+    sensor_out=$(adb_ "run-as $PKG env NR_LD=$sensor_loader sh $SESS $sensor_rootfs -- /root/husk-sensor-probe" 2>&1 || true)
+    printf '%s\n' "$sensor_out" | sed -n 's/^SENSOR_PATH|/  NOTE  /p' | head -15
+else
+    sensor_out='SENSOR_AUDIT|FAIL|could not push sensor probe or session script'
+fi
+if printf '%s' "$sensor_out" | grep -q '^SENSOR_AUDIT|PASS|classes=5|paths=3|stream=live$'; then
+    ok "five default sensors readable through three IIO views"
+else
+    bad "sensor audit failed: $(printf '%s' "$sensor_out" | tail -4 | tr '\n' ' ')"
+fi
 
 # Enumeration is not capture. Feed the app's own AAudio bridge through the
 # guest-side socket and require real PCM bytes with at least one non-silent

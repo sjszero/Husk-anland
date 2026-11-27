@@ -9,7 +9,8 @@ trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 root="$tmp/root"
 mkdir -p "$root/guest-config"
 for f in libld.so libc.so.6 husk-ldconfig husk-usermgr husk-su husk-symlinks \
-         husk-logd install-husk.sh husk-session.sh guest-config/husk-gpu-defaults.sh \
+         husk-logd audio-setup audio-relay audio-capture audio-probe \
+         install-husk.sh husk-session.sh guest-config/husk-gpu-defaults.sh \
          guest-config/mksys-net.sh; do
     : > "$root/$f"
 done

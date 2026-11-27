@@ -24,6 +24,26 @@ device_path() {
 ROOTFS=$(device_path "$ROOTFS")
 LD=$(device_path "$LD")
 ROOT=$(cd "$HERE/../.." && pwd)
+
+# The raw fixture temporarily replaces the app's guest-facing camera socket.
+# Unlinking a listening Unix socket does not close the app's listener; it stays
+# attached to the removed inode and cannot serve later gate runs. Restart the
+# app on every exit path so the production bridge binds a fresh socket.
+restart_app() {
+    adb -s "$DEV" shell am force-stop "$PKG" >/dev/null 2>&1 || true
+    adb -s "$DEV" shell am start -W -n "$PKG/android.app.NativeActivity" >/dev/null 2>&1 || true
+    i=0
+    while [ "$i" -lt 80 ]; do
+        if adb -s "$DEV" shell "run-as $PKG test -S $ROOTFS/run/husk/camera.sock" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 0.25
+        i=$((i + 1))
+    done
+    echo "camera-fixture: WARN app camera.sock did not return after restart" >&2
+    return 1
+}
+trap 'restart_app >/dev/null 2>&1 || true' EXIT HUP INT TERM
 NDK=${NDK:-${ANDROID_NDK_HOME:-${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64}}
 SYSROOT=${SYSROOT:-/tmp/nr-toolchain/root}
 
