@@ -8,14 +8,16 @@ ROOTFS=${ROOTFS:-$APPDIR/../rootfs-full}
 LD=${LD:-$APPDIR/husk/libld.so}
 SESS=${SESS:-/data/local/tmp/husk-session.sh}
 HERE=$(cd "$(dirname "$0")" && pwd)
-case "$ROOTFS" in
-    files/linux/*) ROOTFS=$APPDIR/${ROOTFS#files/linux/} ;;
-    files/rootfs-full/*|files/rootfs/*|files/rootfs-full|files/rootfs) ROOTFS=/data/data/$PKG/$ROOTFS ;;
-esac
-case "$LD" in
-    files/linux/*) LD=$APPDIR/${LD#files/linux/} ;;
-    files/rootfs-full/*|files/rootfs/*|files/rootfs-full|files/rootfs) LD=/data/data/$PKG/$LD ;;
-esac
+device_path() {
+    case "$1" in
+        /*) printf '%s\n' "$1" ;;
+        files/linux/*) printf '%s/%s\n' "$APPDIR" "${1#files/linux/}" ;;
+        files/*) printf '/data/data/%s/%s\n' "$PKG" "$1" ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+ROOTFS=$(device_path "$ROOTFS")
+LD=$(device_path "$LD")
 
 adb -s "$DEV" push "$HERE/../guest/husk-session.sh" "$SESS" >/dev/null
 CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \

@@ -11,8 +11,8 @@
   `PASS=34 FAIL=0 SKIP=1`，随后 coverage-probe 因路径契约失败。
 - **FACT**：失败不是 loader、rootfs 或真实 Linux 系统调用失败；
   `device_path()` 只识别 `files/linux/*`、`files/rootfs-full/*`、`files/rootfs/*`，
-  任意合法测试树名被原样传入 App 私有目录，最终表现为
-  `files/clean-audio-344/bundle/libld.so: inaccessible or not found`。
+  任意合法测试树名被原样传入 App 私有目录；coverage-probe 与 V4L2-ref 分别在
+  `files/clean-audio-344/bundle/libld.so: inaccessible or not found` 处失败。
 - **FIXED（静态契约，待门禁复跑）**：所有带 `device_path()` 的设备探针统一接受
   任意 `files/*`，并在跨越 `adb shell` 前映射到 `/data/data/$PKG/files/*`；
   `tools/ci/test-guest-rootfs-selection.sh` 增加反向检查，后续脚本再出现同类
@@ -43,6 +43,16 @@ PASS=34 FAIL=0 SKIP=1
 husk-session.sh[274]: files/clean-audio-344/bundle/libld.so: inaccessible or not found
 make: *** [gate-a] Error 1
 ```
+
+修 H34 第一版后，coverage-probe 已通过；门禁继续到 V4L2-ref，又暴露同类入口：
+
+```text
+/data/local/tmp/husk-session.sh[274]: files/clean-audio-344/bundle/libld.so: inaccessible or not found
+make: *** [gate-a] Error 127
+```
+
+原因是 `run-v4l2-ref-probe.sh` 使用手写 `case`，只识别 `rootfs-full` / `rootfs`，
+没有进入第一版统一的 `device_path()`。这不是新根因，仍是 H34。
 
 **INFERENCE**：`files/clean-audio-344/...` 被当成 `run-as` 当前目录下的相对路径，
 而不是 App 数据目录下的绝对路径。该错误与 H29 属同一契约缺口，但触发路径不同，
@@ -75,6 +85,7 @@ tools/device-tests/run-identity-init-race-probe.sh
 tools/device-tests/run-mount-audit.sh
 tools/device-tests/run-path-race-probe.sh
 tools/device-tests/run-rootfd-close-range-probe.sh
+tools/device-tests/run-v4l2-ref-probe.sh
 tools/device-tests/run-server-parity.sh
 ```
 
