@@ -114,8 +114,11 @@ S svc dbus_session "$(SP dbus-session 2>/dev/null; ok $?)" "session bus starts"
 S svc syslog "$( [ -S /dev/log ] && SP syslog husk "parity probe" 2>/dev/null; ok $?)" "syslog -> $(tail -1 /var/log/syslog 2>/dev/null | cut -c1-70)"
 # syslog(3) reaches connect(2) through glibc's *internal* alias, which has no GOT
 # slot. connect/bind are in the libc slot list now, so this exercises the
-# interposed internal path (this Rust probe calls syslog(3) directly).
-S svc syslog_libc "$(SP syslog parity "syslog3 probe" >/dev/null 2>&1 && wait_log 'parity: syslog3 probe'; ok $?)" "$(tail -1 /var/log/syslog 2>/dev/null | cut -c1-60)"
+# interposed internal path (this Rust probe calls syslog(3) directly). openlog
+# renders the identifier as `parity[pid]: ...`, so match only a per-run unique
+# message rather than a guessed prefix or a stale line from an earlier run.
+syslog_token="syslog3 probe $$"
+S svc syslog_libc "$(SP syslog parity "$syslog_token" >/dev/null 2>&1 && wait_log "$syslog_token"; ok $?)" "$(tail -1 /var/log/syslog 2>/dev/null | cut -c1-60)"
 S svc systemd PARTIAL "systemd binary present but needs PID 1 + libsystemd-core (not shipped)"
 S svc su PARTIAL "no CAP_SETUID"
 
