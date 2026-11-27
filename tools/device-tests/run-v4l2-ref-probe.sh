@@ -10,10 +10,11 @@ SESS=${SESS:-/data/local/tmp/husk-session.sh}
 HERE=$(cd "$(dirname "$0")" && pwd)
 case "$ROOTFS" in
     files/linux/*) ROOTFS=$APPDIR/${ROOTFS#files/linux/} ;;
-    files/rootfs-full|files/rootfs) ROOTFS=/data/data/$PKG/$ROOTFS ;;
+    files/rootfs-full/*|files/rootfs/*|files/rootfs-full|files/rootfs) ROOTFS=/data/data/$PKG/$ROOTFS ;;
 esac
 case "$LD" in
     files/linux/*) LD=$APPDIR/${LD#files/linux/} ;;
+    files/rootfs-full/*|files/rootfs/*|files/rootfs-full|files/rootfs) LD=/data/data/$PKG/$LD ;;
 esac
 
 adb -s "$DEV" push "$HERE/../guest/husk-session.sh" "$SESS" >/dev/null

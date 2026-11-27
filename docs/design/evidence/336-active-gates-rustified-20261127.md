@@ -54,7 +54,7 @@ PASS（整 workspace 检查、shell 语法、release/APK/资产审计、文档�
 make gate-a（临时匹配 loader）
 PASS=38 FAIL=0 SKIP=0
 coverage-probe: PASS
-coverage-sweep: PASS（1083 条候选，无未翻译路径）
+coverage-sweep: PASS（1089 条候选，无未翻译路径）
 fd-identity-probe: PASS
 supplementary-groups: PASS=1 FAIL=0
 identity-init-race: rounds=300 fails=0
@@ -90,7 +90,24 @@ PASS supplementary-groups setgroups/initgroups/getgroups/access
 `67f543b9df61d832f6f7b8fb752f37f775300a96d9a690095932e1cb9fa1db5d`。
 测试结束后已移除临时 loader，不把测试路径当作发行资产。
 
-## 4. 修前负向与仍未消除的边界（FACT / UNVERIFIED）
+## 4. 复跑时发现的嵌套路径问题（FACT）
+
+修完 H18 后第一次完整复跑 `gate-a`，前面的验收项和 race 探针都通过，但
+`run-path-race-probe.sh` 在最后返回失败：
+
+```text
+/data/local/tmp/husk-session.sh[259]: files/rootfs-full/root/libld-test.so: inaccessible or not found
+--- path-race-probe: execution failed
+make: *** [gate-a] Error 1
+```
+
+原因是门禁脚本的 `device_path()` 只认识裸的 `files/rootfs-full`，不认识
+`files/rootfs-full/root/libld-test.so` 这类 rootfs 子路径。补充 10 个脚本的映射后，
+同一命令 `run-path-race-probe.sh` 通过：`STATS toggles=60000 operations=212050`、
+`PASS host-sentinel-not-visible`。随后再次完整执行 `make gate-a`，全部通过；临时
+loader 和 `/data/local/tmp` 副本均已删除。
+
+## 5. 修前负向与仍未消除的边界（FACT / UNVERIFIED）
 
 - `make check` 在不设置 `NDK` 时会失败：
   `audit-xlorie-asset.sh: readelf/llvm-readelf not found`。设置正确的 NDK
