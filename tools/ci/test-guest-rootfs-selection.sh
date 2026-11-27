@@ -26,4 +26,15 @@ for file in Makefile tools/device-tests/*.sh; do
     fi
 done
 
+# Regression H34: repository-relative paths must be translated for any
+# files/<tree>, not only the historical rootfs-full/rootfs names. Test trees
+# such as files/clean-audio-344/root are valid and cross adb in every gate.
+for file in tools/device-tests/*.sh tools/probe/*.sh; do
+    if grep -q '^device_path()[[:space:]]*{' "$file" \
+        && ! grep -q 'files/\*)[[:space:]]*printf' "$file"; then
+        echo "device path contract: FAIL (files/* not handled in $file)" >&2
+        exit 1
+    fi
+done
+
 echo "rootfs selection: PASS (rootfs-full -> rootfs, no distro-pinned app or device default)"
