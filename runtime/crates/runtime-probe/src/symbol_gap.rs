@@ -248,7 +248,7 @@ pub fn run() -> i32 {
             "syscall(SYS_execveat)", exit
         );
 
-        let mut real = [0u8; 4096];
+        let mut real = [0 as c_char; 4096];
         clear_errno();
         let resolved = libc::realpath(c_file.as_ptr(), real.as_mut_ptr());
         rep("realpath", if resolved.is_null() { -1 } else { 0 }, errno());
