@@ -11,7 +11,7 @@
 set -u
 DEV=${DEV:?usage: DEV=<adb serial> [ROOTFS=...] [LD=...] $0}
 PKG=${PKG:-com.linuxhub.husk}
-ROOTFS=${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs}
+ROOTFS=${ROOTFS:-files/rootfs-full}
 LD=${LD:-files/linux/husk/libld.so}
 HERE=$(cd "$(dirname "$0")" && pwd)
 GL_PROBE=${GL_PROBE:-$HERE/../../runtime/target/aarch64-unknown-linux-gnu/release/gl-probe}

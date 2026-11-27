@@ -149,13 +149,17 @@ extern "C" {
     pub fn AInputQueue_finishEvent(queue: *mut c_void, event: *mut c_void, handled: c_int);
 
     pub fn AInputEvent_getType(event: *const c_void) -> i32;
+    pub fn AInputEvent_getSource(event: *const c_void) -> i32;
     pub fn AKeyEvent_getAction(event: *const c_void) -> i32;
     pub fn AKeyEvent_getKeyCode(event: *const c_void) -> i32;
     pub fn AKeyEvent_getMetaState(event: *const c_void) -> i32;
     pub fn AMotionEvent_getAction(event: *const c_void) -> i32;
+    pub fn AMotionEvent_getActionIndex(event: *const c_void) -> usize;
     pub fn AMotionEvent_getX(event: *const c_void, pointerIndex: usize) -> f32;
     pub fn AMotionEvent_getY(event: *const c_void, pointerIndex: usize) -> f32;
+    pub fn AMotionEvent_getPointerId(event: *const c_void, pointerIndex: usize) -> i32;
     pub fn AMotionEvent_getPointerCount(event: *const c_void) -> usize;
+    pub fn AMotionEvent_getAxisValue(event: *const c_void, axis: i32, pointerIndex: usize) -> f32;
 }
 
 pub const ALOOPER_PREPARE_ALLOW_NON_CALLBACKS: c_int = 1;
@@ -166,6 +170,17 @@ pub const AKEY_EVENT_ACTION_DOWN: i32 = 0;
 pub const AMOTION_EVENT_ACTION_MASK: i32 = 0xff;
 pub const AMOTION_EVENT_ACTION_DOWN: i32 = 0;
 pub const AMOTION_EVENT_ACTION_MOVE: i32 = 2;
+pub const AMOTION_EVENT_ACTION_CANCEL: i32 = 3;
+pub const AMOTION_EVENT_ACTION_POINTER_DOWN: i32 = 5;
+pub const AMOTION_EVENT_ACTION_POINTER_UP: i32 = 6;
+pub const AMOTION_EVENT_ACTION_HOVER_MOVE: i32 = 7;
+pub const AMOTION_EVENT_ACTION_SCROLL: i32 = 8;
+pub const AMOTION_EVENT_AXIS_HSCROLL: i32 = 10;
+pub const AMOTION_EVENT_AXIS_VSCROLL: i32 = 9;
+pub const AMOTION_EVENT_AXIS_RELATIVE_X: i32 = 27;
+pub const AMOTION_EVENT_AXIS_RELATIVE_Y: i32 = 28;
+pub const AINPUT_SOURCE_MOUSE: i32 = 0x0000_2002;
+pub const AINPUT_SOURCE_MOUSE_RELATIVE: i32 = 0x0002_0002;
 pub const AMOTION_EVENT_ACTION_UP: i32 = 1;
 
 pub const AKEYCODE_BACK: i32 = 4;

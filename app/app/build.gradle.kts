@@ -23,12 +23,13 @@ android {
     buildTypes { getByName("debug") { isMinifyEnabled = false } }
 }
 
-// 三块原生件都是构建产物（src/main/jniLibs/ 在 .gitignore 里，干净 clone 没有），所以
+// 原生件里 libhuskapp/libhuskguard/libld 是构建产物（src/main/jniLibs/ 在 .gitignore 里，
+// 干净 clone 没有），libXlorie 是从锁定源码构建并随仓库分发的内核件，所以
 // 只跑 `./gradlew :app:assembleDebug` 会打出一个"能装、能启动、但起不了 guest"的空壳：
 // hasCode=false 又没有 libhuskapp.so 就是没有任何代码，没有 libld.so 就是没有加载器。
 // `make apk` 会先构建它们；这个守卫让直接走 Gradle 的路径当场失败，而不是安静地发空壳。
 // 判据（第 2 轮）：干净 clone 只跑 gradlew 必须红。
-val huskNativePieces = listOf("libhuskapp.so", "libhuskguard.so", "libld.so")
+val huskNativePieces = listOf("libhuskapp.so", "libhuskguard.so", "libld.so", "libXlorie.so")
 val huskVerifyNativePieces = tasks.register("huskVerifyNativePieces") {
     val dir = layout.projectDirectory.dir("src/main/jniLibs/arm64-v8a")
     doLast {
@@ -36,7 +37,7 @@ val huskVerifyNativePieces = tasks.register("huskVerifyNativePieces") {
         if (missing.isNotEmpty()) {
             throw GradleException(
                 "Husk: 缺少原生件 " + missing.joinToString(", ") + " （目录 " + dir.asFile + "）。" +
-                "这三块是构建产物，不进版本库：请用 `make apk`（或先 `make loader` + " +
+                "请用 `make apk`（或先 `make loader` + " +
                 "cargo build --release --manifest-path app-rs/Cargo.toml --target aarch64-linux-android），" +
                 "不要直接调 Gradle。空壳 APK 装了也起不了 guest。"
             )

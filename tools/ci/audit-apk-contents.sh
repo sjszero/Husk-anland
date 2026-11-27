@@ -1,10 +1,11 @@
 #!/bin/sh
-# Assert the APK really carries the three native pieces it needs.
+# Assert the APK really carries the native pieces it needs.
 #
-# jniLibs/{libhuskapp.so,libhuskguard.so,libld.so} are build outputs and none of
-# them is tracked, so "gradlew assembleDebug succeeded" proves nothing about
+# libhuskapp/libhuskguard/libld are build outputs and are not tracked, so
+# "gradlew assembleDebug succeeded" proves nothing about
 # what went into the package. Missing libld.so = an APK that cannot start a
-# guest at all; missing libhuskapp.so = an app with no code (hasCode=false).
+# guest at all; missing libhuskapp.so = an app with no code (hasCode=false);
+# missing libXlorie.so = an app with no X11 display server.
 set -eu
 cd "$(dirname "$0")/../.."
 
@@ -17,7 +18,7 @@ esac
 apk=$1
 
 fail=0
-for lib in libhuskapp.so libhuskguard.so libld.so; do
+for lib in libhuskapp.so libhuskguard.so libld.so libXlorie.so; do
     if unzip -l "$apk" | grep -q "lib/arm64-v8a/$lib\$"; then
         echo "OK   lib/arm64-v8a/$lib"
     else

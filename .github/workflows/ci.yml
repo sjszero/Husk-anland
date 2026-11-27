@@ -80,7 +80,7 @@ jobs:
       - run: >
           cargo test --manifest-path runtime/Cargo.toml
           -p gpu-env -p session-env -p usermgr -p nr-tools
-          -p location-probe -p audio-capture-probe
+          -p location-probe -p audio-capture-probe -p husk-tools
           -p video-protocol -p husk-va-driver
 
   preloads:
@@ -185,8 +185,12 @@ jobs:
         env:
           NDK: ${{ steps.ndk.outputs.ndk }}/toolchains/llvm/prebuilt/linux-x86_64/bin
         run: make apk
-      - name: APK carries all three native pieces
+      - name: APK carries all native pieces
         run: sh tools/ci/audit-apk-contents.sh apk
+      - name: Xlorie asset is pinned and stripped
+        env:
+          NDK: ${{ steps.ndk.outputs.ndk }}/toolchains/llvm/prebuilt/linux-x86_64/bin
+        run: sh tools/ci/audit-xlorie-asset.sh
       - name: APK version matches VERSION
         run: sh tools/ci/audit-apk-version.sh
       - uses: actions/upload-artifact@v4

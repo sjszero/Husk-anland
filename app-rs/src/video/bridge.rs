@@ -901,9 +901,7 @@ unsafe fn handle_client(files: &Path, api: &Api, mut stream: UnixStream) {
                     Ok((ok, payload)) => {
                         let mut outcome = send_line(&mut stream, &ok);
                         if let (Ok(()), Some(bytes)) = (&outcome, payload) {
-                            outcome = stream
-                                .write_all(&bytes)
-                                .and_then(|_| stream.flush());
+                            outcome = stream.write_all(&bytes).and_then(|_| stream.flush());
                         }
                         outcome
                     }

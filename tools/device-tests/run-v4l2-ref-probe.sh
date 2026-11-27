@@ -4,12 +4,13 @@ set -eu
 DEV=${1:?usage: $0 <device-serial>}
 PKG=${PKG:-com.linuxhub.husk}
 APPDIR=${APPDIR:-/data/data/$PKG/files/linux}
-ROOTFS=${ROOTFS:-$APPDIR/distributions/ubuntu-24.04/rootfs}
+ROOTFS=${ROOTFS:-$APPDIR/../rootfs-full}
 LD=${LD:-$APPDIR/husk/libld.so}
 SESS=${SESS:-/data/local/tmp/husk-session.sh}
 HERE=$(cd "$(dirname "$0")" && pwd)
 case "$ROOTFS" in
     files/linux/*) ROOTFS=$APPDIR/${ROOTFS#files/linux/} ;;
+    files/rootfs-full|files/rootfs) ROOTFS=/data/data/$PKG/$ROOTFS ;;
 esac
 case "$LD" in
     files/linux/*) LD=$APPDIR/${LD#files/linux/} ;;

@@ -74,15 +74,6 @@ fn files_dir() -> Option<PathBuf> {
     ))
 }
 
-fn active_rootfs(files: &Path) -> PathBuf {
-    let full = files.join("rootfs-full");
-    if full.is_dir() {
-        full
-    } else {
-        files.join("rootfs")
-    }
-}
-
 unsafe fn java_vm() -> Option<JavaVM> {
     let act = crate::ACTIVITY.load(Ordering::SeqCst);
     if act.is_null() {
@@ -353,7 +344,13 @@ fn poll_loop() {
         crate::log("location|SKIP|no internalDataPath");
         return;
     };
-    let rootfs = active_rootfs(&files);
+    let rootfs = match crate::guest_rootfs::resolve(&files) {
+        Ok(rootfs) => rootfs,
+        Err(e) => {
+            crate::log(&format!("location|SKIP|{e}"));
+            return;
+        }
+    };
     let Some(vm) = (unsafe { java_vm() }) else {
         crate::log("location|SKIP|no JavaVM");
         return;
@@ -487,7 +484,13 @@ fn server_loop() {
         crate::log("location|SKIP|gpsd no internalDataPath");
         return;
     };
-    let rootfs = active_rootfs(&files);
+    let rootfs = match crate::guest_rootfs::resolve(&files) {
+        Ok(rootfs) => rootfs,
+        Err(e) => {
+            crate::log(&format!("location|SKIP|gpsd {e}"));
+            return;
+        }
+    };
     let run = rootfs.join("run/husk");
     if let Err(e) = std::fs::create_dir_all(&run) {
         crate::log(&format!("location|WARN|gpsd mkdir {run:?}: {e}"));

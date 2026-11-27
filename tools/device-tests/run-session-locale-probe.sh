@@ -5,7 +5,7 @@ set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 DEV=${DEV:?usage: DEV=<serial> sh run-session-locale-probe.sh}
 PKG=${PKG:-com.linuxhub.husk}
-ROOTFS=${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs}
+ROOTFS=${ROOTFS:-files/rootfs-full}
 LD=${LD:-files/linux/husk/libld.so}
 APP=/data/user/0/$PKG
 case "$ROOTFS" in /*) ROOTFS_ABS=$ROOTFS ;; *) ROOTFS_ABS=$APP/$ROOTFS ;; esac

@@ -44,7 +44,10 @@ fn clear_java_exception(env: &JNIEnv, stage: &str, err: impl core::fmt::Display)
 /// whether the child SurfaceControl handle has been read yet: that read is
 /// lazy (`wait_parent`), so 0 here is the normal pre-first-present state.
 pub(crate) fn view_installed() -> bool {
-    SURFACE_VIEW.lock().map(|slot| slot.is_some()).unwrap_or(false)
+    SURFACE_VIEW
+        .lock()
+        .map(|slot| slot.is_some())
+        .unwrap_or(false)
 }
 
 /// True once the SurfaceView's BLAST SurfaceControl handle has been cached.

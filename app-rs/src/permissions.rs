@@ -176,7 +176,9 @@ fn files_dir(a: *mut ANativeActivity) -> Option<PathBuf> {
         return None;
     }
     Some(PathBuf::from(
-        unsafe { core::ffi::CStr::from_ptr(path) }.to_string_lossy().into_owned(),
+        unsafe { core::ffi::CStr::from_ptr(path) }
+            .to_string_lossy()
+            .into_owned(),
     ))
 }
 
@@ -201,7 +203,9 @@ fn load(a: *mut ANativeActivity) -> BTreeMap<&'static str, Rec> {
         for line in text.lines() {
             let mut fields = line.split('\t');
             let Some(name) = fields.next() else { continue };
-            let Some(rec) = map.get_mut(name.trim()) else { continue };
+            let Some(rec) = map.get_mut(name.trim()) else {
+                continue;
+            };
             for field in fields {
                 let (key, value) = field.split_once('=').unwrap_or((field, ""));
                 match key {
@@ -309,7 +313,11 @@ unsafe fn toast(env: &mut JNIEnv, activity: &JObject, text: &str) {
             "android/widget/Toast",
             "makeText",
             "(Landroid/content/Context;Ljava/lang/CharSequence;I)Landroid/widget/Toast;",
-            &[JValue::Object(activity), JValue::Object(&body), JValue::Int(LENGTH_LONG)],
+            &[
+                JValue::Object(activity),
+                JValue::Object(&body),
+                JValue::Int(LENGTH_LONG),
+            ],
         )
         .and_then(|value| value.l());
     match built {
@@ -378,7 +386,9 @@ unsafe fn open_app_settings(env: &mut JNIEnv, activity: &JObject) -> Result<(), 
         &[JValue::Object(&intent)],
     )
     .map_err(|e| format!("startActivity: {e}"))?;
-    crate::log(&format!("permissions|SETTINGS|opened app details for {package}"));
+    crate::log(&format!(
+        "permissions|SETTINGS|opened app details for {package}"
+    ));
     Ok(())
 }
 
@@ -461,7 +471,9 @@ pub unsafe fn on_resume(a: *mut ANativeActivity) {
                         toast(
                             &mut env,
                             &activity,
-                            &format!("Husk 需要{name}权限，否则{consequence}。下次进来还会再问一次。"),
+                            &format!(
+                                "Husk 需要{name}权限，否则{consequence}。下次进来还会再问一次。"
+                            ),
                         );
                     } else if !rec.nudged || !settings_opened {
                         rec.nudged = true;

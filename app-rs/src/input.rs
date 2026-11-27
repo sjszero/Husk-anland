@@ -321,10 +321,7 @@ pub fn motion(action: i32, x: i32, y: i32, pointers: i32) {
                 g.moved = true;
             }
             if g.moved && (x != g.last_x || y != g.last_y) {
-                push(synced(&[
-                    ev(EV_ABS, ABS_X, ax),
-                    ev(EV_ABS, ABS_Y, ay),
-                ]));
+                push(synced(&[ev(EV_ABS, ABS_X, ax), ev(EV_ABS, ABS_Y, ay)]));
                 g.last_x = x;
                 g.last_y = y;
             }
@@ -333,7 +330,10 @@ pub fn motion(action: i32, x: i32, y: i32, pointers: i32) {
             if !g.down {
                 return;
             }
-            let held = g.down_at.map(|t| t.elapsed().as_millis() as u64).unwrap_or(0);
+            let held = g
+                .down_at
+                .map(|t| t.elapsed().as_millis() as u64)
+                .unwrap_or(0);
             let moved = g.moved;
             g.down = false;
             g.moved = false;
@@ -364,43 +364,43 @@ pub fn key(android_code: i32, down: bool) {
 }
 
 /// Android `AKEYCODE_*` -> Linux `KEY_*` (`input-event-codes.h`).
-fn linux_keycode(a: i32) -> Option<u16> {
+pub(crate) fn linux_keycode(a: i32) -> Option<u16> {
     // Letters and digits are contiguous in both worlds, at different bases.
     let c = match a {
-        29..=54 => 30 + (a - 29) as u16,      // A..Z -> KEY_A(30)..KEY_Z(55)
-        7..=16 => 2 + (a - 7) as u16,         // 0..9 -> KEY_1(2)..KEY_0(11)
-        66 => 28,                             // ENTER
-        67 => 14,                             // DEL -> KEY_BACKSPACE
-        61 => 15,                             // TAB
-        62 => 57,                             // SPACE
-        111 => 1,                             // ESCAPE
-        112 => 111,                           // FORWARD_DEL -> KEY_DELETE
-        19 => 103,                            // DPAD_UP
-        20 => 108,                            // DPAD_DOWN
-        21 => 105,                            // DPAD_LEFT
-        22 => 106,                            // DPAD_RIGHT
-        59 => 42,                             // SHIFT_LEFT
-        60 => 54,                             // SHIFT_RIGHT
-        113 => 29,                            // CTRL_LEFT
-        114 => 97,                            // CTRL_RIGHT
-        57 => 56,                             // ALT_LEFT
-        58 => 100,                            // ALT_RIGHT
-        115 => 125,                           // CAPS_LOCK
-        122 => 102,                           // MOVE_HOME
-        123 => 107,                           // MOVE_END
-        92 => 104,                            // PAGE_UP
-        93 => 109,                            // PAGE_DOWN
-        68 => 41,                             // GRAVE -> KEY_GRAVE
-        69 => 12,                             // MINUS
-        70 => 13,                             // EQUALS
-        71 => 26,                             // LEFT_BRACKET
-        72 => 27,                             // RIGHT_BRACKET
-        73 => 43,                             // BACKSLASH
-        74 => 39,                             // SEMICOLON
-        75 => 40,                             // APOSTROPHE
-        55 => 51,                             // COMMA
-        56 => 52,                             // PERIOD
-        76 => 53,                             // SLASH
+        29..=54 => 30 + (a - 29) as u16, // A..Z -> KEY_A(30)..KEY_Z(55)
+        7..=16 => 2 + (a - 7) as u16,    // 0..9 -> KEY_1(2)..KEY_0(11)
+        66 => 28,                        // ENTER
+        67 => 14,                        // DEL -> KEY_BACKSPACE
+        61 => 15,                        // TAB
+        62 => 57,                        // SPACE
+        111 => 1,                        // ESCAPE
+        112 => 111,                      // FORWARD_DEL -> KEY_DELETE
+        19 => 103,                       // DPAD_UP
+        20 => 108,                       // DPAD_DOWN
+        21 => 105,                       // DPAD_LEFT
+        22 => 106,                       // DPAD_RIGHT
+        59 => 42,                        // SHIFT_LEFT
+        60 => 54,                        // SHIFT_RIGHT
+        113 => 29,                       // CTRL_LEFT
+        114 => 97,                       // CTRL_RIGHT
+        57 => 56,                        // ALT_LEFT
+        58 => 100,                       // ALT_RIGHT
+        115 => 125,                      // CAPS_LOCK
+        122 => 102,                      // MOVE_HOME
+        123 => 107,                      // MOVE_END
+        92 => 104,                       // PAGE_UP
+        93 => 109,                       // PAGE_DOWN
+        68 => 41,                        // GRAVE -> KEY_GRAVE
+        69 => 12,                        // MINUS
+        70 => 13,                        // EQUALS
+        71 => 26,                        // LEFT_BRACKET
+        72 => 27,                        // RIGHT_BRACKET
+        73 => 43,                        // BACKSLASH
+        74 => 39,                        // SEMICOLON
+        75 => 40,                        // APOSTROPHE
+        55 => 51,                        // COMMA
+        56 => 52,                        // PERIOD
+        76 => 53,                        // SLASH
         _ => return None,
     };
     Some(c)

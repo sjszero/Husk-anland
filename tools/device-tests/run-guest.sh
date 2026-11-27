@@ -15,7 +15,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 DEV=${DEV:?usage: DEV=<adb serial> ./run-guest.sh <script>   (see adb devices)}
 PKG=${PKG:-com.linuxhub.husk}
-ROOTFS=${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs}
+ROOTFS=${ROOTFS:-files/rootfs-full}
 LD=${LD:-files/linux/husk/libld.so}
 SCRIPT=${1:?usage: run-guest.sh <script-name>}
 ENVV=${ENV:-}   # e.g. ENV=NR_SIGSYS=log for startup tracing

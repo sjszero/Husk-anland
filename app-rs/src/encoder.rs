@@ -84,12 +84,14 @@ struct Codec {
     get_out: unsafe extern "C" fn(*mut c_void, usize, *mut usize) -> *mut u8,
     release_out: unsafe extern "C" fn(*mut c_void, usize, bool) -> i32,
     get_out_format: unsafe extern "C" fn(*mut c_void) -> *mut c_void,
-    fmt_get_buf: unsafe extern "C" fn(*mut c_void, *const c_char, *mut *mut c_void, *mut usize) -> bool,
+    fmt_get_buf:
+        unsafe extern "C" fn(*mut c_void, *const c_char, *mut *mut c_void, *mut usize) -> bool,
     fmt_delete: unsafe extern "C" fn(*mut c_void),
 }
 
 type CreateByType = unsafe extern "C" fn(*const c_char) -> *mut c_void;
-type Configure = unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void, *mut c_void, u32) -> i32;
+type Configure =
+    unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void, *mut c_void, u32) -> i32;
 type FmtNew = unsafe extern "C" fn() -> *mut c_void;
 type FmtSetStr = unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char) -> i32;
 type FmtSetI32 = unsafe extern "C" fn(*mut c_void, *const c_char, i32) -> i32;
@@ -320,7 +322,13 @@ unsafe fn session(stream: std::os::unix::net::UnixStream) -> Result<(), String> 
                 (api.fmt_set_i32)(fmt, c"bitrate".as_ptr(), p.kbps * 1000);
                 (api.fmt_set_i32)(fmt, c"frame-rate".as_ptr(), p.fps);
                 (api.fmt_set_i32)(fmt, c"i-frame-interval".as_ptr(), 1);
-                let rc = (api.configure)(c.handle, fmt, core::ptr::null_mut(), core::ptr::null_mut(), 1);
+                let rc = (api.configure)(
+                    c.handle,
+                    fmt,
+                    core::ptr::null_mut(),
+                    core::ptr::null_mut(),
+                    1,
+                );
                 (c.fmt_delete)(fmt);
                 if rc != MEDIA_OK {
                     crate::log(&format!("encoder|configure|{rc}"));
@@ -439,7 +447,10 @@ unsafe fn pump(
                 for key in [c"csd-0", c"csd-1"] {
                     let mut data: *mut c_void = core::ptr::null_mut();
                     let mut len = 0usize;
-                    if (c.fmt_get_buf)(fmt, key.as_ptr(), &mut data, &mut len) && !data.is_null() && len > 0 {
+                    if (c.fmt_get_buf)(fmt, key.as_ptr(), &mut data, &mut len)
+                        && !data.is_null()
+                        && len > 0
+                    {
                         let bytes = core::slice::from_raw_parts(data as *const u8, len);
                         write_au(out, FLAG_CODEC_CONFIG, bytes)?;
                         wrote = true;

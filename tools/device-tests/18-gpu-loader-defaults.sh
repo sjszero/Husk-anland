@@ -10,14 +10,14 @@
 # 这个脚本只量这件事：同一棵树、同一个探针、不带任何 GPU 环境变量，
 # 谁给的值生效；再用两个开关做反向控制。
 #
-#   DEV=UKHMMB8PYTGECMNV ROOTFS=files/linux/distributions/ubuntu-24.04/rootfs \
+#   DEV=UKHMMB8PYTGECMNV ROOTFS=files/rootfs-full \
 #   LD=files/linux/libld.so ./18-gpu-loader-defaults.sh
 #
 # 退出码 0 = 加载器注入生效（树里有 PanVK 驱动时）；2 = 树里没有驱动，只验软件路径。
 set -u
 DEV=${DEV:?usage: DEV=<serial> [ROOTFS=...] [LD=...] $0}
 PKG=${PKG:-com.linuxhub.husk}
-ROOTFS=${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs}
+ROOTFS=${ROOTFS:-files/rootfs-full}
 LD=${LD:-files/linux/libld.so}
 HERE=$(cd "$(dirname "$0")" && pwd)
 GL_PROBE=${GL_PROBE:-$HERE/../../runtime/target/aarch64-unknown-linux-gnu/release/gl-probe}

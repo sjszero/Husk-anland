@@ -181,15 +181,6 @@ fn files_dir() -> Option<PathBuf> {
     ))
 }
 
-fn active_rootfs(files: &Path) -> PathBuf {
-    let full = files.join("rootfs-full");
-    if full.is_dir() {
-        full
-    } else {
-        files.join("rootfs")
-    }
-}
-
 fn node_dir(rootfs: &Path, index: usize) -> PathBuf {
     rootfs
         .join("sys/subsystem/iio/devices")
@@ -424,7 +415,13 @@ fn run() {
         crate::log("sensors|SKIP|no files dir");
         return;
     };
-    let rootfs = active_rootfs(&files);
+    let rootfs = match crate::guest_rootfs::resolve(&files) {
+        Ok(rootfs) => rootfs,
+        Err(e) => {
+            crate::log(&format!("sensors|SKIP|{e}"));
+            return;
+        }
+    };
     if let Err(e) = prepare_tree(&rootfs) {
         crate::log(&format!("sensors|TREE|{e}"));
         return;

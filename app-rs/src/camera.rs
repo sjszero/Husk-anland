@@ -143,8 +143,11 @@ struct CameraApi {
     manager_get_id_list:
         unsafe extern "C" fn(*mut ACameraManager, *mut *mut CameraIdList) -> CameraStatus,
     manager_delete_id_list: unsafe extern "C" fn(*mut CameraIdList),
-    manager_get_characteristics:
-        unsafe extern "C" fn(*mut ACameraManager, *const c_char, *mut *mut ACameraMetadata) -> CameraStatus,
+    manager_get_characteristics: unsafe extern "C" fn(
+        *mut ACameraManager,
+        *const c_char,
+        *mut *mut ACameraMetadata,
+    ) -> CameraStatus,
     metadata_get_const_entry:
         unsafe extern "C" fn(*const ACameraMetadata, u32, *mut CameraMetadataEntry) -> CameraStatus,
     metadata_free: unsafe extern "C" fn(*mut ACameraMetadata),
@@ -171,8 +174,10 @@ struct CameraApi {
     session_output_free: unsafe extern "C" fn(*mut ACaptureSessionOutput),
     container_create:
         unsafe extern "C" fn(*mut *mut ACaptureSessionOutputContainer) -> CameraStatus,
-    container_add:
-        unsafe extern "C" fn(*mut ACaptureSessionOutputContainer, *mut ACaptureSessionOutput) -> CameraStatus,
+    container_add: unsafe extern "C" fn(
+        *mut ACaptureSessionOutputContainer,
+        *mut ACaptureSessionOutput,
+    ) -> CameraStatus,
     container_free: unsafe extern "C" fn(*mut ACaptureSessionOutputContainer),
     session_create: unsafe extern "C" fn(
         *mut ACameraDevice,
@@ -195,7 +200,8 @@ struct CameraApi {
     reader_acquire_next: unsafe extern "C" fn(*mut AImageReader, *mut *mut AImage) -> i32,
     image_delete: unsafe extern "C" fn(*mut AImage),
     image_get_timestamp: unsafe extern "C" fn(*const AImage, *mut i64) -> i32,
-    image_get_plane_data: unsafe extern "C" fn(*const AImage, c_int, *mut *mut u8, *mut usize) -> i32,
+    image_get_plane_data:
+        unsafe extern "C" fn(*const AImage, c_int, *mut *mut u8, *mut usize) -> i32,
     image_get_plane_row_stride: unsafe extern "C" fn(*const AImage, c_int, *mut i32) -> i32,
     image_get_plane_pixel_stride: unsafe extern "C" fn(*const AImage, c_int, *mut i32) -> i32,
     image_get_width: unsafe extern "C" fn(*const AImage, *mut i32) -> i32,
@@ -243,14 +249,8 @@ impl CameraApi {
                 camera_handle,
                 c"ACameraMetadata_getConstEntry",
             )?),
-            metadata_free: core::mem::transmute(symbol(
-                camera_handle,
-                c"ACameraMetadata_free",
-            )?),
-            open_camera: core::mem::transmute(symbol(
-                camera_handle,
-                c"ACameraManager_openCamera",
-            )?),
+            metadata_free: core::mem::transmute(symbol(camera_handle, c"ACameraMetadata_free")?),
+            open_camera: core::mem::transmute(symbol(camera_handle, c"ACameraManager_openCamera")?),
             device_close: core::mem::transmute(symbol(camera_handle, c"ACameraDevice_close")?),
             device_create_request: core::mem::transmute(symbol(
                 camera_handle,
@@ -412,10 +412,7 @@ unsafe fn orientation(api: &CameraApi, meta: *const ACameraMetadata) -> Option<i
 }
 
 /// YUV_420_888 output sizes, largest first, even dimensions only, ≤ 1920x1080.
-unsafe fn yuv_sizes(
-    api: &CameraApi,
-    meta: *const ACameraMetadata,
-) -> Vec<(i32, i32)> {
+unsafe fn yuv_sizes(api: &CameraApi, meta: *const ACameraMetadata) -> Vec<(i32, i32)> {
     let mut out = Vec::new();
     let Some(e) = entry(api, meta, TAG_SCALER_AVAILABLE_STREAM_CONFIGURATIONS) else {
         return out;
@@ -461,7 +458,9 @@ unsafe fn enumerate(api: &CameraApi, manager: *mut ACameraManager) -> Vec<Camera
         if raw.is_null() {
             continue;
         }
-        let id = core::ffi::CStr::from_ptr(raw).to_string_lossy().into_owned();
+        let id = core::ffi::CStr::from_ptr(raw)
+            .to_string_lossy()
+            .into_owned();
         let mut meta: *mut ACameraMetadata = core::ptr::null_mut();
         let cid = match CString::new(id.clone()) {
             Ok(c) => c,
@@ -508,7 +507,11 @@ unsafe fn enumerate(api: &CameraApi, manager: *mut ACameraManager) -> Vec<Camera
 // ---------------------------------------------------------------------------
 
 /// Copy `YUV_420_888` into NV12 (Y plane, then interleaved UV at half size).
-unsafe fn to_nv12(api: &CameraApi, image: *const AImage, out: &mut Vec<u8>) -> Result<(i32, i32), String> {
+unsafe fn to_nv12(
+    api: &CameraApi,
+    image: *const AImage,
+    out: &mut Vec<u8>,
+) -> Result<(i32, i32), String> {
     let mut width = 0i32;
     let mut height = 0i32;
     if (api.image_get_width)(image, &mut width) != AMEDIA_OK
@@ -544,7 +547,11 @@ unsafe fn to_nv12(api: &CameraApi, image: *const AImage, out: &mut Vec<u8>) -> R
 
     for row in 0..height as usize {
         let src = y_ptr.add(row * y_stride as usize);
-        core::ptr::copy_nonoverlapping(src, out.as_mut_ptr().add(row * width as usize), width as usize);
+        core::ptr::copy_nonoverlapping(
+            src,
+            out.as_mut_ptr().add(row * width as usize),
+            width as usize,
+        );
     }
     let mut o = y_bytes;
     for row in 0..(height as usize) / 2 {
@@ -709,7 +716,12 @@ impl CameraSession {
         frame: &mut Vec<u8>,
     ) -> Result<Option<(i32, i32, i64)>, String> {
         if !self.looper.is_null() {
-            (api.looper_poll_once)(8, core::ptr::null_mut(), core::ptr::null_mut(), core::ptr::null_mut());
+            (api.looper_poll_once)(
+                8,
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+            );
         }
         let mut image: *mut AImage = core::ptr::null_mut();
         let rc = (api.reader_acquire_next)(self.reader, &mut image);
@@ -796,7 +808,9 @@ unsafe fn run_selftest(
                     first_ts = ts;
                 }
                 last_ts = ts;
-                let path = selftest.dir.join(format!("frame-{:02}.nv12", selftest.saved));
+                let path = selftest
+                    .dir
+                    .join(format!("frame-{:02}.nv12", selftest.saved));
                 let wrote = std::fs::write(&path, &frame).is_ok();
                 crate::log(&format!(
                     "camera|selftest|frame={}|{}x{}|bytes={}|min={min}|max={max}|mean={mean:.2}|ts={ts}|saved={wrote}",
@@ -855,7 +869,9 @@ fn read_command(stream: &mut std::os::unix::net::UnixStream) -> Result<String, S
     let mut out = Vec::with_capacity(64);
     let mut one = [0u8; 1];
     loop {
-        stream.read_exact(&mut one).map_err(|e| format!("read: {e}"))?;
+        stream
+            .read_exact(&mut one)
+            .map_err(|e| format!("read: {e}"))?;
         match one[0] {
             b'\n' => return Ok(String::from_utf8_lossy(&out).into_owned()),
             b'\r' => {}
@@ -904,11 +920,19 @@ unsafe fn handle_client(
             "INFO" => {
                 let mut reply = String::new();
                 for (k, cam) in ordered(cams).iter().enumerate() {
-                    let facing = if cam.facing == LENS_FACING_BACK { "back" } else { "front" };
+                    let facing = if cam.facing == LENS_FACING_BACK {
+                        "back"
+                    } else {
+                        "front"
+                    };
                     reply.push_str(&format!(
                         "CAM k={k} id={} facing={facing} name={} sizes=",
                         cam.id,
-                        if cam.facing == LENS_FACING_BACK { "BACK" } else { "FRONT" }
+                        if cam.facing == LENS_FACING_BACK {
+                            "BACK"
+                        } else {
+                            "FRONT"
+                        }
                     ));
                     for (i, (w, h)) in cam.sizes.iter().enumerate() {
                         if i > 0 {
@@ -958,7 +982,8 @@ unsafe fn handle_client(
                 match CameraSession::open(api, manager, &cam.id, w, h) {
                     Ok(open) => {
                         let bytes = w * h * 3 / 2;
-                        let reply = format!("OK w={w} h={h} fourcc=NV12 bytes={bytes} id={}\n", cam.id);
+                        let reply =
+                            format!("OK w={w} h={h} fourcc=NV12 bytes={bytes} id={}\n", cam.id);
                         let _ = stream.write_all(reply.as_bytes());
                         session = Some(open);
                     }
@@ -1018,7 +1043,10 @@ unsafe fn handle_client(
 /// `/dev/video0` is the main camera. Everything the guest can see (INFO lines,
 /// sysfs tree) uses this order.
 fn ordered(cams: &[CameraInfo]) -> Vec<&CameraInfo> {
-    let mut v: Vec<&CameraInfo> = cams.iter().filter(|c| c.facing == LENS_FACING_BACK).collect();
+    let mut v: Vec<&CameraInfo> = cams
+        .iter()
+        .filter(|c| c.facing == LENS_FACING_BACK)
+        .collect();
     v.extend(cams.iter().filter(|c| c.facing != LENS_FACING_BACK));
     v
 }
@@ -1026,15 +1054,6 @@ fn ordered(cams: &[CameraInfo]) -> Vec<&CameraInfo> {
 /// The guest's `/sys` is Android's real sysfs (the kernel has no V4L2), so the
 /// shim redirects `/sys/class/video4linux*` here. Same layout DroidNative binds:
 /// class entry, the `/sys/subsystem` mirror eudev prefers, and the udev db entry.
-fn active_rootfs(files: &std::path::Path) -> std::path::PathBuf {
-    let full = files.join("rootfs-full");
-    if full.is_dir() {
-        full
-    } else {
-        files.join("rootfs")
-    }
-}
-
 fn prepare_v4l2_tree(rootfs: &std::path::Path, cams: &[CameraInfo]) {
     let class = rootfs.join("sys-v4l2/class");
     let devices = rootfs.join("sys-v4l2/subsystem/devices");
@@ -1057,17 +1076,29 @@ fn prepare_v4l2_tree(rootfs: &std::path::Path, cams: &[CameraInfo]) {
         }
     }
     for (k, cam) in ordered(cams).iter().enumerate() {
-        let label = if cam.facing == LENS_FACING_BACK { "BACK" } else { "FRONT" };
+        let label = if cam.facing == LENS_FACING_BACK {
+            "BACK"
+        } else {
+            "FRONT"
+        };
         let uevent = format!("MAJOR=81\nMINOR={k}\nDEVNAME=video{k}\nDEVTYPE=video4linux\n");
         let dev = format!("81:{k}\n");
         let name = format!("{label}\n");
         let index = format!("{k}\n");
-        for dir in [class.join(format!("video{k}")), devices.join(format!("video{k}"))] {
+        for dir in [
+            class.join(format!("video{k}")),
+            devices.join(format!("video{k}")),
+        ] {
             if let Err(e) = std::fs::create_dir_all(&dir) {
                 crate::log(&format!("camera|v4l2|mkdir {dir:?}: {e}"));
                 continue;
             }
-            for (n, v) in [("uevent", &uevent), ("dev", &dev), ("name", &name), ("index", &index)] {
+            for (n, v) in [
+                ("uevent", &uevent),
+                ("dev", &dev),
+                ("name", &name),
+                ("index", &index),
+            ] {
                 let _ = std::fs::write(dir.join(n), v);
             }
         }
@@ -1110,7 +1141,13 @@ fn run() {
         crate::log("camera|SKIP|no files dir");
         return;
     };
-    let rootfs = active_rootfs(&files);
+    let rootfs = match crate::guest_rootfs::resolve(&files) {
+        Ok(rootfs) => rootfs,
+        Err(e) => {
+            crate::log(&format!("camera|SKIP|{e}"));
+            return;
+        }
+    };
     crate::log(&format!("camera|ROOTFS|{}", rootfs.display()));
     let api = unsafe {
         match CameraApi::load() {
@@ -1152,7 +1189,11 @@ fn run() {
         if deny {
             crate::log(&format!(
                 "camera|DENY|reason={}",
-                if cams.is_empty() { "no_permission" } else { "marker" }
+                if cams.is_empty() {
+                    "no_permission"
+                } else {
+                    "marker"
+                }
             ));
         }
         prepare_v4l2_tree(&rootfs, &cams);

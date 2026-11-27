@@ -17,8 +17,10 @@ mod ahb;
 mod audio;
 mod camera;
 mod caps;
+mod desktop;
 mod encoder;
 mod gl;
+mod guest_rootfs;
 mod input;
 mod location;
 mod permissions;
@@ -124,6 +126,8 @@ struct App {
     /// Scrollback offset in lines, 0 = bottom.
     scroll: usize,
     drag: i32,
+    desktop_tap: Option<(i32, i32)>,
+    desktop_moved: bool,
     /// The session is started exactly once per process. A dead guest stays dead
     /// until the user taps -- auto-respawn turns any broken rootfs into a fork
     /// storm (700+ zombies on 2026-11-22).
@@ -143,6 +147,8 @@ impl App {
             laid_out: (0, 0),
             scroll: 0,
             drag: 0,
+            desktop_tap: None,
+            desktop_moved: false,
             started: false,
             last_spawn: None,
             no_window_logged: false,
@@ -161,12 +167,10 @@ impl App {
         let files = unsafe { std::ffi::CStr::from_ptr(act.internalDataPath) }
             .to_string_lossy()
             .to_string();
-        let full = format!("{files}/rootfs-full");
-        let rootfs = if std::path::Path::new(&full).exists() {
-            full
-        } else {
-            format!("{files}/rootfs")
-        };
+        let rootfs = crate::guest_rootfs::resolve(std::path::Path::new(&files))
+            .ok()?
+            .display()
+            .to_string();
         let libdir = native_lib_dir()?;
         let loader = format!("{libdir}/libld.so");
         Some((rootfs, libdir, loader))
@@ -178,6 +182,13 @@ impl App {
             return;
         }
         self.started = true;
+        // An embedded X11 desktop is a full session of its own. Starting the
+        // terminal PTY as well creates a second guest process tree, races the
+        // desktop cleanup, and makes process counts/evidence ambiguous.
+        if desktop::active() {
+            log("session: desktop active; terminal PTY not started");
+            return;
+        }
         // `files/trace` switches this launch into the ptrace snitch: one traced
         // loader run whose syscall numbers land in logcat.
         if let Some((rootfs, _apklib, loader)) = self.paths() {
@@ -200,6 +211,10 @@ impl App {
             }
         }
         log("session: restart requested by user");
+        if desktop::active() {
+            log("session: desktop active; terminal restart skipped");
+            return;
+        }
         self.term = None;
         self.ensure_term();
     }
@@ -312,6 +327,11 @@ impl App {
     /// Rebuilds the GL side when the platform hands us a new surface, and lays
     /// the terminal out for the current pixel size.
     fn sync_surface(&mut self) {
+        if desktop::active() {
+            self.gfx = None;
+            self.win_ptr = 0;
+            return;
+        }
         // Never ask EGL to wrap a window while we are backgrounded, asleep or
         // between surface callbacks. On RMX3357 a screen-off relaunch raced
         // exactly here and aborted inside eglCreateWindowSurface with a
@@ -550,6 +570,9 @@ unsafe extern "C" fn on_window(_a: *mut ANativeActivity, w: *mut c_void) {
     log(&format!("cb: onNativeWindow win={:p} {ww}x{wh}", w));
     WINDOW.store(w, Ordering::SeqCst);
     WINDOW_ALIVE.store(!w.is_null(), Ordering::SeqCst);
+    if !w.is_null() {
+        desktop::start(_a, w);
+    }
 }
 
 unsafe extern "C" fn on_window_gone(_a: *mut ANativeActivity, w: *mut c_void) {
@@ -956,10 +979,26 @@ fn drain_input(q: *mut c_void, app: &mut App) -> bool {
                 if ty == AINPUT_EVENT_TYPE_KEY {
                     let action = AKeyEvent_getAction(ev);
                     let kc = AKeyEvent_getKeyCode(ev);
-                    // The guest desktop gets both edges (it needs releases);
-                    // the terminal below only reacts to presses.
-                    crate::input::key(kc, action == AKEY_EVENT_ACTION_DOWN);
-                    if action == AKEY_EVENT_ACTION_DOWN {
+                    let down = action == AKEY_EVENT_ACTION_DOWN;
+                    if desktop::active() {
+                        if kc == AKEYCODE_BACK {
+                            if down {
+                                let a = ACTIVITY.load(Ordering::SeqCst);
+                                if !a.is_null() {
+                                    ANativeActivity_finish(a);
+                                }
+                            }
+                        } else {
+                            // Xlorie needs both key edges. Do not also inject the
+                            // synthetic evdev keyboard: two paths would duplicate
+                            // every character in X11 clients.
+                            if let Some(code) = crate::input::linux_keycode(kc) {
+                                desktop::key(code as i32, down);
+                            }
+                        }
+                        handled = 1;
+                    } else if down {
+                        crate::input::key(kc, true);
                         let meta = AKeyEvent_getMetaState(ev);
                         let code = AKeyEvent_getKeyCode(ev);
                         app.scroll = 0;
@@ -992,47 +1031,97 @@ fn drain_input(q: *mut c_void, app: &mut App) -> bool {
                             }
                         }
                         handled = 1;
+                    } else {
+                        crate::input::key(kc, false);
                     }
                 } else if ty == AINPUT_EVENT_TYPE_MOTION {
-                    let action = AMotionEvent_getAction(ev) & AMOTION_EVENT_ACTION_MASK;
-                    crate::input::motion(
-                        action,
-                        AMotionEvent_getX(ev, 0) as i32,
-                        AMotionEvent_getY(ev, 0) as i32,
-                        AMotionEvent_getPointerCount(ev) as i32,
-                    );
-                    match action {
-                        AMOTION_EVENT_ACTION_DOWN => {
-                            app.drag = AMotionEvent_getY(ev, 0) as i32;
-                            if app.term.as_ref().map(|t| t.dead).unwrap_or(false) {
-                                app.restart_session();
-                            }
-                            let act = ACTIVITY.load(Ordering::SeqCst);
-                            if !act.is_null() {
-                                ANativeActivity_showSoftInput(act, 0);
-                            }
-                            handled = 1;
-                        }
-                        AMOTION_EVENT_ACTION_MOVE => {
-                            let y = AMotionEvent_getY(ev, 0) as i32;
-                            let dy = y - app.drag;
-                            // ~40 px per line: finger down = scroll back in time
-                            if dy.abs() >= 40 {
-                                let step = (dy / 40) as usize;
-                                let max = app.term.as_ref().map(|t| t.max_scroll()).unwrap_or(0);
-                                if dy > 0 {
-                                    app.scroll = (app.scroll + step).min(max);
-                                } else {
-                                    app.scroll = app.scroll.saturating_sub(step);
+                    let raw_action = AMotionEvent_getAction(ev);
+                    let action = raw_action & AMOTION_EVENT_ACTION_MASK;
+                    if desktop::active() {
+                        let source = AInputEvent_getSource(ev);
+                        if source & AINPUT_SOURCE_MOUSE == AINPUT_SOURCE_MOUSE {
+                            forward_desktop_mouse(ev, raw_action);
+                            app.desktop_tap = None;
+                            app.desktop_moved = false;
+                        } else {
+                            forward_desktop_motion(ev, raw_action);
+                            match action {
+                                AMOTION_EVENT_ACTION_DOWN => {
+                                    app.desktop_tap = Some((
+                                        AMotionEvent_getX(ev, 0) as i32,
+                                        AMotionEvent_getY(ev, 0) as i32,
+                                    ));
+                                    app.desktop_moved = false;
                                 }
-                                app.drag = y;
+                                AMOTION_EVENT_ACTION_MOVE => {
+                                    if let Some((x0, y0)) = app.desktop_tap {
+                                        let x = AMotionEvent_getX(ev, 0) as i32;
+                                        let y = AMotionEvent_getY(ev, 0) as i32;
+                                        if (x - x0).abs() > 8 || (y - y0).abs() > 8 {
+                                            app.desktop_moved = true;
+                                        }
+                                    }
+                                }
+                                AMOTION_EVENT_ACTION_UP => {
+                                    if app.desktop_tap.take().is_some() && !app.desktop_moved {
+                                        // NativeActivity owns the IME. Showing it after a tap
+                                        // lets the focused X11 text field receive soft-keyboard
+                                        // key events through the normal input queue.
+                                        let act = ACTIVITY.load(Ordering::SeqCst);
+                                        if !act.is_null() {
+                                            ANativeActivity_showSoftInput(act, 0);
+                                        }
+                                    }
+                                    app.desktop_moved = false;
+                                }
+                                AMOTION_EVENT_ACTION_CANCEL => {
+                                    app.desktop_tap = None;
+                                    app.desktop_moved = false;
+                                }
+                                _ => {}
+                            }
+                        }
+                        handled = 1;
+                    } else {
+                        crate::input::motion(
+                            action,
+                            AMotionEvent_getX(ev, 0) as i32,
+                            AMotionEvent_getY(ev, 0) as i32,
+                            AMotionEvent_getPointerCount(ev) as i32,
+                        );
+                        match action {
+                            AMOTION_EVENT_ACTION_DOWN => {
+                                app.drag = AMotionEvent_getY(ev, 0) as i32;
+                                if app.term.as_ref().map(|t| t.dead).unwrap_or(false) {
+                                    app.restart_session();
+                                }
+                                let act = ACTIVITY.load(Ordering::SeqCst);
+                                if !act.is_null() {
+                                    ANativeActivity_showSoftInput(act, 0);
+                                }
                                 handled = 1;
                             }
+                            AMOTION_EVENT_ACTION_MOVE => {
+                                let y = AMotionEvent_getY(ev, 0) as i32;
+                                let dy = y - app.drag;
+                                // ~40 px per line: finger down = scroll back in time
+                                if dy.abs() >= 40 {
+                                    let step = (dy / 40) as usize;
+                                    let max = app.term.as_ref().map(|t| t.max_scroll()).unwrap_or(0);
+                                    if dy > 0 {
+                                        app.scroll = (app.scroll + step).min(max);
+                                    } else {
+                                        app.scroll = app.scroll.saturating_sub(step);
+                                    }
+                                    app.drag = y;
+                                    handled = 1;
+                                }
+                            }
+                            AMOTION_EVENT_ACTION_UP => {
+                                app.drag = 0;
+                            }
+                            _ => {}
                         }
-                        AMOTION_EVENT_ACTION_UP => {
-                            app.drag = 0;
-                        }
-                        _ => {}
                     }
                 }
                 AInputQueue_finishEvent(q, ev, handled);
@@ -1043,6 +1132,67 @@ fn drain_input(q: *mut c_void, app: &mut App) -> bool {
         }
     }
     handled_any
+}
+
+/// Forward Android MotionEvent actions to Xlorie's native touch device.
+///
+/// ACTION_MOVE is sent for every live pointer. Pointer down/up events carry the
+/// pointer index in the high action bits, so using only pointer 0 would make
+/// pinch and two-finger gestures behave like a second one-finger press.
+unsafe fn forward_desktop_motion(ev: *const c_void, raw_action: i32) {
+    let action = raw_action & AMOTION_EVENT_ACTION_MASK;
+    let count = AMotionEvent_getPointerCount(ev);
+    if count == 0 {
+        return;
+    }
+    let send = |index: usize, event_action: i32| {
+        let id = AMotionEvent_getPointerId(ev, index);
+        let x = AMotionEvent_getX(ev, index) as i32;
+        let y = AMotionEvent_getY(ev, index) as i32;
+        desktop::touch(event_action, id, x, y);
+    };
+    match action {
+        AMOTION_EVENT_ACTION_DOWN => send(0, action),
+        AMOTION_EVENT_ACTION_POINTER_DOWN | AMOTION_EVENT_ACTION_POINTER_UP => {
+            send(AMotionEvent_getActionIndex(ev), action)
+        }
+        AMOTION_EVENT_ACTION_MOVE | AMOTION_EVENT_ACTION_CANCEL => {
+            for index in 0..count {
+                send(index, action);
+            }
+        }
+        AMOTION_EVENT_ACTION_UP => send(0, action),
+        _ => send(0, action),
+    }
+}
+
+unsafe fn forward_desktop_mouse(ev: *const c_void, raw_action: i32) {
+    let action = raw_action & AMOTION_EVENT_ACTION_MASK;
+    let source = AInputEvent_getSource(ev);
+    let x = AMotionEvent_getX(ev, 0);
+    let y = AMotionEvent_getY(ev, 0);
+    match action {
+        AMOTION_EVENT_ACTION_DOWN => desktop::mouse(x, y, 1, true, false),
+        AMOTION_EVENT_ACTION_MOVE | AMOTION_EVENT_ACTION_HOVER_MOVE => {
+            if source == AINPUT_SOURCE_MOUSE_RELATIVE {
+                let dx = AMotionEvent_getAxisValue(ev, AMOTION_EVENT_AXIS_RELATIVE_X, 0);
+                let dy = AMotionEvent_getAxisValue(ev, AMOTION_EVENT_AXIS_RELATIVE_Y, 0);
+                desktop::mouse(dx, dy, 0, false, true);
+            } else {
+                desktop::mouse(x, y, 0, false, false);
+            }
+        }
+        AMOTION_EVENT_ACTION_UP => desktop::mouse(x, y, 1, false, false),
+        AMOTION_EVENT_ACTION_CANCEL => desktop::mouse(x, y, 1, false, false),
+        AMOTION_EVENT_ACTION_SCROLL => {
+            // Xlorie's wheel path expects 120-unit detents, the same convention
+            // as Linux evdev REL_WHEEL.
+            let h = AMotionEvent_getAxisValue(ev, AMOTION_EVENT_AXIS_HSCROLL, 0) * 120.0;
+            let v = AMotionEvent_getAxisValue(ev, AMOTION_EVENT_AXIS_VSCROLL, 0) * 120.0;
+            desktop::mouse(h, v, 4, false, true);
+        }
+        _ => {}
+    }
 }
 
 /// US-layout keycode -> text.  The NDK has no "unicode char" accessor (that

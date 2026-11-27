@@ -202,7 +202,6 @@ fn probe_all() {
         }
     };
 
-
     // ------------------------------------------------------------- GPU ---
     let mut gpu = Row::new("gpu");
     gpu.present = Present::Yes;
@@ -219,10 +218,18 @@ fn probe_all() {
     } else {
         "surfaceview=absent"
     };
-    display.detail = format!("{view}, {}", match crate::surface::side_control_present() {
-        true => "control-cache=cached".to_string(),
-        false => "control-cache=not-fetched (lazy: read on first guest present)".to_string(),
-    });
+    let desktop = match (crate::desktop::active(), crate::desktop::ready()) {
+        (true, true) => "x11=ready",
+        (true, false) => "x11=starting",
+        _ => "x11=absent",
+    };
+    display.detail = format!(
+        "{view}, {desktop}, {}",
+        match crate::surface::side_control_present() {
+            true => "control-cache=cached".to_string(),
+            false => "control-cache=not-fetched (lazy: read on first guest present)".to_string(),
+        }
+    );
     rows.push(display);
 
     // ------------------------------------------------- video codecs -----
@@ -248,7 +255,9 @@ fn probe_all() {
                 summary.decoders.iter().filter(|c| !c.hardware).count(),
                 summary.encoders.iter().filter(|c| c.hardware).count(),
                 summary.encoders.iter().filter(|c| !c.hardware).count(),
-                hw_dec_avc.map(|c| c.types.join("/")).unwrap_or_else(|| "-".into()),
+                hw_dec_avc
+                    .map(|c| c.types.join("/"))
+                    .unwrap_or_else(|| "-".into()),
             );
             let hw_enc = summary.encoders.iter().find(|c| c.hardware);
             venc.present = if hw_enc.is_some() {
@@ -284,7 +293,11 @@ fn probe_all() {
             let ins = audio_devices(env, &am, 1);
             match outs {
                 Ok(list) => {
-                    aout.present = if list.is_empty() { Present::No } else { Present::Yes };
+                    aout.present = if list.is_empty() {
+                        Present::No
+                    } else {
+                        Present::Yes
+                    };
                     aout.backend = "AAudio + PulseAudio pipe".to_string();
                     aout.detail = format!("devices={}", join(&list));
                 }
@@ -292,7 +305,11 @@ fn probe_all() {
             }
             match ins {
                 Ok(list) => {
-                    ain.present = if list.is_empty() { Present::No } else { Present::Yes };
+                    ain.present = if list.is_empty() {
+                        Present::No
+                    } else {
+                        Present::Yes
+                    };
                     ain.backend = "AAudio capture + PulseAudio source".to_string();
                     ain.detail = format!("devices={}", join(&list));
                 }
@@ -328,7 +345,11 @@ fn probe_all() {
                             }
                         }
                     }
-                    cam.present = if ids.is_empty() { Present::No } else { Present::Yes };
+                    cam.present = if ids.is_empty() {
+                        Present::No
+                    } else {
+                        Present::Yes
+                    };
                     cam.detail = format!("ids={}", join(&ids));
                 }
                 _ => {
@@ -378,18 +399,14 @@ fn probe_all() {
                                             "?".into()
                                         }
                                     };
-                                    let sources = match env.call_method(
-                                        &dev,
-                                        "getSources",
-                                        "()I",
-                                        &[],
-                                    ) {
-                                        Ok(v) => v.i().unwrap_or(0),
-                                        Err(_) => {
-                                            clear(env);
-                                            0
-                                        }
-                                    };
+                                    let sources =
+                                        match env.call_method(&dev, "getSources", "()I", &[]) {
+                                            Ok(v) => v.i().unwrap_or(0),
+                                            Err(_) => {
+                                                clear(env);
+                                                0
+                                            }
+                                        };
                                     names.push(format!("{id}:{name}(0x{sources:x})"));
                                 }
                                 _ => clear(env),
@@ -397,7 +414,11 @@ fn probe_all() {
                             Err(_) => clear(env),
                         }
                     }
-                    input.present = if names.is_empty() { Present::No } else { Present::Yes };
+                    input.present = if names.is_empty() {
+                        Present::No
+                    } else {
+                        Present::Yes
+                    };
                     input.detail = format!("devices={}", join(&names));
                 }
                 _ => {
@@ -456,21 +477,21 @@ fn probe_all() {
                             .ok()
                             .and_then(|v| v.i().ok())
                             .unwrap_or(-1);
-                        let name = match env.call_method(
-                            &obj,
-                            "getName",
-                            "()Ljava/lang/String;",
-                            &[],
-                        ) {
-                            Ok(v) => value_string(env, v),
-                            Err(_) => {
-                                clear(env);
-                                "?".into()
-                            }
-                        };
+                        let name =
+                            match env.call_method(&obj, "getName", "()Ljava/lang/String;", &[]) {
+                                Ok(v) => value_string(env, v),
+                                Err(_) => {
+                                    clear(env);
+                                    "?".into()
+                                }
+                            };
                         kinds.push(format!("{ty}:{name}"));
                     }
-                    sensors.present = if kinds.is_empty() { Present::No } else { Present::Yes };
+                    sensors.present = if kinds.is_empty() {
+                        Present::No
+                    } else {
+                        Present::Yes
+                    };
                     sensors.detail = format!("count={} {}", kinds.len(), join(&kinds));
                 }
                 _ => {
@@ -517,7 +538,10 @@ fn probe_all() {
                 ("nfc", "android.hardware.nfc"),
                 ("fingerprint", "android.hardware.fingerprint"),
                 ("camera-any", "android.hardware.camera.any"),
-                ("sensor-accelerometer", "android.hardware.sensor.accelerometer"),
+                (
+                    "sensor-accelerometer",
+                    "android.hardware.sensor.accelerometer",
+                ),
                 ("sensor-gyroscope", "android.hardware.sensor.gyroscope"),
                 ("sensor-light", "android.hardware.sensor.light"),
                 ("sensor-proximity", "android.hardware.sensor.proximity"),
@@ -605,8 +629,14 @@ fn render(rows: &[Row], identity: &str) -> String {
         out,
         "# caps|<class>|present=<yes|no|unknown>|husk=<ready|degraded|unknown|absent>|backend=<name>|detail=<text>"
     );
-    let _ = writeln!(out, "# present = what the platform exposes to this app today");
-    let _ = writeln!(out, "# husk    = whether Husk can drive it yet (never inferred from present)");
+    let _ = writeln!(
+        out,
+        "# present = what the platform exposes to this app today"
+    );
+    let _ = writeln!(
+        out,
+        "# husk    = whether Husk can drive it yet (never inferred from present)"
+    );
     for row in rows {
         let _ = writeln!(
             out,
@@ -880,7 +910,12 @@ fn probe_codecs(env: &mut JNIEnv) -> R<CodecSummary> {
     // this ROM the instance lookup raises NoSuchMethodError. `getCodecInfos()`
     // is the supported instance API and returns MediaCodecInfo[].
     let infos = env
-        .call_method(&list, "getCodecInfos", "()[Landroid/media/MediaCodecInfo;", &[])
+        .call_method(
+            &list,
+            "getCodecInfos",
+            "()[Landroid/media/MediaCodecInfo;",
+            &[],
+        )
         .map_err(|e| fmt_err(env, "getCodecInfos", e))?
         .l()
         .map_err(|e| fmt_err(env, "getCodecInfos ret", e))?;

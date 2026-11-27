@@ -7,7 +7,7 @@ REPO_ROOT=$(cd "$HERE/../.." && pwd)
 DEV=${DEV:?usage: DEV=<serial> sh run-path-race-probe.sh}
 PKG=${PKG:-com.linuxhub.husk}
 APPDIR=${APPDIR:-/data/data/$PKG/files/linux}
-ROOTFS=${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs}
+ROOTFS=${ROOTFS:-files/rootfs-full}
 LD=${LD:-files/linux/husk/libld.so}
 SESS=${SESS:-/data/local/tmp/husk-session.sh}
 RUNTIME_PROBE=${RUNTIME_PROBE:-$REPO_ROOT/runtime/target/aarch64-unknown-linux-gnu/release/runtime-probe}

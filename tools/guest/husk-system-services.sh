@@ -15,6 +15,7 @@ L=${2:?usage: husk-system-services.sh <rootfs> <loader> <library-path>}
 LIBS=${3:?usage: husk-system-services.sh <rootfs> <loader> <library-path>}
 R=$(cd "$R" && pwd -P)
 case "$L" in /*) ;; *) L=$(cd "$(dirname "$L")" && pwd)/$(basename "$L") ;; esac
+CHILD_ROOTFS=${NR_HOST_ROOTFS:-$R}
 
 PATH_GUEST=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games
 SYSBUS=unix:path=/run/dbus/system_bus_socket
@@ -38,13 +39,26 @@ start_one() {
     # env -i is deliberate: run-as carries Android-only HOME/XDG/cache paths
     # that must not leak into a guest service.  The loader sees the relative
     # `usr/bin/env` program and the path shim resolves it inside $R.
-    setsid -d sh -c 'cd "$1" || exit 1; shift; exec "$@"' sh \
-        "$R" "$L" --library-path "$LIBS" usr/bin/env -i \
-        HOME=/root PATH="$PATH_GUEST" LANG=C.UTF-8 \
-        NR_ROOTFS="$R" NR_LD="$L" NR_LIBRARY_PATH="$LIBS" \
-        NR_FAKE_UID=0 NR_FAKE_GID=0 DBUS_SYSTEM_BUS_ADDRESS="$SYSBUS" \
-        "$program" "$@" \
-        </dev/null >"$log" 2>&1 &
+    if [ "${NR_DESKTOP_GUEST:-0}" = 1 ]; then
+        # Already inside the path shim. Exec the guest program directly so the
+        # shim can select the APK-native loader once; re-execing the loader's
+        # host path from this guest shell is denied by the ROM.
+        setsid -d sh -c 'cd "$1" || exit 1; shift; exec "$@"' sh \
+            "$R" usr/bin/env -i \
+            HOME=/root PATH="$PATH_GUEST" LANG=C.UTF-8 \
+            NR_ROOTFS="$CHILD_ROOTFS" NR_LD="$L" NR_LIBRARY_PATH="$LIBS" \
+            NR_FAKE_UID=0 NR_FAKE_GID=0 DBUS_SYSTEM_BUS_ADDRESS="$SYSBUS" \
+            "$program" "$@" \
+            </dev/null >"$log" 2>&1 &
+    else
+        setsid -d sh -c 'cd "$1" || exit 1; shift; exec "$@"' sh \
+            "$R" "$L" --library-path "$LIBS" usr/bin/env -i \
+            HOME=/root PATH="$PATH_GUEST" LANG=C.UTF-8 \
+            NR_ROOTFS="$CHILD_ROOTFS" NR_LD="$L" NR_LIBRARY_PATH="$LIBS" \
+            NR_FAKE_UID=0 NR_FAKE_GID=0 DBUS_SYSTEM_BUS_ADDRESS="$SYSBUS" \
+            "$program" "$@" \
+            </dev/null >"$log" 2>&1 &
+    fi
     echo "services: $name started ($log)"
 }
 

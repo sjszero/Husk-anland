@@ -2803,29 +2803,22 @@ fn run_window(width: u32, height: u32, frames: u32) -> i32 {
 
 /// Capture what the X server is actually showing and write it as a PPM.
 ///
-/// Needed because the App draws its own UI on top of the phone screen: `screencap`
-/// on the device proves nothing about the guest desktop. This reads the X root
-/// window through `XGetImage`, so it is the compositor's own output.
+/// `root` reads the screen drawable. Under an X11 compositor that drawable is
+/// expected to be black because the compositor paints to the Composite overlay,
+/// so `overlay` asks XComposite for that window and captures it instead.
 ///
 ///   gl-probe root [out.ppm]
-fn run_root() -> i32 {
-    let x11 = match Lib::open("libX11.so.6") {
-        Some(l) => l,
-        None => {
-            say!("FAIL dlopen X11");
-            return 1;
-        }
-    };
-    let out = std::env::args()
-        .nth(2)
-        .unwrap_or_else(|| "/tmp/root.ppm".to_string());
+///   gl-probe overlay [out.ppm]
+///   gl-probe capture-window <id> [out.ppm]
+fn capture_drawable(
+    x11: &Lib,
+    display: *mut c_void,
+    drawable: Window,
+    width: c_uint,
+    height: c_uint,
+    out: &str,
+) -> i32 {
     unsafe {
-        let open: unsafe extern "C" fn(*const c_char) -> *mut c_void =
-            cast(x11.sym("XOpenDisplay"));
-        let root_of: unsafe extern "C" fn(*mut c_void) -> Window =
-            cast(x11.sym("XDefaultRootWindow"));
-        let dw: unsafe extern "C" fn(*mut c_void, c_int) -> c_int = cast(x11.sym("XDisplayWidth"));
-        let dh: unsafe extern "C" fn(*mut c_void, c_int) -> c_int = cast(x11.sym("XDisplayHeight"));
         let get_image: unsafe extern "C" fn(
             *mut c_void,
             Window,
@@ -2838,19 +2831,10 @@ fn run_root() -> i32 {
         ) -> *mut c_void = cast(x11.sym("XGetImage"));
         let free: unsafe extern "C" fn(*mut c_void) -> c_int = cast(x11.sym("XFree"));
 
-        let display = open(std::ptr::null());
-        if display.is_null() {
-            say!("FAIL XOpenDisplay");
-            return 1;
-        }
-        let root = root_of(display);
-        let w = dw(display, 0) as c_uint;
-        let h = dh(display, 0) as c_uint;
-        say!("root {w}x{h} window={root}");
         // AllPlanes, ZPixmap
-        let img = get_image(display, root, 0, 0, w, h, c_ulong::MAX, 2);
+        let img = get_image(display, drawable, 0, 0, width, height, c_ulong::MAX, 2);
         if img.is_null() {
-            say!("FAIL XGetImage");
+            say!("FAIL XGetImage drawable={drawable}");
             return 1;
         }
         let base = img as *const u8;
@@ -2861,10 +2845,12 @@ fn run_root() -> i32 {
         let bpp = *(base.add(48) as *const c_int) as i64 as usize;
         say!("image {iw}x{ih} stride={stride} bpp={bpp}");
         if data.is_null() || iw == 0 || ih == 0 {
+            (free)(img as *mut c_void);
             say!("FAIL empty image");
             return 1;
         }
         if std::mem::size_of::<usize>() != 8 {
+            (free)(img as *mut c_void);
             say!("FAIL unexpected pointer size");
             return 1;
         }
@@ -2889,7 +2875,7 @@ fn run_root() -> i32 {
             }
         }
         (free)(img as *mut c_void);
-        match std::fs::File::create(&out) {
+        match std::fs::File::create(out) {
             Ok(mut f) => {
                 use std::io::Write;
                 if let Err(e) = f.write_all(&ppm) {
@@ -2910,6 +2896,135 @@ fn run_root() -> i32 {
         );
         say!("wrote {out}");
         0
+    }
+}
+
+fn run_capture(mode: &str) -> i32 {
+    let x11 = match Lib::open("libX11.so.6") {
+        Some(l) => l,
+        None => {
+            say!("FAIL dlopen X11");
+            return 1;
+        }
+    };
+    let xcomp = if mode == "overlay" {
+        match Lib::open("libXcomposite.so.1") {
+            Some(l) => Some(l),
+            None => {
+                say!("FAIL dlopen Xcomposite");
+                return 1;
+            }
+        }
+    } else {
+        None
+    };
+    let out = std::env::args()
+        .nth(3)
+        .or_else(|| std::env::args().nth(2))
+        .unwrap_or_else(|| format!("/tmp/{mode}.ppm"));
+    unsafe {
+        let open: unsafe extern "C" fn(*const c_char) -> *mut c_void =
+            cast(x11.sym("XOpenDisplay"));
+        let root_of: unsafe extern "C" fn(*mut c_void) -> Window =
+            cast(x11.sym("XDefaultRootWindow"));
+        let default_screen: unsafe extern "C" fn(*mut c_void) -> c_int =
+            cast(x11.sym("XDefaultScreen"));
+        let dw: unsafe extern "C" fn(*mut c_void, c_int) -> c_int = cast(x11.sym("XDisplayWidth"));
+        let dh: unsafe extern "C" fn(*mut c_void, c_int) -> c_int = cast(x11.sym("XDisplayHeight"));
+        let geometry: unsafe extern "C" fn(
+            *mut c_void,
+            Window,
+            *mut Window,
+            *mut c_int,
+            *mut c_int,
+            *mut c_uint,
+            *mut c_uint,
+            *mut c_uint,
+            *mut c_uint,
+        ) -> c_int = cast(x11.sym("XGetGeometry"));
+        let display = open(std::ptr::null());
+        if display.is_null() {
+            say!("FAIL XOpenDisplay");
+            return 1;
+        }
+        let root = root_of(display);
+        let screen = default_screen(display);
+        let (drawable, width, height, label) = match mode {
+            "root" => (
+                root,
+                dw(display, screen) as c_uint,
+                dh(display, screen) as c_uint,
+                "root".to_string(),
+            ),
+            "overlay" => {
+                let Some(xcomp) = xcomp.as_ref() else {
+                    return 1;
+                };
+                let get_overlay: unsafe extern "C" fn(*mut c_void, Window) -> Window =
+                    cast(xcomp.sym("XCompositeGetOverlayWindow"));
+                let overlay = get_overlay(display, root);
+                let mut width = 0;
+                let mut height = 0;
+                let mut geometry_root = 0;
+                let (mut x, mut y) = (0, 0);
+                let (mut border, mut depth) = (0, 0);
+                if overlay == 0
+                    || geometry(
+                        display,
+                        overlay,
+                        &mut geometry_root,
+                        &mut x,
+                        &mut y,
+                        &mut width,
+                        &mut height,
+                        &mut border,
+                        &mut depth,
+                    ) == 0
+                {
+                    say!("FAIL XCompositeGetOverlayWindow window={overlay}");
+                    return 1;
+                }
+                (overlay, width, height, "overlay".to_string())
+            }
+            "capture-window" => {
+                let raw = std::env::args().nth(2).unwrap_or_default();
+                let raw = raw.trim();
+                let id = raw
+                    .strip_prefix("0x")
+                    .or_else(|| raw.strip_prefix("0X"))
+                    .and_then(|v| u64::from_str_radix(v, 16).ok())
+                    .or_else(|| raw.parse::<u64>().ok())
+                    .unwrap_or(0) as Window;
+                let mut width = 0;
+                let mut height = 0;
+                let mut geometry_root = 0;
+                let (mut x, mut y) = (0, 0);
+                let (mut border, mut depth) = (0, 0);
+                if id == 0
+                    || geometry(
+                        display,
+                        id,
+                        &mut geometry_root,
+                        &mut x,
+                        &mut y,
+                        &mut width,
+                        &mut height,
+                        &mut border,
+                        &mut depth,
+                    ) == 0
+                {
+                    say!("FAIL XGetGeometry window={id:#x}");
+                    return 1;
+                }
+                (id, width, height, format!("window-{id:#x}"))
+            }
+            other => {
+                say!("FAIL unknown capture mode {other}");
+                return 2;
+            }
+        };
+        say!("{label} {width}x{height} drawable={drawable}");
+        capture_drawable(&x11, display, drawable, width, height, &out)
     }
 }
 
@@ -3046,9 +3161,11 @@ fn main() {
                 }
             }
         }
-        Some("root") => run_root(),
+        Some("root") => run_capture("root"),
+        Some("overlay") => run_capture("overlay"),
+        Some("capture-window") => run_capture("capture-window"),
         _ => {
-            eprintln!("usage: gl-probe <es3 | fixed [frames] | fixedgl [WxH [seconds [tag [plain|lit]]]] | window [WxH [frames]] | pbuf [WxH [frames]] | xput [WxH [frames]] | fill [WxH [passes [frames]]] | readback [WxH] | readback-suite | soak [WxH [seconds [tag]]] | root [out.ppm]>");
+            eprintln!("usage: gl-probe <es3 | fixed [frames] | fixedgl [WxH [seconds [tag [plain|lit]]]] | window [WxH [frames]] | pbuf [WxH [frames]] | xput [WxH [frames]] | fill [WxH [passes [frames]]] | readback [WxH] | readback-suite | soak [WxH [seconds [tag]]] | root [out.ppm] | overlay [out.ppm] | capture-window <id> [out.ppm]>");
             2
         }
     };

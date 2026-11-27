@@ -15,7 +15,7 @@
 set -u
 DEV=${DEV:?usage: DEV=<serial> [ROOTFS=...] [EXPECT=base|desktop] $0}
 PKG=${PKG:-com.linuxhub.husk}
-ROOTFS=${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs}
+ROOTFS=${ROOTFS:-files/rootfs-full}
 EXPECT=${EXPECT:-base}
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  PASS  $1"; }

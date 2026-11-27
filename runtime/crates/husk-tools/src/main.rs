@@ -5,6 +5,7 @@
 //!   husk-tools check-links                  fail on a broken relative link/anchor
 //!   husk-tools bench-summarize <glob|log>.. per-file median / min / max table
 //!   husk-tools bench-compare <h> <p> <d>    the eight-dimension comparison table
+//!   husk-tools screenshot-audit <raw>       reject black/large-missing raw screenshots
 //!
 //! No external crates: these run on the host (macOS or Linux) with nothing but
 //! `git` on PATH.
@@ -20,9 +21,10 @@ fn main() {
         Some("check-links") => check_links::run(),
         Some("bench-summarize") => bench::summarize(&args[1..]),
         Some("bench-compare") => bench::compare(&args[1..]),
+        Some("screenshot-audit") => screenshot_audit::run(&args[1..]),
         _ => {
             eprintln!(
-                "usage: husk-tools <check-links | bench-summarize <glob>.. | bench-compare <husk.log> <proot.log> <proot-distro.log>>"
+                "usage: husk-tools <check-links | bench-summarize <glob>.. | bench-compare <husk.log> <proot.log> <proot-distro.log> | screenshot-audit <raw>>"
             );
             2
         }
@@ -578,3 +580,5 @@ mod bench {
         0
     }
 }
+
+mod screenshot_audit;

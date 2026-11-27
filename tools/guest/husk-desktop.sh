@@ -37,6 +37,33 @@ BASE=$(cd "$(dirname "$0")" && pwd -P)
 ROOTFS=$(cd "$1" && pwd -P); shift
 HOME_G=/root
 WAIT=30
+STATUS=$ROOTFS/tmp/husk-desktop.status
+status_write() {
+    _status_tmp=$STATUS.$$
+    : > "$_status_tmp" 2>/dev/null || return 0
+    for _status_line in "$@"; do
+        printf '%s\n' "$_status_line" >> "$_status_tmp" 2>/dev/null || true
+    done
+    mv "$_status_tmp" "$STATUS" 2>/dev/null || true
+}
+status_exit() {
+    _status_rc=$?
+    if [ "$_status_rc" -ne 0 ]; then
+        status_write "failed" "rc=$_status_rc"
+    fi
+    return 0
+}
+trap status_exit EXIT
+status_write "starting"
+# ROOTFS is guest-visible in NR_DESKTOP_GUEST=1 mode (usually `/`), while
+# NR_HOST_ROOTFS is the real Android path the loader uses for path translation.
+# Keeping the two identities separate prevents a guest `/` from turning every
+# absolute config path into a host path (which made dbus read /usr/share/...).
+if [ "${NR_DESKTOP_GUEST:-0}" = 1 ]; then
+    CHILD_ROOTFS=${NR_HOST_ROOTFS:?guest mode needs NR_HOST_ROOTFS}
+else
+    CHILD_ROOTFS=$ROOTFS
+fi
 while [ $# -gt 0 ]; do
     case "$1" in
         --home) [ $# -ge 2 ] || exit 64; HOME_G=$2; shift 2 ;;
@@ -47,11 +74,13 @@ done
 
 BUNDLE=$(dirname "$ROOTFS")
 NR_LD=${NR_LD:-$BUNDLE/libld.so}
-[ -x "$NR_LD" ] || { echo "husk-desktop: loader not executable: $NR_LD" >&2; exit 69; }
-case "$NR_LD" in
-    /*) ;;
-    *) NR_LD=$(cd "$(dirname "$NR_LD")" && pwd)/$(basename "$NR_LD") ;;
-esac
+if [ "${NR_DESKTOP_GUEST:-0}" != 1 ]; then
+    [ -x "$NR_LD" ] || { echo "husk-desktop: loader not executable: $NR_LD" >&2; exit 69; }
+    case "$NR_LD" in
+        /*) ;;
+        *) NR_LD=$(cd "$(dirname "$NR_LD")" && pwd)/$(basename "$NR_LD") ;;
+    esac
+fi
 DISPLAY=${DISPLAY:-:0}
 # 运行时目录固定放树根下的 /run/rt，不再用 /tmp/xdg-husk：
 # unix socket 的 sun_path 上限是 108 字节（含结尾 NUL），而路径层会把**guest 路径**
@@ -89,15 +118,24 @@ if [ ! -s "$ROOTFS/var/lib/dbus/machine-id" ] || ! cmp -s "$ROOTFS/etc/machine-i
     cp "$ROOTFS/etc/machine-id" "$ROOTFS/var/lib/dbus/machine-id" 2>/dev/null || true
 fi
 chmod 755 "$ROOTFS$HOME_G/Desktop" 2>/dev/null || true
-LIBS="$ROOTFS/lib/aarch64-linux-gnu:$ROOTFS/usr/lib/aarch64-linux-gnu"
-[ -d "$ROOTFS/usr/lib/aarch64-linux-gnu/mutter-14" ] && LIBS="$LIBS:$ROOTFS/usr/lib/aarch64-linux-gnu/mutter-14"
-[ -d "$ROOTFS/usr/lib/gnome-shell" ] && LIBS="$LIBS:$ROOTFS/usr/lib/gnome-shell"
-# gvfs 的 gio 模块要 libgvfscommon.so，它不在标准库里；不加这一行 shell 起得来但每个
-# gio 模块都报 "cannot open shared object file"，桌面图标/挂载全废。
-[ -d "$ROOTFS/usr/lib/aarch64-linux-gnu/gvfs" ] && LIBS="$LIBS:$ROOTFS/usr/lib/aarch64-linux-gnu/gvfs"
-if [ -f "$ROOTFS/etc/ld.so.husk-path" ]; then
-    _runpaths=$(sed -n '/^#/d; s|^|'"$ROOTFS"'|p' "$ROOTFS/etc/ld.so.husk-path" | tr '\n' ':')
-    LIBS="$LIBS:$_runpaths"
+if [ "${NR_DESKTOP_GUEST:-0}" = 1 ]; then
+    # The loader's --library-path always contains host paths. The app entrypoint
+    # derives the complete list from the installed tree and carries it in
+    # NR_LIBRARY_PATH. Do not rebuild it from ROOTFS: in guest mode ROOTFS is
+    # the guest-visible /, which would turn every directory into a guest path
+    # and make the nested exec loader fail to find even libdbus.
+    LIBS=${NR_LIBRARY_PATH:?guest mode needs NR_LIBRARY_PATH}
+else
+    LIBS="$ROOTFS/lib/aarch64-linux-gnu:$ROOTFS/usr/lib/aarch64-linux-gnu"
+    [ -d "$ROOTFS/usr/lib/aarch64-linux-gnu/mutter-14" ] && LIBS="$LIBS:$ROOTFS/usr/lib/aarch64-linux-gnu/mutter-14"
+    [ -d "$ROOTFS/usr/lib/gnome-shell" ] && LIBS="$LIBS:$ROOTFS/usr/lib/gnome-shell"
+    # gvfs 的 gio 模块要 libgvfscommon.so，它不在标准库里；不加这一行 shell 起得来但每个
+    # gio 模块都报 "cannot open shared object file"，桌面图标/挂载全废。
+    [ -d "$ROOTFS/usr/lib/aarch64-linux-gnu/gvfs" ] && LIBS="$LIBS:$ROOTFS/usr/lib/aarch64-linux-gnu/gvfs"
+    if [ -f "$ROOTFS/etc/ld.so.husk-path" ]; then
+        _runpaths=$(sed -n '/^#/d; s|^|'"$ROOTFS"'|p' "$ROOTFS/etc/ld.so.husk-path" | tr '\n' ':')
+        LIBS="$LIBS:$_runpaths"
+    fi
 fi
 
 # Session modes and GResource overlays are distro/session assets, not socket
@@ -131,32 +169,42 @@ else
     G_LANGUAGE=
 fi
 
-# 在 guest 里跑一条命令（不继承宿主的 XDG_*，避免把宿主路径漏进去）
-g() {
-    ( cd "$ROOTFS" && env -u XDG_CACHE_HOME -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_STATE_HOME \
-        HOME="$HOME_G" PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-        NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" NR_LIBRARY_PATH="$LIBS" \
-        DISPLAY="$DISPLAY" XDG_RUNTIME_DIR="$RT_G" \
-        LANG="$G_LANG" LANGUAGE="$G_LANGUAGE" \
-        GTK_IM_MODULE=fcitx QT_IM_MODULE=fcitx XMODIFIERS=@im=fcitx \
-        DBUS_SESSION_BUS_ADDRESS="unix:path=$SESSBUS_G" \
-        DBUS_SYSTEM_BUS_ADDRESS="unix:path=$SYSBUS_G" \
-        "$NR_LD" --library-path "$LIBS" "$@" ) 2>/dev/null
+# 在 guest 里跑一条命令（不继承宿主的 XDG_*，避免把宿主路径漏进去）。
+# 直接 exec loader，不经过 Android 的 /system/bin/env：从 untrusted_app 启动
+# 子 shell 时，env 对 app_data_file 的 exec 会返回 EACCES，而同一 shell 直接
+# exec loader 是允许的（真机 08:45 复现）。
+guest_env() {
+    unset XDG_CACHE_HOME XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME
+    export HOME="$HOME_G"
+    export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    export NR_ROOTFS="$CHILD_ROOTFS" NR_LD="$NR_LD" NR_LIBRARY_PATH="$LIBS"
+    export DISPLAY="$DISPLAY" XDG_RUNTIME_DIR="$RT_G"
+    export LANG="$G_LANG" LANGUAGE="$G_LANGUAGE"
+    export GTK_IM_MODULE=fcitx QT_IM_MODULE=fcitx XMODIFIERS=@im=fcitx
+    export DBUS_SESSION_BUS_ADDRESS="unix:path=$SESSBUS_G"
+    export DBUS_SYSTEM_BUS_ADDRESS="unix:path=$SYSBUS_G"
 }
+guest_exec() {
+    ( cd "$ROOTFS" || exit 1
+      guest_env
+      if [ "${NR_DESKTOP_GUEST:-0}" = 1 ]; then
+          exec "$@"
+      else
+          exec "$NR_LD" --library-path "$LIBS" "$@"
+      fi )
+}
+g() { guest_exec "$@" 2>/dev/null; }
 # 同上，但要后台常驻、日志进文件
 g_bg() {
     logf=$1; shift
     ( cd "$ROOTFS" || exit 1
+      guest_env
       exec 0</dev/null 1>/dev/null 2>/dev/null
-      nohup env -u XDG_CACHE_HOME -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_STATE_HOME \
-        HOME="$HOME_G" PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-        NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" NR_LIBRARY_PATH="$LIBS" \
-        DISPLAY="$DISPLAY" XDG_RUNTIME_DIR="$RT_G" \
-        LANG="$G_LANG" LANGUAGE="$G_LANGUAGE" \
-        GTK_IM_MODULE=fcitx QT_IM_MODULE=fcitx XMODIFIERS=@im=fcitx \
-        DBUS_SESSION_BUS_ADDRESS="unix:path=$SESSBUS_G" \
-        DBUS_SYSTEM_BUS_ADDRESS="unix:path=$SYSBUS_G" \
-        "$NR_LD" --library-path "$LIBS" "$@" > "$logf" 2>&1 & )
+      if [ "${NR_DESKTOP_GUEST:-0}" = 1 ]; then
+          "$@" > "$logf" 2>&1 &
+      else
+          "$NR_LD" --library-path "$LIBS" "$@" > "$logf" 2>&1 &
+      fi )
 }
 
 say() { echo "husk-desktop: $*" >&2; }
@@ -164,21 +212,23 @@ say() { echo "husk-desktop: $*" >&2; }
 # ---------------------------------------------------------------- 1. 停残留
 # 只按 guest 程序名匹配，绝不碰应用自己的进程（X server 在应用进程里）。
 stop_leftovers() {
-    for pat in usr/bin/gnome-shell mutter-x11-frames usr/bin/gjs gnome-settings-daemon \
-               /usr/libexec/gsd- xdg-desktop-portal gvfsd tracker-miner at-spi \
+    for pat in usr/bin/gnome-shell mutter-x11-frames usr/bin/gjs \
+               /usr/libexec/gsd- xdg-desktop-portal gvfsd \
+               /usr/libexec/tracker-miner- /usr/libexec/at-spi \
                usr/bin/husk-window-wait husk-ding-fallback.sh \
                usr/bin/nautilus usr/bin/gnome-text-editor usr/bin/gnome-calculator; do
-        g usr/bin/pkill -f "$pat" || true
+        g usr/bin/pkill -f -- "$pat" || true
     done
     sleep 2
-    for pat in usr/bin/gnome-shell mutter-x11-frames usr/bin/gjs gnome-settings-daemon \
-               /usr/libexec/gsd- xdg-desktop-portal gvfsd tracker-miner at-spi \
+    for pat in usr/bin/gnome-shell mutter-x11-frames usr/bin/gjs \
+               /usr/libexec/gsd- xdg-desktop-portal gvfsd \
+               /usr/libexec/tracker-miner- /usr/libexec/at-spi \
                usr/bin/husk-window-wait husk-ding-fallback.sh; do
-        g usr/bin/pkill -9 -f "$pat" || true
+        g usr/bin/pkill -9 -f -- "$pat" || true
     done
     # 总线自己最后停，避免上面那些进程在收尾时又把它拉起来
-    g usr/bin/pkill -f "dbus-daemon --session" || true
-    g usr/bin/pkill -f "dbus-daemon --config-file" || true
+    g usr/bin/pkill -f -- "usr/bin/dbus-daemon --session" || true
+    g usr/bin/pkill -f -- "usr/bin/dbus-daemon --config-file" || true
     sleep 2
 }
 stop_leftovers
@@ -199,7 +249,7 @@ g_bg "$ROOTFS/tmp/husk-sysbus.log" usr/bin/dbus-daemon \
 i=0; while [ $i -lt 20 ] && [ ! -S "$SYSBUS" ]; do sleep 1; i=$((i+1)); done
 [ -S "$SYSBUS" ] || say "WARNING: 系统总线没起来（账号/挂载相关功能会退化）"
 if [ -x "$BASE/husk-system-services.sh" ] && [ -S "$SYSBUS" ]; then
-    "$BASE/husk-system-services.sh" "$ROOTFS" "$NR_LD" "$LIBS" || true
+    NR_HOST_ROOTFS="$CHILD_ROOTFS" "$BASE/husk-system-services.sh" "$ROOTFS" "$NR_LD" "$LIBS" || true
 fi
 
 # 地址必须写 guest 路径：写宿主绝对路径时路径层会再拼一次 rootfs，
@@ -214,26 +264,31 @@ SHELL_LOG=$ROOTFS/tmp/husk-shell.log
 : > "$SHELL_LOG" 2>/dev/null || true
 (
     cd "$ROOTFS" || exit 1
+    unset XDG_CACHE_HOME XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME
+    export HOME="$HOME_G"
+    export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    export NR_ROOTFS="$CHILD_ROOTFS" NR_LD="$NR_LD" NR_LIBRARY_PATH="$LIBS"
+    export DISPLAY="$DISPLAY" XDG_RUNTIME_DIR="$RT_G"
+    export DBUS_SESSION_BUS_ADDRESS="unix:path=$SESSBUS_G"
+    export DBUS_SYSTEM_BUS_ADDRESS="unix:path=$SYSBUS_G"
+    export LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu:/usr/lib
+    export G_RESOURCE_OVERLAYS="$GOVERLAY"
+    export XDG_CURRENT_DESKTOP=ubuntu:GNOME XDG_SESSION_DESKTOP=ubuntu
+    export XDG_SESSION_TYPE=x11 DESKTOP_SESSION=ubuntu
+    export GNOME_SHELL_SESSION_MODE="$GMODE"
+    export XDG_DATA_DIRS=/usr/local/share:/usr/share XDG_CONFIG_DIRS=/etc/xdg
+    export GSETTINGS_SCHEMA_DIR=/usr/share/glib-2.0/schemas
+    export GI_TYPELIB_PATH=/usr/lib/aarch64-linux-gnu/girepository-1.0:/usr/lib/girepository-1.0
+    export GJS_PATH=/usr/share/gnome-shell
+    export XCURSOR_THEME=Yaru XCURSOR_SIZE=24 XKB_CONFIG_ROOT="$ROOTFS/usr/share/X11/xkb"
+    export GDK_BACKEND=x11 CLUTTER_BACKEND=x11 MUTTER_DEBUG_FORCE_KMS_MODE=0 MESA_NO_ERROR=1
+    export COGL_DRIVER=gles2 MESA_GLES_VERSION_OVERRIDE=3.2 GJS_DISABLE_JIT=1
     exec 0</dev/null 1>/dev/null 2>/dev/null
-    nohup env -u XDG_CACHE_HOME -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_STATE_HOME \
-        HOME="$HOME_G" PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-        NR_ROOTFS="$ROOTFS" NR_LD="$NR_LD" NR_LIBRARY_PATH="$LIBS" \
-        DISPLAY="$DISPLAY" XDG_RUNTIME_DIR="$RT_G" \
-        DBUS_SESSION_BUS_ADDRESS="unix:path=$SESSBUS_G" \
-        DBUS_SYSTEM_BUS_ADDRESS="unix:path=$SYSBUS_G" \
-        LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu:/usr/lib \
-        G_RESOURCE_OVERLAYS="$GOVERLAY" \
-        XDG_CURRENT_DESKTOP=ubuntu:GNOME XDG_SESSION_DESKTOP=ubuntu \
-        XDG_SESSION_TYPE=x11 DESKTOP_SESSION=ubuntu \
-        GNOME_SHELL_SESSION_MODE="$GMODE" \
-        XDG_DATA_DIRS=/usr/local/share:/usr/share XDG_CONFIG_DIRS=/etc/xdg \
-        GSETTINGS_SCHEMA_DIR=/usr/share/glib-2.0/schemas \
-        GI_TYPELIB_PATH=/usr/lib/aarch64-linux-gnu/girepository-1.0:/usr/lib/girepository-1.0 \
-        GJS_PATH=/usr/share/gnome-shell \
-        XCURSOR_THEME=Yaru XCURSOR_SIZE=24 XKB_CONFIG_ROOT="$ROOTFS/usr/share/X11/xkb" \
-        GDK_BACKEND=x11 CLUTTER_BACKEND=x11 MUTTER_DEBUG_FORCE_KMS_MODE=0 MESA_NO_ERROR=1 \
-        COGL_DRIVER=gles2 MESA_GLES_VERSION_OVERRIDE=3.2 GJS_DISABLE_JIT=1 \
+    if [ "${NR_DESKTOP_GUEST:-0}" = 1 ]; then
+        usr/bin/gnome-shell --x11 --replace > "$SHELL_LOG" 2>&1 &
+    else
         "$NR_LD" --library-path "$LIBS" usr/bin/gnome-shell --x11 --replace > "$SHELL_LOG" 2>&1 &
+    fi
 ) || true
 
 # 等 WM 出现（不是"进程在"，而是"有人认领 _NET_SUPPORTING_WM_CHECK"）
@@ -330,3 +385,4 @@ fi
 
 [ "$wm" = yes ] || { say "会话没起来：$SHELL_LOG"; exit 71; }
 say "会话已起（wm=$wm ding=$ding gpu=$gpu）"
+status_write "ready" "wm=$wm" "ding=$ding" "gpu=$gpu" "input=$input" "im=$im"

@@ -28,7 +28,7 @@ SKIP=${SKIP:-libc6}
 ADB=${ADB:-adb}
 SERIAL=${SERIAL:-}
 APP=${APP:-com.linuxhub.husk}
-GUEST_ROOT=${GUEST_ROOT:-files/linux/distributions/ubuntu-24.04/rootfs}
+GUEST_ROOT=${GUEST_ROOT:-files/rootfs-full}
 
 cargo build --release -q -p nr-tools --manifest-path "$ROOT/runtime/Cargo.toml"
 TOOLS=$ROOT/runtime/target/release/nr-tools

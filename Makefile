@@ -5,8 +5,11 @@
 #   make test    unit tests; needs an arm64 Linux host (the shim is inline asm)
 #   make loader  rebuild the embedded loader into the APK's jniLibs
 #   make apk     loader + ArkTS-free Rust app .so + Gradle assembleDebug
+#   make xlorie  rebuild the checked-in embedded X11 server from pinned source
 #   make bench   three-runner benchmark (needs a device)
 #   make gate-a  the 38-item acceptance gate + path/V4L2/DRM probes (needs a device)
+#   make desktop-acceptance  embedded X11 readiness/frame/GPU/input gate (needs a device)
+#   make desktop-multiapp  three concurrent GUI apps + GPU/process/frame soak (needs a device)
 #   make readback-audit  complete 19-case Rust GPU readback suite (needs a device)
 #   make gpu-audit  desktop shell + nested GTK app hardware-GPU inheritance (needs a device)
 #   make gpu-soak  4 concurrent Rust GPU soaks, 300 s each (needs a device)
@@ -20,7 +23,7 @@ MANIFEST    := runtime/Cargo.toml
 PROFILE_DIR := runtime/target/$(TARGET)/release
 HUSK_TOOLS  := runtime/target/debug/husk-tools
 
-.PHONY: all check lint test tools nr-tools loader preloads apk bench gate-a readback-audit gpu-audit gpu-soak camera-audit virt-race docs dist clean version-check version-bump release-audit \
+.PHONY: all check lint test tools nr-tools loader preloads xlorie apk bench gate-a desktop-acceptance desktop-multiapp readback-audit gpu-audit gpu-soak camera-audit virt-race docs dist clean version-check version-bump release-audit \
         libc-patch libc-verify
 
 all: lint check version-check
@@ -37,13 +40,16 @@ check:
 # Measured 2026-11-26 (evidence 293): injected E0308 in audio-relay -> the 12-crate
 # list exited 0, --workspace failed. Same rule as .github/workflows/ci.yml.
 	cargo check --manifest-path $(MANIFEST) --target $(TARGET) --workspace
-	cargo test --manifest-path $(MANIFEST) -p gpu-env -p session-env -p usermgr -p nr-tools -p location-probe -p audio-capture-probe
+	cargo test --manifest-path $(MANIFEST) -p gpu-env -p session-env -p usermgr -p nr-tools -p location-probe -p audio-capture-probe -p husk-tools
 # No --all-targets: path-shim is no_std and its test harness collides with the
 # crate's own panic handler (duplicate lang item). Warnings there are tracked
 # separately; this gate fails on errors.
 	cargo clippy --manifest-path $(MANIFEST) --target $(TARGET) --workspace
 	cargo check --manifest-path app-rs/Cargo.toml --target aarch64-linux-android --lib --bin husk-session-guard
 	sh tools/ci/test-locale-defaults.sh
+	sh tools/ci/test-guest-rootfs-selection.sh
+	sh tools/ci/check-desktop-input-routing.sh
+	sh tools/ci/check-desktop-session-contract.sh
 	sh tools/ci/check-fork-safety.sh
 	sh tools/ci/check-shell.sh
 	sh tools/ci/audit-readme-header.sh
@@ -55,6 +61,7 @@ check:
 	sh tools/ci/test-session-gpu-escape.sh
 	sh tools/ci/test-session-rootfs-bundle.sh
 	sh tools/ci/audit-panvk-bundle.sh
+	sh tools/ci/audit-xlorie-asset.sh
 	@$(MAKE) --no-print-directory tools
 	$(HUSK_TOOLS) check-links
 	@$(MAKE) --no-print-directory version-check
@@ -185,6 +192,10 @@ JNI := app/app/src/main/jniLibs/arm64-v8a
 NDK_BIN := $(if $(filter %/bin,$(NDK)),$(NDK),$(NDK)/bin)
 CC_ANDROID := $(NDK_BIN)/aarch64-linux-android24-clang
 
+xlorie:
+	@test -n "$(NDK)" || { echo "set NDK=<ndk-root-or-bin>" >&2; exit 1; }
+	ANDROID_NDK_HOME=$(patsubst %/bin,%,$(NDK)) third_party/xlorie/build.sh
+
 apk:
 	@test -n "$$NDK" || { echo "set NDK=<ndk>/bin (needs clang, llvm-objcopy, llvm-ar)" >&2; exit 1; }
 	@$(MAKE) --no-print-directory loader
@@ -198,6 +209,7 @@ apk:
 	# guard's .so suffix so the package manager extracts it, even though it is a
 	# PIE executable rather than a shared library.
 	cp app-rs/target/aarch64-linux-android/release/husk-session-guard $(JNI)/libhuskguard.so
+	cp third_party/xlorie/arm64-v8a/libXlorie.so $(JNI)/libXlorie.so
 	chmod 755 $(JNI)/libhuskguard.so
 	cd app && ./gradlew :app:assembleDebug
 	@ls -l $(JNI) app/app/build/outputs/apk/debug/*.apk
@@ -232,7 +244,7 @@ bench:
 # 探针单列一步，因为 locale 看 env -i 后的真实值，竞态看宿主哨兵是否被改动。
 readback-audit:
 	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.husk} \
-		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} \
+		ROOTFS=$${ROOTFS:-files/rootfs-full} \
 		LD=$${LD:-files/linux/husk/libld.so} \
 		GL_PROBE=$${GL_PROBE:-$(PROFILE_DIR)/gl-probe} \
 		EXPECT_RENDERER=$${EXPECT_RENDERER-zink} \
@@ -240,27 +252,33 @@ readback-audit:
 
 gpu-audit:
 	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.husk} \
-		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} \
+		ROOTFS=$${ROOTFS:-files/rootfs-full} \
 		LD=$${LD:-files/linux/husk/libld.so} \
 		GL_PROBE=$${GL_PROBE:-$(PROFILE_DIR)/gl-probe} \
 		sh tools/device-tests/19-readback-suite.sh
 	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.husk} \
-		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} \
+		ROOTFS=$${ROOTFS:-files/rootfs-full} \
 		LD=$${LD:-files/linux/husk/libld.so} \
 		ENV=DISPLAY=:0,XDG_RUNTIME_DIR=/tmp/runtime-husk \
 		sh tools/device-tests/run-guest.sh 15-gpu-global-audit.sh
 
 gpu-soak:
 	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.husk} \
-		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} \
+		ROOTFS=$${ROOTFS:-files/rootfs-full} \
 		LD=$${LD:-files/linux/husk/libld.so} \
 		GL_PROBE=$${GL_PROBE:-$(PROFILE_DIR)/gl-probe} \
 		SECONDS=$${SECONDS:-300} JOBS=$${JOBS:-4} SIZE=$${SIZE:-2400x1080} \
 		sh tools/device-tests/21-gpu-soak-audit.sh
 
+desktop-acceptance:
+	DEV=$(DEV) ROOTFS=$${ROOTFS:-files/rootfs-full} sh tools/device-tests/22-desktop-acceptance.sh
+
+desktop-multiapp:
+	DEV=$(DEV) ROOTFS=$${ROOTFS:-files/rootfs-full} RUN_SECS=$${RUN_SECS:-60} sh tools/device-tests/23-desktop-multiapp.sh
+
 gate-a:
 	DEV=$${DEV:?} PKG=$${PKG:-com.linuxhub.husk} \
-		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} \
+		ROOTFS=$${ROOTFS:-files/rootfs-full} \
 		LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/14-gate-a-acceptance.sh
 	sh tools/probe/run-coverage-probe.sh "$${DEV}" "$${ROOTFS:-}" "$${LD:-}"
@@ -270,34 +288,34 @@ gate-a:
 	sh tools/device-tests/run-drm-fd-probe.sh "$${DEV}"
 	sh tools/device-tests/run-fd-identity-probe.sh "$${DEV}"
 	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.husk} \
-		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} LD=$${LD:-files/linux/husk/libld.so} \
+		ROOTFS=$${ROOTFS:-files/rootfs-full} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-guest.sh audit-supplementary-groups.sh
 	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.husk} \
-		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} LD=$${LD:-files/linux/husk/libld.so} \
+		ROOTFS=$${ROOTFS:-files/rootfs-full} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-session-locale-probe.sh
 	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.husk} \
-		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} LD=$${LD:-files/linux/husk/libld.so} \
+		ROOTFS=$${ROOTFS:-files/rootfs-full} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-identity-init-race-probe.sh
 	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.husk} \
-		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} LD=$${LD:-files/linux/husk/libld.so} \
+		ROOTFS=$${ROOTFS:-files/rootfs-full} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-groups-race-probe.sh
 	DEV=$${DEV} sh tools/device-tests/run-session-guard-probe.sh
 	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.husk} \
-		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} LD=$${LD:-files/linux/husk/libld.so} \
+		ROOTFS=$${ROOTFS:-files/rootfs-full} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-rootfd-close-range-probe.sh
 	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.husk} \
-		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} LD=$${LD:-files/linux/husk/libld.so} \
+		ROOTFS=$${ROOTFS:-files/rootfs-full} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-path-race-probe.sh
 
 camera-audit:
 	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.husk} \
-		ROOTFS=$${ROOTFS:-/data/user/0/$${PKG:-com.linuxhub.husk}/files/linux/distributions/ubuntu-24.04/rootfs} \
+		ROOTFS=$${ROOTFS:-/data/user/0/$${PKG:-com.linuxhub.husk}/files/rootfs-full} \
 		LD=$${LD:-/data/user/0/$${PKG:-com.linuxhub.husk}/files/linux/husk/libld.so} \
 		sh tools/device-tests/run-camera-fixture.sh "$${DEV}"
 
 rootfd-race:
 	DEV=$${DEV:?} PKG=$${PKG:-com.linuxhub.husk} \
-		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} LD=$${LD:-files/linux/husk/libld.so} \
+		ROOTFS=$${ROOTFS:-files/rootfs-full} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-rootfd-close-range-probe.sh
 
 virt-race:

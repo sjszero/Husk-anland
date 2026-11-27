@@ -45,7 +45,7 @@ fi
 DEV=${1:?usage: $0 <device-serial>}
 PKG=${PKG:-com.linuxhub.husk}
 APPDIR=${APPDIR:-/data/data/$PKG/files/linux}
-ROOTFS=${ROOTFS:-$APPDIR/distributions/ubuntu-24.04/rootfs}
+ROOTFS=${ROOTFS:-$APPDIR/../rootfs-full}
 LD=${LD:-$APPDIR/husk/libld.so}
 SESS=${SESS:-/data/local/tmp/husk-session.sh}
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -54,6 +54,7 @@ device_path() {
     case "$1" in
         /*) printf '%s\n' "$1" ;;
         files/linux/*) printf '%s/%s\n' "$APPDIR" "${1#files/linux/}" ;;
+        files/rootfs-full|files/rootfs) printf '/data/data/%s/%s\n' "$PKG" "$1" ;;
         *) printf '%s\n' "$1" ;;
     esac
 }

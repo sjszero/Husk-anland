@@ -592,6 +592,7 @@ fn sigsys_answer(nr: i32) -> Option<i64> {
     const ENOSYS: i64 = 38;
     let hit = match nr {
         99 => true,                    // set_robust_list (glibc ignores the failure)
+        264 => true,                   // name_to_handle_at (GLib probes and falls back)
         283 => true,                   // membarrier
         291 => true,                   // statx (glibc falls back to fstat)
         293 => true,                   // rseq (glibc disables it and continues)
