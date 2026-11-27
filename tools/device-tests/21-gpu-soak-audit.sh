@@ -7,7 +7,7 @@
 # counts and RSS bounds for every job. It does not claim a desktop result;
 # desktop/X11 readiness is a separate host-integration check.
 #
-#   DEV=<serial> SECONDS=300 JOBS=4 make gpu-soak
+#   DEV=<serial> SOAK_SECONDS=300 JOBS=4 make gpu-soak
 set -u
 DEV=${DEV:?usage: DEV=<adb serial> [ROOTFS=...] [LD=...] $0}
 PKG=${PKG:-com.linuxhub.husk}
@@ -15,7 +15,7 @@ ROOTFS=${ROOTFS:-files/rootfs-full}
 LD=${LD:-files/linux/husk/libld.so}
 HERE=$(cd "$(dirname "$0")" && pwd)
 GL_PROBE=${GL_PROBE:-$HERE/../../runtime/target/aarch64-unknown-linux-gnu/release/gl-probe}
-SECONDS=${SECONDS:-300}
+SOAK_SECONDS=${SOAK_SECONDS:-300}
 JOBS=${JOBS:-4}
 SIZE=${SIZE:-2400x1080}
 RSS_LIMIT_KB=${RSS_LIMIT_KB:-65536}
@@ -32,9 +32,9 @@ push() {
     adb -s "$DEV" shell "run-as $PKG sh -c 'cat > $ROOTFS/$2'" < "$1"
 }
 
-case "$SECONDS" in ''|*[!0-9]*) bad "SECONDS must be a positive integer"; exit 1 ;; esac
+case "$SOAK_SECONDS" in ''|*[!0-9]*) bad "SOAK_SECONDS must be a positive integer"; exit 1 ;; esac
 case "$JOBS" in ''|*[!0-9]*) bad "JOBS must be a positive integer"; exit 1 ;; esac
-[ "$SECONDS" -ge 1 ] || { bad "SECONDS must be >= 1"; exit 1; }
+[ "$SOAK_SECONDS" -ge 1 ] || { bad "SOAK_SECONDS must be >= 1"; exit 1; }
 [ "$JOBS" -ge 1 ] || { bad "JOBS must be >= 1"; exit 1; }
 
 echo "== prerequisites =="
@@ -63,10 +63,10 @@ fi
 
 # Run four independent loader invocations concurrently. Each adb shell stays
 # attached to its job, so a failed job cannot be mistaken for a completed one.
-echo "== ${JOBS} jobs for ${SECONDS}s at ${SIZE} =="
+echo "== ${JOBS} jobs for ${SOAK_SECONDS}s at ${SIZE} =="
 pids=""
 for n in $(seq 1 "$JOBS"); do
-    (adb_ "run-as $PKG sh $ROOTFS/tmp/husk-exec.sh $ROOTFS $LD root/gl-probe soak $SIZE $SECONDS p$n" >"/tmp/husk-gpu-soak-p$n.log" 2>&1) &
+    (adb_ "run-as $PKG sh $ROOTFS/tmp/husk-exec.sh $ROOTFS $LD root/gl-probe soak $SIZE $SOAK_SECONDS p$n" >"/tmp/husk-gpu-soak-p$n.log" 2>&1) &
     pids="$pids $!"
 done
 for p in $pids; do

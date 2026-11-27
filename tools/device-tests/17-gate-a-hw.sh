@@ -20,7 +20,7 @@ set -u
 DEV=${DEV:?usage: DEV=<serial> $0}
 PKG=${PKG:-com.linuxhub.husk}
 ROOTFS_REL=${ROOTFS_REL:-files/rootfs-full}
-LOADER_REL=${LOADER_REL:-files/linux/libld.so}
+LOADER_REL=${LOADER_REL:-files/linux/husk/libld.so}
 REPO_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 LOCATION_PROBE=${LOCATION_PROBE:-$REPO_ROOT/runtime/target/aarch64-unknown-linux-gnu/release/location-probe}
 AUDIO_CAPTURE_PROBE=${AUDIO_CAPTURE_PROBE:-$REPO_ROOT/runtime/target/aarch64-unknown-linux-gnu/release/audio-capture-probe}
@@ -28,6 +28,15 @@ PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  PASS  $1"; }
 bad() { FAIL=$((FAIL+1)); echo "  FAIL  $1"; }
 adb_() { adb -s "$DEV" shell "$@"; }
+
+# OxygenOS/ColorOS freezes the app in the `LcdOff` state. A-hw starts by
+# reading the app's hardware bridges, so leaving the phone asleep turns a
+# healthy camera/audio bridge into an empty socket and a false FAIL. Wake and
+# dismiss the keyguard before touching app state; the test itself does not
+# change permissions or grant hardware access.
+adb_ input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || true
+adb_ wm dismiss-keyguard >/dev/null 2>&1 || true
+sleep 1
 
 perm_line() { adb_ "dumpsys package $PKG" | grep -m1 "android.permission.$1: granted="; }
 

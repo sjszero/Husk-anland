@@ -268,7 +268,7 @@ gpu-soak:
 		ROOTFS=$${ROOTFS:-files/rootfs-full} \
 		LD=$${LD:-files/linux/husk/libld.so} \
 		GL_PROBE=$${GL_PROBE:-$(PROFILE_DIR)/gl-probe} \
-		SECONDS=$${SECONDS:-300} JOBS=$${JOBS:-4} SIZE=$${SIZE:-2400x1080} \
+		SOAK_SECONDS=$${SOAK_SECONDS:-300} JOBS=$${JOBS:-4} SIZE=$${SIZE:-2400x1080} \
 		sh tools/device-tests/21-gpu-soak-audit.sh
 
 server-parity:
