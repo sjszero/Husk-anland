@@ -139,6 +139,10 @@ loader 在程序没有显式设置时注入，因此登录 shell、非登录进�
 这段不属于 Linux 用户态运行时，也不能宣传成零拷贝。详见
 [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) §7。
 
+同一棵正式树上的 4 路 Rust GPU soak（每路 300 秒）已通过：4 路均为 zink/PanVK，
+`errors=0`，fd 保持 7，RSS 仅增加 244 kB。该结果只覆盖 guest 进程与 GPU 上下文，不覆盖
+尚未具备的宿主 X server，详见 [evidence 329](docs/design/evidence/329-round6-gpu-global-soak-and-desktop-boundary-20261127.md)。
+
 ## 特性
 
 - **零 `ptrace`、零 syscall 拦截。** 内核看到的是用户态自己的 syscall（evidence 130–146）。

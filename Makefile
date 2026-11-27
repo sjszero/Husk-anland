@@ -9,6 +9,7 @@
 #   make gate-a  the 38-item acceptance gate + path/V4L2/DRM probes (needs a device)
 #   make readback-audit  complete 19-case Rust GPU readback suite (needs a device)
 #   make gpu-audit  desktop shell + nested GTK app hardware-GPU inheritance (needs a device)
+#   make gpu-soak  4 concurrent Rust GPU soaks, 300 s each (needs a device)
 #   make camera-audit  V4L2 mmap + GStreamer v4l2src through the fixture (needs a device)
 #   make docs    markdown link check
 #   make dist    release artifacts + SHA256SUMS
@@ -19,7 +20,7 @@ MANIFEST    := runtime/Cargo.toml
 PROFILE_DIR := runtime/target/$(TARGET)/release
 HUSK_TOOLS  := runtime/target/debug/husk-tools
 
-.PHONY: all check lint test tools nr-tools loader preloads apk bench gate-a readback-audit gpu-audit camera-audit virt-race docs dist clean version-check version-bump release-audit \
+.PHONY: all check lint test tools nr-tools loader preloads apk bench gate-a readback-audit gpu-audit gpu-soak camera-audit virt-race docs dist clean version-check version-bump release-audit \
         libc-patch libc-verify
 
 all: lint check version-check
@@ -248,6 +249,14 @@ gpu-audit:
 		LD=$${LD:-files/linux/husk/libld.so} \
 		ENV=DISPLAY=:0,XDG_RUNTIME_DIR=/tmp/runtime-husk \
 		sh tools/device-tests/run-guest.sh 15-gpu-global-audit.sh
+
+gpu-soak:
+	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.husk} \
+		ROOTFS=$${ROOTFS:-files/linux/distributions/ubuntu-24.04/rootfs} \
+		LD=$${LD:-files/linux/husk/libld.so} \
+		GL_PROBE=$${GL_PROBE:-$(PROFILE_DIR)/gl-probe} \
+		SECONDS=$${SECONDS:-300} JOBS=$${JOBS:-4} SIZE=$${SIZE:-2400x1080} \
+		sh tools/device-tests/21-gpu-soak-audit.sh
 
 gate-a:
 	DEV=$${DEV:?} PKG=$${PKG:-com.linuxhub.husk} \

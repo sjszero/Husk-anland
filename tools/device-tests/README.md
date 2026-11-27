@@ -48,6 +48,7 @@ Overrides: `PKG=`, `ROOTFS=`, `LD=` (all relative to the app's data dir).
 | `17-gate-a-hw.sh` | A-hw group: CAMERA/RECORD_AUDIO granted by a *user* (no `install -g`), no `USER_FIXED`, a real 3-frame Camera2 capture through the app's socket, and no crash records. A-core is untouched (evidence 288) | `DEV=<serial> ./17-gate-a-hw.sh` |
 | `18-gpu-loader-defaults.sh` | loader-injected GPU defaults in a non-login process, plus the two explicit llvmpipe controls | `DEV=<serial> ./18-gpu-loader-defaults.sh` |
 | `19-readback-suite.sh` | full 19-case Rust readback suite through the loader: width boundaries, canary tails, whole-block reads and screenshot row shape | `DEV=<serial> make readback-audit` |
+| `21-gpu-soak-audit.sh` | four concurrent Rust zink/PanVK soaks with renderer, exit, GL error, fd and RSS checks; no desktop claim | `DEV=<serial> make gpu-soak` |
 | `ipc-probe` | POSIX mqueue, SysV shm, SysV sem/msg (12 / 13 / 24 项) | `sh gexec.sh rootfs-full usr/bin/env /tmp/ipc-probe {mq,shm,sem-msg}` |
 | `09-network-surface.sh` | netlink surface: `ip`/`hostname -I`/`/proc/net/*`/`getent` answer, writes are refused with EPERM/EOPNOTSUPP | `sh gexec.sh rootfs-full usr/bin/bash tmp/09.sh` |
 | `10-device-nodes.sh` | device node surface by name, plus the three platform walls (`/dev` listing, `/dev/full`, `/dev/tty`) asserted as known limits | `sh gexec.sh rootfs-full usr/bin/bash tmp/10.sh` |

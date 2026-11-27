@@ -53,7 +53,7 @@ Gate A 的 SKIP 是离线树没有 apt package index。没有把它算成 PASS�
 | PanVK compute + 离屏 graphics | 通过 | 156 |
 | Zink/EGL/GL 默认渲染器 | `zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))` | 310 |
 | 软件负向控制 | `NR_GPU_DEFAULT_OFF=1` 与 `HUSK_GPU=llvmpipe` 都落到 llvmpipe | 310 |
-| 4 路并发 × 300 秒 | 每路 579 fps，fd/RSS 不涨，GL 错误 0 | 292 |
+| 4 路并发 × 300 秒（Rust 门禁） | 每路约 570–572 fps，fd 不变，RSS 变化 +244 kB，GL 错误 0 | 292、329 |
 | 固定管线 | 320 fps | 292 |
 | 2400×1080 着色器负载 | GPU 41.9 fps vs llvmpipe 3.7 fps | 174 |
 | Adreno/KGSL | 无真机证据，UNKNOWN | 233、243 |
@@ -91,4 +91,4 @@ GNOME/X11 桌面为 **UNVERIFIED**。不得把其他 App 或旧 PRoot 树的 X s
 - 相机 DMABUF、通用 V4L2 controls、非整帧裁剪、真实 Camera2 的 GStreamer PTS、跨进程假 fd；
 - 持续定位、后台定位、GNSS 原始测量；USB、蓝牙完整链路；
 - 窗口内容到 X server 的零拷贝；
-- 负载型长时间稳定性和更多 GPU 应用。
+- 超过 300 秒的负载型稳定性和更多 GUI 应用。

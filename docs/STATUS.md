@@ -133,7 +133,7 @@ ls: files/rootfs-full/usr/lib/xorg/Xorg: No such file or directory
 - 持续定位、后台定位、GNSS 原始测量；USB、蓝牙的完整链路。
 - 相机 DMABUF、通用 V4L2 controls、非整帧裁剪、真实 Camera2 的 GStreamer PTS、跨进程假 fd。
 - 窗口内容到 X server 的零拷贝。
-- 长时间负载型 soak；现有 30 分钟为空载，GPU 有 300 秒并发探针。
+- 超过 300 秒的负载型 soak；现有 30 分钟为空载，GPU 有 300 秒四路并发探针。
 
 ## 9. 发布门禁
 

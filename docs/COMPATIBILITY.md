@@ -41,7 +41,7 @@ A-hw `PASS=14 FAIL=0`、GPU 默认值 `PASS=9 FAIL=0`。离线树没有 apt inde
 | `/dev/mali0` 直开 | 可用 | evidence 156 |
 | PanVK（kbase 后端）枚举 + compute + 离屏 graphics | 可用，`Mali-G77 MC9` | evidence 156 |
 | GL/EGL 经 Zink 落到 GPU | 可用，renderer `zink Vulkan 1.3(Mali-G77 MC9)`；GLES 上限 3.2（靠 `MESA_GLES_VERSION_OVERRIDE`，zink 默认只报 ES 2.0，真实应用未验） | evidence 156、182 |
-| GPU 并发与长稳（无 X） | 4 路并发 × 300 s：每路 579 fps，fd/RSS 不涨、GL 错误 0；固定管线（即时模式 + 光照）320 fps | evidence 292 |
+| GPU 并发与长稳（无 X） | 4 路并发 × 300 s（Rust 门禁）：每路约 570–572 fps，fd 不变、RSS +244 kB、GL 错误 0；固定管线（即时模式 + 光照）320 fps | evidence 292、329 |
 | GPU 宿主窗口路径 | 历史 X11 窗口结果使用 LinuxHub 2.0 提供的 X server。**Husk 运行资产本身不带 X server**，独立桌面启动为 UNVERIFIED；窗口内容进入 X server 仍不是零拷贝 | evidence 165、245、278、292、312 |
 
 不开 Zink 时 GL 落在 `llvmpipe`；开了 zink 但用发行版自带的 `panfrost_icd.json` 会
