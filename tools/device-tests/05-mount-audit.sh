@@ -13,55 +13,32 @@
 # always started as `sh 05-mount-audit.sh`, so the last five checks had never
 # run to completion (evidence 294 §6).
 set -u
+RUNTIME_PROBE=${RUNTIME_PROBE:-/root/runtime-probe}
 PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); echo "  PASS  $1"; }
 bad()  { FAIL=$((FAIL+1)); echo "  FAIL  $1"; }
 want_erofs() { case "$1" in *"Read-only file system"*|*"Errno 30"*) ok "$2";; *) bad "$2 (got: $1)";; esac; }
+probe_checks() {
+  if out=$("$RUNTIME_PROBE" mount-audit "$@" 2>&1); then
+    printf '%s\n' "$out"
+    n=$(printf '%s\n' "$out" | grep -c '^PASS ')
+    PASS=$((PASS+n))
+  else
+    printf '%s\n' "$out"
+    FAIL=$((FAIL+1))
+  fi
+}
 
 echo "== B-01 read-only mounts refuse every write path =="
 sh -c 'rm -rf /mnt/rosrc /mnt/ro; mkdir -p /mnt/rosrc /mnt/ro; echo data > /mnt/rosrc/f'
 mount --bind /mnt/rosrc /mnt/ro && mount -o remount,ro,bind /mnt/ro \
-  || python3 -c 'import ctypes;l=ctypes.CDLL(None,use_errno=True);B,R,RO=4096,32,1;l.mount(b"/mnt/rosrc",b"/mnt/ro",None,B,None);l.mount(b"/mnt/rosrc",b"/mnt/ro",None,R|B|RO,None)'
+  || probe_checks mount-bind-ro
 sh -c 'grep -q " /mnt/ro .*ro" /proc/self/mounts' && ok "table marks the bind ro" || bad "/proc/self/mounts does not show ro"
 want_erofs "$(sh -c 'echo x > /mnt/ro/f' 2>&1)" "absolute path write"
-want_erofs "$(python3 - <<'PY' 2>&1
-import os
-try:
-    d = os.open("/mnt/ro", os.O_RDONLY)
-    f = os.open("f", os.O_WRONLY | os.O_TRUNC, dir_fd=d)
-    os.write(f, b"pwned")
-    print("wrote anyway")
-except OSError as e:
-    print(e)
-PY
-)" "write through a directory descriptor"
-want_erofs "$(python3 - <<'PY' 2>&1
-import os
-d = os.open("/mnt/ro", os.O_RDONLY)
-try:
-    os.mkdir("nd", dir_fd=d); print("mkdir went through")
-except OSError as e:
-    print(e)
-PY
-)" "mkdir through a directory descriptor"
-want_erofs "$(python3 - <<'PY' 2>&1
-import os
-d = os.open("/mnt/ro", os.O_RDONLY)
-try:
-    os.unlink("f", dir_fd=d); print("unlink went through")
-except OSError as e:
-    print(e)
-PY
-)" "unlink through a directory descriptor"
+probe_checks mount-write
 [ "$(sh -c 'cat /mnt/ro/f')" = "data" ] && ok "content untouched" || bad "content changed"
 # Metadata writes do not go through open(), so they need their own check.
 MODE0=$(sh -c 'stat -c %a /mnt/ro/f')
-want_erofs "$(python3 -c 'import os;os.chmod("/mnt/ro/f",0o600)' 2>&1)" "chmod"
-want_erofs "$(python3 -c 'import os;d=os.open("/mnt/ro",os.O_RDONLY);os.chmod("f",0o600,dir_fd=d)' 2>&1)" "fchmodat through a directory descriptor"
-want_erofs "$(python3 -c 'import os;os.chown("/mnt/ro/f",0,0)' 2>&1)" "chown"
-want_erofs "$(python3 -c 'import os;os.utime("/mnt/ro/f",None)' 2>&1)" "utimensat"
-want_erofs "$(python3 -c 'import os;os.truncate("/mnt/ro/f",0)' 2>&1)" "truncate"
-want_erofs "$(python3 -c 'import os;os.setxattr("/mnt/ro/f","user.husk",b"x")' 2>&1)" "setxattr"
 [ "$(sh -c 'stat -c %a /mnt/ro/f')" = "$MODE0" ] && ok "mode untouched" || bad "mode changed"
 umount /mnt/ro
 
@@ -104,43 +81,11 @@ mount --bind /mnt/end /mnt/mid && mount --bind /mnt/mid /mnt/top
 umount /mnt/top; umount /mnt/mid
 
 echo "== B-05/B-06 resolution is safe under concurrency and mount churn =="
-python3 - <<'PY'
-import os, threading, subprocess
-stop = False; errs = []
-def churn():
-    i = 0
-    while not stop:
-        d = "/mnt/sc%d" % (i % 3)
-        os.makedirs(d, exist_ok=True)
-        subprocess.run(["mount","-t","tmpfs","tmpfs",d], stderr=subprocess.DEVNULL)
-        subprocess.run(["umount",d], stderr=subprocess.DEVNULL)
-        i += 1
-def walker():
-    for _ in range(3000):
-        for p in ("/usr/bin/bash", "usr/bin/bash", "/usr/lib", "/proc/self/cmdline"):
-            try: os.stat(p)
-            except OSError as e: errs.append(str(e))
-os.chdir("/")
-c = threading.Thread(target=churn); c.start()
-ts = [threading.Thread(target=walker) for _ in range(6)]
-for t in ts: t.start()
-for t in ts: t.join()
-stop = True; c.join()
-print("  PASS  no resolution errors" if not errs else "  FAIL  resolution errors: %s" % errs[:3])
-PY
+probe_checks mount-race
 
 echo "== B-07 xattr on the pinned object =="
 sh -c 'rm -f /tmp/xf; echo x > /tmp/xf'
-python3 - <<'PY'
-import os
-try:
-    os.setxattr("/tmp/xf", "user.husk", b"hello")
-    assert os.getxattr("/tmp/xf", "user.husk") == b"hello"
-    os.removexattr("/tmp/xf", "user.husk")
-    print("  PASS  set/get/remove")
-except OSError as e:
-    print("  FAIL ", e)
-PY
+probe_checks xattr /tmp/xf
 
 echo "== B-08 link to a symlink with follow semantics =="
 sh -c 'rm -f /tmp/l1 /tmp/l2 /tmp/l3; echo target > /tmp/l3; ln -s /tmp/l3 /tmp/l1'

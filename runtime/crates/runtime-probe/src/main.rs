@@ -14,6 +14,8 @@ mod groups_race;
 #[cfg(target_os = "linux")]
 mod identity_race;
 #[cfg(target_os = "linux")]
+mod mount_audit;
+#[cfg(target_os = "linux")]
 mod path_race;
 #[cfg(target_os = "linux")]
 mod rootfd_race;
@@ -25,7 +27,7 @@ mod symbol_gap;
 #[cfg(target_os = "linux")]
 fn usage() {
     eprintln!(
-        "usage: runtime-probe <coverage|egress|groups-race|identity-init-race|path-race SENTINEL|rootfd-close-range|supplementary-groups|symbol-gap>"
+        "usage: runtime-probe <coverage|egress|groups-race|identity-init-race|mount-audit CMD|path-race SENTINEL|rootfd-close-range|supplementary-groups|symbol-gap>"
     );
 }
 
@@ -37,6 +39,7 @@ fn main() {
         Some("egress") => egress::run(),
         Some("groups-race") => groups_race::run(),
         Some("identity-init-race") => identity_race::run(),
+        Some("mount-audit") => mount_audit::run(&args),
         Some("path-race") => {
             if args.len() != 3 {
                 eprintln!("usage: runtime-probe path-race <host-sentinel-absolute-path>");
