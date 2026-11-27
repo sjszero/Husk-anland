@@ -91,6 +91,45 @@ tools/device-tests/run-server-parity.sh
 
 ## 3 · 修后验证
 
-**UNVERIFIED（提交时）**：完整 `make gate-a` 尚未在修复后的提交上复跑；结果将在
-本文件后续追加，不能把静态检查当成真机通过。
+提交：
+
+```text
+bea1545 fix(test): normalize arbitrary device tree paths
+e6d3ae3 fix(test): normalize v4l2 probe tree paths
+```
+
+完整真机复跑：
+
+```sh
+make gate-a \
+  DEV=UKHMMB8PYTGECMNV \
+  PKG=com.linuxhub.husk \
+  ROOTFS=files/clean-audio-344/root \
+  LD=files/clean-audio-344/bundle/libld.so
+```
+
+结果：**FACT，退出码 0**。
+
+```text
+A-core: PASS=34 FAIL=0 SKIP=1
+coverage-probe: PASS
+coverage-sweep: SKIP（干净树没有 strace）
+dpkg-conffile-mode-probe: PASS
+v4l2-ref-probe: PASS
+drm-fd-probe: PASS
+fd-identity-probe: PASS
+supplementary-groups: PASS=1 FAIL=0
+session-locale: PASS default=zh_CN.UTF-8 explicit=en_US.UTF-8
+identity-init-race: IDENTITY_RACE rounds=300 fails=0
+groups-race: GROUPS_RACE rounds=20 fails=0
+session-guard: PASS
+rootfd-close-range: stat_ok=8 stat_fail=0 range_ok=500 range_fail=0
+path-race: PASS，toggles=60000 operations=212050
+```
+
+**FACT**：同一干净树现在可以完整跨过 `adb shell` 路径边界；不再把
+`files/clean-audio-344/*` 当成 `run-as` 当前目录下的相对路径。
+
+**UNVERIFIED**：`coverage-sweep` 因缺少 `strace` 被明确跳过，不能算通过；
+A-hw、音频、相机、GPU 与宿主 X11 需在后续步骤单独复跑。
 
