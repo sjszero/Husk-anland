@@ -14,7 +14,7 @@
 //! Keeping the two apart is the whole point: a camera that exists but that
 //! Husk does not bridge yet must read `present=yes husk=absent`, never `ready`.
 //! The matrix is written to `files/husk-capabilities.txt` and mirrored into the
-//! guest at `rootfs-full/run/husk/capabilities.txt` so both sides read one file.
+//! active guest at `run/husk/capabilities.txt` so both sides read one file.
 //!
 //! No Java class of ours, no dex: every call below targets a platform class.
 
@@ -586,12 +586,16 @@ fn probe_all() {
     } else {
         crate::log(&format!("caps|WROTE|{}", canonical.display()));
     }
-    let guest = files.join("rootfs-full/run/husk/capabilities.txt");
-    if let Some(parent) = guest.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    if let Err(e) = std::fs::write(&guest, rendered.as_bytes()) {
-        crate::log(&format!("caps|WARN|write {}: {e}", guest.display()));
+    match crate::guest_rootfs::resolve_path(&files, "run/husk/capabilities.txt") {
+        Ok(guest) => {
+            if let Some(parent) = guest.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Err(e) = std::fs::write(&guest, rendered.as_bytes()) {
+                crate::log(&format!("caps|WARN|write {}: {e}", guest.display()));
+            }
+        }
+        Err(e) => crate::log(&format!("caps|WARN|guest mirror: {e}")),
     }
 }
 

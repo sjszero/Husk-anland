@@ -170,9 +170,11 @@ fn marker_present(files: &Path) -> bool {
 }
 
 fn accept_client(files: &Path, stop: &AtomicBool) -> Result<(UnixListener, UnixStream), String> {
-    let dir = files.join("rootfs-full/run/husk");
-    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
-    let path = dir.join("video-ahb.sock");
+    let path = crate::guest_rootfs::resolve_path(files, "run/husk/video-ahb.sock")?;
+    let dir = path
+        .parent()
+        .ok_or_else(|| format!("no parent for {}", path.display()))?;
+    std::fs::create_dir_all(dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
     let _ = std::fs::remove_file(&path);
     let listener =
         UnixListener::bind(&path).map_err(|e| format!("bind {}: {e}", path.display()))?;
@@ -260,7 +262,7 @@ fn worker(
     let mut present_fail_count = 0u64;
     let outcome = (|| -> Result<(), String> {
         let (listener, mut stream) = accept_client(&files, &stop)?;
-        let path = files.join("rootfs-full/run/husk/video-ahb.sock");
+        let path = crate::guest_rootfs::resolve_path(&files, "run/husk/video-ahb.sock")?;
         loop {
             if stop.load(Ordering::Acquire) || !marker_present(&files) {
                 break;

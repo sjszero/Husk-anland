@@ -16,6 +16,14 @@ if grep -R -n 'linux/distributions/ubuntu-24.04/rootfs' app-rs/src >/dev/null 2>
     exit 1
 fi
 
+# Regression H35: only the selector may know the current/legacy tree names.
+# A bridge that joins "rootfs-full/..." directly starts the session but writes
+# its socket or marker under the wrong tree when the active tree is legacy.
+if grep -R -nE '(\.join\("rootfs-(full)?[^" ]*"|const [A-Z_]+: &str = "rootfs-)' app-rs/src     | grep -v 'app-rs/src/guest_rootfs.rs' >/dev/null 2>&1; then
+    echo "rootfs selection: FAIL (bridge hardcodes an install-tree name)" >&2
+    exit 1
+fi
+
 # Executable device-test defaults must point at the same mutable runtime tree as
 # the app. The stock-package staging path remains available as an explicit
 # override, but it must not be the silent default.

@@ -12,7 +12,7 @@
 //! Annex-B access units back. No software encoder anywhere: if MediaCodec
 //! cannot open the codec, the session fails loudly.
 //!
-//! Protocol on `rootfs-full/run/husk/encoder.sock` (one client):
+//! Protocol on `<active-rootfs>/run/husk/encoder.sock` (one client):
 //!
 //!   INFO                              -> ENC avc=<0|1> hevc=<0|1>\nOK\n
 //!   OPEN w=640 h=480 fps=15 kbps=2000 codec=avc
@@ -40,9 +40,9 @@ const FLAG_END_OF_STREAM: u32 = 4;
 
 const COLOR_FormatYUV420SemiPlanar: i32 = 21;
 
-const ENCODER_SOCKET: &str = "rootfs-full/run/husk/encoder.sock";
+const ENCODER_SOCKET: &str = "run/husk/encoder.sock";
 const ENCODER_MARKER: &str = "encoder";
-const ENCODER_GUEST_MARKER: &str = "rootfs-full/tmp/husk-encoder/enabled";
+const ENCODER_GUEST_MARKER: &str = "tmp/husk-encoder/enabled";
 
 static STARTED: AtomicBool = AtomicBool::new(false);
 
@@ -190,15 +190,22 @@ fn run() {
         crate::log("encoder|SKIP|no files dir");
         return;
     };
+    let rootfs = match crate::guest_rootfs::resolve(&files) {
+        Ok(rootfs) => rootfs,
+        Err(e) => {
+            crate::log(&format!("encoder|SKIP|{e}"));
+            return;
+        }
+    };
     let marker = files.join(ENCODER_MARKER);
-    let guest_marker = files.join(ENCODER_GUEST_MARKER);
+    let guest_marker = rootfs.join(ENCODER_GUEST_MARKER);
     let enabled = || marker.exists() || guest_marker.exists();
     loop {
         if !enabled() {
             std::thread::sleep(std::time::Duration::from_millis(500));
             continue;
         }
-        let path = files.join(ENCODER_SOCKET);
+        let path = rootfs.join(ENCODER_SOCKET);
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }

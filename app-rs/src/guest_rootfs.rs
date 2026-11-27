@@ -22,6 +22,21 @@ pub(crate) fn resolve(files: &Path) -> Result<PathBuf, String> {
     ))
 }
 
+/// Resolve a guest-relative transport/marker path under the active rootfs.
+/// App-side bridges must use this instead of spelling the current install-tree
+/// name, otherwise a legacy or switched tree starts the session but leaves the
+/// hardware sockets under a different directory.
+pub(crate) fn resolve_path(files: &Path, guest_relative: &str) -> Result<PathBuf, String> {
+    let relative = Path::new(guest_relative);
+    if relative.is_absolute() {
+        return Err(format!(
+            "guest path must be rootfs-relative, got {}",
+            relative.display()
+        ));
+    }
+    Ok(resolve(files)?.join(relative))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,6 +84,20 @@ mod tests {
         let err = resolve(&files).unwrap_err();
         assert!(err.contains("rootfs-full/"), "{err}");
         assert!(err.contains("rootfs/"), "{err}");
+        std::fs::remove_dir_all(files).unwrap();
+    }
+
+    #[test]
+    fn guest_path_follows_the_active_tree() {
+        let files = temp_files();
+        std::fs::create_dir_all(files.join(LEGACY)).unwrap();
+        assert_eq!(
+            resolve_path(&files, "run/husk/input.sock").unwrap(),
+            std::fs::canonicalize(files.join(LEGACY))
+                .unwrap()
+                .join("run/husk/input.sock")
+        );
+        assert!(resolve_path(&files, "/run/husk/input.sock").is_err());
         std::fs::remove_dir_all(files).unwrap();
     }
 }

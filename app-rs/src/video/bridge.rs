@@ -1010,9 +1010,16 @@ fn serve() {
     // primitive words plus the dlopen handle, and this loop runs at most a
     // couple of times per process.
     let api: &'static Api = Box::leak(Box::new(api));
+    let rootfs = match crate::guest_rootfs::resolve(&files) {
+        Ok(rootfs) => rootfs,
+        Err(e) => {
+            sequence_log(&files, &format!("video|bridge|SKIP|{e}"));
+            return;
+        }
+    };
     sequence_log(&files, "video|bridge|API|libmediandk.so");
     let marker = files.join("video-bridge");
-    let guest_marker = files.join("rootfs-full/run/husk/enabled");
+    let guest_marker = rootfs.join("run/husk/enabled");
     let enabled = || marker.exists() || guest_marker.exists();
     let mut announced_wait = false;
     loop {
@@ -1032,11 +1039,11 @@ fn serve() {
             continue;
         }
         announced_wait = false;
-        // Keep the control socket inside the guest-visible rootfs. If the
-        // socket stayed under `files/`, a guest rooted at `rootfs-full` could
-        // only reach it by disabling root isolation (`NR_ROOTFS=/`), which is
-        // not a valid product path.
-        let path = files.join("rootfs-full/run/husk/video.sock");
+        // Keep the control socket inside the guest-visible active rootfs. If
+        // the socket stayed under `files/`, the guest could only reach it by
+        // disabling root isolation (`NR_ROOTFS=/`), which is not a valid
+        // product path.
+        let path = rootfs.join("run/husk/video.sock");
         if let Some(parent) = path.parent() {
             if let Err(e) = std::fs::create_dir_all(parent) {
                 sequence_log(&files, &format!("video|bridge|FAIL|mkdir {e}"));

@@ -6,7 +6,7 @@
 //! no input, clipboard, or video channel is reused.
 //!
 //! The bridge is deliberately gated by `files/audio-bridge` or the guest-side
-//! `rootfs-full/tmp/husk-pulse/enabled` marker: a normal app launch never
+//! `<active-rootfs>/tmp/husk-pulse/enabled` marker: a normal app launch never
 //! opens an audio stream. Guests opt in through Rust `audio-setup --enable` and
 //! connect to `files/audio-bridge.sock`.
 
@@ -872,8 +872,15 @@ fn serve() {
     let api = Arc::new(api);
     crate::log("audio|bridge|API|libaaudio.so");
 
+    let rootfs = match crate::guest_rootfs::resolve(&files) {
+        Ok(rootfs) => rootfs,
+        Err(e) => {
+            crate::log(&format!("audio|bridge|SKIP|{e}"));
+            return;
+        }
+    };
     let marker = files.join("audio-bridge");
-    let guest_marker = files.join("rootfs-full/tmp/husk-pulse/enabled");
+    let guest_marker = rootfs.join("tmp/husk-pulse/enabled");
     let enabled = || marker.exists() || guest_marker.exists();
     let mut announced_wait = false;
     loop {
@@ -891,13 +898,14 @@ fn serve() {
         }
         announced_wait = false;
         // Two listeners, same protocol. `files/audio-bridge.sock` keeps the old
-        // host-side scripts working; `rootfs-full/run/husk/audio-out.sock` is the
-        // one a guest binary can actually open, because the path shim resolves
-        // absolute paths inside the guest root (a socket outside the rootfs is
-        // invisible to `audio-relay`). Same rule the capture socket follows.
+        // host-side scripts working; the active rootfs's
+        // `run/husk/audio-out.sock` is the one a guest binary can actually open,
+        // because the path shim resolves absolute paths inside the guest root
+        // (a socket outside the rootfs is invisible to `audio-relay`). Same
+        // rule the capture socket follows.
         let paths = [
             files.join("audio-bridge.sock"),
-            files.join("rootfs-full/run/husk/audio-out.sock"),
+            rootfs.join("run/husk/audio-out.sock"),
         ];
         let mut listeners = Vec::new();
         for path in &paths {
@@ -965,9 +973,9 @@ pub fn start_once() {
 // channel from ever being confused with playback.
 // ---------------------------------------------------------------------------
 
-const CAPTURE_SOCKET: &str = "rootfs-full/run/husk/audio-in.sock";
+const CAPTURE_SOCKET: &str = "run/husk/audio-in.sock";
 const CAPTURE_MARKER: &str = "audio-in";
-const CAPTURE_GUEST_MARKER: &str = "rootfs-full/tmp/husk-pulse/enabled-in";
+const CAPTURE_GUEST_MARKER: &str = "tmp/husk-pulse/enabled-in";
 const CAPTURE_READ_TIMEOUT_NS: i64 = 1_000_000_000;
 
 struct CaptureStream {
@@ -1205,8 +1213,15 @@ fn serve_capture() {
         return;
     };
     let api = Arc::new(api);
+    let rootfs = match crate::guest_rootfs::resolve(&files) {
+        Ok(rootfs) => rootfs,
+        Err(e) => {
+            crate::log(&format!("audio|capture|SKIP|{e}"));
+            return;
+        }
+    };
     let marker = files.join(CAPTURE_MARKER);
-    let guest_marker = files.join(CAPTURE_GUEST_MARKER);
+    let guest_marker = rootfs.join(CAPTURE_GUEST_MARKER);
     let enabled = || marker.exists() || guest_marker.exists();
     let mut announced_wait = false;
     loop {
@@ -1223,7 +1238,7 @@ fn serve_capture() {
             continue;
         }
         announced_wait = false;
-        let path = files.join(CAPTURE_SOCKET);
+        let path = rootfs.join(CAPTURE_SOCKET);
         if let Some(parent) = path.parent() {
             if let Err(e) = std::fs::create_dir_all(parent) {
                 crate::log(&format!("audio|capture|FAIL|mkdir {e}"));

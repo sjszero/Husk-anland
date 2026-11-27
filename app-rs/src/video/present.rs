@@ -445,7 +445,9 @@ impl Drop for Presenter {
 }
 
 pub(super) fn enabled(files: &Path) -> bool {
-    files.join("rootfs-full/run/husk/present").exists()
+    crate::guest_rootfs::resolve_path(files, "run/husk/present")
+        .map(|path| path.exists())
+        .unwrap_or(false)
 }
 
 pub(super) fn wait_available(files: &Path, buffer: *mut c_void, timeout: Duration) -> bool {

@@ -8,7 +8,7 @@
 //! forwarding raw multi-touch. That is the contract this module implements, so
 //! the guest only ever needs two boring evdev devices (pointer + keyboard).
 //!
-//! Transport: `rootfs-full/run/husk/input.sock`. On connect the app sends one
+//! Transport: `<active-rootfs>/run/husk/input.sock`. On connect the app sends one
 //! text header (`INPUT w=<px> h=<px> max=32767\n`), then a stream of 24-byte
 //! `struct input_event` records — the kernel ABI, not a private format, so the
 //! guest side can either decode them itself or replay them into a FIFO that
@@ -18,9 +18,9 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Mutex;
 
-const INPUT_SOCKET: &str = "rootfs-full/run/husk/input.sock";
+const INPUT_SOCKET: &str = "run/husk/input.sock";
 const INPUT_MARKER: &str = "input";
-const INPUT_GUEST_MARKER: &str = "rootfs-full/tmp/husk-input/enabled";
+const INPUT_GUEST_MARKER: &str = "tmp/husk-input/enabled";
 
 // evdev
 const EV_SYN: u16 = 0;
@@ -105,8 +105,15 @@ fn run(rx: Receiver<Vec<u8>>) {
         crate::log("input|SKIP|no files dir");
         return;
     };
+    let rootfs = match crate::guest_rootfs::resolve(&files) {
+        Ok(rootfs) => rootfs,
+        Err(e) => {
+            crate::log(&format!("input|SKIP|{e}"));
+            return;
+        }
+    };
     let marker = files.join(INPUT_MARKER);
-    let guest_marker = files.join(INPUT_GUEST_MARKER);
+    let guest_marker = rootfs.join(INPUT_GUEST_MARKER);
     let enabled = || marker.exists() || guest_marker.exists();
     let (w0, h0) = surface_size();
     crate::log(&format!("input|surface|{w0}x{h0}"));
@@ -115,7 +122,7 @@ fn run(rx: Receiver<Vec<u8>>) {
             std::thread::sleep(std::time::Duration::from_millis(500));
             continue;
         }
-        let path = files.join(INPUT_SOCKET);
+        let path = rootfs.join(INPUT_SOCKET);
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
