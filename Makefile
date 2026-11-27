@@ -282,14 +282,15 @@ gate-a:
 		LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/14-gate-a-acceptance.sh
 	sh tools/probe/run-coverage-probe.sh "$${DEV}" "$${ROOTFS:-}" "$${LD:-}"
-	sh tools/probe/coverage-sweep.sh "$${DEV}"
+	ROOTFS=$${ROOTFS:-files/rootfs-full} LD=$${LD:-files/linux/husk/libld.so} \
+		sh tools/probe/coverage-sweep.sh "$${DEV}"
 	sh tools/device-tests/run-dpkg-conffile-mode-probe.sh "$${DEV}"
 	sh tools/device-tests/run-v4l2-ref-probe.sh "$${DEV}"
 	sh tools/device-tests/run-drm-fd-probe.sh "$${DEV}"
 	sh tools/device-tests/run-fd-identity-probe.sh "$${DEV}"
 	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.husk} \
 		ROOTFS=$${ROOTFS:-files/rootfs-full} LD=$${LD:-files/linux/husk/libld.so} \
-		sh tools/device-tests/run-guest.sh audit-supplementary-groups.sh
+		sh tools/device-tests/run-supplementary-groups-probe.sh
 	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.husk} \
 		ROOTFS=$${ROOTFS:-files/rootfs-full} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-session-locale-probe.sh

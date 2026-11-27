@@ -13,6 +13,12 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 BENCH_ROOT=$HERE
 export BENCH_ROOT
 . "$HERE/lib/runner.sh"
+REPO_ROOT=$(cd "$HERE/../.." && pwd)
+HUSK_TOOLS=${HUSK_TOOLS:-$REPO_ROOT/runtime/target/debug/husk-tools}
+[ -x "$HUSK_TOOLS" ] || {
+  echo "run-all: missing $HUSK_TOOLS (run make tools)" >&2
+  exit 1
+}
 
 RUNNER=${1:?usage: run-all.sh <husk|proot|proot-distro> [reps]}
 REPS=${2:-$REPS}
@@ -24,9 +30,9 @@ baseline_ms() {
   i=0
   while [ $i -lt "$REPS" ]; do
     i=$((i+1))
-    t0=$(python3 -c 'import time;print(int(time.time()*1000))')
+    t0=$("$HUSK_TOOLS" now-ms)
     adb -s "$DEV" shell "run-as $PKG /system/bin/true" >/dev/null 2>&1
-    t1=$(python3 -c 'import time;print(int(time.time()*1000))')
+    t1=$("$HUSK_TOOLS" now-ms)
     echo $((t1 - t0))
   done
 }
@@ -41,9 +47,9 @@ baseline_ms() {
   i=0
   while [ $i -lt "$REPS" ]; do
     i=$((i+1))
-    t0=$(python3 -c 'import time;print(int(time.time()*1000))')
+    t0=$("$HUSK_TOOLS" now-ms)
     run_with "$RUNNER" '/bin/true' >/dev/null 2>&1 || echo "  cold_start failure"
-    t1=$(python3 -c 'import time;print(int(time.time()*1000))')
+    t1=$("$HUSK_TOOLS" now-ms)
     echo $((t1 - t0))
   done
 
@@ -64,25 +70,4 @@ baseline_ms() {
 } > "$OUT" 2>&1
 
 echo "raw: $OUT"
-python3 - "$OUT" <<'PY'
-import statistics, sys, collections
-path = sys.argv[1]
-reps = collections.defaultdict(list)
-mode = None
-for line in open(path, encoding="utf-8", errors="replace"):
-    line = line.rstrip("\n")
-    if line.startswith("## "):
-        mode = line[3:].split()[0]
-        continue
-    if mode == "cold_start_ms":
-        try: reps["cold_start_ms"].append(float(line.split()[0]))
-        except Exception: pass
-    if mode == "measure" and "\t" in line and not line.startswith("#"):
-        k, v = line.split("\t")[:2]
-        try: reps[k].append(float(v))
-        except Exception: pass
-print(f"{'item':22s} {'median':>9s} {'min':>9s} {'max':>9s}  n")
-for k, v in reps.items():
-    if len(v) < 1: continue
-    print(f"{k:22s} {statistics.median(v):9.1f} {min(v):9.1f} {max(v):9.1f}  {len(v)}")
-PY
+"$HUSK_TOOLS" bench-summarize "$OUT"

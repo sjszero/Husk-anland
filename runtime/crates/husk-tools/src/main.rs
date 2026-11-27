@@ -6,6 +6,9 @@
 //!   husk-tools bench-summarize <glob|log>.. per-file median / min / max table
 //!   husk-tools bench-compare <h> <p> <d>    the eight-dimension comparison table
 //!   husk-tools screenshot-audit <raw>       reject black/large-missing raw screenshots
+//!   husk-tools strace-path-candidates <dir> <rootfs>
+//!                                             extract unresolved absolute guest paths
+//!   husk-tools now-ms                       Unix epoch milliseconds
 //!
 //! No external crates: these run on the host (macOS or Linux) with nothing but
 //! `git` on PATH.
@@ -22,14 +25,29 @@ fn main() {
         Some("bench-summarize") => bench::summarize(&args[1..]),
         Some("bench-compare") => bench::compare(&args[1..]),
         Some("screenshot-audit") => screenshot_audit::run(&args[1..]),
+        Some("strace-path-candidates") => strace_paths::run(&args[1..]),
+        Some("now-ms") => now_ms(),
         _ => {
             eprintln!(
-                "usage: husk-tools <check-links | bench-summarize <glob>.. | bench-compare <husk.log> <proot.log> <proot-distro.log> | screenshot-audit <raw>>"
+                "usage: husk-tools <check-links | bench-summarize <glob>.. | bench-compare <husk.log> <proot.log> <proot-distro.log> | screenshot-audit <raw> | strace-path-candidates <out-dir> <rootfs> | now-ms>"
             );
             2
         }
     };
     std::process::exit(code);
+}
+
+fn now_ms() -> i32 {
+    match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        Ok(elapsed) => {
+            println!("{}", elapsed.as_millis());
+            0
+        }
+        Err(err) => {
+            eprintln!("now-ms: system clock is before Unix epoch: {err}");
+            1
+        }
+    }
 }
 
 // ---------------------------------------------------------------- link gate
@@ -250,10 +268,24 @@ mod bench {
             Err(_) => return Vec::new(),
         };
         let mut blocks: Vec<Vec<(String, f64)>> = Vec::new();
+        let mut section = "";
         for line in body.lines() {
             if line.starts_with('#') {
-                if line.starts_with("#rep") {
+                if line.starts_with("## ") {
+                    section = line[3..].split_whitespace().next().unwrap_or("");
                     blocks.push(Vec::new());
+                } else if line.starts_with("#rep") {
+                    blocks.push(Vec::new());
+                }
+                continue;
+            }
+            if section == "cold_start_ms" {
+                if let Some(value) = line.split_whitespace().next() {
+                    if let Ok(value) = value.parse::<f64>() {
+                        if let Some(block) = blocks.last_mut() {
+                            block.push(("cold_start_ms".to_string(), value));
+                        }
+                    }
                 }
                 continue;
             }
@@ -275,6 +307,36 @@ mod bench {
             }
         }
         blocks
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn reads_plain_cold_start_and_tab_separated_samples() {
+            let path = env::temp_dir().join(format!(
+                "husk-bench-summary-{}-{}.log",
+                std::process::id(),
+                std::thread::current().name().unwrap_or("main")
+            ));
+            fs::write(
+                &path,
+                "## cold_start_ms\n100\n90\n## measure\n#rep 1\nstat\t12\n#rep 2\nstat\t10\n",
+            )
+            .unwrap();
+            let blocks = read_blocks(&path);
+            assert_eq!(
+                blocks[0],
+                vec![
+                    ("cold_start_ms".to_string(), 100.0),
+                    ("cold_start_ms".to_string(), 90.0)
+                ]
+            );
+            assert_eq!(blocks[2], vec![("stat".to_string(), 12.0)]);
+            assert_eq!(blocks[3], vec![("stat".to_string(), 10.0)]);
+            fs::remove_file(path).unwrap();
+        }
     }
 
     fn median(values: &[f64]) -> f64 {
@@ -578,6 +640,122 @@ mod bench {
             );
         }
         0
+    }
+}
+
+// ------------------------------------------------------- coverage-sweep paths
+
+mod strace_paths {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    fn paths_in_line(line: &str, rootfs: &str) -> Vec<String> {
+        // `execve` prints the argv array after `[`. Arguments are not syscall
+        // path operands and used to create false positives for interpreter paths.
+        let syscall = line.split_once('[').map_or(line, |(head, _)| head);
+        syscall
+            .split('"')
+            .enumerate()
+            .filter_map(|(index, value)| {
+                (index % 2 == 1 && value.starts_with('/') && !value.starts_with(rootfs))
+                    .then(|| value.to_string())
+            })
+            .collect()
+    }
+
+    fn collect(out_dir: &Path, rootfs: &str) -> Result<Vec<String>, String> {
+        let mut logs = fs::read_dir(out_dir)
+            .map_err(|err| format!("read {}: {err}", out_dir.display()))?
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                entry
+                    .file_type()
+                    .map(|kind| kind.is_file())
+                    .unwrap_or(false)
+            })
+            .map(|entry| entry.path())
+            .filter(|path| {
+                let name = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("");
+                name.starts_with("cov-") && name.ends_with(".log")
+            })
+            .collect::<Vec<_>>();
+        logs.sort();
+
+        let mut seen = BTreeSet::new();
+        for path in logs {
+            let bytes = fs::read(&path).map_err(|err| format!("read {}: {err}", path.display()))?;
+            let body = String::from_utf8_lossy(&bytes);
+            for line in body.lines() {
+                seen.extend(paths_in_line(line, rootfs));
+            }
+        }
+        Ok(seen.into_iter().collect())
+    }
+
+    pub fn run(args: &[String]) -> i32 {
+        if args.len() != 2 {
+            eprintln!("usage: husk-tools strace-path-candidates <out-dir> <rootfs>");
+            return 2;
+        }
+        match collect(Path::new(&args[0]), &args[1]) {
+            Ok(paths) => {
+                for path in paths {
+                    println!("{path}");
+                }
+                0
+            }
+            Err(err) => {
+                eprintln!("strace-path-candidates: {err}");
+                1
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn extracts_quoted_paths_and_ignores_exec_argv() {
+            let line = r#"openat(AT_FDCWD, "/etc/passwd", O_RDONLY) = 3"#;
+            assert_eq!(paths_in_line(line, "/rootfs"), vec!["/etc/passwd"]);
+
+            let line = r#"execve("/usr/bin/ls", ["/usr/bin/ls", "/etc/passwd"], 0x0) = 0"#;
+            assert_eq!(paths_in_line(line, "/rootfs"), vec!["/usr/bin/ls"]);
+        }
+
+        #[test]
+        fn filters_translated_paths_and_requires_absolute_operands() {
+            let line = r#"openat(AT_FDCWD, "/rootfs/etc/passwd", O_RDONLY) = 3"#;
+            assert!(paths_in_line(line, "/rootfs").is_empty());
+            let line = r#"openat(AT_FDCWD, "relative/path", O_RDONLY) = 3"#;
+            assert!(paths_in_line(line, "/rootfs").is_empty());
+        }
+
+        #[test]
+        fn collect_sorts_and_deduplicates_logs() {
+            let dir = env::temp_dir().join(format!("husk-strace-paths-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(
+                dir.join("cov-2.log"),
+                "openat(AT_FDCWD, \"/etc/passwd\", O_RDONLY) = 3\n",
+            )
+            .unwrap();
+            fs::write(
+                dir.join("cov-1.log"),
+                "stat(\"/etc/passwd\") = 0\nstat(\"/usr/lib\") = 0\n",
+            )
+            .unwrap();
+            fs::write(dir.join("ignored.log"), "stat(\"/ignored\") = 0\n").unwrap();
+
+            let paths = collect(&dir, "/rootfs").unwrap();
+            assert_eq!(paths, vec!["/etc/passwd", "/usr/lib"]);
+            fs::remove_dir_all(dir).unwrap();
+        }
     }
 }
 

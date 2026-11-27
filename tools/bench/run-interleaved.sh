@@ -19,13 +19,19 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 BENCH_ROOT=$HERE
 export BENCH_ROOT
 . "$HERE/lib/runner.sh"
+REPO_ROOT=$(cd "$HERE/../.." && pwd)
+HUSK_TOOLS=${HUSK_TOOLS:-$REPO_ROOT/runtime/target/debug/husk-tools}
+[ -x "$HUSK_TOOLS" ] || {
+  echo "run-interleaved: missing $HUSK_TOOLS (run make tools)" >&2
+  exit 1
+}
 
 REPS=${1:-$REPS}
 RUNNERS=${2:-husk proot proot-distro}
 DATE=$(date +%Y%m%d-%H%M)
 OUTDIR=$(cd "$HERE/../.." && pwd)/docs/design/evidence
 
-ms() { python3 -c 'import time;print(int(time.time()*1000))'; }
+ms() { "$HUSK_TOOLS" now-ms; }
 
 # Thermal max + battery, so "same conditions" is a measurement and not a claim.
 state() {
@@ -70,19 +76,5 @@ done
 
 for r in $RUNNERS; do
   echo "=== $r"
-  python3 - "$OUTDIR/bench-$r-$DATE-il.log" <<'PY'
-import statistics, sys, collections
-path = sys.argv[1]
-reps = collections.defaultdict(list)
-for line in open(path, encoding="utf-8", errors="replace"):
-    line = line.rstrip("\n")
-    if "\t" not in line or line.startswith("#"):
-        continue
-    k, v = line.split("\t")[:2]
-    try: reps[k].append(float(v))
-    except Exception: pass
-print(f"{'item':22s} {'median':>9s} {'min':>9s} {'max':>9s}  n")
-for k, v in reps.items():
-    print(f"{k:22s} {statistics.median(v):9.1f} {min(v):9.1f} {max(v):9.1f}  {len(v)}")
-PY
+  "$HUSK_TOOLS" bench-summarize "$OUTDIR/bench-$r-$DATE-il.log"
 done

@@ -15,10 +15,28 @@ set -eu
 DEV=${1:?device serial}; shift || true
 PKG=${PKG:-com.linuxhub.husk}
 APPDIR=${APPDIR:-/data/data/$PKG/files/linux}
-ROOTFS=${ROOTFS:-$APPDIR/distributions/ubuntu-24.04/rootfs}
+ROOTFS=${ROOTFS:-$APPDIR/../rootfs-full}
 LD=${LD:-$APPDIR/husk/libld.so}
 SESS=${SESS:-/data/local/tmp/husk-session.sh}
 OUT=${OUT:-/tmp/husk-sweep}
+HERE=$(cd "$(dirname "$0")" && pwd)
+REPO_ROOT=$(cd "$HERE/../.." && pwd)
+HUSK_TOOLS=${HUSK_TOOLS:-$REPO_ROOT/runtime/target/debug/husk-tools}
+[ -x "$HUSK_TOOLS" ] || {
+    echo "--- coverage-sweep: FAIL (missing $HUSK_TOOLS; run make tools)" >&2
+    exit 1
+}
+
+device_path() {
+    case "$1" in
+        /*) printf '%s\n' "$1" ;;
+        files/linux/*) printf '%s/%s\n' "$APPDIR" "${1#files/linux/}" ;;
+        files/rootfs-full|files/rootfs) printf '/data/data/%s/%s\n' "$PKG" "$1" ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+ROOTFS=$(device_path "$ROOTFS")
+LD=$(device_path "$LD")
 mkdir -p "$OUT"
 
 if [ $# -eq 0 ]; then
@@ -45,26 +63,7 @@ for w in "$@"; do
     echo "   拉到 $(wc -l < "$OUT/cov-$i.log" | tr -d ' ') 行"
 done
 
-python3 - "$OUT" "$ROOTFS" <<'PY' > "$OUT/candidates.txt"
-import os, sys
-out, rootfs = sys.argv[1], sys.argv[2]
-seen = set()
-for name in sorted(os.listdir(out)):
-    if not name.startswith('cov-') or not name.endswith('.log'):
-        continue
-    for line in open(os.path.join(out, name), errors='replace'):
-        # execve 的 argv 数组里也会出现路径（那是程序自己的参数，不是系统调用的路径实参），
-        # 先把数组部分切掉，免得把 "/usr/bin/python3" 这种当成漏网。
-        line = line.split('[', 1)[0]
-        # strace 把每个路径都放在双引号里；按引号切分比正则稳（转义层数太多容易写错）
-        parts = line.split('"')
-        for idx in range(1, len(parts), 2):
-            p = parts[idx]
-            if p.startswith('/') and not p.startswith(rootfs):
-                seen.add(p)
-for p in sorted(seen):
-    print(p)
-PY
+"$HUSK_TOOLS" strace-path-candidates "$OUT" "$ROOTFS" > "$OUT/candidates.txt"
 echo "== 候选路径 $(wc -l < "$OUT/candidates.txt" | tr -d ' ') 条，去设备上判「guest 里到底有没有」"
 adb -s "$DEV" push "$OUT/candidates.txt" /data/local/tmp/husk-candidates.txt >/dev/null
 adbs "run-as $PKG sh -c 'while IFS= read -r p; do [ -e \"$ROOTFS\$p\" ] && echo \"\$p\"; done < /data/local/tmp/husk-candidates.txt'" > "$OUT/leaks.txt" 2>/dev/null || true

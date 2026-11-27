@@ -11,7 +11,7 @@ set -eu
 DEV=${1:?device serial}
 PKG=${PKG:-com.linuxhub.husk}
 APPDIR=${APPDIR:-/data/data/$PKG/files/linux}
-ROOTFS=${ROOTFS:-$APPDIR/distributions/ubuntu-24.04/rootfs}
+ROOTFS=${ROOTFS:-$APPDIR/../rootfs-full}
 LD=${LD:-$APPDIR/husk/libld.so}
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$HERE/../.." && pwd)
