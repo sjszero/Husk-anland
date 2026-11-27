@@ -63,6 +63,15 @@ rootfd-close-range: PASS
 path-race: PASS
 ```
 
+第一次 `make gate-a` 并不绿：结果为 `PASS=34 FAIL=2`。其中
+`apt-get -s` 因当前设备树缺少 `libpam-modules-bin` 和 `libsmartcols1` 返回
+`rc=100`，`/data/user` 则是此前旧会话留下的 Mesa shader cache。为避免把旧状态
+当成运行时通过：
+
+- 只在这台测试设备的 `files/rootfs-full` 中安装了这两个已由 apt 索引确认的包；
+- 只删除了该 rootfs 下旧的 `data/user/0/com.linuxhub.husk/.cache/mesa_shader_cache`；
+- 然后重新跑门禁，得到上面的 `38/0`；这不是源码仓库已自动修复这两个环境状态。
+
 supplementary-group 的真机关键输出：
 
 ```text
