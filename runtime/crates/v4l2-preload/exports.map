@@ -7,14 +7,15 @@ GLIBC_2.17 {
   global:
     open; open64; openat; openat64;
     __open_2; __open64_2; __openat_2; __openat64_2;
-    ioctl; mmap; mmap64; close; fcntl; access;
-    stat; lstat; fstatat;
+    ioctl; mmap; mmap64; close; fcntl; epoll_ctl; access;
+    read; readv; stat; lstat; fstat; fstatat;
     v4l2_open; v4l2_fd_open; v4l2_ioctl; v4l2_read; v4l2_mmap; v4l2_munmap;
     v4l2_close; v4l2_dup;
     husk_v4l2_open; husk_v4l2_ioctl; husk_v4l2_mmap; husk_v4l2_is_fake;
-    husk_v4l2_close; husk_v4l2_nonblock;
+    husk_v4l2_close; husk_v4l2_nonblock; husk_v4l2_forget_target;
+    husk_v4l2_read; husk_v4l2_readv; husk_v4l2_fstat;
 };
 
 GLIBC_2.33 {
-  global: stat64; lstat64; statx;
+  global: stat64; lstat64; statx; fstat64;
 } GLIBC_2.17;

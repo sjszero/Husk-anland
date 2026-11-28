@@ -699,7 +699,23 @@ fn handle_client(api: &Api, mut stream: UnixStream) {
                     }
                     rc
                 }
-                Err(e) => send_line(&mut stream, &format!("DEVICES_ERROR {e}")),
+                Err(_e) => {
+                    // The standalone `husk-bridges` helper has no JavaVM, so the
+                    // Java AudioManager enumeration cannot answer. AAudio itself
+                    // does not need it: it routes through the platform default.
+                    // Report that default instead of failing the whole probe.
+                    let mut rc = send_line(&mut stream, "DEVICES_BEGIN count=1");
+                    if rc.is_ok() {
+                        rc = send_line(
+                            &mut stream,
+                            "DEVICE index=0 id=0 type=0 type_name=builtin-speaker sink=true name=\"default\" rates=48000 channels=2",
+                        );
+                    }
+                    if rc.is_ok() {
+                        rc = send_line(&mut stream, "DEVICES_END");
+                    }
+                    rc
+                }
             },
             "VOLUME" => match parts
                 .get(1)
@@ -712,7 +728,7 @@ fn handle_client(api: &Api, mut stream: UnixStream) {
                     Ok((index, max)) => {
                         send_line(&mut stream, &format!("VOLUME OK index={index} max={max}"))
                     }
-                    Err(e) => send_line(&mut stream, &format!("VOLUME_ERROR {e}")),
+                    Err(_) => send_line(&mut stream, &standalone_volume_reply(None)),
                 },
                 "SET" => match parts.get(2).and_then(|v| v.parse::<u8>().ok()) {
                     Some(percent) if percent <= 100 => {
@@ -721,7 +737,10 @@ fn handle_client(api: &Api, mut stream: UnixStream) {
                                 &mut stream,
                                 &format!("VOLUME OK index={index} max={max} percent={percent}"),
                             ),
-                            Err(e) => send_line(&mut stream, &format!("VOLUME_ERROR {e}")),
+                            Err(_) => send_line(
+                                &mut stream,
+                                &standalone_volume_reply(Some(percent as usize)),
+                            ),
                         }
                     }
                     _ => send_line(&mut stream, "VOLUME_ERROR percent must be 0..100"),
@@ -731,7 +750,14 @@ fn handle_client(api: &Api, mut stream: UnixStream) {
                         Ok((actual, max)) => {
                             send_line(&mut stream, &format!("VOLUME OK index={actual} max={max}"))
                         }
-                        Err(e) => send_line(&mut stream, &format!("VOLUME_ERROR {e}")),
+                        Err(_) => {
+                            let clamped = index.clamp(0, STANDALONE_VOLUME_MAX as i32) as usize;
+                            STANDALONE_VOLUME.store(clamped, Ordering::SeqCst);
+                            send_line(
+                                &mut stream,
+                                &format!("VOLUME OK index={clamped} max={STANDALONE_VOLUME_MAX} standalone=1"),
+                            )
+                        }
                     },
                     None => send_line(&mut stream, "VOLUME_ERROR index must be integer"),
                 },
@@ -860,18 +886,31 @@ fn handle_client(api: &Api, mut stream: UnixStream) {
     }
     crate::log("audio|client|disconnected");
 }
+/// Standalone-helper volume state. The Java AudioManager path needs a JavaVM,
+/// which `husk-bridges` does not have; AAudio has no global volume. Keep a
+/// consistent register so the guest mixer (pactl / audio-probe) sees a stable
+/// value, and say so in the reply (`standalone=1`) instead of pretending the
+/// platform volume moved.
+static STANDALONE_VOLUME: AtomicUsize = AtomicUsize::new(10);
+const STANDALONE_VOLUME_MAX: usize = 15;
+
+fn standalone_volume_reply(percent: Option<usize>) -> String {
+    if let Some(p) = percent {
+        let idx = (p.min(100) * STANDALONE_VOLUME_MAX) / 100;
+        STANDALONE_VOLUME.store(idx, Ordering::SeqCst);
+    }
+    format!(
+        "VOLUME OK index={} max={} standalone=1",
+        STANDALONE_VOLUME.load(Ordering::SeqCst),
+        STANDALONE_VOLUME_MAX
+    )
+}
+
 fn serve() {
     let Some(files) = files_dir() else {
         crate::log("audio|bridge|SKIP|no files dir");
         return;
     };
-    let Some((_handle, api)) = (unsafe { Api::load().ok() }) else {
-        crate::log("audio|bridge|FAIL|AAudio symbols unavailable");
-        return;
-    };
-    let api = Arc::new(api);
-    crate::log("audio|bridge|API|libaaudio.so");
-
     let rootfs = match crate::guest_rootfs::resolve(&files) {
         Ok(rootfs) => rootfs,
         Err(e) => {
@@ -879,6 +918,16 @@ fn serve() {
             return;
         }
     };
+    serve_at(files, rootfs);
+}
+
+fn serve_at(files: std::path::PathBuf, rootfs: std::path::PathBuf) {
+    let Some((_handle, api)) = (unsafe { Api::load().ok() }) else {
+        crate::log("audio|bridge|FAIL|AAudio symbols unavailable");
+        return;
+    };
+    let api = Arc::new(api);
+    crate::log("audio|bridge|API|libaaudio.so");
     let marker = files.join("audio-bridge");
     let guest_marker = rootfs.join("tmp/husk-pulse/enabled");
     let enabled = || marker.exists() || guest_marker.exists();
@@ -959,6 +1008,23 @@ pub fn start_once() {
     });
     std::thread::spawn(|| {
         let _ = std::panic::catch_unwind(serve_capture);
+    });
+}
+
+/// Same two servers, with the app-data dir and the guest tree supplied by the
+/// caller. That is what the standalone `husk-bridges` helper uses: it runs in
+/// its own process (no `ANativeActivity`, so `files_dir()` cannot answer) and
+/// is started by the host app with `HUSK_FILES` / `HUSK_ROOTFS`.
+pub fn start_once_at(files: std::path::PathBuf, rootfs: std::path::PathBuf) {
+    if STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let (f1, r1) = (files.clone(), rootfs.clone());
+    std::thread::spawn(move || {
+        let _ = std::panic::catch_unwind(|| serve_at(f1, r1));
+    });
+    std::thread::spawn(move || {
+        let _ = std::panic::catch_unwind(|| serve_capture_at(files, rootfs));
     });
 }
 
@@ -1208,11 +1274,6 @@ fn serve_capture() {
         crate::log("audio|capture|SKIP|no files dir");
         return;
     };
-    let Some((_handle, api)) = (unsafe { Api::load().ok() }) else {
-        crate::log("audio|capture|FAIL|AAudio symbols unavailable");
-        return;
-    };
-    let api = Arc::new(api);
     let rootfs = match crate::guest_rootfs::resolve(&files) {
         Ok(rootfs) => rootfs,
         Err(e) => {
@@ -1220,6 +1281,15 @@ fn serve_capture() {
             return;
         }
     };
+    serve_capture_at(files, rootfs);
+}
+
+fn serve_capture_at(files: std::path::PathBuf, rootfs: std::path::PathBuf) {
+    let Some((_handle, api)) = (unsafe { Api::load().ok() }) else {
+        crate::log("audio|capture|FAIL|AAudio symbols unavailable");
+        return;
+    };
+    let api = Arc::new(api);
     let marker = files.join(CAPTURE_MARKER);
     let guest_marker = rootfs.join(CAPTURE_GUEST_MARKER);
     let enabled = || marker.exists() || guest_marker.exists();

@@ -1,0 +1,44 @@
+--- a/src/panfrost/lib/kmod/kbase_kmod.c
++++ b/src/panfrost/lib/kmod/kbase_kmod.c
+@@ -1315,16 +1315,32 @@
+    if (!is_csf)
+       kbase_probe_atom_stride(fd);
+ 
+-   /* Empirically, this Mali-G57 kbase JM backend needs ~2s of real
+-    * wall-clock time after context creation before the GPU power domain
+-    * is ready for job-slot submissions. Submitting before this elapses
+-    * reliably TERMINATES the first atom regardless of retry count or
+-    * backoff length (both were tested extensively and never helped).
+-    * Sleep once here, at context creation, instead of retrying the
+-    * first job. */
++   /* Empirically, SOME kbase JM devices (a Mali-G57 was the one this was
++    * found on) need ~2s of real wall-clock time after context creation
++    * before the GPU power domain is ready for job-slot submissions;
++    * submitting earlier reliably TERMINATED the first atom regardless of
++    * retry count or backoff length.
++    *
++    * It is not universal: a Mali-G77 MC9 (Android 13, kernel 4.19.191,
++    * RMX3357) renders bit-identical output without the warmup, while
++    * paying the two seconds twice per process (two contexts) on every
++    * GL/Vulkan start.  Upstream hardcoded 2s for every kbase device.
++    *
++    * Husk: make it configuration, not a hardcoded sleep.
++    *   PANVK_KBASE_WARMUP_MS=2000   devices that need it (Mali-G57 class)
++    *   PANVK_KBASE_WARMUP_MS=500    shorter warmup
++    *   unset / 0 / empty            no sleep (default)
++    *
++    * A plain getenv()/nanosleep() rather than os_get_option() keeps this
++    * file free of mesa util dependencies. */
+    if (!is_csf) {
+-      struct timespec warmup_ts = { .tv_sec = 2, .tv_nsec = 0 };
+-      nanosleep(&warmup_ts, NULL);
++      const char *warmup_env = getenv("PANVK_KBASE_WARMUP_MS");
++      long warmup_ms = warmup_env ? atol(warmup_env) : 0;
++      if (warmup_ms > 0) {
++         struct timespec warmup_ts = { .tv_sec = warmup_ms / 1000,
++                                       .tv_nsec = (warmup_ms % 1000) * 1000000L };
++         nanosleep(&warmup_ts, NULL);
++      }
+    }
+ 
+    /* Map the tracking page.  The kernel requires this before any memory

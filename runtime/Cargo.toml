@@ -10,6 +10,7 @@ members = [
     "crates/audio-capture-probe",
     "crates/location-probe",
     "crates/camera-client",
+    "crates/camera-v4l2-tree",
     "crates/capability-probe",
     "crates/guest-bench",
     "crates/drm-probe",

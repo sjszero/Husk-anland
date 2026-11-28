@@ -1,0 +1,4 @@
+w=1280 h=720
+frame-00.nv12 min=0 max=3 mean=0.334 p10=0 p50=0 p90=1 dark_lt10=100.00% bright_gt245=0.00%
+frame-01.nv12 min=0 max=2 mean=0.405 p10=0 p50=0 p90=1 dark_lt10=100.00% bright_gt245=0.00%
+frame-02.nv12 min=0 max=2 mean=0.410 p10=0 p50=0 p90=1 dark_lt10=100.00% bright_gt245=0.00%

@@ -1,5 +1,12 @@
 # 基准
 
+> **口径（2026-11-28）**：本文所有对比数字采于**旧宿主层**（`com.linuxhub.husk` 时期的运行
+> 载体）。方向可信（优势随路径/syscall 密度放大，大块 IO 上消失），但具体数值未经新宿主
+> `com.linuxhub.myth.husk` 重测，引用前请先重跑。复现命令默认的 `PKG` 是本仓库自带的终端
+> APK；在宿主 App 上复现需 `PKG=com.linuxhub.myth.husk`，安装树路径为
+> `files/linux/distributions/<发行版>/rootfs`。
+
+
 一台设备、一份 rootfs、三个运行器，只换运行器。下面每个数字都是同一台手机上 5 轮的
 中位数。
 

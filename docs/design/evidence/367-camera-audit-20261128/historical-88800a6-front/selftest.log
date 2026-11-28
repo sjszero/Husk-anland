@@ -1,0 +1,15 @@
+11-28 06:02:26.537  3143  6812 I Husk    : camera|looper|0xb4000073ccb2d500
+11-28 06:02:26.537  3143  6812 I Husk    : camera|manager|pointer-return-abi
+11-28 06:02:26.537  3143  6812 I Husk    : camera|manager|0xb4000073ccaae3b0|raw=0xb4000073ccaae3b0
+11-28 06:02:26.543  3143  6812 I Husk    : camera|list|id=0|facing=BACK|orientation=90|yuv=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720|n=16
+11-28 06:02:26.543  3143  6812 I Husk    : camera|list|id=1|facing=FRONT|orientation=270|yuv=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720|n=16
+11-28 06:02:26.543  3143  6812 I Husk    : camera|list|count=2
+11-28 06:02:26.544  3143  6812 I Husk    : camera|v4l2|tree|devices=2
+11-28 06:02:26.602  3143  6812 I Husk    : camera|session|open|id=1|1280x720|repeat_rc=0
+11-28 06:02:26.742  3143  6816 I Husk    : caps|camera|present=yes|husk=absent|backend=-|detail=ids=0,1 / husk: no camera path exists yet
+11-28 06:02:26.901  3143  6812 I Husk    : camera|selftest|frame=0|1280x720|bytes=1382400|min=0|max=128|mean=42.84|ts=10547081831000|saved=true
+11-28 06:02:26.954  3143  6812 I Husk    : camera|selftest|frame=1|1280x720|bytes=1382400|min=0|max=128|mean=42.70|ts=10547115153000|saved=true
+11-28 06:02:26.984  3143  6812 I Husk    : camera|selftest|frame=2|1280x720|bytes=1382400|min=0|max=128|mean=42.70|ts=10547148475000|saved=true
+11-28 06:02:26.984  3143  6812 I Husk    : camera|selftest|DONE|frames=3|fps=0.03|elapsed_ms=381
+11-28 06:02:27.089  3143  6812 I Husk    : camera|session|closed
+11-28 06:02:34.548  3143  6817 I Husk    : caps|camera|present=yes|husk=absent|backend=-|detail=ids=0,1 / husk: no camera path exists yet

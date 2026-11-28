@@ -72,7 +72,9 @@ FLAGS="-C linker=$NDK/bin/clang \
        -C link-arg=-L$GCCLIB \
        -C link-arg=-fuse-ld=$NDK/bin/ld.lld \
        -C link-arg=-Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 \
-       -C link-arg=-Wl,-z,max-page-size=65536"
+       -C link-arg=-Wl,-z,max-page-size=65536 \
+       --remap-path-prefix=$HOME=/build/home \
+       --remap-path-prefix=$SYSROOT=/build/sysroot"
 for pkg in usermgr ldconfig husk-rd husk-su husk-symlinks husk-window-wait gl-probe ipc-probe gpu-probe location-probe audio-setup audio-probe audio-relay audio-capture-probe runtime-probe wallpaper-scale; do
   RUSTFLAGS="$FLAGS" cargo build --release -p "$pkg" --target aarch64-unknown-linux-gnu
 done

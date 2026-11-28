@@ -143,10 +143,19 @@ if [ "$EXPECT" = desktop ]; then
     fi
     if have root/Desktop; then ok "desktop directory present"; else bad "root/Desktop missing: DING exits during startup"; fi
     ding_ext=usr/share/gnome-shell/extensions/ding@rastersoft.com/extension.js
-    if have "$ding_ext" && read_ "$ding_ext" | grep -Fq 'catch (e) { continue; }'; then
-        ok "DING skips unreadable /proc entries"
-    elif have "$ding_ext"; then
-        bad "DING still aborts on unreadable /proc entries (icons may silently disappear)"
+    # Same criterion as install-husk.sh: the load_bytes() call has to sit inside
+    # a try block. The guard exists in two spellings (one line, or a try/catch
+    # spanning lines), so matching one exact string was a false negative: on
+    # 2026-11-27 it failed a tree that already had the fix (evidence 350 §2.3).
+    if have "$ding_ext"; then
+        if read_ "$ding_ext" | awk '
+            /try[[:space:]]*\{/ { t = NR }
+            /processUser\.load_bytes\(null\)/ { if (t > 0 && NR - t < 7) ok = 1 }
+            END { exit ok ? 0 : 1 }'; then
+            ok "DING skips unreadable /proc entries (load_bytes inside try)"
+        else
+            bad "DING still aborts on unreadable /proc entries (icons may silently disappear)"
+        fi
     fi
     if have etc/ld.so.husk-path; then
         _ldmiss=$(adb -s "$DEV" shell "run-as $PKG sh -c 'R=$ROOTFS; while IFS= read -r d; do case \"\$d\" in \"\"|\\#*) continue;; esac; test -d \"\$R\$d\" || echo \"\$d\"; done < \"\$R/etc/ld.so.husk-path\"'" 2>/dev/null | tr -d '\r')

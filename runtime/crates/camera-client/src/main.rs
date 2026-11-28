@@ -66,8 +66,9 @@ fn main() {
     let width = arg_u32(&args, "w", 1280);
     let height = arg_u32(&args, "h", 720);
     let id = arg_str(&args, "id");
+    let info = arg_u32(&args, "info", 0) != 0;
 
-    if let Err(e) = run(socket, out_dir, frames, width, height, id) {
+    if let Err(e) = run(socket, out_dir, frames, width, height, id, info) {
         eprintln!("camera-client|FAIL|{e}");
         std::process::exit(1);
     }
@@ -80,9 +81,25 @@ fn run(
     width: u32,
     height: u32,
     id: Option<&str>,
+    info: bool,
 ) -> Result<(), String> {
     std::fs::create_dir_all(out_dir).map_err(|e| format!("mkdir: {e}"))?;
     let mut stream = UnixStream::connect(socket).map_err(|e| format!("connect {socket}: {e}"))?;
+    if info {
+        stream
+            .write_all(b"INFO\n")
+            .map_err(|e| format!("send INFO: {e}"))?;
+        loop {
+            let line = read_line(&mut stream)?;
+            println!("camera-client|INFO|{line}");
+            if line.starts_with("OK") {
+                break;
+            }
+            if line.starts_with("ERR ") {
+                return Err(format!("INFO rejected: {line}"));
+            }
+        }
+    }
     let open = match id {
         Some(id) => format!("OPEN w={width} h={height} id={id}\n"),
         None => format!("OPEN w={width} h={height}\n"),
@@ -131,14 +148,16 @@ fn run(
         stream
             .read_exact(&mut buf)
             .map_err(|e| format!("read payload: {e}"))?;
-        let (min, max, mean) = stats(&buf);
+        let all = stats(&buf);
+        let luma = stats(&buf[..w.saturating_mul(h).min(buf.len())]);
         let seq = field(&line, "seq").unwrap_or("?");
         let ts = field(&line, "ts").unwrap_or("?");
         seqs.push(seq.to_string());
         let path = out_dir.join(format!("frame-{saved:02}.nv12"));
         std::fs::write(&path, &buf).map_err(|e| format!("write: {e}"))?;
         println!(
-            "camera-client|FRAME|seq={seq}|ts={ts}|{w}x{h}|bytes={n}|min={min}|max={max}|mean={mean:.2}"
+            "camera-client|FRAME|seq={seq}|ts={ts}|{w}x{h}|bytes={n}|all_min={}|all_max={}|all_mean={:.2}|Y_min={}|Y_max={}|Y_mean={:.2}|Y_dark={:.3}|Y_bright={:.3}",
+            all.0, all.1, all.2, luma.0, luma.1, luma.2, luma.3, luma.4
         );
         saved += 1;
     }
@@ -154,17 +173,22 @@ fn run(
     Ok(())
 }
 
-fn stats(frame: &[u8]) -> (u8, u8, f64) {
+fn stats(frame: &[u8]) -> (u8, u8, f64, f64, f64) {
     if frame.is_empty() {
-        return (0, 0, 0.0);
+        return (0, 0, 0.0, 0.0, 0.0);
     }
     let mut min = 255u8;
     let mut max = 0u8;
     let mut sum = 0u64;
+    let mut dark = 0u64;
+    let mut bright = 0u64;
     for &b in frame {
         min = min.min(b);
         max = max.max(b);
         sum += b as u64;
+        dark += (b <= 16) as u64;
+        bright += (b >= 235) as u64;
     }
-    (min, max, sum as f64 / frame.len() as f64)
+    let n = frame.len() as f64;
+    (min, max, sum as f64 / n, dark as f64 / n, bright as f64 / n)
 }

@@ -21,6 +21,11 @@ const INPUT_WAIT: Duration = Duration::from_secs(3);
 /// after an input sample. The decoder is asynchronous; the guest asked for the
 /// pixels of this picture, so the wait is bounded and reported in the log.
 const FRAME_WAIT: Duration = Duration::from_secs(5);
+/// How many decoded pictures may sit in the pending queue. When it is full the
+/// session stops pulling output out of the codec (backpressure) instead of
+/// dropping pictures: a dropped PTS is a permanent `FRAME_NONE` for the guest,
+/// which stalls any stream whose decoder runs ahead of the renderer.
+const PENDING_MAX: usize = 8;
 
 static STARTED: AtomicBool = AtomicBool::new(false);
 
@@ -496,6 +501,11 @@ impl<'a> Session<'a> {
     /// Drain whatever the decoder has ready right now into the pending queue.
     unsafe fn drain_frames(&mut self, files: &Path, wait_us: i64) -> Result<(), String> {
         loop {
+            // Backpressure, not loss: the queue exists so a picture the guest
+            // has not asked for yet still survives until it asks.
+            if self.pending.len() >= PENDING_MAX {
+                return Ok(());
+            }
             let mut info = BufferInfo::default();
             let index = (self.api.dequeue_output)(self.codec, &mut info, wait_us);
             match index {
@@ -569,16 +579,6 @@ impl<'a> Session<'a> {
                         uv.push(frame.v[index]);
                     }
                     nv12.extend_from_slice(&uv);
-                    if self.pending.len() >= 8 {
-                        let dropped = self.pending.pop_front();
-                        sequence_log(
-                            files,
-                            &format!(
-                                "video|bridge|cpu-drop|pts={}",
-                                dropped.map(|f| f.pts_us).unwrap_or(-1)
-                            ),
-                        );
-                    }
                     self.pending.push_back(PendingFrame {
                         pts_us: pts,
                         nv12,
@@ -916,7 +916,14 @@ unsafe fn handle_client(files: &Path, api: &Api, mut stream: UnixStream) {
                 Some(active) => {
                     let fields = parse_kv(&line);
                     let pts = parse_i64(&fields, "pts").unwrap_or(-1);
-                    let deadline = Instant::now() + FRAME_WAIT;
+                    // The guest polls: a miss has to come back fast so the
+                    // decode side (which shares the client lock) can keep
+                    // feeding the codec. `wait_ms` is bounded by FRAME_WAIT.
+                    let cap = FRAME_WAIT.as_millis() as i64;
+                    let wait_ms = parse_i64(&fields, "wait_ms")
+                        .unwrap_or(cap)
+                        .clamp(1, cap);
+                    let deadline = Instant::now() + Duration::from_millis(wait_ms as u64);
                     match active.take_frame(files, pts, deadline) {
                         Ok(Some(frame)) => {
                             let line = format!(
@@ -1002,6 +1009,17 @@ fn serve() {
         crate::log("video|bridge|SKIP|no files dir");
         return;
     };
+    let rootfs = match crate::guest_rootfs::resolve(&files) {
+        Ok(rootfs) => rootfs,
+        Err(e) => {
+            sequence_log(&files, &format!("video|bridge|SKIP|{e}"));
+            return;
+        }
+    };
+    serve_at(files, rootfs);
+}
+
+fn serve_at(files: std::path::PathBuf, rootfs: std::path::PathBuf) {
     let Some(api) = (unsafe { Api::load().ok() }) else {
         crate::log("video|bridge|FAIL|MediaCodec symbols unavailable");
         return;
@@ -1010,13 +1028,6 @@ fn serve() {
     // primitive words plus the dlopen handle, and this loop runs at most a
     // couple of times per process.
     let api: &'static Api = Box::leak(Box::new(api));
-    let rootfs = match crate::guest_rootfs::resolve(&files) {
-        Ok(rootfs) => rootfs,
-        Err(e) => {
-            sequence_log(&files, &format!("video|bridge|SKIP|{e}"));
-            return;
-        }
-    };
     sequence_log(&files, "video|bridge|API|libmediandk.so");
     let marker = files.join("video-bridge");
     let guest_marker = rootfs.join("run/husk/enabled");
@@ -1091,5 +1102,17 @@ pub(super) fn start() {
     }
     std::thread::spawn(|| {
         let _ = std::panic::catch_unwind(serve);
+    });
+}
+
+/// Start the control bridge in the standalone helper process, where no
+/// `ANativeActivity` pointer exists. The hardcoded active-tree lookup is
+/// replaced by the exact files/rootfs pair supplied by the host app.
+pub(super) fn start_at(files: std::path::PathBuf, rootfs: std::path::PathBuf) {
+    if STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(move || {
+        let _ = std::panic::catch_unwind(|| serve_at(files, rootfs));
     });
 }

@@ -7,6 +7,121 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.37] - 2026-11-27
+
+### 文档校正（2026-11-28）
+
+- 唯一有效宿主明确为 LinuxHub 2.0 的 Husk 运行时 `com.linuxhub.myth.husk`；此前在 `com.linuxhub.husk` 上的结论作废，README 顶部新增「状态校正」。
+- 视频按两条路径分开记录：Husk 自有 SurfaceControl 路径维持 1080p30/600 秒结论；标准 VA-API 路径只有 720p 通过，1080p 与 High profile 在 12–25 帧后停摆，标 FAIL。
+- 相机：数据链与 A-hw 通过，桌面预览帧率极低（逐帧刷新），标 FAIL。
+
+
+这一版把两件事写实：**桌面在测试宿主 App 内第一次真正起来**（zink → PanVK → Mali，
+会话内加载的是 canonical 驱动），以及**冷启动到底慢在哪**——慢的量出来了，原因还没找全，
+所以照实写进限制，不写成「已修复」。
+
+### 新增
+
+- **运行身份自证**（evidence 350）。安装器新增 `--upgrade`：不重解 4.3 GB 树，只重跑 guest 侧
+  步骤；结束时写 `etc/husk/runtime-identity`（version / git_commit / loader_sha256 /
+  libc_sha256 / gpu_env_sha256 / panvk_driver_sha256 / icd_sha256）。设备上重新算一遍必须逐项相等，
+  否则“测的是不是这份 Husk”无从判断。
+- **`make test-device`**（`tools/device-tests/run-unit-tests.sh`、`unit-runner-guest.sh`）。
+  单测改为在真机 guest 里跑：`gpu_env` 6 passed、`nr_tools` 7 passed、`runtime_core` 0 warnings。
+- **证据 352–356**：宿主内升级、旧 ICD 钉死路径的边界、桌面冷启动 5 次定量、
+  与同机 PRoot 的对照、以及三组“无效对照”的完整原始数据。
+
+### 修复
+
+- **应用盘缩略图黑三角（H57，evidence 365）**。桌面自己吃上 GPU 加速之后，mutter/Cogl
+  缩小窗口缩略图走 `glBlitFramebuffer` → zink → `vkCmdBlitImage`，而 PanVK 的 `vk_meta`
+  用「6 顶点 / 2 三角形」画这块；Mali v9（G77）的 jm 绘制路径把**第二个三角形画歪**，
+  目标里那块永远没被着色（该 render pass 不加载旧内容 → 露出 0/黑）。改成**单三角形 + 精确
+  scissor**（与 CSF `cmd_run_fullscreen()` 同形态），改在 Mesa 共享运行时，不按 SoC 分支。
+  现场缩略图近黑 **0.1490 → 0.0000**；`gl-probe scale-wedge` 各尺寸 `dark_cells` 全 0，
+  `blit` 与 `nomip` 的近黑数逐个相等。
+- **随包 PanVK 驱动改为源码构建（H57）**。0.0.36 及以前那种「安装时按偏移改 16 字节」的做法废弃：
+  源码里已经改过（blit 修复 + kbase 热身改配置项 `PANVK_KBASE_WARMUP_MS`，默认不睡），
+  安装器只核对 SHA-256，不再就地改字节。驱动 `.so` `5e063247…`、`.gz` `47d11cd2…`；
+  `audit-panvk-bundle.sh` 增加「不许再出现字节补丁」的断言。
+- **会话起不来的一串升级缺陷**（evidence 350 §2）。`LIBS` 从解包流程提到全局（否则升级模式下
+  `set -u` 直接退出）；DING 补丁判定改成“`load_bytes` 是否在 try 块内”（认多行 try/catch）；
+  升级前按 cmdline 停掉指向本树的 guest 进程（否则 `cp` 报 `Text file busy`，且必须同时认
+  `/data/user/0/...` 与 `/data/data/...`）；工具改名后同时保留 `usr/bin/<cmd>` 链接
+  （宿主 `sudo-access` 写死 `chown /usr/bin/passwd`，名字消失会中止会话）。
+- **旧 ICD 清单不再指向第二个驱动**（evidence 352，H40）。宿主 `doro-gpu-run` 把
+  `VK_ICD_FILENAMES` 钉死在 `husk_panvk_frist370_execva.json`；**删掉这个文件会让 gnome-shell
+  以 139 退出**（实测）。安装器改为保留文件名、把 `library_path` 改指 canonical
+  `libvulkan_panfrost_husk.so`，并清掉 `icd.d/*.bak-*`。会话内实证 maps 加载的是 canonical 驱动。
+- **PanVK 每建一次 GPU 上下文白等 2 秒（H41 的根因，evidence 357）**。随包携带的
+  FristOneRR PanVK 1.2.0 在 `kbase_kmod.c` 里，每建立一次 kbase JM context 就无条件
+  `nanosleep(2s)`——那是为 Mali-G57 的「第一个 job 被终止」打的补丁，被继承了所有设备。
+  一个 GL 进程建两次 context，于是每次启动空等 4 秒：`vulkan-probe` 4067 ms、`glxinfo -B`
+  4275 ms、桌面首帧前那段 4.1 s「0% CPU 空转」全是它。安装器改为按字节清零 `.rodata`
+  `0x53a570` 的 16 字节 `timespec`（先核上游 SHA，再核补丁后 SHA `f73600da…`，
+  `HUSK_PANVK_KEEP_WARMUP=1` 可回退）。实测：`vulkan-probe` **59–75 ms**、
+  `glxinfo -B` **271–289 ms**、桌面冷启动 3 次 **11.13–11.51 s**（中位 11.13）。
+- **过期 ICD / 驱动副本会被清掉（H43，evidence 357 §7）**。设备上留着实验期的
+  `husk_panvk_nosleep_test.json` 和 `libvulkan_panfrost_x11.so` 等旧副本；两份字节相同时
+  不致命，但驱动一升级旧副本就可能先被选中，而且不报错。安装器在 canonical 驱动确实存在时
+  删掉这些副本与 `*nosleep*` 清单，新增门禁 `tools/device-tests/24-icd-canonical.sh`
+  （15 项：清单指向、副本清空、驱动 SHA、`gpu-env` 钉死、loader 自扫 icd.d 仍能建实例）。
+- **三条只在"没人这样用过"的情况下才暴露的缺陷（H46–H48）**。`make test-device` 配方写了
+  `DEV="$DEV"`，make 把 `$D` 展开成空、剩下字面量 `EV`，于是永远报 `adb: device 'EV' not found`；
+  `01-functional-matrix.sh` 用 `rm -rf /tmp` 清场，把活会话的 X socket 一起删了（server 手里成了
+  unlink 过的孤儿 fd，新客户端打不开 `:0`）；`adb input tap` 根本没进宿主窗口，桌面收不到点击
+  （这条是宿主侧，仍 OPEN）。前两条已修，后者用 guest 内 `xdotool` 证明 X 输入语义是通的。
+  证据 359。
+- **空目录安装不再在 pass 2 死于找不到 libc（H45）**。安装器在任何解包之前就按“目录此刻是否
+  存在”二选一算库搜索路径：`--fresh` 装到空目录时它塌成 `$DEST/usr/lib`，而 Ubuntu 的 libc 在
+  `usr/lib/aarch64-linux-gnu/`，于是 pass 2 报
+  `usr/bin/env: error while loading shared libraries: libc.so.6`（可复现，RC=69）。
+  升级装因为树已经在，从没暴露。现在固定列出四项搜索路径。修后用 33 MB 精简 tarball 干净装：
+  `RC=0`，`usr/bin/bash -l` 正常输出。
+- **升级安装不再杀掉自己（H44）**。`--upgrade` 会按 cmdline 停掉指向本树的遗留 guest 进程，
+  而安装器自己的 cmdline 里就带着 `--dest` 的绝对路径，于是它 `kill` 掉了自己，输出停在
+  `loader : ...` 那行、退出码仍是 0（实测 2026-11-27）。现在跳过 `$$`、`$PPID` 和任何
+  cmdline 含 `install-husk.sh` 的进程。
+
+- **`make test` 不再要求本机有 arm64 Linux**：改成交叉编译 `--no-run`，真机运行走 `make test-device`。
+
+### 已知边界（不利数字照写）
+
+- **冷启动仍慢于同机 PRoot 1.14×**（evidence 355 + 357）：补丁后 Husk 3 次
+  **11.48 / 11.13 / 11.51 s（中位 11.13 s）**，PRoot 3 次中位 **9785 ms**；补丁前 Husk 中位
+  14730 ms（1.51×）。剩下约 1.3 s 的差距**未归因**（evidence 356 已排除 GL 驱动、非必需会话
+  服务、无障碍总线、会话保活四项）。
+- **单进程 GL 初始化 271–289 ms**（补丁前 4275 ms，evidence 354 + 357）。剩下的时间里
+  `HUSK_GPU=llvmpipe` 是 357 ms、纯 X 往返 27 ms——也就是说走 zink→PanVK 现在比纯软件还快一点。
+- **满屏 2400×1080 交互仍只有 32 fps**（evidence 290；`gl-probe` 分段数据来自 2026-11-27 早前轮次，
+  本版未复测）：GPU 离屏渲染
+  1.8 ms/帧（551 fps），`XPutImage` 15.1 ms/帧，差额 ≈ GPU→CPU 全屏回读 14 ms。DRI3 结构性
+  不可达（宿主 X server 是 bionic 进程、无 render node、Mali 走 kbase 无 PRIME 语义；MIT-SHM
+  也被宿主拒绝）。**本版不修**，修复方案（zero-copy present / 换渲染后端）排 0.0.38。
+- **`/proc/self/exe` 的 execve 修好了（H51 / evidence 362）**：加载器模型下它指向 `libld.so`，
+  Chrome / Electron 的 zygote、network service 都是 `execve("/proc/self/exe", ["--type=…"])`，
+  结果加载器被当程序跑、子进程全废（Chrome 能开窗但页面打不开，network service 反复崩）。
+  readlink 那一侧 evidence 217 早就修过，execve 这一侧一直漏着。修后新门禁
+  `25-self-exe-exec.sh` 4/0（旧加载器 1/3），Chrome 22 s 内不再有 `--type=` 报错和 network service 崩溃。
+  **设备上的 loader 已是 `7970ce78…`，`dist/` 还没重出，发布前必须重新 `make dist`。**
+- **音频仍是外部阻塞**：`AUDIO_AUDIT PASS=1 FAIL=3`，宿主未创建 `/run/husk/audio-out.sock`。
+- **A-hw `PASS=4 FAIL=11`**：相机 / 麦克风 / 定位需要真机授权，不走 ADB 冒充。
+- **Overview 黑色三角本版未验证**（H38 那次的 133 退出本轮未复现，触发条件未知）。
+- **应用盘（左下角 Ubuntu 按钮）缩略图右端纯黑楔子 = H49，本版未修**（evidence 361 / 363）。
+  它和 186（GTK4 三角缺口）、195（壁纸缩小采样乘 0.32）是同一族：**需要缩小采样的贴图**
+  右端会被画坏一角。363 用两个可回滚的二进制补丁做了单变量实验，把机制切开：
+  把 zink 采样 LOD 钳到 0 后探针的楔子消失（`scale-wedge mip` 18/128 → 0），
+  但**现场一点没变**（近黑仍 0.1490、逐行边界与 361 逐点相同）；把 mutter 的窗口 mipmap 链
+  `no-op` 后同样不变。⇒ 现场楔子不在采样、也不在窗口 mip 链，而在 **tile 内容那次 draw
+  本身就缺一角**；具体是哪次 draw 未定位（UNKNOWN）。两个补丁已回滚。
+  另记：`COGL_DEBUG` / `COGL_DRIVER=gl` 对 gnome-shell 无效（它用 mutter 自带 Cogl），
+  `GALLIUM_DRIVER=panfrost` 在这份 Mesa 上没有 kbase 后端（H53）。
+  不隐藏缩略图、不冒充修复。
+  另记 H50：宿主每次起桌面都会重写 `/etc/profile.d/doro-gpu.sh` 并按 `/etc/doro-gpu-mode`
+  把会话钉在 `husk_panvk_frist370_execva.json`，所以“硬件 vs llvmpipe”对照在设备上属外部阻塞。
+- **`$XDG_RUNTIME_DIR/gvfsd` 遗留 146 个死 socket**（H42），会话退出不清理。
+- **过期 ICD / 驱动副本**（H43）已由安装器清理并加门禁；设备上历史树仍需重装一次才会变干净。
+
 ## [0.0.36] - 2026-11-27
 
 这一版把「检查」和「事实」两件事补上：CI 不再只检查 8 个 crate，DRM 假 fd 的身份判定从
@@ -1656,6 +1771,7 @@ GTK 应用都走同一套 Mali/PanVK 设备运行时”。
 - 随附 rootfs 里没有浏览器包；Termux 不是支持的环境。
 
 [未发布]: https://github.com/xishanp/Husk/compare/v0.0.36...HEAD
+[0.0.37]: https://github.com/xishanp/Husk/releases/tag/v0.0.37
 [0.0.36]: https://github.com/xishanp/Husk/releases/tag/v0.0.36
 [0.0.35]: https://github.com/xishanp/Husk/releases/tag/v0.0.35
 [0.0.34]: https://github.com/xishanp/Husk/releases/tag/v0.0.34

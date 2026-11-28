@@ -58,6 +58,22 @@ pub fn start_once() {
     });
 }
 
+/// Standalone-helper entry point. Android's Java location service is not
+/// available in the `husk-bridges` process, so the host writes a small
+/// last-known snapshot and this loop turns it into the same gpsd socket.
+pub fn start_once_at(files: PathBuf, rootfs: PathBuf) {
+    if STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let snapshot_rootfs = rootfs.clone();
+    std::thread::spawn(move || {
+        let _ = std::panic::catch_unwind(|| snapshot_loop_at(files, snapshot_rootfs));
+    });
+    std::thread::spawn(move || {
+        let _ = std::panic::catch_unwind(|| server_loop_at(rootfs));
+    });
+}
+
 fn files_dir() -> Option<PathBuf> {
     let act = crate::ACTIVITY.load(Ordering::SeqCst);
     if act.is_null() {
@@ -491,6 +507,10 @@ fn server_loop() {
             return;
         }
     };
+    server_loop_at(rootfs);
+}
+
+fn server_loop_at(rootfs: PathBuf) {
     let run = rootfs.join("run/husk");
     if let Err(e) = std::fs::create_dir_all(&run) {
         crate::log(&format!("location|WARN|gpsd mkdir {run:?}: {e}"));
@@ -519,6 +539,113 @@ fn server_loop() {
             Err(e) => crate::log(&format!("location|WARN|gpsd accept: {e}")),
         }
     }
+}
+
+fn snapshot_loop_at(files: PathBuf, rootfs: PathBuf) {
+    let snapshot = files.join("location.snapshot");
+    let mut last_text = String::new();
+    loop {
+        let text = std::fs::read_to_string(&snapshot).unwrap_or_default();
+        if text != last_text {
+            match parse_snapshot(&text) {
+                Ok((status, fix)) => {
+                    if let Ok(mut slot) = FIX.lock() {
+                        *slot = fix.clone();
+                    }
+                    publish_diagnostics(&rootfs, &status, fix.as_ref());
+                    crate::log(&format!(
+                        "location|SNAPSHOT|fix={} provider={}",
+                        fix.is_some(),
+                        fix.as_ref().map(|v| v.provider.as_str()).unwrap_or("none")
+                    ));
+                    last_text = text;
+                }
+                Err(e) => {
+                    if !text.is_empty() {
+                        crate::log(&format!("location|SNAPSHOT|WARN|{e}"));
+                    }
+                    if let Ok(mut slot) = FIX.lock() {
+                        *slot = None;
+                    }
+                    last_text = text;
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
+fn parse_optional_f64(fields: &std::collections::HashMap<&str, &str>, key: &str) -> Option<f64> {
+    fields
+        .get(key)
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|v| v.is_finite())
+}
+
+fn parse_snapshot(text: &str) -> Result<(String, Option<LocationFix>), String> {
+    let fields: std::collections::HashMap<&str, &str> = text
+        .lines()
+        .filter_map(|line| line.split_once('='))
+        .map(|(key, value)| (key.trim(), value.trim()))
+        .collect();
+    let status = fields
+        .get("status")
+        .copied()
+        .ok_or_else(|| "missing status".to_string())?;
+    if status != "fix" {
+        let detail = if status == "denied" {
+            "permission=denied"
+        } else {
+            "permission=granted"
+        };
+        return Ok((
+            format!(
+                "{detail}\nbackend=android-location\ninterface=gpsd-unix:///run/husk/gps.sock\nfix=none\nreason={status}\n"
+            ),
+            None,
+        ));
+    }
+    let latitude = fields
+        .get("latitude")
+        .and_then(|v| v.parse::<f64>().ok())
+        .ok_or_else(|| "missing latitude".to_string())?;
+    let longitude = fields
+        .get("longitude")
+        .and_then(|v| v.parse::<f64>().ok())
+        .ok_or_else(|| "missing longitude".to_string())?;
+    if !latitude.is_finite()
+        || !longitude.is_finite()
+        || !(-90.0..=90.0).contains(&latitude)
+        || !(-180.0..=180.0).contains(&longitude)
+    {
+        return Err("snapshot coordinates out of range".into());
+    }
+    let fix = LocationFix {
+        provider: fields
+            .get("provider")
+            .copied()
+            .filter(|v| !v.is_empty())
+            .unwrap_or("android")
+            .to_string(),
+        latitude,
+        longitude,
+        accuracy_m: parse_optional_f64(&fields, "accuracy_m").unwrap_or(-1.0),
+        altitude_m: parse_optional_f64(&fields, "altitude_m"),
+        speed_mps: parse_optional_f64(&fields, "speed_mps"),
+        bearing_deg: parse_optional_f64(&fields, "bearing_deg"),
+        timestamp_ms: fields
+            .get("timestamp_ms")
+            .and_then(|v| v.parse::<i64>().ok())
+            .unwrap_or(0),
+        mock: fields.get("mock").is_some_and(|v| *v == "true"),
+    };
+    Ok((
+        format!(
+            "permission=granted\nbackend=android-location\ninterface=gpsd-unix:///run/husk/gps.sock\nprovider={}\nupdated_ms={}\nmock={}\n",
+            fix.provider, fix.timestamp_ms, fix.mock
+        ),
+        Some(fix),
+    ))
 }
 
 /// Most gpsd clients default to `/run/gpsd.sock`.  Add that path only when it

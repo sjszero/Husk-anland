@@ -1,0 +1,9 @@
+11-28 05:50:37.068 I/Husk    (30734): camera|reader|geometry|before=1280x720/35|set_rc=-1|after=1280x720/35
+11-28 05:50:37.068 I/Husk    (30734): camera|reader|listener|rc=-1|legacy_session=true
+11-28 05:50:37.118 I/Husk    (30734): camera|session|state_observed|ready=false|active=false|legacy_session=true
+11-28 05:50:37.118 I/Husk    (30734): camera|session|request_setup|template=3|request_rc=0|target_rc=0|add_target_rc=0|request_null=false|target_null=false
+11-28 05:50:37.643 I/Husk    (30734): camera|image|audit|1280x720|fmt=35|fmt_rc=0|planes=3|count_rc=0|p0_len=921600|p0_row=1280|p0_pix=1|y=0/5/0.26|p1_len=460799|p1_row=1280|p1_pix=2|u=128/128/128.00|p2_len=460799|p2_row=1280|p2_pix=2|v=128/128/128.00
+11-28 05:50:37.662 I/Husk    (30734): camera|frame|ready|seq=1|1280x720|ts=9837784011000|bytes=1382400|min=0|max=128|mean=42.84|head_min=0|head_max=2|head_sum=838
+11-28 05:50:37.689 I/Husk    (30734): camera|image|audit|1280x720|fmt=35|fmt_rc=0|planes=3|count_rc=0|p0_len=921600|p0_row=1280|p0_pix=1|y=0/4/0.03|p1_len=460799|p1_row=1280|p1_pix=2|u=128/128/128.00|p2_len=460799|p2_row=1280|p2_pix=2|v=128/128/128.00
+11-28 05:50:37.718 I/Husk    (30734): camera|image|audit|1280x720|fmt=35|fmt_rc=0|planes=3|count_rc=0|p0_len=921600|p0_row=1280|p0_pix=1|y=0/3/0.03|p1_len=460799|p1_row=1280|p1_pix=2|u=128/128/128.00|p2_len=460799|p2_row=1280|p2_pix=2|v=128/128/128.00
+11-28 05:50:37.813 I/Husk    (30734): camera|client|done|handshake=ok

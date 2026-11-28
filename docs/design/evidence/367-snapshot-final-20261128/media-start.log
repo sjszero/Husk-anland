@@ -1,0 +1,5 @@
+services: polkitd already running
+husk-media-session: started pipewire pid=15761
+husk-media-session: started wireplumber pid=15771
+husk-media-session: pipewire=ready pid=15761
+husk-media-session: wireplumber=ready pid=15771

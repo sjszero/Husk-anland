@@ -5,15 +5,49 @@
 
 本文只列设备上实际跑出来的结果。未验证的写在末尾，不把编译成功或旧证据当成本轮通过。
 
+## 0. 0.0.37 门禁矩阵（2026-11-27 夜，唯一算数的当轮数据）
+
+树：发行包 `--upgrade` 装出的 `files/linux/distributions/ubuntu-24.04/rootfs`，
+运行身份 `version=0.0.37 / loader 67f543b9… / PanVK f73600da…`。
+
+| 门禁 | 结果 |
+|---|---|
+| `make check` / `make test` | EXIT=0 / EXIT=0 |
+| `20-tree-integrity.sh` | `PASS=14 FAIL=0` |
+| `14-gate-a-acceptance.sh` | `PASS=38 FAIL=0 SKIP=0` |
+| `15-gpu-global-audit.sh` | `PASS=3 FAIL=0 SKIP=0` |
+| `18-gpu-loader-defaults.sh` | `PASS=9 FAIL=0 SKIP=0` |
+| `19-readback-suite.sh` | `PASS=19 FAIL=0`；`READBACK_AUDIT PASS=6 FAIL=0` |
+| `24-icd-canonical.sh` | `PASS=15 FAIL=0` |
+| `21-gpu-soak-audit.sh`（4×300 s） | `PASS=19 FAIL=0`；四路 582 fps、errors=0、RSS 有界 |
+| `run-camera-fixture.sh` | `PASS`（raw + GStreamer，640×480 与 1280×720） |
+| `17-gate-a-hw.sh` | `PASS=4 FAIL=11` —— **外部阻塞**（未授权 + 宿主无 socket） |
+| `make audio-audit` | `PASS=1 FAIL=3` —— 同一外部阻塞 |
+| `--upgrade` 安装（最终产物 `e6d4e2c3…`） | `RC=0`，identity 六项逐项复核 |
+| `make test-device` | `UNIT_TESTS: PASS`（gpu_env 6、nr_tools 7、runtime_core 0） |
+| `01-functional-matrix.sh`（无会话态） | `#checks=31 fail=0` |
+| `16-umount-legacy.sh` | `PASS=12 FAIL=0` |
+| 干净装（stock `ubuntu-base-24.04.3` 28 MB） | `RC=0`、`bash -l` 正常；`TREE_INTEGRITY 10/4`、`Gate A 31/2/2`，4+2 条全部是精简基础包缺 `locales`/`gdk-pixbuf`/`shared-mime-info`（安装器已逐条打印原因） |
+| Overview 黑色三角（10 次开关） | **未复现**：缩略图右上角近黑像素占比 0.0000，与桌面亮度均值 61.5 vs 58.4（evidence 359） |
+| 应用盘缩略图黑楔子（用户指的现场） | **已修（源码级，驱动通用）**：根因是 PanVK `vkCmdBlitImage` 缩放路径的第二个三角形在 Mali v9 上被画歪；`vk_meta` 改单三角形 + 精确 scissor 后重建驱动（`.so` `5e063247…`）。现场近黑 **0.1490 → 0.0000**，`gl-probe scale-wedge` 各尺寸 `dark_cells` 全 0（evidence 365 / H57） |
+| 硬件 vs llvmpipe 对照 | **外部阻塞**：宿主每次起桌面重写 `/etc/profile.d/doro-gpu.sh` 并按 `/etc/doro-gpu-mode` 钉 `frist370_execva`，树里的 gpu-env 对桌面无效（evidence 361 §8 / H50） |
+| 桌面点击（`adb input tap`） | **外部阻塞**：事件不进宿主窗口；guest 内 `xdotool` 的键盘/指针路径正常（evidence 359） |
+| `--fresh` 空目录安装（33 MB 精简 tarball） | `RC=0`、`bash -l` 正常；`TREE_INTEGRITY 12/2`（精简树无 gdk-pixbuf/mime 工具） |
+| 完整 Ubuntu 基础包干净装 | **UNVERIFIED** —— 设备上没有 4.3 GB 基础包 |
+
+冷启动（点“打开桌面”→ `SurfaceView`）：**11.48 / 11.13 / 11.51 s**（中位 11.13），
+同机 PRoot 9.79 s。`glxinfo -B`：**271–289 ms**（0.0.37 之前 4275 ms）。
+全部原始输出见 evidence 358；PanVK 2 秒热身补丁本身见 evidence 357。
+
 ## 1. 最终发行树
 
 | 项目 | 结果 | 证据 |
 |---|---|---|
 | 空目录安装 | `INSTALL_RC=0` | 308 |
-| Tree Integrity | `PASS=23 FAIL=0` | 308、310 |
-| Gate A | `PASS=34 FAIL=0 SKIP=1` | 310 |
-| A-hw | `PASS=14 FAIL=0` | 323 |
-| GPU loader defaults | `PASS=9 FAIL=0 SKIP=0` | 310 |
+| Tree Integrity | `PASS=23 FAIL=0`（旧树）→ 0.0.37 树 `PASS=14 FAIL=0` | 308、310、358 |
+| Gate A | `PASS=34 FAIL=0 SKIP=1`（旧树）→ 0.0.37 树 `PASS=38 FAIL=0 SKIP=0` | 310、358 |
+| A-hw | `PASS=14 FAIL=0`（2026-11-27 白天，已授权环境）→ 当前测试宿主 `PASS=4 FAIL=11`（未授权 + 无 socket） | 323、358 |
+| GPU loader defaults | `PASS=9 FAIL=0 SKIP=0` | 310、358 |
 | dpkg | 807 installed / 807 `.list` | 308 |
 | 中文 locale | 6,222,864-byte locale archive，413 个 zh_CN `.mo` | 308 |
 
@@ -73,7 +107,8 @@ Gate A 的 SKIP 是离线树没有 apt package index。没有把它算成 PASS�
 | 传感器 IIO | 5 类默认传感器 `READY`，guest 可读 | 302 |
 | 传感器 D-Bus | `iio-sensor-proxy` 出现；Accelerometer/Light/Proximity 三项 Claim 成功；`monitor-sensor` 读到三类设备 | 322 |
 | 定位 gpsd | last-known `network` 点转成 `TPV mode=2`；撤权后 `mode=1`、无 TPV；坐标在日志中脱敏 | 323 |
-| MediaCodec 解码 | H.264 1080p30，600 秒，dropped=0 | 80 |
+| MediaCodec 解码（Husk 自有 SurfaceControl 路径） | H.264 1080p30，600 秒，dropped=0 | 80 |
+| MediaCodec 解码（标准 VA-API 路径，桌面播放器） | 720p 全片通过；1080p 与 High profile 12–25 帧后停摆，**FAIL** | 367-video-va-ab |
 | AHB → SurfaceControl | 3-buffer ring / SYNC_FD，10,000 帧 | 59 |
 
 ## 6. 宿主显示边界

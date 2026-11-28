@@ -723,3 +723,60 @@ pub unsafe fn resolve_access(
         depth += 1;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{compose_symlink_target, errno_of, norm, pop_component, ENAMETOOLONG, PATH_MAX};
+
+    #[test]
+    fn errno_classification_is_bounded_to_linux_error_range() {
+        assert_eq!(errno_of(-1), Some(1));
+        assert_eq!(errno_of(-4095), Some(4095));
+        assert_eq!(errno_of(-4096), None);
+        assert_eq!(errno_of(0), None);
+        assert_eq!(errno_of(7), None);
+    }
+
+    #[test]
+    fn absolute_symlink_target_restarts_at_root() {
+        let mut out = [0u8; PATH_MAX];
+        let n = compose_symlink_target(b"/a/b", b"/etc/passwd", &mut out).unwrap();
+        assert_eq!(&out[..n], b"/etc/passwd");
+    }
+
+    #[test]
+    fn relative_symlink_target_is_joined_to_parent() {
+        let mut out = [0u8; PATH_MAX];
+        let n = compose_symlink_target(b"/a/b", b"../c", &mut out).unwrap();
+        assert_eq!(&out[..n], b"/a/b/../c");
+    }
+
+    #[test]
+    fn overlong_paths_are_rejected_without_slicing() {
+        let mut out = [0u8; PATH_MAX];
+        let target = [b'x'; PATH_MAX];
+        assert_eq!(
+            compose_symlink_target(b"/", &target, &mut out),
+            Err(ENAMETOOLONG)
+        );
+    }
+
+    #[test]
+    fn normalization_removes_dot_empty_and_clamps_parent() {
+        let mut out = [0u8; PATH_MAX];
+        let n = norm(b"/a/./b//../../../../c", &mut out);
+        assert_eq!(&out[..n], b"/c");
+    }
+
+    #[test]
+    fn pop_component_clamps_at_root() {
+        let mut out = [0u8; PATH_MAX];
+        out[0] = b'/';
+        out[1] = b'a';
+        out[2] = b'/';
+        out[3] = b'b';
+        assert_eq!(pop_component(&out, 4), 2);
+        assert_eq!(pop_component(&out, 2), 0);
+        assert_eq!(pop_component(&out, 0), 1);
+    }
+}

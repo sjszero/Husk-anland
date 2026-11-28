@@ -20,7 +20,7 @@
 use core::sync::atomic::{AtomicI32, AtomicU8, Ordering};
 
 const ENV_FILE: &[u8] = b"/etc/husk/gpu-env\0";
-const MAX_ENTRIES: usize = 12;
+const MAX_ENTRIES: usize = 128;
 const NAME_MAX: usize = 64;
 const VALUE_MAX: usize = 320;
 const READ_MAX: usize = 4096;

@@ -185,6 +185,18 @@ pub fn start_once() {
     });
 }
 
+/// Start the encoder bridge with explicit paths for the standalone
+/// `husk-bridges` helper. The helper has no `ANativeActivity` pointer, but the
+/// public NDK MediaCodec API only needs the active files/rootfs pair.
+pub fn start_once_at(files: std::path::PathBuf, rootfs: std::path::PathBuf) {
+    if STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(move || {
+        let _ = std::panic::catch_unwind(|| run_at(files, rootfs));
+    });
+}
+
 fn run() {
     let Some(files) = files_dir() else {
         crate::log("encoder|SKIP|no files dir");
@@ -197,6 +209,10 @@ fn run() {
             return;
         }
     };
+    run_at(files, rootfs);
+}
+
+fn run_at(files: std::path::PathBuf, rootfs: std::path::PathBuf) {
     let marker = files.join(ENCODER_MARKER);
     let guest_marker = rootfs.join(ENCODER_GUEST_MARKER);
     let enabled = || marker.exists() || guest_marker.exists();

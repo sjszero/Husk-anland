@@ -13,18 +13,18 @@
 //! statx 是 2.28、fstatat 是 2.33…），要么在 dlopen 时给新对象补 GOT。
 //! 在那之前：guest 侧的 GStreamer 用不了 /dev/videoN，自研工具/普通程序可以。
 //!
-//! 两个实例不能同时连 app（camera.sock 一次只收一个客户端）。
+//! PipeWire 与 WirePlumber 会各持有一条 camera.sock 连接；服务端支持有界并发，
+//! 真实 Camera2 capture session 仍由 App 侧互斥，同一时刻只允许一个。
 
 #![no_std]
 
 use core::sync::atomic::{AtomicBool, Ordering};
-use v4l2_shim::{Ctx, MAX_BUFFERS};
+use v4l2_shim::Ctx;
 
 extern "C" {
     fn syscall(num: i64, ...) -> i64;
     fn __errno_location() -> *mut i32;
     fn getenv(name: *const u8) -> *const u8;
-    fn setenv(name: *const u8, value: *const u8, overwrite: i32) -> i32;
 }
 
 const SYS_OPENAT: i64 = 56;
@@ -34,11 +34,13 @@ const SYS_CLOSE: i64 = 57;
 const SYS_READ: i64 = 63;
 const SYS_READV: i64 = 65;
 const SYS_FCNTL: i64 = 25;
+// AArch64 generically numbered ABI. Do not copy x86_64 epoll_ctl=233.
+const SYS_EPOLL_CTL: i64 = 21;
+const SYS_FSTAT: i64 = 80;
 const SYS_NEWFSTATAT: i64 = 79;
 const SYS_STATX: i64 = 291;
 const SYS_FACCESSAT: i64 = 48;
 const AT_FDCWD: i32 = -100;
-const O_PATH: i32 = 0o10000000;
 
 static LOCK: AtomicBool = AtomicBool::new(false);
 static mut CTX: Ctx = Ctx::empty();
@@ -61,9 +63,12 @@ core::arch::global_asm!(
     ".globl __hv_mmap64; .set __hv_mmap64, mmap64; .symver __hv_mmap64, mmap64@GLIBC_2.17",
     ".globl __hv_close; .set __hv_close, close; .symver __hv_close, close@GLIBC_2.17",
     ".globl __hv_stat64; .set __hv_stat64, stat64; .symver __hv_stat64, stat64@GLIBC_2.33",
+    ".globl __hv_fstat; .set __hv_fstat, fstat; .symver __hv_fstat, fstat@GLIBC_2.17",
+    ".globl __hv_fstat64; .set __hv_fstat64, fstat64; .symver __hv_fstat64, fstat64@GLIBC_2.33",
     ".globl __hv_open; .set __hv_open, open; .symver __hv_open, open@GLIBC_2.17",
     ".globl __hv_openat; .set __hv_openat, openat; .symver __hv_openat, openat@GLIBC_2.17",
     ".globl __hv_mmap; .set __hv_mmap, mmap; .symver __hv_mmap, mmap@GLIBC_2.17",
+    ".globl __hv_epoll_ctl; .set __hv_epoll_ctl, epoll_ctl; .symver __hv_epoll_ctl, epoll_ctl@GLIBC_2.17",
 );
 
 #[panic_handler]
@@ -271,6 +276,7 @@ unsafe fn ensure_init_locked() -> bool {
     if !CTX.init(&p[..root.len() + suffix.len()]) {
         return false;
     }
+    CTX.set_trace(getenv(b"NR_V4L2_AUDIT\0".as_ptr()) != core::ptr::null());
     READY = true;
     true
 }
@@ -367,6 +373,19 @@ unsafe fn synth_statx(n: u32, buf: *mut u8) -> i32 {
     core::ptr::write_unaligned(buf.add(128) as *mut u32, 81u32);
     core::ptr::write_unaligned(buf.add(132) as *mut u32, n);
     0
+}
+
+unsafe fn synth_fd_stat(fd: i32, st: *mut u8) -> bool {
+    lock();
+    let rdev = CTX.char_device_rdev(fd);
+    unlock();
+    let Some(rdev) = rdev else {
+        return false;
+    };
+    // The facade encodes V4L2 major 81 and the device index in the same
+    // synthetic rdev shape used for path-based stat.
+    synth_stat(rdev & 0xff, st);
+    true
 }
 
 unsafe fn path_bytes(p: *const i8) -> Option<&'static [u8]> {
@@ -639,6 +658,30 @@ pub unsafe extern "C" fn fcntl(fd: i32, cmd: i32, arg: usize) -> i32 {
     r as i32
 }
 
+/// PipeWire's SPA data loop registers camera fds with epoll. A memfd is a
+/// regular file, which epoll rejects with EPERM; SPA then uses an idle fallback
+/// that stops firing once the graph is active. Keep the memfd as the guest
+/// identity, but transparently watch the device's internal eventfd instead.
+#[no_mangle]
+pub unsafe extern "C" fn epoll_ctl(epfd: i32, op: i32, fd: i32, event: *mut u8) -> i32 {
+    lock();
+    let target = CTX.poll_fd_for(fd);
+    let r = raw(
+        SYS_EPOLL_CTL as usize,
+        epfd as usize,
+        op as usize,
+        target.unwrap_or(fd) as usize,
+        event as usize,
+        0,
+        0,
+    );
+    unlock();
+    if r < 0 {
+        return set_errno(errno_of(r));
+    }
+    0
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn stat(path: *const i8, st: *mut u8) -> i32 {
     do_fstatat(AT_FDCWD, path, st, 0)
@@ -659,6 +702,27 @@ pub unsafe extern "C" fn stat64(path: *const i8, st: *mut u8) -> i32 {
 #[no_mangle]
 pub unsafe extern "C" fn lstat64(path: *const i8, st: *mut u8) -> i32 {
     do_fstatat(AT_FDCWD, path, st, 0x100)
+}
+
+// SPA's v4l2 source opens the device first and then checks `fstat(fd)` for
+// S_ISCHR. The camera descriptor is deliberately a memfd (so dup/close/poll
+// have kernel semantics), therefore this fd identity must be synthesized just
+// like the path identity above.
+#[no_mangle]
+pub unsafe extern "C" fn fstat(fd: i32, st: *mut u8) -> i32 {
+    if synth_fd_stat(fd, st) {
+        return 0;
+    }
+    let r = raw(SYS_FSTAT as usize, fd as usize, st as usize, 0, 0, 0, 0);
+    if r < 0 {
+        return set_errno(errno_of(r));
+    }
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn fstat64(fd: i32, st: *mut u8) -> i32 {
+    fstat(fd, st)
 }
 
 #[no_mangle]
@@ -840,8 +904,10 @@ pub unsafe extern "C" fn v4l2_dup(fd: i32) -> i32 {
 // ---- ABI for the loader shim -------------------------------------------
 //
 // Both layers must share ONE Ctx (the app accepts one camera client), so the
-// preload owns it and the loader shim forwards here when HUSK_V4L2_API is set.
-// Same handshake as the DRM shim.
+// preload owns it and exports this stable ABI for the loader shim. The loader
+// resolves these symbols through the normal ELF link map; it must not receive
+// a raw static-array address through the environment (that pointer is not
+// relocated reliably in this no_std static-PIE DSO).
 
 #[no_mangle]
 pub unsafe extern "C" fn husk_v4l2_open(n: u32) -> i32 {
@@ -860,6 +926,10 @@ pub unsafe extern "C" fn husk_v4l2_ioctl(fd: i32, req: u64, arg: *mut u8) -> i64
     let r = if CTX.is_video_fd(fd) {
         CTX.ioctl(fd, req, arg)
     } else {
+        note_hex(b"[husk v4l2] loader ioctl unknown request=", req);
+        note_int(b"   fd=", fd as i64);
+        note(b"   target=");
+        note_link(fd);
         -25
     };
     unlock();
@@ -909,56 +979,35 @@ pub unsafe extern "C" fn husk_v4l2_nonblock(fd: i32, on: i32) {
     unlock();
 }
 
-static mut API: [usize; 7] = [0; 7];
-
-unsafe extern "C" fn announce() {
-    API = [
-        husk_v4l2_open as usize,
-        husk_v4l2_ioctl as usize,
-        husk_v4l2_mmap as usize,
-        husk_v4l2_is_fake as usize,
-        husk_v4l2_close as usize,
-        husk_v4l2_nonblock as usize,
-        husk_v4l2_forget_target as usize,
-    ];
-    let _ = setenv(b"HUSK_V4L2_PRELOAD\0".as_ptr(), b"1\0".as_ptr(), 1);
-    // Hex table address, same encoding path-shim already parses for DRM.
-    let mut hex = [0u8; 20];
-    let mut p = (core::ptr::addr_of!(API)) as usize;
-    let mut i = 2;
-    hex[0] = b'0';
-    hex[1] = b'x';
-    let mut shift = (core::mem::size_of::<usize>() * 8) / 4;
-    let mut started = false;
-    let digits = b"0123456789abcdef";
-    while shift > 0 {
-        shift -= 4;
-        let d = (p >> shift) & 0xf;
-        if d != 0 {
-            started = true;
-        }
-        if started {
-            hex[i] = digits[d];
-            i += 1;
-        }
-    }
-    if !started {
-        hex[i] = b'0';
-        i += 1;
-    }
-    hex[i] = 0;
-    // NOTE: 2026-11-23 — publishing the table and letting the loader shim forward
-    // crashed inside the shim on the first /dev/video open (evidence 91 §crash).
-    // Until that is diagnosed the two layers keep their own Ctx: startup objects
-    // use the loader shim, dlopen'd consumers (GStreamer) use this one. A process
-    // must not open the device through both paths at once (camera.sock is one
-    // client); gst-launch and our tools each use exactly one.
-    let _ = &hex;
-    let _ = O_PATH;
-    let _ = MAX_BUFFERS;
-    let _ = &mut p;
+#[no_mangle]
+pub unsafe extern "C" fn husk_v4l2_read(fd: i32, out: *mut u8, count: usize) -> isize {
+    lock();
+    let r = if CTX.is_video_fd(fd) {
+        CTX.read_frame(fd, out, count)
+    } else {
+        -9
+    };
+    unlock();
+    r
 }
 
-#[used]
-#[link_section = ".init_array"]
-static ANNOUNCE: unsafe extern "C" fn() = announce;
+#[no_mangle]
+pub unsafe extern "C" fn husk_v4l2_readv(fd: i32, iov: *mut u8, iovcnt: i32) -> isize {
+    lock();
+    let r = if CTX.is_video_fd(fd) {
+        CTX.readv_frame(fd, iov, iovcnt)
+    } else {
+        -9
+    };
+    unlock();
+    r
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn husk_v4l2_fstat(fd: i32, st: *mut u8) -> i32 {
+    if synth_fd_stat(fd, st) {
+        0
+    } else {
+        -1
+    }
+}

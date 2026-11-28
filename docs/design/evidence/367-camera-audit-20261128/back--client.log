@@ -1,0 +1,5 @@
+camera-client|OPEN|OK w=640 h=480 fourcc=NV12 bytes=460800 id=0
+camera-client|FRAME|seq=1|ts=9507418022000|640x480|bytes=460800|min=0|max=133|mean=43.88
+camera-client|FRAME|seq=2|ts=9507478261000|640x480|bytes=460800|min=1|max=130|mean=43.98
+camera-client|FRAME|seq=3|ts=9507538500000|640x480|bytes=460800|min=0|max=129|mean=43.98
+camera-client|PASS|frames=3|elapsed_ms=511|bye=BYE|seqs=1,2,3

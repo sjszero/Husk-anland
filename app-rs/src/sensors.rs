@@ -402,15 +402,6 @@ fn publish_event(rootfs: &Path, event: &ASensorEvent) {
 /// Start the sensor bridge once per app process.  A failure is logged and the
 /// matrix remains `present=yes husk=degraded`; it must not take down the app.
 pub fn start_once() {
-    if STARTED.swap(true, Ordering::SeqCst) {
-        return;
-    }
-    std::thread::spawn(|| {
-        let _ = std::panic::catch_unwind(run);
-    });
-}
-
-fn run() {
     let Some(files) = files_dir() else {
         crate::log("sensors|SKIP|no files dir");
         return;
@@ -422,6 +413,22 @@ fn run() {
             return;
         }
     };
+    start_once_at(rootfs);
+}
+
+/// Start the sensor bridge with an explicit guest rootfs. This is the entry
+/// point used by the standalone `husk-bridges` helper, which runs outside the
+/// NativeActivity process and therefore has no `ANativeActivity` pointer.
+pub fn start_once_at(rootfs: PathBuf) {
+    if STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(move || {
+        let _ = std::panic::catch_unwind(|| run_at(rootfs));
+    });
+}
+
+fn run_at(rootfs: PathBuf) {
     if let Err(e) = prepare_tree(&rootfs) {
         crate::log(&format!("sensors|TREE|{e}"));
         return;

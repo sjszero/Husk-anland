@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 const PANVK_CANONICAL_ICD: &str = "/usr/share/vulkan/icd.d/husk_panvk_guest.json";
 const PANVK_DRIVERS: &[&str] = &[
+    "usr/lib/aarch64-linux-gnu/libvulkan_panfrost_husk.so",
     "usr/lib/aarch64-linux-gnu/libvulkan_panfrost_frist370_execva.so",
     "usr/lib/aarch64-linux-gnu/libvulkan_panfrost_frist370.so",
     "usr/lib/aarch64-linux-gnu/libvulkan_panfrost_x11.so",
@@ -22,6 +23,7 @@ const PANVK_SOURCE_ICDS: &[&str] = &[
     "usr/share/vulkan/icd.d/husk_panvk_x11.json",
     "usr/share/vulkan/icd.d/husk_panvk_g77.json",
     "usr/share/vulkan/icd.d/husk_panvk.json",
+    "usr/share/vulkan/icd.d/husk_panvk_guest.json",
 ];
 
 const FREEDRENO_CANONICAL_ICD: &str = "/usr/share/vulkan/icd.d/husk_freedreno_guest.json";
@@ -325,12 +327,16 @@ mod tests {
         write(
             &source_icd,
             format!(
-                "{{\"ICD\":{{\"api_version\":\"1.4.352\",\"library_path\":\"{}/usr/lib/aarch64-linux-gnu/libvulkan_panfrost_frist370_execva.so\"}}}}",
+                "{{\"ICD\":{{\"api_version\":\"1.4.352\",\"library_path\":\"{}/usr/lib/aarch64-linux-gnu/libvulkan_panfrost_husk.so\"}}}}",
                 root.display()
             )
             .as_bytes(),
         );
         write(&driver, b"driver");
+        // An upgraded tree can still contain the old vendor-named driver. The
+        // canonical ICD must select the managed snapshot first, not whatever
+        // stale file happens to sort earlier on disk.
+        write(&root.join(PANVK_DRIVERS[1]), b"stale-driver");
 
         let env = build(&root, true, false, false);
         assert!(env
@@ -345,7 +351,7 @@ mod tests {
             std::fs::read_to_string(root.join(PANVK_CANONICAL_ICD.trim_start_matches('/')))
                 .unwrap();
         assert!(canonical.contains(
-            "\"library_path\": \"/usr/lib/aarch64-linux-gnu/libvulkan_panfrost_frist370_execva.so\""
+            "\"library_path\": \"/usr/lib/aarch64-linux-gnu/libvulkan_panfrost_husk.so\""
         ));
         assert!(canonical.contains("\"api_version\": \"1.4.352\""));
         assert!(!canonical.contains(&root.display().to_string()));

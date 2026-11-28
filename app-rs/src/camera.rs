@@ -18,6 +18,7 @@
 use core::ffi::{c_char, c_int, c_void};
 use core::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, AtomicUsize, Ordering};
 use std::ffi::CString;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 type CameraStatus = i32;
@@ -35,11 +36,20 @@ const TAG_SCALER_AVAILABLE_STREAM_CONFIGURATIONS: u32 = (13 << 16) + 10;
 const TAG_SENSOR_ORIENTATION: u32 = (14 << 16) + 14;
 const TAG_CONTROL_AE_MODE: u32 = (1 << 16) + 3;
 const TAG_CONTROL_MODE: u32 = (1 << 16) + 15;
+const TAG_CONTROL_AE_STATE: u32 = (1 << 16) + 31;
+const TAG_FLASH_MODE: u32 = (4 << 16) + 2;
+const TAG_SENSOR_EXPOSURE_TIME: u32 = 14 << 16;
+const TAG_SENSOR_FRAME_DURATION: u32 = (14 << 16) + 1;
+const TAG_SENSOR_SENSITIVITY: u32 = (14 << 16) + 2;
+const TAG_SENSOR_TIMESTAMP: u32 = (14 << 16) + 3;
 
 const LENS_FACING_BACK: u8 = 1;
 const LENS_FACING_FRONT: u8 = 0;
 const CONTROL_MODE_AUTO: u8 = 1;
 const CONTROL_AE_MODE_ON: u8 = 1;
+const FLASH_MODE_TORCH: u8 = 2;
+const TORCH_MODE_OFF: u32 = 0;
+const TORCH_MODE_ON: u32 = 1;
 
 const ALOOPER_PREPARE_ALLOW_NON_CALLBACKS: c_int = 1;
 
@@ -55,6 +65,60 @@ type AImageReader = c_void;
 type AImage = c_void;
 type ANativeWindow = c_void;
 type ALooper = c_void;
+
+type CaptureStartCallback =
+    unsafe extern "C" fn(*mut c_void, *mut ACameraCaptureSession, *const ACaptureRequest, i64);
+type CaptureResultCallback = unsafe extern "C" fn(
+    *mut c_void,
+    *mut ACameraCaptureSession,
+    *mut ACaptureRequest,
+    *const ACameraMetadata,
+);
+type CaptureFailedCallback = unsafe extern "C" fn(
+    *mut c_void,
+    *mut ACameraCaptureSession,
+    *mut ACaptureRequest,
+    *mut CaptureFailure,
+);
+type CaptureSequenceEndCallback =
+    unsafe extern "C" fn(*mut c_void, *mut ACameraCaptureSession, c_int, i64);
+type CaptureSequenceAbortCallback =
+    unsafe extern "C" fn(*mut c_void, *mut ACameraCaptureSession, c_int);
+type CaptureBufferLostCallback = unsafe extern "C" fn(
+    *mut c_void,
+    *mut ACameraCaptureSession,
+    *mut ACaptureRequest,
+    *mut ANativeWindow,
+    i64,
+);
+type ImageAvailableCallback = unsafe extern "C" fn(*mut c_void, *mut AImageReader);
+
+#[repr(C)]
+struct CaptureFailure {
+    frame_number: i64,
+    reason: c_int,
+    sequence_id: c_int,
+    // C `bool` is one byte; keep it as u8 so we never construct an invalid Rust bool.
+    was_image_captured: u8,
+}
+
+#[repr(C)]
+struct CaptureCallbacks {
+    context: *mut c_void,
+    on_capture_started: Option<CaptureStartCallback>,
+    on_capture_progressed: Option<CaptureResultCallback>,
+    on_capture_completed: Option<CaptureResultCallback>,
+    on_capture_failed: Option<CaptureFailedCallback>,
+    on_capture_sequence_completed: Option<CaptureSequenceEndCallback>,
+    on_capture_sequence_aborted: Option<CaptureSequenceAbortCallback>,
+    on_capture_buffer_lost: Option<CaptureBufferLostCallback>,
+}
+
+#[repr(C)]
+struct ImageListener {
+    context: *mut c_void,
+    on_image_available: Option<ImageAvailableCallback>,
+}
 
 #[repr(C)]
 struct CameraIdList {
@@ -134,12 +198,35 @@ unsafe fn symbol(handle: *mut c_void, name: &core::ffi::CStr) -> Result<*mut c_v
     Ok(p)
 }
 
+/// Standalone helpers do not inherit an Android Runtime thread that owns the
+/// binder thread pool. CameraService can accept a request in that process but
+/// never deliver capture/image callbacks. Start the NDK binder pool explicitly
+/// before creating the Camera2 manager; native activities never take this path.
+unsafe fn start_helper_binder_thread_pool() -> Result<(), String> {
+    let handle = dlopen(c"libbinder_ndk.so".as_ptr(), 2 /* RTLD_NOW */);
+    if handle.is_null() {
+        return Err(format!("dlopen(libbinder_ndk.so): {}", dlerror_text()));
+    }
+    let raw = dlsym(handle, c"ABinderProcess_startThreadPool".as_ptr());
+    if raw.is_null() {
+        return Err(format!(
+            "dlsym(ABinderProcess_startThreadPool): {}",
+            dlerror_text()
+        ));
+    }
+    let start: unsafe extern "C" fn() = core::mem::transmute(raw);
+    start();
+    Ok(())
+}
+
 struct CameraApi {
     _camera_handle: *mut c_void,
     _media_handle: *mut c_void,
     _android_handle: *mut c_void,
     manager_create: unsafe extern "C" fn(*mut *mut ACameraManager) -> CameraStatus,
     manager_delete: unsafe extern "C" fn(*mut ACameraManager),
+    manager_set_torch_mode:
+        Option<unsafe extern "C" fn(*mut ACameraManager, *const c_char, u32) -> CameraStatus>,
     manager_get_id_list:
         unsafe extern "C" fn(*mut ACameraManager, *mut *mut CameraIdList) -> CameraStatus,
     manager_delete_id_list: unsafe extern "C" fn(*mut CameraIdList),
@@ -188,7 +275,14 @@ struct CameraApi {
     session_close: unsafe extern "C" fn(*mut ACameraCaptureSession),
     session_set_repeating: unsafe extern "C" fn(
         *mut ACameraCaptureSession,
-        *mut c_void,
+        *mut CaptureCallbacks,
+        c_int,
+        *mut *mut ACaptureRequest,
+        *mut c_int,
+    ) -> CameraStatus,
+    session_capture: unsafe extern "C" fn(
+        *mut ACameraCaptureSession,
+        *mut CaptureCallbacks,
         c_int,
         *mut *mut ACaptureRequest,
         *mut c_int,
@@ -197,6 +291,7 @@ struct CameraApi {
     reader_new: unsafe extern "C" fn(i32, i32, i32, i32, *mut *mut AImageReader) -> i32,
     reader_delete: unsafe extern "C" fn(*mut AImageReader),
     reader_get_window: unsafe extern "C" fn(*mut AImageReader, *mut *mut ANativeWindow) -> i32,
+    reader_set_image_listener: unsafe extern "C" fn(*mut AImageReader, *mut ImageListener) -> i32,
     reader_acquire_next: unsafe extern "C" fn(*mut AImageReader, *mut *mut AImage) -> i32,
     image_delete: unsafe extern "C" fn(*mut AImage),
     image_get_timestamp: unsafe extern "C" fn(*const AImage, *mut i64) -> i32,
@@ -206,11 +301,17 @@ struct CameraApi {
     image_get_plane_pixel_stride: unsafe extern "C" fn(*const AImage, c_int, *mut i32) -> i32,
     image_get_width: unsafe extern "C" fn(*const AImage, *mut i32) -> i32,
     image_get_height: unsafe extern "C" fn(*const AImage, *mut i32) -> i32,
+    image_get_format: unsafe extern "C" fn(*const AImage, *mut c_int) -> i32,
+    image_get_number_of_planes: unsafe extern "C" fn(*const AImage, *mut c_int) -> i32,
     looper_prepare: unsafe extern "C" fn(c_int) -> *mut ALooper,
     // int ALooper_pollOnce(int timeoutMillis, int* outFd, int* outEvents, void** outData)
     // There is no looper argument: it always polls the calling thread's looper.
     looper_poll_once:
         unsafe extern "C" fn(c_int, *mut c_int, *mut c_int, *mut *mut c_void) -> c_int,
+    window_get_width: unsafe extern "C" fn(*mut ANativeWindow) -> i32,
+    window_get_height: unsafe extern "C" fn(*mut ANativeWindow) -> i32,
+    window_get_format: unsafe extern "C" fn(*mut ANativeWindow) -> i32,
+    window_set_buffers_geometry: unsafe extern "C" fn(*mut ANativeWindow, i32, i32, i32) -> i32,
 }
 
 impl CameraApi {
@@ -233,6 +334,9 @@ impl CameraApi {
             _android_handle: android_handle,
             manager_create: core::mem::transmute(symbol(camera_handle, c"ACameraManager_create")?),
             manager_delete: core::mem::transmute(symbol(camera_handle, c"ACameraManager_delete")?),
+            manager_set_torch_mode: symbol(camera_handle, c"ACameraManager_setTorchMode")
+                .ok()
+                .map(|p| core::mem::transmute(p)),
             manager_get_id_list: core::mem::transmute(symbol(
                 camera_handle,
                 c"ACameraManager_getCameraIdList",
@@ -307,6 +411,10 @@ impl CameraApi {
                 camera_handle,
                 c"ACameraCaptureSession_setRepeatingRequest",
             )?),
+            session_capture: core::mem::transmute(symbol(
+                camera_handle,
+                c"ACameraCaptureSession_capture",
+            )?),
             session_stop_repeating: core::mem::transmute(symbol(
                 camera_handle,
                 c"ACameraCaptureSession_stopRepeating",
@@ -316,6 +424,10 @@ impl CameraApi {
             reader_get_window: core::mem::transmute(symbol(
                 media_handle,
                 c"AImageReader_getWindow",
+            )?),
+            reader_set_image_listener: core::mem::transmute(symbol(
+                media_handle,
+                c"AImageReader_setImageListener",
             )?),
             reader_acquire_next: core::mem::transmute(symbol(
                 media_handle,
@@ -340,8 +452,29 @@ impl CameraApi {
             )?),
             image_get_width: core::mem::transmute(symbol(media_handle, c"AImage_getWidth")?),
             image_get_height: core::mem::transmute(symbol(media_handle, c"AImage_getHeight")?),
+            image_get_format: core::mem::transmute(symbol(media_handle, c"AImage_getFormat")?),
+            image_get_number_of_planes: core::mem::transmute(symbol(
+                media_handle,
+                c"AImage_getNumberOfPlanes",
+            )?),
             looper_prepare: core::mem::transmute(symbol(android_handle, c"ALooper_prepare")?),
             looper_poll_once: core::mem::transmute(symbol(android_handle, c"ALooper_pollOnce")?),
+            window_get_width: core::mem::transmute(symbol(
+                android_handle,
+                c"ANativeWindow_getWidth",
+            )?),
+            window_get_height: core::mem::transmute(symbol(
+                android_handle,
+                c"ANativeWindow_getHeight",
+            )?),
+            window_get_format: core::mem::transmute(symbol(
+                android_handle,
+                c"ANativeWindow_getFormat",
+            )?),
+            window_set_buffers_geometry: core::mem::transmute(symbol(
+                android_handle,
+                c"ANativeWindow_setBuffersGeometry",
+            )?),
         })
     }
 }
@@ -352,11 +485,30 @@ impl CameraApi {
 
 static STARTED: AtomicBool = AtomicBool::new(false);
 static SESSION_READY: AtomicBool = AtomicBool::new(false);
+static SESSION_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// A dead or half-open camera client must never prevent another V4L2 device
+/// from being accepted. Keep a hard bound so a broken client loop cannot grow
+/// one thread per connection without limit.
+static ACTIVE_CAMERA_CLIENTS: AtomicUsize = AtomicUsize::new(0);
+/// Camera2 has process-global per-device session constraints and the callbacks
+/// use shared readiness state. INFO may run concurrently, but only one capture
+/// session may own the shared state at a time.
+static CAMERA_SESSION_OWNER: Mutex<()> = Mutex::new(());
+const MAX_CAMERA_CLIENTS: usize = 16;
+const CAMERA_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(3);
+const CAMERA_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 static STOP: AtomicBool = AtomicBool::new(false);
 static SESSION: AtomicPtr<ACameraCaptureSession> = AtomicPtr::new(core::ptr::null_mut());
 static REQUEST: AtomicPtr<ACaptureRequest> = AtomicPtr::new(core::ptr::null_mut());
 static DEVICE_ERROR: AtomicI32 = AtomicI32::new(0);
 static FRAMES: AtomicUsize = AtomicUsize::new(0);
+static IMAGE_AVAILABLE: AtomicUsize = AtomicUsize::new(0);
+static CAPTURE_STARTED: AtomicUsize = AtomicUsize::new(0);
+static CAPTURE_PROGRESSED: AtomicUsize = AtomicUsize::new(0);
+static CAPTURE_COMPLETED: AtomicUsize = AtomicUsize::new(0);
+static CAPTURE_FAILED: AtomicUsize = AtomicUsize::new(0);
+static CAPTURE_BUFFER_LOST: AtomicUsize = AtomicUsize::new(0);
+static CAMERA_API_FOR_CALLBACKS: AtomicPtr<CameraApi> = AtomicPtr::new(core::ptr::null_mut());
 
 unsafe extern "C" fn on_device_disconnected(_ctx: *mut c_void, _device: *mut ACameraDevice) {
     crate::log("camera|device|disconnected");
@@ -369,6 +521,7 @@ unsafe extern "C" fn on_device_error(_ctx: *mut c_void, _device: *mut ACameraDev
 
 unsafe extern "C" fn on_session_closed(_ctx: *mut c_void, _session: *mut ACameraCaptureSession) {
     SESSION_READY.store(false, Ordering::SeqCst);
+    SESSION_ACTIVE.store(false, Ordering::SeqCst);
 }
 
 unsafe extern "C" fn on_session_ready(_ctx: *mut c_void, _session: *mut ACameraCaptureSession) {
@@ -376,7 +529,121 @@ unsafe extern "C" fn on_session_ready(_ctx: *mut c_void, _session: *mut ACameraC
     crate::log("camera|callback|session_ready");
 }
 
-unsafe extern "C" fn on_session_active(_ctx: *mut c_void, _session: *mut ACameraCaptureSession) {}
+unsafe extern "C" fn on_session_active(_ctx: *mut c_void, _session: *mut ACameraCaptureSession) {
+    SESSION_ACTIVE.store(true, Ordering::SeqCst);
+    crate::log("camera|callback|session_active");
+}
+
+unsafe extern "C" fn on_image_available(_ctx: *mut c_void, reader: *mut AImageReader) {
+    let count = IMAGE_AVAILABLE.fetch_add(1, Ordering::SeqCst) + 1;
+    if count == 1 || count % 30 == 0 {
+        crate::log(&format!(
+            "camera|image_reader|available|count={count}|reader_null={}",
+            reader.is_null()
+        ));
+    }
+}
+
+unsafe extern "C" fn on_capture_started(
+    _ctx: *mut c_void,
+    _session: *mut ACameraCaptureSession,
+    _request: *const ACaptureRequest,
+    timestamp: i64,
+) {
+    let count = CAPTURE_STARTED.fetch_add(1, Ordering::SeqCst) + 1;
+    if count == 1 || count % 30 == 0 {
+        crate::log(&format!(
+            "camera|capture|started|count={count}|timestamp={timestamp}"
+        ));
+    }
+}
+
+unsafe extern "C" fn on_capture_progressed(
+    _ctx: *mut c_void,
+    _session: *mut ACameraCaptureSession,
+    _request: *mut ACaptureRequest,
+    _result: *const ACameraMetadata,
+) {
+    let count = CAPTURE_PROGRESSED.fetch_add(1, Ordering::SeqCst) + 1;
+    if count == 1 || count % 30 == 0 {
+        crate::log(&format!("camera|capture|progressed|count={count}"));
+        log_capture_result_metadata(_result, "progressed");
+    }
+}
+
+unsafe extern "C" fn on_capture_completed(
+    _ctx: *mut c_void,
+    _session: *mut ACameraCaptureSession,
+    _request: *mut ACaptureRequest,
+    _result: *const ACameraMetadata,
+) {
+    let count = CAPTURE_COMPLETED.fetch_add(1, Ordering::SeqCst) + 1;
+    if count == 1 || count % 30 == 0 {
+        crate::log(&format!("camera|capture|completed|count={count}"));
+        log_capture_result_metadata(_result, "completed");
+    }
+}
+
+unsafe extern "C" fn on_capture_failed(
+    _ctx: *mut c_void,
+    _session: *mut ACameraCaptureSession,
+    _request: *mut ACaptureRequest,
+    failure: *mut CaptureFailure,
+) {
+    let count = CAPTURE_FAILED.fetch_add(1, Ordering::SeqCst) + 1;
+    let (frame, reason, sequence, image) = if failure.is_null() {
+        (-1, -1, -1, 0)
+    } else {
+        let f = &*failure;
+        (
+            f.frame_number,
+            f.reason,
+            f.sequence_id,
+            f.was_image_captured,
+        )
+    };
+    if count == 1 || count % 30 == 0 {
+        crate::log(&format!(
+            "camera|capture|failed|count={count}|frame={frame}|reason={reason}|sequence={sequence}|image_captured={image}"
+        ));
+    }
+}
+
+unsafe extern "C" fn on_capture_sequence_completed(
+    _ctx: *mut c_void,
+    _session: *mut ACameraCaptureSession,
+    sequence: c_int,
+    frame: i64,
+) {
+    crate::log(&format!(
+        "camera|capture|sequence_completed|sequence={sequence}|frame={frame}"
+    ));
+}
+
+unsafe extern "C" fn on_capture_sequence_aborted(
+    _ctx: *mut c_void,
+    _session: *mut ACameraCaptureSession,
+    sequence: c_int,
+) {
+    crate::log(&format!(
+        "camera|capture|sequence_aborted|sequence={sequence}"
+    ));
+}
+
+unsafe extern "C" fn on_capture_buffer_lost(
+    _ctx: *mut c_void,
+    _session: *mut ACameraCaptureSession,
+    _request: *mut ACaptureRequest,
+    _window: *mut ANativeWindow,
+    frame: i64,
+) {
+    let count = CAPTURE_BUFFER_LOST.fetch_add(1, Ordering::SeqCst) + 1;
+    if count == 1 || count % 30 == 0 {
+        crate::log(&format!(
+            "camera|capture|buffer_lost|count={count}|frame={frame}"
+        ));
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Metadata helpers
@@ -399,6 +666,53 @@ unsafe fn entry(
         return None;
     }
     Some(out)
+}
+
+unsafe fn log_capture_result_metadata(result: *const ACameraMetadata, stage: &str) {
+    if result.is_null() || std::env::var_os("HUSK_CAMERA_PLANE_AUDIT").is_none() {
+        return;
+    }
+    let api_ptr = CAMERA_API_FOR_CALLBACKS.load(Ordering::SeqCst);
+    if api_ptr.is_null() {
+        return;
+    }
+    let api = &*api_ptr;
+    let tags = [
+        ("sensor_exposure", TAG_SENSOR_EXPOSURE_TIME, "i64"),
+        ("sensor_frame_duration", TAG_SENSOR_FRAME_DURATION, "i64"),
+        ("sensor_sensitivity", TAG_SENSOR_SENSITIVITY, "i32"),
+        ("sensor_timestamp", TAG_SENSOR_TIMESTAMP, "i64"),
+        ("ae_state", TAG_CONTROL_AE_STATE, "u8"),
+        ("ae_mode", TAG_CONTROL_AE_MODE, "u8"),
+        ("control_mode", TAG_CONTROL_MODE, "u8"),
+    ];
+    let mut fields = Vec::new();
+    for (name, tag, kind) in tags {
+        let mut e = CameraMetadataEntry {
+            tag: 0,
+            type_: 0,
+            _pad0: [0; 3],
+            count: 0,
+            _pad1: 0,
+            data: core::ptr::null(),
+        };
+        let rc = (api.metadata_get_const_entry)(result, tag, &mut e);
+        if rc != ACAMERA_OK || e.data.is_null() || e.count == 0 {
+            fields.push(format!("{name}=missing(rc={rc})"));
+            continue;
+        }
+        let value = match (kind, e.type_) {
+            ("i64", 3) => *(e.data as *const i64),
+            ("i32", 1) => *(e.data as *const i32) as i64,
+            ("u8", 0) => *(e.data as *const u8) as i64,
+            _ => i64::MIN,
+        };
+        fields.push(format!("{name}={value}"));
+    }
+    crate::log(&format!(
+        "camera|capture|result|{stage}|{}",
+        fields.join("|")
+    ));
 }
 
 unsafe fn lens_facing(api: &CameraApi, meta: *const ACameraMetadata) -> Option<u8> {
@@ -506,6 +820,43 @@ unsafe fn enumerate(api: &CameraApi, manager: *mut ACameraManager) -> Vec<Camera
 // Capture
 // ---------------------------------------------------------------------------
 
+/// Sample only the meaningful pixels of an AImage plane, excluding row padding.
+unsafe fn plane_sample_stats(
+    data: *const u8,
+    len: usize,
+    rows: usize,
+    cols: usize,
+    row_stride: usize,
+    pixel_stride: usize,
+) -> (u8, u8, f64) {
+    if data.is_null() || rows == 0 || cols == 0 {
+        return (0, 0, 0.0);
+    }
+    let mut min = 255u8;
+    let mut max = 0u8;
+    let mut sum = 0u64;
+    let mut count = 0u64;
+    for row in 0..rows {
+        let row_base = row.saturating_mul(row_stride);
+        for col in 0..cols {
+            let offset = row_base.saturating_add(col.saturating_mul(pixel_stride));
+            if offset >= len {
+                continue;
+            }
+            let value = *data.add(offset);
+            min = min.min(value);
+            max = max.max(value);
+            sum += value as u64;
+            count += 1;
+        }
+    }
+    if count == 0 {
+        (0, 0, 0.0)
+    } else {
+        (min, max, sum as f64 / count as f64)
+    }
+}
+
 /// Copy `YUV_420_888` into NV12 (Y plane, then interleaved UV at half size).
 unsafe fn to_nv12(
     api: &CameraApi,
@@ -534,6 +885,49 @@ unsafe fn to_nv12(
             return Err(format!("AImage_getPlane*Stride({i}) failed"));
         }
         *slot = (data, len, row_stride, pixel_stride.max(1));
+    }
+
+    if std::env::var_os("HUSK_CAMERA_PLANE_AUDIT").is_some() {
+        let mut fmt = -1;
+        let mut plane_count = -1;
+        let fmt_rc = (api.image_get_format)(image, &mut fmt);
+        let count_rc = (api.image_get_number_of_planes)(image, &mut plane_count);
+        let (y_min, y_max, y_mean) = plane_sample_stats(
+            planes[0].0,
+            planes[0].1,
+            height.max(0) as usize,
+            width.max(0) as usize,
+            planes[0].2.max(0) as usize,
+            planes[0].3.max(1) as usize,
+        );
+        let (u_min, u_max, u_mean) = plane_sample_stats(
+            planes[1].0,
+            planes[1].1,
+            (height.max(0) / 2) as usize,
+            (width.max(0) / 2) as usize,
+            planes[1].2.max(0) as usize,
+            planes[1].3.max(1) as usize,
+        );
+        let (v_min, v_max, v_mean) = plane_sample_stats(
+            planes[2].0,
+            planes[2].1,
+            (height.max(0) / 2) as usize,
+            (width.max(0) / 2) as usize,
+            planes[2].2.max(0) as usize,
+            planes[2].3.max(1) as usize,
+        );
+        crate::log(&format!(
+            "camera|image|audit|{width}x{height}|fmt={fmt}|fmt_rc={fmt_rc}|planes={plane_count}|count_rc={count_rc}|p0_len={}|p0_row={}|p0_pix={}|y={y_min}/{y_max}/{y_mean:.2}|p1_len={}|p1_row={}|p1_pix={}|u={u_min}/{u_max}/{u_mean:.2}|p2_len={}|p2_row={}|p2_pix={}|v={v_min}/{v_max}/{v_mean:.2}",
+            planes[0].1,
+            planes[0].2,
+            planes[0].3,
+            planes[1].1,
+            planes[1].2,
+            planes[1].3,
+            planes[2].1,
+            planes[2].2,
+            planes[2].3,
+        ));
     }
 
     let (y_ptr, _, y_stride, _) = planes[0];
@@ -587,6 +981,8 @@ struct Selftest {
     saved: usize,
     /// Camera id chosen by the marker (`camera=1`); None picks the back camera.
     camera: Option<String>,
+    /// Diagnostic-only torch mode inside the active Camera2 session.
+    torch: bool,
 }
 
 /// `AImage_getTimestamp` reports nanoseconds since boot. Return the frame
@@ -607,6 +1003,8 @@ struct CameraSession {
     device: *mut ACameraDevice,
     session: *mut ACameraCaptureSession,
     reader: *mut AImageReader,
+    image_listener: ImageListener,
+    capture_cbs: CaptureCallbacks,
     window: *mut ANativeWindow,
     request: *mut ACaptureRequest,
     target: *mut ACameraOutputTarget,
@@ -616,6 +1014,20 @@ struct CameraSession {
     width: i32,
     height: i32,
     seq: u64,
+    last_acquire_rc: i32,
+}
+
+unsafe fn submit_repeating(
+    api: &CameraApi,
+    session: *mut ACameraCaptureSession,
+    request: *mut ACaptureRequest,
+    callbacks: *mut CaptureCallbacks,
+) -> (i32, c_int) {
+    let mut requests = [request];
+    let mut sequence = -1;
+    let rc =
+        (api.session_set_repeating)(session, callbacks, 1, requests.as_mut_ptr(), &mut sequence);
+    (rc, sequence)
 }
 
 impl CameraSession {
@@ -625,7 +1037,10 @@ impl CameraSession {
         camera_id: &str,
         width: i32,
         height: i32,
+        torch: bool,
     ) -> Result<Self, String> {
+        CAMERA_API_FOR_CALLBACKS.store(api as *const CameraApi as *mut CameraApi, Ordering::SeqCst);
+        let legacy_session = std::env::var_os("HUSK_CAMERA_LEGACY_SESSION").is_some();
         let looper = (api.looper_prepare)(ALOOPER_PREPARE_ALLOW_NON_CALLBACKS);
         let mut reader: *mut AImageReader = core::ptr::null_mut();
         let rc = (api.reader_new)(width, height, AIMAGE_FORMAT_YUV_420_888, 3, &mut reader);
@@ -637,6 +1052,52 @@ impl CameraSession {
             (api.reader_delete)(reader);
             return Err("AImageReader_getWindow".into());
         }
+        let geometry_before = (
+            (api.window_get_width)(window),
+            (api.window_get_height)(window),
+            (api.window_get_format)(window),
+        );
+        let geometry_rc = if legacy_session {
+            -1
+        } else {
+            (api.window_set_buffers_geometry)(window, width, height, AIMAGE_FORMAT_YUV_420_888)
+        };
+        let geometry_after = (
+            (api.window_get_width)(window),
+            (api.window_get_height)(window),
+            (api.window_get_format)(window),
+        );
+        crate::log(&format!(
+            "camera|reader|geometry|before={}x{}/{}|set_rc={geometry_rc}|after={}x{}/{}",
+            geometry_before.0,
+            geometry_before.1,
+            geometry_before.2,
+            geometry_after.0,
+            geometry_after.1,
+            geometry_after.2
+        ));
+        let mut image_listener = ImageListener {
+            context: core::ptr::null_mut(),
+            on_image_available: Some(on_image_available),
+        };
+        let listener_rc = if legacy_session {
+            -1
+        } else {
+            (api.reader_set_image_listener)(reader, &mut image_listener)
+        };
+        crate::log(&format!(
+            "camera|reader|listener|rc={listener_rc}|legacy_session={legacy_session}"
+        ));
+        let mut capture_cbs = CaptureCallbacks {
+            context: core::ptr::null_mut(),
+            on_capture_started: Some(on_capture_started),
+            on_capture_progressed: Some(on_capture_progressed),
+            on_capture_completed: Some(on_capture_completed),
+            on_capture_failed: Some(on_capture_failed),
+            on_capture_sequence_completed: Some(on_capture_sequence_completed),
+            on_capture_sequence_aborted: Some(on_capture_sequence_aborted),
+            on_capture_buffer_lost: Some(on_capture_buffer_lost),
+        };
         let mut callbacks = DeviceCallbacks {
             context: core::ptr::null_mut(),
             on_disconnected: Some(on_device_disconnected),
@@ -652,9 +1113,14 @@ impl CameraSession {
         }
         let mut container: *mut ACaptureSessionOutputContainer = core::ptr::null_mut();
         let mut output: *mut ACaptureSessionOutput = core::ptr::null_mut();
-        (api.container_create)(&mut container);
-        (api.session_output_create)(window, &mut output);
-        (api.container_add)(container, output);
+        let container_rc = (api.container_create)(&mut container);
+        let output_rc = (api.session_output_create)(window, &mut output);
+        let add_rc = (api.container_add)(container, output);
+        crate::log(&format!(
+            "camera|session|output_setup|container_rc={container_rc}|output_rc={output_rc}|add_rc={add_rc}|container_null={}|output_null={}",
+            container.is_null(),
+            output.is_null()
+        ));
         let mut session_cbs = SessionCallbacks {
             context: core::ptr::null_mut(),
             on_closed: Some(on_session_closed),
@@ -662,6 +1128,12 @@ impl CameraSession {
             on_active: Some(on_session_active),
         };
         let mut session: *mut ACameraCaptureSession = core::ptr::null_mut();
+        // This ROM never delivers on_ready to the NDK state callback (proved in
+        // evidence 89 and reproduced again in evidence 367). Pump once only to
+        // give an immediate callback a chance, then follow the historical
+        // successful path: submit directly and let the repeating-request return
+        // code plus real frame acquisition decide whether the session works.
+        SESSION_READY.store(false, Ordering::SeqCst);
         let session_rc = (api.session_create)(device, container, &mut session_cbs, &mut session);
         if session_rc != ACAMERA_OK || session.is_null() {
             (api.session_output_free)(output);
@@ -670,32 +1142,95 @@ impl CameraSession {
             (api.reader_delete)(reader);
             return Err(format!("createCaptureSession rc={session_rc}"));
         }
+        // Match the historical success path: give the looper a short chance
+        // to deliver session_active, but never make that callback a hard gate.
+        // This ROM does not deliver on_ready, so do not wait for it here.
+        SESSION_ACTIVE.store(false, Ordering::SeqCst);
+        if !legacy_session {
+            let active_deadline = Instant::now() + Duration::from_millis(200);
+            while !SESSION_ACTIVE.load(Ordering::SeqCst) && Instant::now() < active_deadline {
+                (api.looper_poll_once)(
+                    16,
+                    core::ptr::null_mut(),
+                    core::ptr::null_mut(),
+                    core::ptr::null_mut(),
+                );
+            }
+        }
+        let ready_observed = SESSION_READY.load(Ordering::SeqCst);
+        let active_observed = SESSION_ACTIVE.load(Ordering::SeqCst);
+        crate::log(&format!(
+            "camera|session|state_observed|ready={ready_observed}|active={active_observed}|legacy_session={legacy_session}"
+        ));
+        let use_preview_template = std::env::var_os("HUSK_CAMERA_TEMPLATE_PREVIEW").is_some();
+        let request_template = if use_preview_template {
+            ACAMERA_TEMPLATE_PREVIEW
+        } else {
+            ACAMERA_TEMPLATE_RECORD
+        };
         let mut request: *mut ACaptureRequest = core::ptr::null_mut();
-        (api.device_create_request)(device, ACAMERA_TEMPLATE_RECORD, &mut request);
+        let request_rc = (api.device_create_request)(device, request_template, &mut request);
         let mut target: *mut ACameraOutputTarget = core::ptr::null_mut();
-        (api.output_target_create)(window, &mut target);
-        (api.request_add_target)(request, target);
+        let target_rc = (api.output_target_create)(window, &mut target);
+        let add_target_rc = (api.request_add_target)(request, target);
+        crate::log(&format!(
+            "camera|session|request_setup|template={request_template}|request_rc={request_rc}|target_rc={target_rc}|add_target_rc={add_target_rc}|request_null={}|target_null={}",
+            request.is_null(),
+            target.is_null()
+        ));
+        let set_mode_rc;
+        let set_ae_rc;
+        let set_flash_rc;
         if let Some(set_u8) = api.request_set_u8 {
             let auto = [CONTROL_MODE_AUTO];
-            set_u8(request, TAG_CONTROL_MODE, 1, auto.as_ptr());
+            set_mode_rc = set_u8(request, TAG_CONTROL_MODE, 1, auto.as_ptr());
             let ae = [CONTROL_AE_MODE_ON];
-            set_u8(request, TAG_CONTROL_AE_MODE, 1, ae.as_ptr());
+            set_ae_rc = set_u8(request, TAG_CONTROL_AE_MODE, 1, ae.as_ptr());
+            let flash = [if torch { FLASH_MODE_TORCH } else { 0 }];
+            set_flash_rc = set_u8(request, TAG_FLASH_MODE, 1, flash.as_ptr());
+        } else {
+            set_mode_rc = -1;
+            set_ae_rc = -1;
+            set_flash_rc = -1;
         }
-        let mut requests = [request];
-        let repeat_rc = (api.session_set_repeating)(
-            session,
-            core::ptr::null_mut(),
-            1,
-            requests.as_mut_ptr(),
-            core::ptr::null_mut(),
-        );
         crate::log(&format!(
-            "camera|session|open|id={camera_id}|{width}x{height}|repeat_rc={repeat_rc}"
+            "camera|session|request_entries|control_mode_rc={set_mode_rc}|ae_mode_rc={set_ae_rc}|flash_mode_rc={set_flash_rc}|torch={torch}"
+        ));
+        let oneshot = std::env::var_os("HUSK_CAMERA_ONESHOT").is_some();
+        let (repeat_rc, sequence) = if oneshot {
+            let mut requests = [request];
+            let mut sequence = -1;
+            let callbacks_ptr = if legacy_session {
+                core::ptr::null_mut()
+            } else {
+                &mut capture_cbs
+            };
+            let rc = (api.session_capture)(
+                session,
+                callbacks_ptr,
+                1,
+                requests.as_mut_ptr(),
+                &mut sequence,
+            );
+            (rc, sequence)
+        } else {
+            let callbacks_ptr = if legacy_session {
+                core::ptr::null_mut()
+            } else {
+                &mut capture_cbs
+            };
+            submit_repeating(api, session, request, callbacks_ptr)
+        };
+        crate::log(&format!(
+            "camera|session|open|id={camera_id}|{width}x{height}|mode={}|repeat_rc={repeat_rc}|sequence={sequence}",
+            if oneshot { "oneshot" } else { "repeating" }
         ));
         Ok(Self {
             device,
             session,
             reader,
+            image_listener,
+            capture_cbs,
             window,
             request,
             target,
@@ -705,6 +1240,7 @@ impl CameraSession {
             width,
             height,
             seq: 0,
+            last_acquire_rc: i32::MIN,
         })
     }
 
@@ -726,7 +1262,18 @@ impl CameraSession {
         let mut image: *mut AImage = core::ptr::null_mut();
         let rc = (api.reader_acquire_next)(self.reader, &mut image);
         if rc != AMEDIA_OK || image.is_null() {
+            if rc != self.last_acquire_rc {
+                crate::log(&format!(
+                    "camera|frame|acquire|rc={rc}|image_null={}",
+                    image.is_null()
+                ));
+                self.last_acquire_rc = rc;
+            }
             return Ok(None);
+        }
+        if self.last_acquire_rc != AMEDIA_OK {
+            crate::log("camera|frame|acquire|recovered");
+            self.last_acquire_rc = AMEDIA_OK;
         }
         let mut ts = 0i64;
         (api.image_get_timestamp)(image, &mut ts);
@@ -734,6 +1281,17 @@ impl CameraSession {
         (api.image_delete)(image);
         let (width, height) = result?;
         self.seq += 1;
+        if self.seq == 1 || self.seq % 30 == 0 {
+            let (min, max, mean) = stats(frame);
+            let head = &frame[..frame.len().min(4096)];
+            let (head_min, head_max, head_mean) = stats(head);
+            let head_sum = (head_mean * head.len() as f64) as u64;
+            crate::log(&format!(
+                "camera|frame|ready|seq={}|{width}x{height}|ts={ts}|bytes={}|min={min}|max={max}|mean={mean:.2}|head_min={head_min}|head_max={head_max}|head_sum={head_sum}",
+                self.seq,
+                frame.len()
+            ));
+        }
         Ok(Some((width, height, ts)))
     }
 
@@ -789,13 +1347,14 @@ unsafe fn run_selftest(
         .copied()
         .find(|(w, h)| *w <= 1280 && *h <= 720)
         .unwrap_or((640, 480));
-    let mut session = match CameraSession::open(api, manager, &cam.id, want_w, want_h) {
-        Ok(session) => session,
-        Err(e) => {
-            crate::log(&format!("camera|selftest|FAIL|{e}"));
-            return;
-        }
-    };
+    let mut session =
+        match CameraSession::open(api, manager, &cam.id, want_w, want_h, selftest.torch) {
+            Ok(session) => session,
+            Err(e) => {
+                crate::log(&format!("camera|selftest|FAIL|{e}"));
+                return;
+            }
+        };
     let mut frame = Vec::new();
     let mut first_ts: i64 = 0;
     let mut last_ts: i64 = 0;
@@ -891,6 +1450,48 @@ fn field_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
         .find_map(|(k, v)| (k == key).then_some(v))
 }
 
+/// Shared handles used by the per-client camera threads. `ACameraManager` and
+/// the NDK function table are process-wide; Camera2 itself serializes access
+/// to each physical camera. The socket server must still accept independently
+/// because WirePlumber keeps one persistent client open per `/dev/videoN`.
+struct CameraRuntime {
+    api: CameraApi,
+    manager: *mut ACameraManager,
+    cams: Vec<CameraInfo>,
+    deny: bool,
+}
+
+// SAFETY: the function pointers and dlopen handles are immutable after startup.
+// ACameraManager is documented as usable across camera client calls; sessions
+// remain owned by the client thread that opens them.
+unsafe impl Send for CameraRuntime {}
+unsafe impl Sync for CameraRuntime {}
+
+struct CameraClientGuard;
+
+impl CameraClientGuard {
+    fn acquire() -> Option<Self> {
+        loop {
+            let active = ACTIVE_CAMERA_CLIENTS.load(Ordering::SeqCst);
+            if active >= MAX_CAMERA_CLIENTS {
+                return None;
+            }
+            if ACTIVE_CAMERA_CLIENTS
+                .compare_exchange(active, active + 1, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                return Some(Self);
+            }
+        }
+    }
+}
+
+impl Drop for CameraClientGuard {
+    fn drop(&mut self) {
+        ACTIVE_CAMERA_CLIENTS.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 unsafe fn handle_client(
     api: &CameraApi,
     manager: *mut ACameraManager,
@@ -900,7 +1501,19 @@ unsafe fn handle_client(
 ) {
     use std::io::Write;
     let mut session: Option<CameraSession> = None;
+    let mut session_owner: Option<std::sync::MutexGuard<'static, ()>> = None;
     let mut frame = Vec::new();
+    // Initial handshake gets a bounded wait. A stale accepted socket used to
+    // block the single-threaded accept loop forever; once a valid command has
+    // been served, a persistent WirePlumber client may remain idle indefinitely.
+    let _ = stream.set_read_timeout(Some(CAMERA_HANDSHAKE_TIMEOUT));
+    let _ = stream.set_write_timeout(Some(CAMERA_WRITE_TIMEOUT));
+    let mut handshake_done = false;
+    // A STOP acknowledgement is a lifecycle barrier, not just a socket reply.
+    // V4L2 consumers such as PipeWire tear down one probe stream and immediately
+    // start the real stream. Replying before CameraSession::close() releases the
+    // global owner makes the next OPEN observe a stale busy state.
+    let mut stop_requested = false;
     loop {
         let line = match read_command(&mut stream) {
             Ok(line) => line,
@@ -912,12 +1525,17 @@ unsafe fn handle_client(
         let verb = line.split_whitespace().next().unwrap_or("");
         match verb {
             "INFO" if deny || cams.is_empty() => {
+                handshake_done = true;
+                let _ = stream.set_read_timeout(None);
                 // Explicit degradation, not a silent empty list: the guest must
                 // be able to tell "no permission" from "no camera".
                 crate::log("camera|DENY|no permission (guest asked INFO)");
                 let _ = stream.write_all(b"ERR no_permission\n");
             }
             "INFO" => {
+                handshake_done = true;
+                let _ = stream.set_read_timeout(None);
+                crate::log("camera|client|INFO");
                 let mut reply = String::new();
                 for (k, cam) in ordered(cams).iter().enumerate() {
                     let facing = if cam.facing == LENS_FACING_BACK {
@@ -943,13 +1561,25 @@ unsafe fn handle_client(
                     reply.push('\n');
                 }
                 reply.push_str("OK\n");
-                let _ = stream.write_all(reply.as_bytes());
+                match stream.write_all(reply.as_bytes()) {
+                    Ok(()) => crate::log("camera|client|INFO|ok"),
+                    Err(e) => crate::log(&format!("camera|client|INFO|write_fail|{e}")),
+                }
             }
             "OPEN" => {
+                handshake_done = true;
+                let _ = stream.set_read_timeout(None);
                 if session.is_some() {
                     let _ = stream.write_all(b"ERR busy\n");
                     continue;
                 }
+                let owner = match CAMERA_SESSION_OWNER.try_lock() {
+                    Ok(owner) => owner,
+                    Err(_) => {
+                        let _ = stream.write_all(b"ERR busy\n");
+                        continue;
+                    }
+                };
                 let want_w: i32 = field_value(&line, "w")
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(1280);
@@ -979,13 +1609,14 @@ unsafe fn handle_client(
                             .find(|(w, h)| *w <= want_w && *h <= want_h)
                     })
                     .unwrap_or((640, 480));
-                match CameraSession::open(api, manager, &cam.id, w, h) {
+                match CameraSession::open(api, manager, &cam.id, w, h, false) {
                     Ok(open) => {
                         let bytes = w * h * 3 / 2;
                         let reply =
                             format!("OK w={w} h={h} fourcc=NV12 bytes={bytes} id={}\n", cam.id);
                         let _ = stream.write_all(reply.as_bytes());
                         session = Some(open);
+                        session_owner = Some(owner);
                     }
                     Err(e) => {
                         crate::log(&format!("camera|client|open_fail|{e}"));
@@ -1021,7 +1652,7 @@ unsafe fn handle_client(
                 }
             }
             "STOP" => {
-                let _ = stream.write_all(b"BYE\n");
+                stop_requested = true;
                 break;
             }
             other => {
@@ -1032,7 +1663,21 @@ unsafe fn handle_client(
     if let Some(open) = session.take() {
         open.close(api);
     }
-    crate::log("camera|client|done");
+    drop(session_owner);
+    // Only now may another OPEN claim the process-wide Camera2 session owner.
+    // Send BYE after the owner is released so STREAMOFF's caller cannot race
+    // ahead into an EBUSY-starting probe/real-stream handoff.
+    if stop_requested {
+        let _ = stream.write_all(b"BYE\n");
+    }
+    crate::log(&format!(
+        "camera|client|done|handshake={}",
+        if handshake_done {
+            "ok"
+        } else {
+            "timeout_or_eof"
+        }
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -1051,63 +1696,25 @@ fn ordered(cams: &[CameraInfo]) -> Vec<&CameraInfo> {
     v
 }
 
-/// The guest's `/sys` is Android's real sysfs (the kernel has no V4L2), so the
-/// shim redirects `/sys/class/video4linux*` here. Same layout DroidNative binds:
-/// class entry, the `/sys/subsystem` mirror eudev prefers, and the udev db entry.
+/// Build the guest V4L2 sysfs facade. The implementation lives in a host-
+/// testable runtime crate so the real-root and stale-shadow regressions are
+/// covered without compiling Android-only camera symbols on the build host.
 fn prepare_v4l2_tree(rootfs: &std::path::Path, cams: &[CameraInfo]) {
-    let class = rootfs.join("sys-v4l2/class");
-    let devices = rootfs.join("sys-v4l2/subsystem/devices");
-    let udev = rootfs.join("run/udev/data");
-    // Camera permission can be revoked between launches. Rebuild the shadow
-    // tree instead of leaving video nodes from an earlier permission state.
-    let _ = std::fs::remove_dir_all(&class);
-    let _ = std::fs::remove_dir_all(&devices);
-    for d in [&class, &devices, &udev] {
-        if let Err(e) = std::fs::create_dir_all(d) {
-            crate::log(&format!("camera|v4l2|mkdir {d:?}: {e}"));
-            return;
-        }
-    }
-    if let Ok(entries) = std::fs::read_dir(&udev) {
-        for entry in entries.flatten() {
-            if entry.file_name().to_string_lossy().starts_with("c81:") {
-                let _ = std::fs::remove_file(entry.path());
+    let ordered = ordered(cams);
+    let labels: Vec<&str> = ordered
+        .iter()
+        .map(|cam| {
+            if cam.facing == LENS_FACING_BACK {
+                "BACK"
+            } else {
+                "FRONT"
             }
-        }
+        })
+        .collect();
+    match camera_v4l2_tree::prepare(rootfs, &labels) {
+        Ok(()) => crate::log(&format!("camera|v4l2|tree|devices={}", labels.len())),
+        Err(e) => crate::log(&format!("camera|v4l2|tree|FAIL|{e}")),
     }
-    for (k, cam) in ordered(cams).iter().enumerate() {
-        let label = if cam.facing == LENS_FACING_BACK {
-            "BACK"
-        } else {
-            "FRONT"
-        };
-        let uevent = format!("MAJOR=81\nMINOR={k}\nDEVNAME=video{k}\nDEVTYPE=video4linux\n");
-        let dev = format!("81:{k}\n");
-        let name = format!("{label}\n");
-        let index = format!("{k}\n");
-        for dir in [
-            class.join(format!("video{k}")),
-            devices.join(format!("video{k}")),
-        ] {
-            if let Err(e) = std::fs::create_dir_all(&dir) {
-                crate::log(&format!("camera|v4l2|mkdir {dir:?}: {e}"));
-                continue;
-            }
-            for (n, v) in [
-                ("uevent", &uevent),
-                ("dev", &dev),
-                ("name", &name),
-                ("index", &index),
-            ] {
-                let _ = std::fs::write(dir.join(n), v);
-            }
-        }
-        let db = format!(
-            "I:1\nE:ID_V4L_CAPABILITIES=:capture:\nE:ID_V4L_PRODUCT={label}\nE:DEVNAME=/dev/video{k}\nE:DEVTYPE=video4linux\n"
-        );
-        let _ = std::fs::write(udev.join(format!("c81:{k}")), db);
-    }
-    crate::log(&format!("camera|v4l2|tree|devices={}", cams.len()));
 }
 
 fn files_dir() -> Option<std::path::PathBuf> {
@@ -1136,6 +1743,21 @@ pub fn start_once() {
     });
 }
 
+/// Same bridge with caller-supplied paths; used by the standalone
+/// `husk-bridges` helper (no `ANativeActivity` in that process).
+pub fn start_once_at(files: std::path::PathBuf, rootfs: std::path::PathBuf) {
+    if STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    match unsafe { start_helper_binder_thread_pool() } {
+        Ok(()) => crate::log("camera|binder|thread_pool_started"),
+        Err(e) => crate::log(&format!("camera|binder|thread_pool_FAIL|{e}")),
+    }
+    std::thread::spawn(move || {
+        let _ = std::panic::catch_unwind(|| run_at(files, rootfs));
+    });
+}
+
 fn run() {
     let Some(files) = files_dir() else {
         crate::log("camera|SKIP|no files dir");
@@ -1148,6 +1770,10 @@ fn run() {
             return;
         }
     };
+    run_at(files, rootfs);
+}
+
+fn run_at(files: std::path::PathBuf, rootfs: std::path::PathBuf) {
     crate::log(&format!("camera|ROOTFS|{}", rootfs.display()));
     let api = unsafe {
         match CameraApi::load() {
@@ -1196,6 +1822,27 @@ fn run() {
                 }
             ));
         }
+        if let Ok(mode) = std::env::var("HUSK_CAMERA_TORCH") {
+            if let Some(set_torch) = api.manager_set_torch_mode {
+                if let Some(cam) = cams
+                    .iter()
+                    .find(|c| c.facing == LENS_FACING_BACK)
+                    .or_else(|| cams.first())
+                {
+                    if let Ok(id) = CString::new(cam.id.as_str()) {
+                        let on = mode != "0";
+                        let rc = set_torch(
+                            manager,
+                            id.as_ptr(),
+                            if on { TORCH_MODE_ON } else { TORCH_MODE_OFF },
+                        );
+                        crate::log(&format!("camera|torch|id={}|on={on}|rc={rc}", cam.id));
+                    }
+                }
+            } else {
+                crate::log("camera|torch|setTorchMode unavailable");
+            }
+        }
         prepare_v4l2_tree(&rootfs, &cams);
 
         // One-shot self test, only when its marker exists.
@@ -1211,11 +1858,16 @@ fn run() {
             let camera = marker_text
                 .split_whitespace()
                 .find_map(|w| w.strip_prefix("camera=").map(|v| v.to_string()));
+            let torch = marker_text
+                .split_whitespace()
+                .find_map(|w| w.strip_prefix("torch="))
+                .is_some_and(|v| v != "0");
             let mut selftest = Selftest {
                 dir,
                 want,
                 saved: 0,
                 camera,
+                torch,
             };
             run_selftest(&api, manager, &cams, &mut selftest);
         }
@@ -1223,6 +1875,12 @@ fn run() {
         // Guest-facing server: camera is a standard Linux device, not an
         // opt-in test feature. Bind for every session. If permission is absent,
         // OPEN still receives the explicit denial instead of a dead socket.
+        let runtime = Arc::new(CameraRuntime {
+            api,
+            manager,
+            cams,
+            deny,
+        });
         loop {
             let path = rootfs.join(CAMERA_SOCKET_REL);
             if let Some(parent) = path.parent() {
@@ -1239,12 +1897,39 @@ fn run() {
             };
             crate::log(&format!("camera|LISTEN|{}", path.display()));
             for stream in listener.incoming() {
-                match stream {
-                    Ok(stream) => handle_client(&api, manager, &cams, deny, stream),
+                let stream = match stream {
+                    Ok(stream) => stream,
                     Err(e) => {
                         crate::log(&format!("camera|FAIL|accept {e}"));
                         break;
                     }
+                };
+                let Some(guard) = CameraClientGuard::acquire() else {
+                    crate::log(&format!("camera|client|reject|active={MAX_CAMERA_CLIENTS}"));
+                    // Drop the stream immediately; the guest gets EOF and can
+                    // surface EBUSY instead of hanging forever.
+                    continue;
+                };
+                let runtime = Arc::clone(&runtime);
+                if let Err(e) = std::thread::Builder::new()
+                    .name("husk-camera-client".into())
+                    .spawn(move || {
+                        let _guard = guard;
+                        unsafe {
+                            (runtime.api.looper_prepare)(ALOOPER_PREPARE_ALLOW_NON_CALLBACKS);
+                        }
+                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+                            handle_client(
+                                &runtime.api,
+                                runtime.manager,
+                                &runtime.cams,
+                                runtime.deny,
+                                stream,
+                            )
+                        }));
+                    })
+                {
+                    crate::log(&format!("camera|FAIL|client thread: {e}"));
                 }
             }
             let _ = std::fs::remove_file(&path);

@@ -1,0 +1,33 @@
+DEV=${DEV:?set DEV=<adb serial>} PKG=${PKG:-com.linuxhub.husk} \
+		ROOTFS=${ROOTFS:-files/rootfs-full} \
+		LD=${LD:-files/linux/husk/libld.so} \
+		GL_PROBE=${GL_PROBE:-runtime/target/aarch64-unknown-linux-gnu/release/gl-probe} \
+		SOAK_SECONDS=${SOAK_SECONDS:-300} JOBS=${JOBS:-4} SIZE=${SIZE:-2400x1080} \
+		sh tools/device-tests/21-gpu-soak-audit.sh
+== prerequisites ==
+  PASS  guest bash and loader are readable
+  PASS  host gl-probe exists
+== push Rust soak probe ==
+  PASS  probe and launcher pushed
+== 4 jobs for 300s at 2400x1080 ==
+  STATE p1 renderer: zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))
+  PASS  job 1 used zink/Mali
+  PASS  job 1 completed with errors=0
+  PASS  job 1 fd count stable (7)
+  PASS  job 1 RSS bounded (delta=452kB)
+  STATE p2 renderer: zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))
+  PASS  job 2 used zink/Mali
+  PASS  job 2 completed with errors=0
+  PASS  job 2 fd count stable (7)
+  PASS  job 2 RSS bounded (delta=452kB)
+  STATE p3 renderer: zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))
+  PASS  job 3 used zink/Mali
+  PASS  job 3 completed with errors=0
+  PASS  job 3 fd count stable (7)
+  PASS  job 3 RSS bounded (delta=452kB)
+  STATE p4 renderer: zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK))
+  PASS  job 4 used zink/Mali
+  PASS  job 4 completed with errors=0
+  PASS  job 4 fd count stable (7)
+  PASS  job 4 RSS bounded (delta=452kB)
+GPU_SOAK_AUDIT PASS=19 FAIL=0 SKIP=0

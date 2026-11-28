@@ -62,12 +62,34 @@ echo '== existing desktop shell =='
 shell_pid=$(pid_for 'usr/bin/gnome-shell')
 check_pid gnome-shell "$shell_pid"
 
+# The X client checks below are only meaningful against the session's own
+# display. Inheriting it from the caller made the gate depend on how it was
+# started: run through run-guest.sh without DISPLAY it failed with
+# "Error: unable to open display" and reported 2 FAILs for a healthy session
+# (2026-11-27). Read DISPLAY/XDG_RUNTIME_DIR from the shell's /proc environ and
+# fall back to :0 only when there is no live session to ask.
+if [ -n "$shell_pid" ]; then
+    _senv=$(env_of "$shell_pid")
+    for _k in DISPLAY XDG_RUNTIME_DIR; do
+        eval "_cur=\${$_k:-}"
+        [ -n "$_cur" ] && continue
+        _v=$(printf '%s\n' "$_senv" | sed -n "s/^$_k=//p" | head -1)
+        [ -n "$_v" ] || continue
+        export "$_k=$_v"
+    done
+fi
+: "${DISPLAY:=:0}"
+export DISPLAY
+echo "  STATE display=$DISPLAY runtime_dir=${XDG_RUNTIME_DIR:-unset}"
+
 echo '== loader-default GL client =='
-glx=$(/usr/bin/glxinfo -B 2>&1 || true)
+glx=$(timeout 20 /usr/bin/glxinfo -B 2>&1 || true)
 if printf '%s\n' "$glx" | grep -q 'Device: zink Vulkan 1.3(Mali-G77'; then
     ok 'glxinfo saw zink Vulkan 1.3(Mali-G77)'
 elif printf '%s\n' "$glx" | grep -q "couldn't find RGB GLX visual or fbconfig"; then
     skip 'this X server has no GLX visual (Xvfb fallback); EGL/GL loader defaults are covered by 18-gpu-loader-defaults.sh'
+elif [ -z "$glx" ]; then
+    fail 'glxinfo timed out or produced no output'
 else
     fail 'glxinfo did not report zink Vulkan 1.3(Mali-G77)'
     printf '%s\n' "$glx" | sed -n '1,20p'

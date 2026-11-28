@@ -102,7 +102,16 @@ impl MappedRing {
     /// before closing it; the mapping itself remains valid after the fd closes.
     pub fn create(layout: RingLayout) -> io::Result<(Self, RawFd)> {
         let name = CString::new("husk-video-ring").expect("static name");
-        let fd = unsafe { libc::memfd_create(name.as_ptr(), libc::MFD_CLOEXEC) };
+        // Bionic only exposes memfd_create() at API 30. Husk's Android host
+        // supports API 28+, so issue the Linux syscall directly instead of
+        // linking a symbol that is absent from the app's minimum API.
+        let fd = unsafe {
+            libc::syscall(
+                libc::SYS_memfd_create,
+                name.as_ptr(),
+                libc::MFD_CLOEXEC as libc::c_uint,
+            ) as libc::c_int
+        };
         if fd < 0 {
             return Err(io::Error::last_os_error());
         }

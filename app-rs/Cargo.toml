@@ -5,7 +5,7 @@ edition = "2021"
 
 [lib]
 name = "huskapp"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [[bin]]
 name = "husk-session-guard"
@@ -15,6 +15,7 @@ path = "src/bin/husk-session-guard.rs"
 gpu-env = { path = "../runtime/crates/gpu-env" }
 session-env = { path = "../runtime/crates/session-env" }
 video-protocol = { path = "../runtime/crates/video-protocol" }
+camera-v4l2-tree = { path = "../runtime/crates/camera-v4l2-tree" }
 fontdue = { version = "0.9", default-features = false, features = ["std"] }
 jni = "0.21.1"
 

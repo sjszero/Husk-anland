@@ -1,0 +1,256 @@
+[W][14821.368439] mod.access   | [ module-access.c:  187 context_check_access()] 0x556b441d10: client 0x556b48c610 flatpak check failed: 没有那个文件或目录
+[husk v4l2] camera.sock connected; sending INFO
+[husk v4l2] INFO sent; waiting for reply
+[husk v4l2] INFO reply: CAM k=0 id=0 facing=back name=BACK sizes=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720,1560x702,1280x768,1280x720,1024x768,960x544,720x480,800x400,640x480,352x288,320x240
+[husk v4l2] INFO reply: CAM k=1 id=1 facing=front name=FRONT sizes=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720,1560x702,1280x768,1280x720,1024x768,960x544,720x480,800x400,640x480,352x288,320x240
+[husk v4l2] INFO reply: OK
+[v4l2] destroy
+[husk v4l2] camera.sock connected; sending INFO
+[husk v4l2] INFO sent; waiting for reply
+[husk v4l2] INFO reply: CAM k=0 id=0 facing=back name=BACK sizes=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720,1560x702,1280x768,1280x720,1024x768,960x544,720x480,800x400,640x480,352x288,320x240
+[husk v4l2] INFO reply: CAM k=1 id=1 facing=front name=FRONT sizes=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720,1560x702,1280x768,1280x720,1024x768,960x544,720x480,800x400,640x480,352x288,320x240
+[husk v4l2] INFO reply: OK
+[v4l2] destroy
+[husk v4l2] camera.sock connected; sending INFO
+[husk v4l2] INFO sent; waiting for reply
+[husk v4l2] INFO reply: CAM k=0 id=0 facing=back name=BACK sizes=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720,1560x702,1280x768,1280x720,1024x768,960x544,720x480,800x400,640x480,352x288,320x240
+[husk v4l2] INFO reply: CAM k=1 id=1 facing=front name=FRONT sizes=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720,1560x702,1280x768,1280x720,1024x768,960x544,720x480,800x400,640x480,352x288,320x240
+[husk v4l2] INFO reply: OK
+[v4l2] destroy
+[husk v4l2] camera.sock connected; sending INFO
+[husk v4l2] INFO sent; waiting for reply
+[husk v4l2] INFO reply: CAM k=0 id=0 facing=back name=BACK sizes=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720,1560x702,1280x768,1280x720,1024x768,960x544,720x480,800x400,640x480,352x288,320x240
+[husk v4l2] INFO reply: CAM k=1 id=1 facing=front name=FRONT sizes=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720,1560x702,1280x768,1280x720,1024x768,960x544,720x480,800x400,640x480,352x288,320x240
+[husk v4l2] INFO reply: OK
+[v4l2] destroy
+[husk v4l2] camera.sock connected; sending INFO
+[husk v4l2] INFO sent; waiting for reply
+[husk v4l2] INFO reply: CAM k=0 id=0 facing=back name=BACK sizes=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720,1560x702,1280x768,1280x720,1024x768,960x544,720x480,800x400,640x480,352x288,320x240
+[husk v4l2] INFO reply: CAM k=1 id=1 facing=front name=FRONT sizes=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720,1560x702,1280x768,1280x720,1024x768,960x544,720x480,800x400,640x480,352x288,320x240
+[husk v4l2] INFO reply: OK
+[v4l2] destroy
+[husk v4l2] camera.sock connected; sending INFO
+[husk v4l2] INFO sent; waiting for reply
+[husk v4l2] INFO reply: CAM k=0 id=0 facing=back name=BACK sizes=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720,1560x702,1280x768,1280x720,1024x768,960x544,720x480,800x400,640x480,352x288,320x240
+[husk v4l2] INFO reply: CAM k=1 id=1 facing=front name=FRONT sizes=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720,1560x702,1280x768,1280x720,1024x768,960x544,720x480,800x400,640x480,352x288,320x240
+[husk v4l2] INFO reply: OK
+[v4l2] destroy
+[husk v4l2] camera.sock connected; sending INFO
+[husk v4l2] INFO sent; waiting for reply
+[husk v4l2] INFO reply: CAM k=0 id=0 facing=back name=BACK sizes=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720,1560x702,1280x768,1280x720,1024x768,960x544,720x480,800x400,640x480,352x288,320x240
+[husk v4l2] INFO reply: CAM k=1 id=1 facing=front name=FRONT sizes=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720,1560x702,1280x768,1280x720,1024x768,960x544,720x480,800x400,640x480,352x288,320x240
+[husk v4l2] INFO reply: OK
+[v4l2] REQBUFS
+[v4l2] QBUF
+[v4l2] STREAMON
+[v4l2] OPEN OPEN w=1920 h=1080 id=0
+[v4l2] STREAMON ok dev=0
+[v4l2] epoll facade -> eventfd
+[v4l2] epoll facade -> eventfd
+[v4l2] STREAMOFF
+[v4l2] QBUF
+[v4l2] REQBUFS
+[v4l2] destroy
+[husk v4l2] camera.sock connected; sending INFO
+[husk v4l2] INFO sent; waiting for reply
+[husk v4l2] INFO reply: CAM k=0 id=0 facing=back name=BACK sizes=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720,1560x702,1280x768,1280x720,1024x768,960x544,720x480,800x400,640x480,352x288,320x240
+[husk v4l2] INFO reply: CAM k=1 id=1 facing=front name=FRONT sizes=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720,1560x702,1280x768,1280x720,1024x768,960x544,720x480,800x400,640x480,352x288,320x240
+[husk v4l2] INFO reply: OK
+[v4l2] destroy
+[husk v4l2] camera.sock connected; sending INFO
+[husk v4l2] INFO sent; waiting for reply
+[husk v4l2] INFO reply: CAM k=0 id=0 facing=back name=BACK sizes=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720,1560x702,1280x768,1280x720,1024x768,960x544,720x480,800x400,640x480,352x288,320x240
+[husk v4l2] INFO reply: CAM k=1 id=1 facing=front name=FRONT sizes=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720,1560x702,1280x768,1280x720,1024x768,960x544,720x480,800x400,640x480,352x288,320x240
+[husk v4l2] INFO reply: OK
+[v4l2] REQBUFS
+[v4l2] STREAMON
+[v4l2] OPEN OPEN w=1920 h=1080 id=1
+[v4l2] STREAMON ok dev=1
+[v4l2] epoll facade -> eventfd
+[v4l2] DQBUF
+[v4l2] DQBUF enter dev=1 streaming=1 nbuffers=8 queued=8
+[v4l2] DQBUF send FRAME
+[v4l2] DQBUF dst=0x000000762a05b030
+[v4l2] DQBUF cap=0x00000000003f4800
+[v4l2] DQBUF bytes=0x00000000002f7600
+[v4l2] DQBUF payload min=0x0000000000000001
+[v4l2] DQBUF payload max=0x0000000000000007
+[v4l2] DQBUF payload sum=0x0000000000002580
+[v4l2] DQBUF ok
+[v4l2] QBUF
+[v4l2] DQBUF
+[v4l2] DQBUF enter dev=1 streaming=1 nbuffers=8 queued=8
+[v4l2] DQBUF send FRAME
+[v4l2] DQBUF dst=0x000000762a05b030
+[v4l2] DQBUF cap=0x00000000003f4800
+[v4l2] DQBUF bytes=0x00000000002f7600
+[v4l2] DQBUF payload min=0x0000000000000001
+[v4l2] DQBUF payload max=0x0000000000000007
+[v4l2] DQBUF payload sum=0x000000000000264c
+[v4l2] DQBUF ok
+[v4l2] QBUF
+[v4l2] DQBUF
+[v4l2] DQBUF enter dev=1 streaming=1 nbuffers=8 queued=7
+[v4l2] DQBUF send FRAME
+[v4l2] DQBUF dst=0x000000762a44f860
+[v4l2] DQBUF cap=0x00000000003f4800
+[v4l2] DQBUF bytes=0x00000000002f7600
+[v4l2] DQBUF payload min=0x0000000000000001
+[v4l2] DQBUF payload max=0x0000000000000006
+[v4l2] DQBUF payload sum=0x0000000000002873
+[v4l2] DQBUF ok
+[v4l2] QBUF
+[v4l2] DQBUF
+[v4l2] DQBUF enter dev=1 streaming=1 nbuffers=8 queued=7
+[v4l2] DQBUF send FRAME
+[v4l2] DQBUF dst=0x000000762a44f860
+[v4l2] DQBUF cap=0x00000000003f4800
+[v4l2] DQBUF bytes=0x00000000002f7600
+[v4l2] DQBUF payload min=0x0000000000000001
+[v4l2] DQBUF payload max=0x0000000000000006
+[v4l2] DQBUF payload sum=0x000000000000294b
+[v4l2] DQBUF ok
+[v4l2] QBUF
+[v4l2] DQBUF
+[v4l2] DQBUF enter dev=1 streaming=1 nbuffers=8 queued=7
+[v4l2] DQBUF send FRAME
+[v4l2] DQBUF dst=0x000000762a44f860
+[v4l2] DQBUF cap=0x00000000003f4800
+[v4l2] DQBUF bytes=0x00000000002f7600
+[v4l2] DQBUF payload min=0x0000000000000001
+[v4l2] DQBUF payload max=0x0000000000000006
+[v4l2] DQBUF payload sum=0x0000000000002798
+[v4l2] DQBUF ok
+[v4l2] QBUF
+[v4l2] DQBUF
+[v4l2] DQBUF enter dev=1 streaming=1 nbuffers=8 queued=7
+[v4l2] DQBUF send FRAME
+[v4l2] DQBUF dst=0x000000762a44f860
+[v4l2] DQBUF cap=0x00000000003f4800
+[v4l2] DQBUF bytes=0x00000000002f7600
+[v4l2] DQBUF payload min=0x0000000000000001
+[v4l2] DQBUF payload max=0x0000000000000005
+[v4l2] DQBUF payload sum=0x0000000000002681
+[v4l2] DQBUF ok
+[v4l2] QBUF
+[v4l2] DQBUF
+[v4l2] DQBUF enter dev=1 streaming=1 nbuffers=8 queued=8
+[v4l2] DQBUF send FRAME
+[v4l2] DQBUF dst=0x000000762a05b030
+[v4l2] DQBUF cap=0x00000000003f4800
+[v4l2] DQBUF bytes=0x00000000002f7600
+[v4l2] DQBUF payload min=0x0000000000000001
+[v4l2] DQBUF payload max=0x0000000000000005
+[v4l2] DQBUF payload sum=0x0000000000002634
+[v4l2] DQBUF ok
+[v4l2] QBUF
+[v4l2] DQBUF
+[v4l2] DQBUF enter dev=1 streaming=1 nbuffers=8 queued=7
+[v4l2] DQBUF send FRAME
+[v4l2] DQBUF dst=0x000000762a44f860
+[v4l2] DQBUF cap=0x00000000003f4800
+[v4l2] DQBUF bytes=0x00000000002f7600
+[v4l2] DQBUF payload min=0x0000000000000001
+[v4l2] DQBUF payload max=0x0000000000000005
+[v4l2] DQBUF payload sum=0x0000000000002583
+[v4l2] DQBUF ok
+[v4l2] QBUF
+[v4l2] DQBUF
+[v4l2] DQBUF enter dev=1 streaming=1 nbuffers=8 queued=7
+[v4l2] DQBUF send FRAME
+[v4l2] DQBUF dst=0x000000762a44f860
+[v4l2] DQBUF cap=0x00000000003f4800
+[v4l2] DQBUF bytes=0x00000000002f7600
+[v4l2] DQBUF payload min=0x0000000000000001
+[v4l2] DQBUF payload max=0x0000000000000005
+[v4l2] DQBUF payload sum=0x0000000000002611
+[v4l2] DQBUF ok
+[v4l2] QBUF
+[v4l2] DQBUF
+[v4l2] DQBUF enter dev=1 streaming=1 nbuffers=8 queued=8
+[v4l2] DQBUF send FRAME
+[v4l2] DQBUF dst=0x000000762a05b030
+[v4l2] DQBUF cap=0x00000000003f4800
+[v4l2] DQBUF bytes=0x00000000002f7600
+[v4l2] DQBUF payload min=0x0000000000000001
+[v4l2] DQBUF payload max=0x0000000000000006
+[v4l2] DQBUF payload sum=0x0000000000002737
+[v4l2] DQBUF ok
+[v4l2] QBUF
+[v4l2] DQBUF
+[v4l2] DQBUF enter dev=1 streaming=1 nbuffers=8 queued=7
+[v4l2] DQBUF send FRAME
+[v4l2] DQBUF dst=0x000000762a44f860
+[v4l2] DQBUF cap=0x00000000003f4800
+[v4l2] DQBUF bytes=0x00000000002f7600
+[v4l2] DQBUF payload min=0x0000000000000001
+[v4l2] DQBUF payload max=0x0000000000000006
+[v4l2] DQBUF payload sum=0x00000000000025c4
+[v4l2] DQBUF ok
+[v4l2] QBUF
+[v4l2] DQBUF
+[v4l2] DQBUF enter dev=1 streaming=1 nbuffers=8 queued=8
+[v4l2] DQBUF send FRAME
+[v4l2] DQBUF dst=0x000000762a05b030
+[v4l2] DQBUF cap=0x00000000003f4800
+[v4l2] DQBUF bytes=0x00000000002f7600
+[v4l2] DQBUF payload min=0x0000000000000001
+[v4l2] DQBUF payload max=0x0000000000000005
+[v4l2] DQBUF payload sum=0x0000000000002566
+[v4l2] DQBUF ok
+[v4l2] QBUF
+[v4l2] DQBUF
+[v4l2] DQBUF enter dev=1 streaming=1 nbuffers=8 queued=8
+[v4l2] DQBUF send FRAME
+[v4l2] DQBUF dst=0x000000762a05b030
+[v4l2] DQBUF cap=0x00000000003f4800
+[v4l2] DQBUF bytes=0x00000000002f7600
+[v4l2] DQBUF payload min=0x0000000000000001
+[v4l2] DQBUF payload max=0x0000000000000005
+[v4l2] DQBUF payload sum=0x0000000000002504
+[v4l2] DQBUF ok
+[v4l2] QBUF
+[v4l2] DQBUF
+[v4l2] DQBUF enter dev=1 streaming=1 nbuffers=8 queued=7
+[v4l2] DQBUF send FRAME
+[v4l2] DQBUF dst=0x000000762a44f860
+[v4l2] DQBUF cap=0x00000000003f4800
+[v4l2] DQBUF bytes=0x00000000002f7600
+[v4l2] DQBUF payload min=0x0000000000000001
+[v4l2] DQBUF payload max=0x0000000000000005
+[v4l2] DQBUF payload sum=0x0000000000002559
+[v4l2] DQBUF ok
+[v4l2] QBUF
+[v4l2] DQBUF
+[v4l2] DQBUF enter dev=1 streaming=1 nbuffers=8 queued=8
+[v4l2] DQBUF send FRAME
+[v4l2] DQBUF dst=0x000000762a05b030
+[v4l2] DQBUF cap=0x00000000003f4800
+[v4l2] DQBUF bytes=0x00000000002f7600
+[v4l2] DQBUF payload min=0x0000000000000001
+[v4l2] DQBUF payload max=0x0000000000000006
+[v4l2] DQBUF payload sum=0x0000000000002525
+[v4l2] DQBUF ok
+[v4l2] QBUF
+[v4l2] DQBUF
+[v4l2] DQBUF enter dev=1 streaming=1 nbuffers=8 queued=8
+[v4l2] DQBUF send FRAME
+[v4l2] DQBUF dst=0x000000762a05b030
+[v4l2] DQBUF cap=0x00000000003f4800
+[v4l2] DQBUF bytes=0x00000000002f7600
+[v4l2] DQBUF payload min=0x0000000000000001
+[v4l2] DQBUF payload max=0x0000000000000005
+[v4l2] DQBUF payload sum=0x0000000000002501
+[v4l2] DQBUF ok
+[v4l2] QBUF
+[v4l2] DQBUF
+[v4l2] DQBUF enter dev=1 streaming=1 nbuffers=8 queued=8
+[v4l2] DQBUF send FRAME
+[v4l2] DQBUF dst=0x000000762a05b030
+[v4l2] DQBUF cap=0x00000000003f4800
+[v4l2] DQBUF bytes=0x00000000002f7600
+[v4l2] DQBUF payload min=0x0000000000000001
+[v4l2] DQBUF payload max=0x0000000000000006
+[v4l2] DQBUF payload sum=0x00000000000025c5
+[v4l2] DQBUF ok
+[v4l2] QBUF

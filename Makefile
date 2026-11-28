@@ -23,7 +23,7 @@ HUSK_TOOLS  := runtime/target/debug/husk-tools
 NDK_BIN     := $(if $(filter %/bin,$(NDK)),$(NDK),$(NDK)/bin)
 GUEST_SYSROOT ?= /tmp/nr-toolchain/root
 
-.PHONY: all check lint test tools nr-tools loader preloads apk bench gate-a readback-audit gpu-audit gpu-soak camera-audit audio-audit server-parity virt-race docs dist clean version-check version-bump release-audit \
+.PHONY: all check lint test test-device tools nr-tools loader preloads apk bench gate-a readback-audit gpu-audit gpu-soak camera-audit audio-audit server-parity virt-race docs dist clean version-check version-bump release-audit \
         libc-patch libc-verify
 
 all: lint check version-check
@@ -66,6 +66,13 @@ check:
 	sh tools/ci/test-session-rootfs-bundle.sh
 	sh tools/ci/audit-panvk-bundle.sh
 	sh tools/ci/test-runtime-boundary.sh
+	sh tools/ci/test-runtime-private-paths.sh
+	sh tools/ci/test-pipewire-plugin-audit.sh
+# Two builds of the same inputs must be byte-identical (defect H37: one 869888 B
+# build published /proc/self/exe, another 738816 B build silently did not, and
+# only 3 of 38 acceptance checks noticed). Guard against non-determinism here,
+# not on a device.
+	sh tools/ci/check-loader-repro.sh
 	@$(MAKE) --no-print-directory tools
 	$(HUSK_TOOLS) check-links
 	@$(MAKE) --no-print-directory version-check
@@ -153,9 +160,28 @@ libc-verify: nr-tools
 	    echo "(set STOCK=<stock glibc 2.39 libc.so.6> to also check byte identity)"; \
 	fi
 
+# The unit tests are aarch64 Linux binaries: the dev box can only *build* them.
+# Before, the link fell through to the host cc and died on GNU-only flags
+# (--fix-cortex-a53-843419 ...) on macOS, so "make test" never ran anywhere:
+# every "tests green" claim rested on `make check`, which only type-checks.
+TEST_LINK = -C linker=$(NDK_BIN)/clang -C link-arg=--target=aarch64-linux-gnu \
+            -C link-arg=--sysroot=$(GUEST_SYSROOT)
+TEST_PKGS = -p runtime-core -p nr-tools -p gpu-env -p v4l2-shim
+
 test:
-	cargo test --manifest-path $(MANIFEST) --target $(TARGET) \
-		-p runtime-core -p nr-tools -p gpu-env
+	@test -n "$NDK" || { echo "set NDK=<ndk>/bin" >&2; exit 1; }
+	RUSTFLAGS="$(TEST_LINK)" cargo test --manifest-path $(MANIFEST) --target $(TARGET) \
+		$(TEST_PKGS) --no-run
+
+# Run those binaries where they actually belong: on aarch64 Linux, i.e. inside
+# the device tree. A green build is not a green test.
+test-device: test
+# `$$` 是必须的：写成 `$DEV` 时 make 会把 `$D` 展开成空、留下字面量 "EV"，
+# 于是目标永远报 `adb: device 'EV' not found`（2026-11-27 实测，defect H46）。
+	@test -n "$$DEV" || { echo "set DEV=<adb serial>" >&2; exit 1; }
+	DEV="$$DEV" PKG="$${PKG:-com.linuxhub.husk}" \
+		ROOTFS="$${ROOTFS:-files/rootfs-full}" \
+		LD="$${LD:-files/linux/husk/libld.so}" sh tools/device-tests/run-unit-tests.sh
 
 loader:
 	@test -n "$$NDK" || { echo "set NDK=<ndk>/bin (needs clang + llvm-objcopy)" >&2; exit 1; }
@@ -177,14 +203,16 @@ loader:
 # aarch64-unknown-linux-gnu link at rust-lld. Running cargo from the repo root
 # picks up no config and tries the host `cc`, which cannot link these objects.
 PRELOAD_RUSTFLAGS = -C link-arg=-z -C link-arg=max-page-size=0x10000 \
-                    -C link-arg=-z -C link-arg=separate-loadable-segments
+                    -C link-arg=-z -C link-arg=separate-loadable-segments \
+                    --remap-path-prefix=$$HOME=/build/home \
+                    --remap-path-prefix=$(GUEST_SYSROOT)=/build/sysroot
 V4L2_MAP = $(CURDIR)/runtime/crates/v4l2-preload/exports.map
-NM ?= llvm-nm
+NM ?= $(NDK_BIN)/llvm-nm
 
 preloads:
 	cd runtime && RUSTFLAGS="$(PRELOAD_RUSTFLAGS)" CARGO_PROFILE_RELEASE_STRIP=symbols \
 	  cargo build --release --target $(TARGET) -p drm-preload
-	cd runtime && RUSTFLAGS="$(PRELOAD_RUSTFLAGS) -C link-arg=--version-script=$(V4L2_MAP)" \
+	cd runtime && RUSTFLAGS="$(PRELOAD_RUSTFLAGS) -C link-arg=--version-script=$(V4L2_MAP) -C link-arg=-soname=libhusk_v4l2.so" \
 	  CARGO_PROFILE_RELEASE_STRIP=symbols \
 	  cargo build --release --target $(TARGET) -p v4l2-preload
 	@sh tools/ci/audit-preload-exports.sh "$(NM)"
@@ -363,7 +391,7 @@ release-audit:
 # Two artifacts: the launcher bundle (loader + installer + session script) and,
 # built on a device from a verified tree, the rootfs tarball itself. Both get a
 # SHA256SUMS; the release notes quote those hashes.
-dist:
+dist: preloads
 	@test -n "$$NDK" || { echo "set NDK=<ndk>/bin" >&2; exit 1; }
 	@if [ ! -f tools/loader/libc-nop.so.6 ] && [ -z "$(LIBC)" ]; then \
 	    echo "missing guest libc artifact; set LIBC=<pristine glibc 2.39 libc.so.6> or run make libc-patch on a device" >&2; \
@@ -384,21 +412,38 @@ dist:
 	cp tools/loader/libc-nop.so.6 dist/libc.so.6   # the artifact `make libc-patch` refreshed
 	cp tools/guest/install-husk.sh tools/guest/husk-session.sh \
 	   tools/guest/husk-desktop.sh tools/guest/husk-ding-fallback.sh \
-	   tools/guest/husk-wallpaper-fit.sh tools/guest/husk-system-services.sh dist/
-	@mkdir -p dist/guest dist/guest-config
+	   tools/guest/husk-wallpaper-fit.sh tools/guest/husk-system-services.sh \
+	   tools/guest/husk-media-session.sh dist/
+	@mkdir -p dist/guest dist/guest/gstreamer-1.0 dist/guest-config
 	cp $(PROFILE_DIR)/wallpaper-scale dist/guest/
 	@chmod 755 dist/guest/wallpaper-scale
+	cp $(PROFILE_DIR)/libhusk_v4l2.so dist/guest/
+	@chmod 755 dist/guest/libhusk_v4l2.so
+	cp vendor/pipewire/libgstpipewire.so dist/guest/gstreamer-1.0/
+	@chmod 644 dist/guest/gstreamer-1.0/libgstpipewire.so
 	cp tools/guest-config/husk-gpu-defaults.sh tools/guest-config/husk-look.override \
 	   tools/guest-config/husk-locale.sh tools/guest-config/fcitx5-profile \
-	   tools/guest-config/pulse-client-no-shm.conf \
+	   tools/guest-config/pulse-client-no-shm.conf tools/guest-config/pipewire.conf \
+	   tools/guest-config/wireplumber.conf \
 	   tools/guest-config/linuxhub-system-bus.conf \
 	   tools/guest-config/provision-accounts.sh tools/guest-config/guest-accounts.txt \
 	   tools/guest-config/net.hadess.SensorProxy.policy \
 	   tools/guest-config/60-husk-sensor-proxy.rules \
 	   tools/guest-config/mksys-net.sh dist/guest-config/
-	@mkdir -p dist/vendor/panvk
+	@mkdir -p dist/vendor/panvk dist/vendor/pipewire/src/gst
 	cp -R vendor/panvk/fristonerr-1.2.0-mali-g77 dist/vendor/panvk/
+	cp vendor/pipewire/1.0.5-gst-caps-subset.patch vendor/pipewire/COPYING \
+	   vendor/pipewire/PROVENANCE.md dist/vendor/pipewire/
+	cp vendor/pipewire/src/gst/gstpipewiresrc.c dist/vendor/pipewire/src/gst/
 	cp VERSION dist/VERSION
+# Deployment identity: the loader hash and the commit that produced it travel with
+# the bundle, and install-husk.sh records the same six values into the tree's
+# etc/husk/runtime-identity. tools/device-tests/23-runtime-identity.sh compares them.
+	{ printf 'commit=%s\n' "$$(git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"; \
+	  printf 'version=%s\n' "$$(cat VERSION)"; \
+	  printf 'loader_sha256=%s\n' "$$(sha256sum dist/libld.so | cut -d' ' -f1)"; \
+	  printf 'pipewire_plugin_sha256=%s\n' "$$(sha256sum dist/guest/gstreamer-1.0/libgstpipewire.so | cut -d' ' -f1)"; \
+	  printf 'built=%s\n' "$$(date -u +%Y-%m-%dT%H:%M:%SZ)"; } > dist/RUNTIME-IDENTITY
 	@if [ -f tools/langpack/husk-lang-zh.tar.gz ]; then \
 	    cp tools/langpack/husk-lang-zh.tar.gz dist/; \
 	    tar tzf dist/husk-lang-zh.tar.gz | grep -qx 'usr/share/locale-langpack/zh_CN/LC_MESSAGES/gnome-shell.mo' || \
@@ -411,8 +456,11 @@ dist:
 	    husk-window-wait husk-logd audio-setup audio-relay audio-capture audio-probe \
 	    guest guest-config vendor install-husk.sh husk-session.sh husk-desktop.sh \
 	    husk-ding-fallback.sh husk-wallpaper-fit.sh husk-system-services.sh \
-	    husk-lang-zh.tar.gz VERSION
+	    husk-media-session.sh \
+	    husk-lang-zh.tar.gz VERSION RUNTIME-IDENTITY
 	@sh tools/ci/audit-runtime-boundary.sh dist/husk-arm64.tar.gz
+	@sh tools/ci/audit-runtime-private-paths.sh dist/husk-arm64.tar.gz
+	@sh tools/ci/audit-pipewire-plugin.sh dist/guest/gstreamer-1.0/libgstpipewire.so
 # The installer writes /etc/profile.d/husk-gpu.sh from guest-config/, and skips it
 # silently when the file is not next to it: a bundle without it installs a tree
 # with no GPU defaults and no error. Asserted on the tarball, not on dist/.
@@ -442,6 +490,14 @@ dist:
 # absent, while the installer itself succeeds.  Assert it on the tarball.
 	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/linuxhub-system-bus.conf' || \
 	    { echo "dist: bundle is missing guest-config/linuxhub-system-bus.conf" >&2; exit 1; }
+	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/pipewire.conf' || \
+	    { echo "dist: bundle is missing guest-config/pipewire.conf; Snapshot cannot enumerate cameras" >&2; exit 1; }
+	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/wireplumber.conf' || \
+	    { echo "dist: bundle is missing guest-config/wireplumber.conf; WirePlumber shuts down without it" >&2; exit 1; }
+	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest/libhusk_v4l2.so' || \
+	    { echo "dist: bundle is missing guest/libhusk_v4l2.so; standard camera clients cannot open /dev/video*" >&2; exit 1; }
+	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest/gstreamer-1.0/libgstpipewire.so' || \
+	    { echo "dist: bundle is missing the gstpipewiresrc redundant-negotiation fix" >&2; exit 1; }
 	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/provision-accounts.sh' || \
 	    { echo "dist: bundle is missing guest-config/provision-accounts.sh" >&2; exit 1; }
 	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'guest-config/guest-accounts.txt' || \
@@ -452,9 +508,15 @@ dist:
 	    { echo "dist: bundle is missing the sensor claim rule" >&2; exit 1; }
 	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'husk-system-services.sh' || \
 	    { echo "dist: bundle is missing husk-system-services.sh" >&2; exit 1; }
+	@tar tzf dist/husk-arm64.tar.gz | grep -qx 'husk-media-session.sh' || \
+	    { echo "dist: bundle is missing husk-media-session.sh" >&2; exit 1; }
 # A bundle without the kbase PanVK snapshot installs successfully on Mali and then silently
 # renders with llvmpipe. Assert the compressed driver, guest-relative ICD and license.
 	@for f in \
+	    vendor/pipewire/1.0.5-gst-caps-subset.patch \
+	    vendor/pipewire/PROVENANCE.md \
+	    vendor/pipewire/COPYING \
+	    vendor/pipewire/src/gst/gstpipewiresrc.c \
 	    vendor/panvk/fristonerr-1.2.0-mali-g77/libvulkan_panfrost_frist370_execva.so.gz \
 	    vendor/panvk/fristonerr-1.2.0-mali-g77/husk_panvk_guest.json \
 	    vendor/panvk/fristonerr-1.2.0-mali-g77/LICENSE-Mesa.txt \
@@ -464,14 +526,14 @@ dist:
 	done
 # 0.0.6 补的三条断言：这几个文件少了不会报错，只会让装出来的树缺一件东西
 # （husk-session.sh 的 `[ -x ... ]` 判假、pulse 客户端静默丢掉 enable-shm=no）。
-	@for f in husk-desktop.sh husk-ding-fallback.sh husk-wallpaper-fit.sh \
+	@for f in husk-desktop.sh husk-media-session.sh husk-ding-fallback.sh husk-wallpaper-fit.sh \
 	          husk-window-wait guest/wallpaper-scale guest-config/pulse-client-no-shm.conf; do \
 	    tar tzf dist/husk-arm64.tar.gz | grep -qx "$$f" || \
 	        { echo "dist: bundle is missing $$f" >&2; exit 1; }; \
 	done
 	@rm -f dist/libld.so dist/libc.so.6 dist/husk-ldconfig dist/husk-usermgr \
 	    dist/husk-su dist/husk-symlinks dist/husk-window-wait dist/husk-logd dist/install-husk.sh dist/husk-session.sh \
-	    dist/husk-desktop.sh dist/husk-ding-fallback.sh dist/husk-wallpaper-fit.sh \
+	    dist/husk-desktop.sh dist/husk-media-session.sh dist/husk-ding-fallback.sh dist/husk-wallpaper-fit.sh \
 	    dist/husk-system-services.sh \
 	    dist/husk-lang-zh.tar.gz dist/VERSION
 	@rm -rf dist/guest dist/guest-config dist/vendor

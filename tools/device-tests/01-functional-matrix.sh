@@ -5,7 +5,14 @@
 ok(){ echo "PASS $1"; n=$((${n:-0}+1)); }
 bad(){ echo "FAIL $1 -- $2"; f=$((${f:-0}+1)); }
 chk(){ if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "got [$2] want [$3]"; fi; }
-rm -rf /tmp /a /esc 2>/dev/null; mkdir /tmp
+# 别 `rm -rf /tmp`：桌面会话的 X socket（`/tmp/.X11-unix/X0`）就住在这里，删掉它
+# 之后 X server 手里那个监听 fd 变成 unlink 过的孤儿，已有连接还能画、新客户端一律
+# `unable to open display :0`（2026-11-27 实测，defect H47）。只清本脚本自己造的名字。
+if pgrep -f 'usr/bin/gnome-shell' >/dev/null 2>&1; then
+    echo "FAIL guarded -- a desktop session is running; this script deletes /tmp names a live session needs" >&2
+    echo "#checks=0 fail=1"; exit 1
+fi
+rm -rf /tmp/n1 /tmp/d1 /tmp/d2 /tmp/fx /a /esc 2>/dev/null; mkdir -p /tmp
 mkdir -p /tmp/n1/n2/n3 && chk mkdirp "$(cd /tmp/n1/n2/n3 && pwd -P)" /tmp/n1/n2/n3
 chk mkdirp-place "$(test -d /tmp/n1/n2/n3 && test ! -d /tmp/n3 && echo clean)" clean
 echo deep > /tmp/n1/n2/n3/f && chk deepwrite "$(cat /tmp/n1/n2/n3/f)" deep

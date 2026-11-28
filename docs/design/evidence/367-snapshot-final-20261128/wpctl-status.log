@@ -1,0 +1,40 @@
+services: polkitd already running
+PipeWire 'pipewire-0' [1.0.5, husk@localhost, cookie:87828385]
+ └─ Clients:
+        32. xdg-desktop-portal                  [1.0.5, husk@localhost, pid:23803]
+        33. WirePlumber                         [1.0.5, husk@localhost, pid:15771]
+        34. WirePlumber [export]                [1.0.5, husk@localhost, pid:15771]
+        44. wpctl                               [1.0.5, husk@localhost, pid:15819]
+
+Audio
+ ├─ Devices:
+ │  
+ ├─ Sinks:
+ │  
+ ├─ Sink endpoints:
+ │  
+ ├─ Sources:
+ │  
+ ├─ Source endpoints:
+ │  
+ └─ Streams:
+
+Video
+ ├─ Devices:
+ │      38. BACK                                [v4l2]
+ │      39. FRONT                               [v4l2]
+ │  
+ ├─ Sinks:
+ │  
+ ├─ Sink endpoints:
+ │  
+ ├─ Sources:
+ │  *   40. BACK (V4L2)                        
+ │      42. FRONT (V4L2)                       
+ │  
+ ├─ Source endpoints:
+ │  
+ └─ Streams:
+
+Settings
+ └─ Default Configured Node Names:

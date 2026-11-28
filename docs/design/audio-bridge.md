@@ -151,9 +151,9 @@ xrun, so this is not an xrun-free claim.
 Run from the host/run-as side with the current loader (the app's `files/libdir` value):
 
 ```sh
-LIB=$(adb -s <serial> shell 'run-as com.linuxhub.husk cat files/libdir' | tr -d '\r')
-R=/data/data/com.linuxhub.husk/files/rootfs-full
-adb -s <serial> shell "run-as com.linuxhub.husk sh -c 'cd /data/data/com.linuxhub.husk/files && NR_LD=$LIB/libld.so sh gexec2.sh rootfs-full $R/usr/bin/audio-setup / --enable'"
+LIB=$(adb -s <serial> shell 'run-as com.linuxhub.myth.husk cat files/libdir' | tr -d '\r')
+R=/data/data/com.linuxhub.myth.husk/files/linux/distributions/ubuntu-24.04/rootfs
+adb -s <serial> shell "run-as com.linuxhub.myth.husk sh -c 'cd /data/data/com.linuxhub.myth.husk/files && NR_LD=$LIB/libld.so sh gexec2.sh linux/distributions/ubuntu-24.04/rootfs $R/usr/bin/audio-setup / --enable'"
 ```
 
 `audio-setup` is idempotent and only writes the guest audio state. When the logical root is `/`, it

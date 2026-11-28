@@ -42,6 +42,9 @@ fn is_idr(data: &[u8]) -> bool {
 
 /// One decoded picture, already repacked to tight NV12 by the app side.
 pub struct Frame {
+    /// Presentation timestamp the app decoded this picture for. The guest keys
+    /// its cache by it, so a pumped frame can be handed to the right surface.
+    pub pts_us: i64,
     pub width: u32,
     pub height: u32,
     /// Tight NV12: `width*height` luma followed by `width*height/2` interleaved UV.
@@ -177,8 +180,13 @@ impl VideoClient {
     /// Claim the decoded picture that carries `pts_us`. The app keeps decoded
     /// frames until asked for them, because a codec may need several samples
     /// before it emits anything and output order is not input order.
-    pub fn fetch_frame(&mut self, pts_us: i64) -> std::io::Result<Option<Frame>> {
-        send_line(&mut self.stream, &format!("FRAME pts={pts_us}"))?;
+    pub fn fetch_frame(&mut self, pts_us: i64, wait_ms: u64) -> std::io::Result<Option<Frame>> {
+        // A miss must come back quickly: the caller polls, and the bridge side
+        // is what feeds the decoder, so a long wait here starves the codec.
+        send_line(
+            &mut self.stream,
+            &format!("FRAME pts={pts_us} wait_ms={wait_ms}"),
+        )?;
         let reply = read_line(&mut self.stream)?;
         if reply.starts_with("FRAME_NONE") {
             return Ok(None);
@@ -205,10 +213,21 @@ impl VideoClient {
         let mut nv12 = vec![0u8; bytes];
         self.stream.read_exact(&mut nv12)?;
         Ok(Some(Frame {
+            pts_us: parse_field::<i64>(&fields, "pts").unwrap_or(-1),
             width,
             height,
             nv12,
         }))
+    }
+
+    /// Take the oldest decoded picture the bridge is holding, whatever its PTS.
+    ///
+    /// The decoder emits pictures in display order, not decode order, so asking
+    /// only for the exact PTS of a surface deadlocks as soon as the two orders
+    /// differ: the wanted picture sits behind others that nobody has claimed.
+    /// Pumping the queue keeps it moving and the caller caches what it gets.
+    pub fn fetch_any(&mut self, wait_ms: u64) -> std::io::Result<Option<Frame>> {
+        self.fetch_frame(-1, wait_ms)
     }
 }
 

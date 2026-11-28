@@ -1,0 +1,101 @@
+== tarball ==
+   dist/husk-arm64.tar.gz  06bce26ae3e6193dacb89121debe533bef80edc04220ec925619d1df8dac9191
+dist/husk-arm64.tar.gz: 1 file pushed, 0 skipped. 38.4 MB/s (11695419 bytes in 0.290s)
+   RUNTIME-IDENTITY
+   VERSION
+   audio-capture
+   audio-probe
+   audio-relay
+== install --upgrade ==
+      wrote etc/pulse/client.conf.d/99-husk-no-shm.conf (enable-shm=no)
+   == symlinks: absolute -> relative ==
+      skip (dangling): etc/pulse/client.conf.d/01-enable-autospawn.conf -> /run/pulseaudio-enable-autospawn
+      links=29524 absolute=1 rewritten=0 dangling=1 left=0
+      links=29524 absolute=1 rewritten=0 dangling=1 left=0
+   == libc ==
+      libc 16d5ba2120c1 matches the bundle
+   == locale ==
+      locale-archive already present
+   == guest tools (useradd/groupadd/passwd/su/ldconfig) ==
+      installed usr/bin/husk-logd (guest /dev/log sink)
+   husk-ldconfig: wrote /etc/ld.so.husk-path (20 runpath directories)
+      wrote etc/ld.so.husk-path (20 RUNPATH directories)
+   == image loader caches ==
+      wrote usr/share/mime/mime.cache (162632 bytes)
+      wrote usr/lib/aarch64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders.cache (14 loaders)
+      ok: useradd/groupadd/usermod/userdel/groupdel/chpasswd/passwd/chfn/chsh -> husk-usermgr
+      wrote husk-ding-fallback.sh (next to husk-session.sh)
+      wrote husk-wallpaper-fit.sh (next to husk-session.sh)
+   == verify ==
+      PRETTY_NAME="Ubuntu 24.04.4 LTS"
+      bins=1059
+      -rwxr-xr-x. 1 root root 3942240 Nov 24 15:18 /usr/bin/perl5.38.2
+      -rwxr-xr-x. 1 root root 2346 Nov 24 10:43 /usr/bin/uncompress
+   == ok: hard links materialised (uncompress + perl5.38.2 are real files) ==
+      sonames ok
+   == runtime identity ==
+      version=0.0.37
+      git_commit=c924d620f6de
+      mode=upgrade
+      loader_sha256=5a28f920377fe64632e6c83f3973f81c6645931475df56adcdead69e922e36f0
+      libc_sha256=16d5ba2120c1a92c0c9cba62dd8ec244d29d5d30a733d4ac530be4fb1b92933f
+      gpu_env_sha256=ad230fcc0f8248ccfbf657e0b28e00bcf28cd41f3e644bdc1788f522f4445603
+      panvk_driver_sha256=5e06324783ec7947d48782441fd1cac23953c90bd0b31663f98f08b22344c1c3
+      icd_sha256=25f6ccd9662ada7072b43d87aaa45dcf9413519918a30d55679b60042afd0eae
+      pipewire_plugin_sha256=5baacf01e9a98f74a0d3fef88f8da16e9d6e54245b82e871a2b6844665ba7f01
+      ran_at_epoch=1795821983
+   
+   == done ==
+     /data/user/0/com.linuxhub.myth.husk/files/linux/distributions/ubuntu-24.04/husk -- usr/bin/bash -l -c 'id; head -1 /etc/os-release'
+   PASS  installer reached its done marker (rc=0)
+== installed runtime vs this build ==
+  PASS  app libld.so identical to this build
+  PASS  app husk-logd identical to this build
+  PASS  guest usr/sbin/husk-usermgr identical to this build
+  PASS  guest usr/bin/husk-usermgr identical to this build
+  PASS  guest usr/sbin/husk-su identical to this build
+  PASS  guest usr/bin/husk-su identical to this build
+  PASS  guest usr/sbin/husk-ldconfig identical to this build
+  PASS  guest usr/bin/husk-ldconfig identical to this build
+  PASS  guest husk-symlinks identical to this build
+  PASS  guest husk-window-wait identical to this build
+  PASS  guest husk-logd identical to this build
+  PASS  guest husk-media-session identical to this build
+  PASS  guest wallpaper-scale identical to this build
+  PASS  session husk-desktop identical to this build
+  PASS  session husk-wallpaper-fit identical to this build
+  PASS  session husk-ding-fallback identical to this build
+  PASS  guest audio-setup identical to this build
+  PASS  guest audio-relay identical to this build
+  PASS  guest audio-capture identical to this build
+  PASS  guest audio-probe identical to this build
+  RUNTIME_COMPARE PASS=20 FAIL=0
+== self-proof ==
+== runtime identity record ==
+    version=0.0.37
+    git_commit=c924d620f6de
+    mode=upgrade
+    loader_sha256=5a28f920377fe64632e6c83f3973f81c6645931475df56adcdead69e922e36f0
+    libc_sha256=16d5ba2120c1a92c0c9cba62dd8ec244d29d5d30a733d4ac530be4fb1b92933f
+    gpu_env_sha256=ad230fcc0f8248ccfbf657e0b28e00bcf28cd41f3e644bdc1788f522f4445603
+    panvk_driver_sha256=5e06324783ec7947d48782441fd1cac23953c90bd0b31663f98f08b22344c1c3
+    icd_sha256=25f6ccd9662ada7072b43d87aaa45dcf9413519918a30d55679b60042afd0eae
+    pipewire_plugin_sha256=5baacf01e9a98f74a0d3fef88f8da16e9d6e54245b82e871a2b6844665ba7f01
+    ran_at_epoch=1795821983
+  PASS  identity file present (10 fields)
+  STATE version=0.0.37 commit=c924d620f6de mode=upgrade
+== recomputed hashes vs the record ==
+  PASS  loader_sha256 5a28f920377f… loader in the app dir
+  PASS  libc_sha256 16d5ba2120c1… guest libc
+  PASS  gpu_env_sha256 ad230fcc0f82… gpu-env
+  PASS  panvk_driver_sha256 5e06324783ec… PanVK driver
+  PASS  icd_sha256 25f6ccd9662a… canonical ICD
+  PASS  pipewire_plugin_sha256 5baacf01e9a9… gstpipewiresrc fix
+== this build vs what is deployed ==
+  PASS  VERSION matches the checkout (0.0.37)
+  PASS  commit matches dist/RUNTIME-IDENTITY (c924d620f6de)
+  PASS  dist build version matches (0.0.37)
+  PASS  loader is the one this dist shipped
+== no stray old artifacts ==
+  PASS  no stale PanVK driver copies
+RUNTIME_IDENTITY PASS=12 FAIL=0

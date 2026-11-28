@@ -1,0 +1,7 @@
+Starting: Intent { cmp=com.linuxhub.husk/android.app.NativeActivity }
+Status: ok
+LaunchState: COLD
+Activity: com.linuxhub.husk/android.app.NativeActivity
+TotalTime: 276
+WaitTime: 280
+Complete

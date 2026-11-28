@@ -1,0 +1,37 @@
+--- a/src/gst/gstpipewiresrc.c
++++ b/src/gst/gstpipewiresrc.c
+@@ -853,12 +853,33 @@
+ 
+   GST_DEBUG_OBJECT (basesrc, "have common caps: %" GST_PTR_FORMAT, caps);
+ 
++  /* A reconfigure event can carry ranges that still accept the fixed caps
++   * we are already running. In that case the stream must not be restarted:
++   * disconnecting removes buffers that may still be in a downstream frame
++   * copy. Compare the running caps against the full peer caps, not the first
++   * structure only. */
++  pw_thread_loop_lock (pwsrc->core->loop);
++  if (pw_stream_get_state (pwsrc->stream, NULL) == PW_STREAM_STATE_STREAMING) {
++    GstCaps *current_caps = gst_pad_get_current_caps (GST_BASE_SRC_PAD (pwsrc));
++
++    if (current_caps && gst_caps_is_subset (current_caps, caps)) {
++      GST_DEBUG_OBJECT (pwsrc,
++          "stream is running and new caps are still acceptable; "
++          "skipping renegotiation");
++      gst_caps_unref (current_caps);
++      pw_thread_loop_unlock (pwsrc->core->loop);
++      gst_caps_unref (caps);
++      return TRUE;
++    }
++    if (current_caps)
++      gst_caps_unref (current_caps);
++  }
++
+   /* open a connection with these caps */
+   possible = gst_caps_to_format_all (caps, SPA_PARAM_EnumFormat);
+   gst_caps_unref (caps);
+ 
+   /* first disconnect */
+-  pw_thread_loop_lock (pwsrc->core->loop);
+   if (pw_stream_get_state(pwsrc->stream, &error) != PW_STREAM_STATE_UNCONNECTED) {
+     GST_DEBUG_OBJECT (basesrc, "disconnect capture");
+     pw_stream_disconnect (pwsrc->stream);

@@ -118,6 +118,44 @@ unsafe fn check_crop_contract(fd: libc::c_int, w: u32, h: u32) {
     println!("v4l2test|crop|bounds=yes|default=yes|selection=yes|full-crop=yes");
 }
 
+fn frame_stats(frame: &[u8], fourcc: u32, w: u32, h: u32) -> String {
+    let all = plane_stats(frame);
+    let y = if frame.is_empty() {
+        (0, 0, 0.0, 0.0, 0.0)
+    } else if fourcc == FMT_NV12 && frame.len() >= (w as usize * h as usize) {
+        plane_stats(&frame[..w as usize * h as usize])
+    } else if fourcc == FMT_YUYV {
+        let luma: Vec<u8> = frame.iter().step_by(2).copied().collect();
+        plane_stats(&luma)
+    } else {
+        all
+    };
+    format!(
+        "all_min={}|all_max={}|all_mean={:.2}|Y_min={}|Y_max={}|Y_mean={:.2}|Y_dark={:.3}|Y_bright={:.3}",
+        all.0, all.1, all.2, y.0, y.1, y.2, y.3, y.4
+    )
+}
+
+fn plane_stats(frame: &[u8]) -> (u8, u8, f64, f64, f64) {
+    if frame.is_empty() {
+        return (0, 0, 0.0, 0.0, 0.0);
+    }
+    let mut min = 255u8;
+    let mut max = 0u8;
+    let mut sum = 0u64;
+    let mut dark = 0u64;
+    let mut bright = 0u64;
+    for &b in frame {
+        min = min.min(b);
+        max = max.max(b);
+        sum += b as u64;
+        dark += (b <= 16) as u64;
+        bright += (b >= 235) as u64;
+    }
+    let n = frame.len() as f64;
+    (min, max, sum as f64 / n, dark as f64 / n, bright as f64 / n)
+}
+
 unsafe fn check_buffer_timestamp(buf: &[u8]) {
     let flags = u32_at(buf, 12);
     let ts_s = u64::from_ne_bytes(buf[24..32].try_into().unwrap());
@@ -218,10 +256,10 @@ unsafe fn run_read(dev: &str, frames: usize, fourcc: u32, out: &str, want_w: u32
             std::process::exit(1);
         }
         if k == 0 || k + 1 == frames {
-            let min = *frame.iter().min().unwrap();
-            let max = *frame.iter().max().unwrap();
-            let mean = frame.iter().map(|b| *b as u64).sum::<u64>() as f64 / frame.len() as f64;
-            println!("v4l2test|read|frame|{k}|bytes={n}|min={min}|max={max}|mean={mean:.2}");
+            println!(
+                "v4l2test|read|frame|{k}|bytes={n}|{}",
+                frame_stats(&frame, fourcc, w, h)
+            );
         }
     }
     let secs = started.elapsed().as_secs_f64().max(0.001);
@@ -300,10 +338,10 @@ unsafe fn run_readv(dev: &str, frames: usize, fourcc: u32, out: &str, want_w: u3
             std::process::exit(1);
         }
         if k == 0 || k + 1 == frames {
-            let min = *frame.iter().min().unwrap();
-            let max = *frame.iter().max().unwrap();
-            let mean = frame.iter().map(|b| *b as u64).sum::<u64>() as f64 / frame.len() as f64;
-            println!("v4l2test|readv|frame|{k}|bytes={n}|min={min}|max={max}|mean={mean:.2}");
+            println!(
+                "v4l2test|readv|frame|{k}|bytes={n}|{}",
+                frame_stats(&frame, fourcc, w, h)
+            );
         }
     }
     let secs = started.elapsed().as_secs_f64().max(0.001);
@@ -456,6 +494,31 @@ unsafe fn run(dev: &str, frames: usize, fourcc: u32, out: &str, want_w: u32, wan
         std::process::exit(1);
     }
 
+    let fd_link = std::fs::read_link(format!("/proc/self/fd/{fd}"));
+    println!("v4l2test|fd={fd}|target={fd_link:?}");
+
+    // SPA and other consumers reopen the fd identity after open. The fd is a
+    // memfd internally, so the facade must synthesize fstat as well as stat.
+    let mut fst = std::mem::MaybeUninit::<libc::stat>::zeroed().assume_init();
+    if libc::fstat(fd, &mut fst) != 0 {
+        eprintln!(
+            "v4l2test|FAIL|fstat fd: {}",
+            std::io::Error::last_os_error()
+        );
+        std::process::exit(1);
+    }
+    let f_mode = fst.st_mode & libc::S_IFMT;
+    let f_major = libc::major(fst.st_rdev);
+    let f_minor = libc::minor(fst.st_rdev);
+    println!(
+        "v4l2test|fstat|chr={}|rdev={f_major}:{f_minor}",
+        f_mode == libc::S_IFCHR
+    );
+    if f_mode != libc::S_IFCHR || f_major != 81 || f_minor != minor {
+        eprintln!("v4l2test|FAIL|fd identity is not character device 81:{minor}");
+        std::process::exit(1);
+    }
+
     // 3. QUERYCAP
     let mut cap = [0u8; 104];
     if libc::ioctl(fd, QUERYCAP as _, cap.as_mut_ptr()) != 0 {
@@ -579,7 +642,7 @@ unsafe fn run(dev: &str, frames: usize, fourcc: u32, out: &str, want_w: u32, wan
             );
             std::process::exit(1);
         }
-        println!("v4l2test|buf|{i}|len={len}|off={off}");
+        println!("v4l2test|buf|{i}|len={len}|off={off}|ptr={p:p}");
         bufs.push((p as *mut u8, len as u32));
     }
 
@@ -641,7 +704,10 @@ unsafe fn run(dev: &str, frames: usize, fourcc: u32, out: &str, want_w: u32, wan
         let src = std::slice::from_raw_parts(bufs[idx].0, used as usize);
         total_bytes += used as u64;
         if k == 0 || k + 1 == frames {
-            println!("v4l2test|frame|{k}|idx={idx}|bytes={used}|seq={seq}|ts={ts_s}.{ts_us:06}");
+            println!(
+                "v4l2test|frame|{k}|idx={idx}|bytes={used}|seq={seq}|ts={ts_s}.{ts_us:06}|{}",
+                frame_stats(src, fourcc, w, h)
+            );
         }
         last_frame = Some(src.to_vec());
         // requeue

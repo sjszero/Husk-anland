@@ -123,8 +123,10 @@ GitHub Release 只承载版本页：标题只写 `Husk X.Y.Z`，不拼主题或�
 **没在设备上验过的东西，不写进 release notes。**
 
 活动运行路径、Makefile 默认值、设备测试、探针和供给工具统一使用 Android 包名
-`com.linuxhub.husk`。退役包名只允许留在不可改写的 `docs/design/evidence/` 和已发布
-`CHANGELOG` 历史段里；`make check` 的 `runtime package audit` 会拦截写回活动代码的旧默认值。
+`com.linuxhub.myth.husk`（LinuxHub 2.0 的 Husk 运行时，唯一有效宿主）。退役包名
+`com.linuxhub.husk` 只允许留在不可改写的 `docs/design/evidence/`、已发布 `CHANGELOG`
+历史段，以及注明「旧宿主现场」的记录里；`make check` 的 `runtime package audit` 会拦截
+写回活动代码的旧默认值。
 
 Release 附件也只有一个命名面：启动器与运行时包固定为 `husk-arm64.tar.gz`，校验文件固定为
 `SHA256SUMS`；发行版 rootfs 只能是 `husk-rootfs-<发行版>.tar.gz`，APK 只能是

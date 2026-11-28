@@ -23,6 +23,7 @@ device_path() {
 }
 ROOTFS=$(device_path "$ROOTFS")
 LD=$(device_path "$LD")
+V4L2_PRELOAD=${V4L2_PRELOAD:-$ROOTFS/usr/lib/aarch64-linux-gnu/libhusk_v4l2.so}
 ROOT=$(cd "$HERE/../.." && pwd)
 
 # The raw fixture temporarily replaces the app's guest-facing camera socket.
@@ -31,7 +32,10 @@ ROOT=$(cd "$HERE/../.." && pwd)
 # app on every exit path so the production bridge binds a fresh socket.
 restart_app() {
     adb -s "$DEV" shell am force-stop "$PKG" >/dev/null 2>&1 || true
-    adb -s "$DEV" shell am start -W -n "$PKG/android.app.NativeActivity" >/dev/null 2>&1 || true
+    launcher=$(adb -s "$DEV" shell "cmd package resolve-activity --brief $PKG" 2>/dev/null | tail -1 | tr -d '\r')
+    if [ -n "$launcher" ]; then
+        adb -s "$DEV" shell am start -W -n "$launcher" >/dev/null 2>&1 || true
+    fi
     i=0
     while [ "$i" -lt 80 ]; do
         if adb -s "$DEV" shell "run-as $PKG test -S $ROOTFS/run/husk/camera.sock" >/dev/null 2>&1; then
@@ -112,6 +116,7 @@ run_gst() {
     out=$(adb -s "$DEV" shell "run-as $PKG sh -c '
         rm -f $ROOTFS/run/husk/camera.sock $ROOTFS/root/v4l2-audit-$name.log
         NR_LD=$LD sh $SESS $ROOTFS -- /usr/bin/env \
+            LD_PRELOAD=$V4L2_PRELOAD \
             NR_V4L2_AUDIT=1 \
             NR_SIGSYS_LOG=$ROOTFS/root/v4l2-audit-$name.log \
             GST_PLUGIN_SYSTEM_PATH_1_0=/usr/lib/aarch64-linux-gnu/gstreamer-1.0 \

@@ -1,0 +1,17 @@
+/Users/l/Documents/Codex/2026-08-10/husk/tools/device-tests/snapshot-20s-guest.sh: 1 file pushed, 0 skipped. 2.5 MB/s (2550 bytes in 0.001s)
+services: polkitd already running
+/data/user/0/com.linuxhub.myth.husk/files/linux/husk/husk-session.sh[274]: files/linux/husk/libld.so: inaccessible or not found
+FAIL  PipeWire not ready
+FAIL  WirePlumber not ready
+FAIL  BACK v4l2 device missing
+FAIL  FRONT v4l2 device missing
+PASS  Snapshot alive after 20s
+PASS  Snapshot terminated by intentional TERM (143)
+PASS  No Snapshot 139
+PASS  Redundant caps renegotiation skipped
+PASS  pipewiresrc selected a real target object
+NOTE  initial null-target enumeration occurred before the numeric target
+PASS  Camera2 frames reached the V4L2 facade
+PASS  No V4L2 panic in Snapshot run
+PASS  screenshot captured: /tmp/husk-snapshot-final-20261128/snapshot.png
+RESULT PASS=8 FAIL=4 OUT=/tmp/husk-snapshot-final-20261128 RUN_RC=127

@@ -1200,3 +1200,12 @@ pub fn start_once() {
     });
     bridge::start();
 }
+
+/// Start only the product decode bridge with explicit paths. This is the
+/// standalone-helper entry point: no ANativeActivity, no on-demand file probe.
+pub fn start_once_at(files: std::path::PathBuf, rootfs: std::path::PathBuf) {
+    if STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    bridge::start_at(files, rootfs);
+}

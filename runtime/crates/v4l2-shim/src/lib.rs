@@ -4,8 +4,8 @@
 //! prior art it follows: `docs/design/v4l2-prior-art.md`.
 //!
 //! Deltas from DroidNative's `dn_v4l2` (ptrace, FIFO + fd-passed shm):
-//! - the guest-facing fd is a memfd, so `poll/select/epoll` report readable and
-//!   `close/dup` are real; there is no FIFO and no fd passing;
+//! - the guest-facing fd remains a memfd for identity and `close/dup`; preload
+//!   maps its epoll watch to a hidden eventfd so SPA gets real readiness;
 //! - `DQBUF` is one synchronous `FRAME` transaction on `camera.sock`;
 //! - NV12 is the wire format; `YUYV` is converted here.
 //!
@@ -28,12 +28,19 @@ const SYS_GETDENTS64: usize = 61;
 const SYS_MMAP: usize = 222;
 const SYS_SOCKET: usize = 198;
 const SYS_CONNECT: usize = 203;
+const SYS_SETSOCKOPT: usize = 54;
+// AArch64 generically numbered ABI. Do not copy x86_64 eventfd2=290.
+const SYS_EVENTFD2: usize = 19;
+const SOL_SOCKET: usize = 1;
+const SO_RCVTIMEO: usize = 20;
+const SO_SNDTIMEO: usize = 21;
 const SYS_MEMFD_CREATE: usize = 279;
 const SYS_READLINKAT: usize = 78;
 const SYS_CLOCK_GETTIME: usize = 113;
 const AT_FDCWD: isize = -100;
 const O_DIRECTORY: usize = 0o40000; // AArch64 UAPI, not asm-generic 0o200000
 const O_CLOEXEC: usize = 0o2000000;
+const O_NONBLOCK: usize = 0o4000;
 const CLOCK_MONOTONIC: usize = 1;
 const CLOCK_BOOTTIME: usize = 7;
 const CLOCK_REALTIME: usize = 0;
@@ -99,6 +106,10 @@ const EFAULT: i64 = 14;
 const EIO: i64 = 5;
 const BUFFER_OFFSET_SHIFT: u32 = 24;
 const MAX_TIMESTAMP_AGE_NS: u64 = 10_000_000_000;
+// Linux sockaddr_un.sun_path is 108 bytes including the terminating NUL.
+// The host-rooted camera.sock path is longer than a guest path and must be
+// rejected before it reaches copy_from_slice, never discovered via panic.
+const UNIX_PATH_MAX: usize = 108;
 const SCRATCH_BYTES: usize = 1920 * 1080 * 3 / 2 + 4096;
 const READV_BYTES: usize = 1920 * 1080 * 2 + 4096;
 
@@ -225,6 +236,10 @@ impl Buf {
 struct Dev {
     opened: bool,
     fd: i32, // guest-visible memfd
+    /// Internal epoll notification for the memfd facade. Regular files cannot
+    /// be registered with epoll, so SPA would otherwise fall back to an idle
+    /// source and stop issuing DQBUF once the PipeWire graph becomes active.
+    event_fd: i32,
     sock: i32,
     w: u32,
     h: u32,
@@ -247,6 +262,7 @@ impl Dev {
         Dev {
             opened: false,
             fd: -1,
+            event_fd: -1,
             sock: -1,
             w: 0,
             h: 0,
@@ -294,6 +310,14 @@ pub struct Ctx {
     scratch: *mut u8,
     scratch_len: usize,
     readv_scratch: *mut u8,
+    /// Prefix each camera-socket handshake with a short trace line. The
+    /// preload enables this only when `NR_V4L2_AUDIT=1`; the production path
+    /// stays silent.
+    trace: bool,
+    /// Queue/dequeue can run at frame rate. Trace only the first few calls and
+    /// a periodic sample so an audit does not change the path it measures.
+    audit_qbuf: u32,
+    audit_dqbuf: u32,
 }
 
 unsafe impl Sync for Ctx {}
@@ -310,12 +334,101 @@ impl Ctx {
             scratch: core::ptr::null_mut(),
             scratch_len: 0,
             readv_scratch: core::ptr::null_mut(),
+            trace: false,
+            audit_qbuf: 0,
+            audit_dqbuf: 0,
         }
+    }
+
+    pub fn set_trace(&mut self, enabled: bool) {
+        self.trace = enabled;
+    }
+
+    fn trace(&self, msg: &[u8]) {
+        if self.trace {
+            // SAFETY: trace is only used from the no_std preload/shim paths,
+            // where fd 2 is the process stderr inherited from the caller.
+            unsafe { note(msg) };
+        }
+    }
+
+    fn trace_dev(&self, prefix: &[u8], i: usize) {
+        if !self.trace {
+            return;
+        }
+        let mut buf = [0u8; 64];
+        let n = prefix.len().min(buf.len() - 2);
+        buf[..n].copy_from_slice(&prefix[..n]);
+        buf[n] = b'0' + i as u8;
+        buf[n + 1] = b'\n';
+        unsafe { note(&buf[..n + 2]) };
+    }
+
+    fn trace_hex(&self, prefix: &[u8], value: usize) {
+        if !self.trace {
+            return;
+        }
+        let mut buf = [0u8; 96];
+        let n = prefix.len().min(buf.len() - 20);
+        buf[..n].copy_from_slice(&prefix[..n]);
+        let mut at = n;
+        buf[at] = b'0';
+        at += 1;
+        buf[at] = b'x';
+        at += 1;
+        let mut shift = (core::mem::size_of::<usize>() * 8) - 4;
+        loop {
+            let nibble = ((value >> shift) & 0xf) as u8;
+            buf[at] = if nibble < 10 {
+                b'0' + nibble
+            } else {
+                b'a' + nibble - 10
+            };
+            at += 1;
+            if shift == 0 {
+                break;
+            }
+            shift -= 4;
+        }
+        buf[at] = b'\n';
+        unsafe { note(&buf[..at + 1]) };
+    }
+
+    /// Emit one bounded diagnostic line for the DQBUF state machine. This is
+    /// only called from the audit-sampled path, so the production hot path
+    /// never formats or writes anything.
+    fn trace_dqbuf_state(&self, i: usize, streaming: bool, nbuffers: u32, queued: u32) {
+        if !self.trace {
+            return;
+        }
+        let mut buf = [0u8; 96];
+        let prefix = b"[v4l2] DQBUF enter dev=";
+        buf[..prefix.len()].copy_from_slice(prefix);
+        let mut n = prefix.len();
+        buf[n] = b'0' + i as u8;
+        n += 1;
+        for (label, value) in [
+            (b" streaming=".as_ref(), streaming as u32),
+            (b" nbuffers=".as_ref(), nbuffers),
+            (b" queued=".as_ref(), queued),
+        ] {
+            buf[n..n + label.len()].copy_from_slice(label);
+            n += label.len();
+            if value >= 10 {
+                buf[n] = b'0' + ((value / 10) % 10) as u8;
+                n += 1;
+            }
+            buf[n] = b'0' + (value % 10) as u8;
+            n += 1;
+        }
+        buf[n] = b'\n';
+        n += 1;
+        unsafe { note(&buf[..n]) };
     }
 
     /// `path` is the host path of `run/husk/camera.sock` inside the rootfs.
     pub unsafe fn init(&mut self, path: &[u8]) -> bool {
-        if path.len() == 0 || path.len() >= self.path.len() {
+        if path.len() == 0 || path.len() > UNIX_PATH_MAX || path.len() >= self.path.len() {
             return false;
         }
         self.path[..path.len()].copy_from_slice(path);
@@ -391,6 +504,46 @@ impl Ctx {
         self.dev_of_fd(fd).is_some()
     }
 
+    /// Return the pollable object SPA should watch instead of the regular-file
+    /// memfd exposed to the guest. The eventfd is internal and never replaces
+    /// the guest-visible descriptor identity.
+    pub fn poll_fd_for(&mut self, fd: i32) -> Option<i32> {
+        let i = self.dev_of_fd(fd)?;
+        let event_fd = self.devs[i].event_fd;
+        if self.trace {
+            unsafe { note(b"[v4l2] epoll facade -> eventfd\n") };
+        }
+        (event_fd >= 0).then_some(event_fd)
+    }
+
+    unsafe fn consume_event(&mut self, i: usize) {
+        let event_fd = self.devs[i].event_fd;
+        if event_fd < 0 {
+            return;
+        }
+        let mut value = 0u64;
+        syscall3(
+            SYS_READ,
+            event_fd as usize,
+            (&mut value as *mut u64) as usize,
+            8,
+        );
+    }
+
+    unsafe fn arm_event(&mut self, i: usize) {
+        let event_fd = self.devs[i].event_fd;
+        if event_fd < 0 {
+            return;
+        }
+        let value = 1u64;
+        syscall3(
+            SYS_WRITE,
+            event_fd as usize,
+            (&value as *const u64) as usize,
+            8,
+        );
+    }
+
     pub fn update_nonblock(&mut self, fd: i32, on: bool) {
         if let Some(i) = self.dev_of_fd(fd) {
             self.devs[i].nonblock = on;
@@ -419,6 +572,22 @@ impl Ctx {
             return false;
         }
         self.devs[i].sock = s as i32;
+        // A protocol peer that accepts and then goes silent must not hang the
+        // whole V4L2 consumer. This timeout covers INFO/OPEN/frame replies; the
+        // App may keep an idle camera device open between commands, but it only
+        // reads from us when it has sent a command and is waiting for a reply.
+        let tv = [5_i64, 0_i64];
+        for opt in [SO_RCVTIMEO, SO_SNDTIMEO] {
+            syscall6(
+                SYS_SETSOCKOPT,
+                s as usize,
+                SOL_SOCKET,
+                opt,
+                tv.as_ptr() as usize,
+                core::mem::size_of_val(&tv),
+                0,
+            );
+        }
         true
     }
 
@@ -517,10 +686,12 @@ impl Ctx {
             note(b"[husk v4l2] camera.sock connect failed\n");
             return false;
         }
+        self.trace(b"[husk v4l2] camera.sock connected; sending INFO\n");
         if !self.send(i, b"INFO\n") {
             note(b"[husk v4l2] camera.sock write failed\n");
             return false;
         }
+        self.trace(b"[husk v4l2] INFO sent; waiting for reply\n");
         let mut line = [0u8; 512];
         loop {
             let n = match self.recv_line(i, &mut line) {
@@ -528,6 +699,9 @@ impl Ctx {
                 None => return false,
             };
             let l = &line[..n];
+            self.trace(b"[husk v4l2] INFO reply: ");
+            self.trace(l);
+            self.trace(b"\n");
             if starts(l, b"OK") {
                 return true;
             }
@@ -641,7 +815,14 @@ impl Ctx {
             self.drop_sock(i);
             return err(ENODEV);
         }
+        let event_fd = syscall6(SYS_EVENTFD2, 0, O_CLOEXEC | O_NONBLOCK, 0, 0, 0, 0);
+        if event_fd < 0 {
+            syscall3(SYS_CLOSE, fd as usize, 0, 0);
+            self.drop_sock(i);
+            return err(ENODEV);
+        }
         d.fd = fd as i32;
+        d.event_fd = event_fd as i32;
         d.opened = true;
         fd as i32
     }
@@ -737,8 +918,13 @@ impl Ctx {
     }
 
     unsafe fn destroy(&mut self, i: usize) {
+        self.trace(b"[v4l2] destroy\n");
         if self.devs[i].streaming {
             self.send(i, b"STOP\n");
+        }
+        if self.devs[i].event_fd >= 0 {
+            syscall3(SYS_CLOSE, self.devs[i].event_fd as usize, 0, 0);
+            self.devs[i].event_fd = -1;
         }
         self.drop_sock(i);
         self.devs[i].opened = false;
@@ -805,7 +991,17 @@ impl Ctx {
 
     // ---- ioctl ----
 
+    /// V4L2 request numbers are 32-bit `_IOC` values. Some userspace variants
+    /// pass the high bit set value through a signed variadic argument, so the
+    /// AArch64 register arrives sign-extended as `0xffffffff80685600`. The
+    /// kernel compares only the low 32 bits; doing the same here prevents a
+    /// valid QUERYCAP from being misclassified as ENOTTY.
+    fn normalize_ioctl(req: u64) -> u64 {
+        req & u32::MAX as u64
+    }
+
     pub unsafe fn ioctl(&mut self, fd: i32, req: u64, arg: *mut u8) -> i64 {
+        let req = Self::normalize_ioctl(req);
         let i = match self.dev_of_fd(fd) {
             Some(i) => i,
             None => return -ENOTTY,
@@ -1108,6 +1304,7 @@ impl Ctx {
     }
 
     unsafe fn reqbufs(&mut self, i: usize, arg: *mut u8) -> i64 {
+        self.trace(b"[v4l2] REQBUFS\n");
         let mut count = ld32(arg, 0);
         let type_ = ld32(arg, 4);
         let memory = ld32(arg, 8);
@@ -1181,6 +1378,11 @@ impl Ctx {
     }
 
     unsafe fn qbuf(&mut self, i: usize, arg: *mut u8) -> i64 {
+        let audit = self.audit_qbuf;
+        self.audit_qbuf = self.audit_qbuf.wrapping_add(1);
+        if audit < 8 || audit % 30 == 0 {
+            self.trace(b"[v4l2] QBUF\n");
+        }
         if ld32(arg, 4) != BUF_TYPE_VIDEO_CAPTURE {
             return -EINVAL;
         }
@@ -1205,10 +1407,18 @@ impl Ctx {
     }
 
     unsafe fn streamon(&mut self, i: usize, arg: *mut u8) -> i64 {
+        self.trace(b"[v4l2] STREAMON\n");
         if ld32(arg, 0) != BUF_TYPE_VIDEO_CAPTURE || self.devs[i].nbuffers == 0 {
             return -EINVAL;
         }
-        self.open_session(i)
+        let rc = self.open_session(i);
+        if rc == 0 {
+            self.arm_event(i);
+            self.trace_dev(b"[v4l2] STREAMON ok dev=", i);
+        } else {
+            self.trace_dev(b"[v4l2] STREAMON fail dev=", i);
+        }
+        rc
     }
 
     /// Start the app-side capture session shared by STREAMON and read().
@@ -1243,6 +1453,8 @@ impl Ctx {
         }
         cmd[n] = b'\n';
         n += 1;
+        self.trace(b"[v4l2] OPEN ");
+        self.trace(&cmd[..n]);
         if !self.send(i, &cmd[..n]) {
             note(b"[v4l2] STREAMON: send OPEN failed\n");
             return -ENODEV;
@@ -1343,7 +1555,9 @@ impl Ctx {
                 if !self.recv_exact(i, src, bytes) {
                     return -(EIO as isize);
                 }
-                nv12_to_yuyv(src, out, w as usize, h as usize, dst_len);
+                if !nv12_to_yuyv(src, out, w as usize, h as usize, bytes, dst_len) {
+                    return -(EIO as isize);
+                }
                 return dst_len as isize;
             }
             if !self.recv_exact(i, out, bytes) {
@@ -1419,6 +1633,7 @@ impl Ctx {
     }
 
     unsafe fn streamoff(&mut self, i: usize, arg: *mut u8) -> i64 {
+        self.trace(b"[v4l2] STREAMOFF\n");
         if ld32(arg, 0) != BUF_TYPE_VIDEO_CAPTURE {
             return -EINVAL;
         }
@@ -1427,6 +1642,7 @@ impl Ctx {
             let mut line = [0u8; 64];
             let _ = self.recv_line(i, &mut line);
         }
+        self.consume_event(i);
         let d = &mut self.devs[i];
         d.streaming = false;
         for b in d.bufs.iter_mut() {
@@ -1436,7 +1652,32 @@ impl Ctx {
     }
 
     unsafe fn dqbuf(&mut self, i: usize, arg: *mut u8) -> i64 {
-        if ld32(arg, 4) != BUF_TYPE_VIDEO_CAPTURE || !self.devs[i].streaming {
+        let audit = self.audit_dqbuf;
+        self.audit_dqbuf = self.audit_dqbuf.wrapping_add(1);
+        let sampled = audit < 16 || audit % 30 == 0;
+        self.consume_event(i);
+        if sampled {
+            self.trace(b"[v4l2] DQBUF\n");
+            let mut queued = 0;
+            let mut n = 0;
+            while n < self.devs[i].nbuffers {
+                if self.devs[i].bufs[n as usize].queued {
+                    queued += 1;
+                }
+                n += 1;
+            }
+            self.trace_dqbuf_state(i, self.devs[i].streaming, self.devs[i].nbuffers, queued);
+        }
+        if ld32(arg, 4) != BUF_TYPE_VIDEO_CAPTURE {
+            if sampled {
+                self.trace(b"[v4l2] DQBUF EINVAL bad_type\n");
+            }
+            return -EINVAL;
+        }
+        if !self.devs[i].streaming {
+            if sampled {
+                self.trace(b"[v4l2] DQBUF EINVAL not_streaming\n");
+            }
             return -EINVAL;
         }
         let nbuffers = self.devs[i].nbuffers;
@@ -1445,28 +1686,49 @@ impl Ctx {
             idx += 1;
         }
         if idx == nbuffers {
+            if sampled {
+                self.trace(b"[v4l2] DQBUF EINVAL no_queued\n");
+            }
             return -EINVAL;
         }
         let nonblock = self.devs[i].nonblock;
         let mut attempts = 0;
         loop {
+            if sampled && attempts == 0 {
+                self.trace(b"[v4l2] DQBUF send FRAME\n");
+            }
             if !self.send(i, b"FRAME\n") {
+                if sampled {
+                    self.trace(b"[v4l2] DQBUF ENODEV send_frame\n");
+                }
                 return -ENODEV;
             }
             let mut line = [0u8; 256];
             let n = match self.recv_line(i, &mut line) {
                 Some(n) => n,
-                None => return -EIO,
+                None => {
+                    if sampled {
+                        self.trace(b"[v4l2] DQBUF EIO reply\n");
+                    }
+                    return -EIO;
+                }
             };
             let l = &line[..n];
             if starts(l, b"NOFRAME") {
+                if sampled && attempts == 0 {
+                    self.trace(b"[v4l2] DQBUF NOFRAME\n");
+                }
                 attempts += 1;
                 if nonblock || attempts >= 5 {
+                    self.arm_event(i);
                     return -EAGAIN;
                 }
                 continue;
             }
             if !starts(l, b"FRAME ") {
+                if sampled {
+                    self.trace(b"[v4l2] DQBUF EIO unexpected_reply\n");
+                }
                 return -EIO;
             }
             let bytes = field(l, b"bytes=").and_then(parse_u32).unwrap_or(0) as usize;
@@ -1479,6 +1741,9 @@ impl Ctx {
                 .and_then(parse_u32)
                 .unwrap_or(self.devs[i].h);
             if bytes == 0 {
+                if sampled {
+                    self.trace(b"[v4l2] DQBUF EIO zero_bytes\n");
+                }
                 return -EIO;
             }
             // Reserve the destination before reading the payload. NV12 needs no
@@ -1498,11 +1763,17 @@ impl Ctx {
                 };
                 (d.fourcc, fw.min(d.w), fh.min(d.h), b.addr as *mut u8, cap)
             };
+            if sampled {
+                self.trace_hex(b"[v4l2] DQBUF dst=", dst as usize);
+                self.trace_hex(b"[v4l2] DQBUF cap=", cap);
+                self.trace_hex(b"[v4l2] DQBUF bytes=", bytes);
+            }
             if cap == 0 {
                 return -EFAULT;
             }
             let direct_nv12 = fourcc != FMT_YUYV && bytes <= cap;
-            let read_dst = if direct_nv12 {
+            let audit_mmap = direct_nv12 && self.trace;
+            let read_dst = if direct_nv12 && !audit_mmap {
                 dst
             } else {
                 match self.scratch() {
@@ -1513,10 +1784,29 @@ impl Ctx {
             if !self.recv_exact(i, read_dst, bytes) {
                 return -EIO;
             }
+            if sampled {
+                let mut min = u8::MAX;
+                let mut max = 0u8;
+                let mut sum = 0u64;
+                for k in 0..bytes.min(4096) {
+                    let v = core::ptr::read(read_dst.add(k));
+                    min = min.min(v);
+                    max = max.max(v);
+                    sum += v as u64;
+                }
+                self.trace_hex(b"[v4l2] DQBUF payload min=", min as usize);
+                self.trace_hex(b"[v4l2] DQBUF payload max=", max as usize);
+                self.trace_hex(b"[v4l2] DQBUF payload sum=", sum as usize);
+            }
+            if audit_mmap {
+                core::ptr::copy_nonoverlapping(read_dst, dst, bytes);
+            }
             let used = if fourcc == FMT_YUYV {
                 let need = (w * h * 2) as usize;
                 let n = need.min(cap);
-                nv12_to_yuyv(read_dst, dst, w as usize, h as usize, n);
+                if !nv12_to_yuyv(read_dst, dst, w as usize, h as usize, bytes, n) {
+                    return -EIO;
+                }
                 n
             } else if direct_nv12 {
                 bytes
@@ -1533,6 +1823,10 @@ impl Ctx {
             let ts = normalize_timestamp(ts);
             st64(arg, 24, ts / 1_000_000_000);
             st64(arg, 32, (ts % 1_000_000_000) / 1_000);
+            self.arm_event(i);
+            if sampled {
+                self.trace(b"[v4l2] DQBUF ok\n");
+            }
             return 0;
         }
     }
@@ -1542,15 +1836,18 @@ impl Ctx {
     /// `off >> 24` is the buffer index (dn_v4l2's BUFFER_OFFSET_SHIFT).
     pub unsafe fn mmap(&mut self, fd: i32, len: usize, off: i64) -> Option<*mut u8> {
         let i = self.dev_of_fd(fd)?;
+        self.trace(b"[v4l2] MMAP\n");
         let index = ((off as u64) >> BUFFER_OFFSET_SHIFT) as u32;
-        let d = &mut self.devs[i];
-        if d.memory != MEMORY_MMAP || index >= d.nbuffers {
+        if self.devs[i].memory != MEMORY_MMAP || index >= self.devs[i].nbuffers {
             return None;
         }
         let p = syscall6(SYS_MMAP, 0, len, 3, 0x22, usize::MAX, 0);
         if p < 0 {
             return None;
         }
+        self.trace_hex(b"[v4l2] MMAP ptr=", p as usize);
+        self.trace_hex(b"[v4l2] MMAP len=", len);
+        let d = &mut self.devs[i];
         d.bufs[index as usize].addr = p as usize;
         d.bufs[index as usize].len = len;
         Some(p as *mut u8)
@@ -1560,6 +1857,53 @@ impl Ctx {
     pub fn char_device_rdev(&mut self, fd: i32) -> Option<u32> {
         let i = self.dev_of_fd(fd)?;
         Some((V4L2_MAJOR << 8) | (i as u32))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{nv12_frame_size, nv12_to_yuyv, Ctx, UNIX_PATH_MAX};
+
+    #[test]
+    fn signed_variadic_ioctl_request_keeps_low_32_bits() {
+        use super::QUERYCAP;
+        assert_eq!(Ctx::normalize_ioctl(0xffff_ffff_8068_5600), QUERYCAP);
+        assert_eq!(Ctx::normalize_ioctl(QUERYCAP), QUERYCAP);
+    }
+
+    #[test]
+    fn nv12_frame_size_accepts_even_camera_dimensions() {
+        assert_eq!(nv12_frame_size(2, 2), Some(6));
+        assert_eq!(nv12_frame_size(1920, 1080), Some(3_110_400));
+    }
+
+    #[test]
+    fn nv12_frame_size_rejects_short_or_odd_geometry() {
+        assert_eq!(nv12_frame_size(0, 2), None);
+        assert_eq!(nv12_frame_size(2, 0), None);
+        assert_eq!(nv12_frame_size(3, 2), None);
+        assert_eq!(nv12_frame_size(2, 3), None);
+    }
+
+    #[test]
+    fn unix_socket_path_limit_matches_sockaddr_un() {
+        assert_eq!(UNIX_PATH_MAX, 108);
+    }
+
+    #[test]
+    fn init_rejects_path_that_cannot_fit_sockaddr_un() {
+        let mut ctx = Ctx::empty();
+        assert!(!unsafe { ctx.init(&[b'x'; UNIX_PATH_MAX + 1]) });
+        assert!(unsafe { ctx.init(&[b'x'; UNIX_PATH_MAX]) });
+    }
+
+    #[test]
+    fn nv12_conversion_rejects_short_source_or_destination() {
+        let src = [0u8; 6];
+        let mut dst = [0u8; 8];
+        assert!(!unsafe { nv12_to_yuyv(src.as_ptr(), dst.as_mut_ptr(), 2, 2, 5, 8) });
+        assert!(!unsafe { nv12_to_yuyv(src.as_ptr(), dst.as_mut_ptr(), 2, 2, 6, 7) });
+        assert!(unsafe { nv12_to_yuyv(src.as_ptr(), dst.as_mut_ptr(), 2, 2, 6, 8) });
     }
 }
 
@@ -1729,7 +2073,28 @@ fn write_u32(dst: &mut [u8], v: u32) -> usize {
 }
 
 /// NV12 (Y plane + interleaved UV) → YUYV (Y0 U Y1 V).
-unsafe fn nv12_to_yuyv(src: *const u8, dst: *mut u8, w: usize, h: usize, cap: usize) {
+///
+/// Returns false when the dimensions are not even, the source payload is
+/// shorter than the advertised NV12 frame, or the destination cannot hold the
+/// full YUYV result. The camera socket is an external trust boundary; malformed
+/// lengths must become EIO, not a Rust bounds panic or an out-of-bounds read.
+unsafe fn nv12_to_yuyv(
+    src: *const u8,
+    dst: *mut u8,
+    w: usize,
+    h: usize,
+    src_len: usize,
+    cap: usize,
+) -> bool {
+    let Some(nv12_len) = nv12_frame_size(w, h) else {
+        return false;
+    };
+    let Some(yuyv_len) = w.checked_mul(h).and_then(|v| v.checked_mul(2)) else {
+        return false;
+    };
+    if src_len < nv12_len || cap < yuyv_len {
+        return false;
+    }
     let y = src;
     let uv = src.add(w * h);
     let mut o = 0;
@@ -1739,9 +2104,6 @@ unsafe fn nv12_to_yuyv(src: *const u8, dst: *mut u8, w: usize, h: usize, cap: us
         let uvrow = uv.add((row / 2) * w);
         let mut x = 0;
         while x + 1 < w {
-            if o + 4 > cap {
-                return;
-            }
             // UV is interleaved: U at even byte offsets, V at odd ones.
             core::ptr::write_unaligned(dst.add(o), *yrow.add(x));
             core::ptr::write_unaligned(dst.add(o + 1), *uvrow.add(x));
@@ -1752,4 +2114,13 @@ unsafe fn nv12_to_yuyv(src: *const u8, dst: *mut u8, w: usize, h: usize, cap: us
         }
         row += 1;
     }
+    true
+}
+
+fn nv12_frame_size(w: usize, h: usize) -> Option<usize> {
+    if w == 0 || h == 0 || w % 2 != 0 || h % 2 != 0 {
+        return None;
+    }
+    let y = w.checked_mul(h)?;
+    y.checked_add(y / 2)
 }

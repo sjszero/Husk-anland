@@ -1,0 +1,5 @@
+11-28 05:48:32.651 I/Husk    (28607): camera|session|request_setup|template=1|request_rc=0|target_rc=0|add_target_rc=0|request_null=false|target_null=false
+11-28 05:48:32.956 I/Husk    (28607): camera|image|audit|1280x720|fmt=35|fmt_rc=0|planes=3|count_rc=0|p0_len=921600|p0_row=1280|p0_pix=1|y=0/71/1.83|p1_len=460799|p1_row=1280|p1_pix=2|u=108/128/127.69|p2_len=460799|p2_row=1280|p2_pix=2|v=127/183/127.93
+11-28 05:48:32.972 I/Husk    (28607): camera|frame|ready|seq=1|1280x720|ts=9713116148000|bytes=1382400|min=0|max=183|mean=43.82|head_min=1|head_max=7|head_sum=7409
+11-28 05:48:33.080 I/Husk    (28607): camera|image|audit|1280x720|fmt=35|fmt_rc=0|planes=3|count_rc=0|p0_len=921600|p0_row=1280|p0_pix=1|y=1/52/1.90|p1_len=460799|p1_row=1280|p1_pix=2|u=122/128/127.70|p2_len=460799|p2_row=1280|p2_pix=2|v=127/159/128.00
+11-28 05:48:33.162 I/Husk    (28607): camera|image|audit|1280x720|fmt=35|fmt_rc=0|planes=3|count_rc=0|p0_len=921600|p0_row=1280|p0_pix=1|y=0/35/1.89|p1_len=460799|p1_row=1280|p1_pix=2|u=121/128/127.77|p2_len=460799|p2_row=1280|p2_pix=2|v=127/149/127.98

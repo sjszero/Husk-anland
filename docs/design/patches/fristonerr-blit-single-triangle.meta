@@ -1,0 +1,10 @@
+# vk_meta blit 单三角形修复的机械描述（0.0.37，defect H57）。
+# 这是**源码**补丁：随包驱动由源码构建，安装器不再就地改字节。
+source_commit 0c9dce35094dbe89c412b79bf57c6067c7b97e59
+source_file src/vulkan/runtime/vk_meta_draw_rects.c
+driver_sha256_before 599148568d80041ed3fd3312f5c9834479bcac9a13183f2b1479048b72a29b9c
+driver_sha256_after  5e06324783ec7947d48782441fd1cac23953c90bd0b31663f98f08b22344c1c3
+scope shared-runtime
+reason vk_meta 的 vkCmdBlitImage 用「6 顶点/2 三角形 + 顶点缓冲」绘制；Mali v9 (G77) 的 jm 绘制路径把第二个三角形画歪，目标里留下三角形黑洞。改为单三角形 + 精确 scissor。
+evidence docs/design/evidence/365-thumb-wedge-fixed-in-driver-20261127.md
+gate gl-probe scale-wedge blit-green dark_cells 必须为 0

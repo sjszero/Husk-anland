@@ -9,7 +9,8 @@ use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
 struct Fixture {
@@ -73,21 +74,37 @@ fn field<'a>(line: &'a str, key: &str) -> Option<&'a str> {
 
 fn serve_client(mut stream: UnixStream, fixture: &mut Fixture) -> Result<u32, String> {
     let mut sent = 0u32;
+    let mut handshake_done = false;
     loop {
-        let line = read_command(&mut stream)?;
+        let line = match read_command(&mut stream) {
+            Ok(line) => line,
+            // GStreamer probing may leave INFO-only connections open after it
+            // has enough caps. Treat EOF/timeout after a completed handshake as
+            // a normal short-lived probe, not as a fixture failure.
+            Err(e) if handshake_done => {
+                println!("FIXTURE|client_done|frames={sent}|reason={e}");
+                break;
+            }
+            Err(e) => return Err(e),
+        };
         let verb = line.split_whitespace().next().unwrap_or("");
         match verb {
             "INFO" => {
+                handshake_done = true;
                 let w = fixture.width;
                 let h = fixture.height;
+                // The real camera bridge returns every camera index in one
+                // INFO reply. A single `k=0` reply makes GStreamer's second
+                // /dev/videoN probe wait forever for `k=1`.
                 let reply = format!(
-                    "CAM k=0 id=fixture facing=back name=FIXTURE sizes={w}x{h},640x480,1280x720,1920x1080\nOK\n"
+                    "CAM k=0 id=fixture-0 facing=back name=FIXTURE-BACK sizes={w}x{h},640x480,1280x720,1920x1080\nCAM k=1 id=fixture-1 facing=front name=FIXTURE-FRONT sizes={w}x{h},640x480,1280x720,1920x1080\nOK\n"
                 );
                 stream
                     .write_all(reply.as_bytes())
                     .map_err(|e| e.to_string())?;
             }
             "OPEN" => {
+                handshake_done = true;
                 fixture.width = field(&line, "w")
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(fixture.width);
@@ -110,7 +127,7 @@ fn serve_client(mut stream: UnixStream, fixture: &mut Fixture) -> Result<u32, St
                 let bytes = fixture.width * fixture.height * 3 / 2;
                 let reply = format!(
                     "OK w={} h={} fourcc=NV12 bytes={bytes} id=fixture\n",
-                    fixture.width, fixture.height
+                    fixture.width, fixture.height,
                 );
                 stream
                     .write_all(reply.as_bytes())
@@ -354,6 +371,8 @@ fn run_gst_audit(width: u32, height: u32, frames: u32) -> Result<(), String> {
     let _ = std::fs::remove_file(&socket);
     let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
     let socket_for_server = socket.clone();
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_server = Arc::clone(&stop);
     let server = std::thread::spawn(move || -> Result<u32, String> {
         let listener = UnixListener::bind(&socket_for_server)
             .map_err(|e| format!("bind {}: {e}", socket_for_server.display()))?;
@@ -361,32 +380,44 @@ fn run_gst_audit(width: u32, height: u32, frames: u32) -> Result<(), String> {
             .set_nonblocking(true)
             .map_err(|e| format!("nonblocking fixture listener: {e}"))?;
         ready_tx.send(Ok(())).map_err(|e| e.to_string())?;
-        let deadline = Instant::now() + Duration::from_secs(10);
-        let stream = loop {
+        let mut handlers = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while !stop_server.load(Ordering::Acquire) && Instant::now() < deadline {
             match listener.accept() {
-                Ok((stream, _)) => break stream,
+                Ok((stream, _)) => {
+                    let handle = std::thread::spawn(move || -> Result<u32, String> {
+                        stream
+                            .set_read_timeout(Some(Duration::from_secs(5)))
+                            .map_err(|e| format!("fixture read timeout: {e}"))?;
+                        stream
+                            .set_write_timeout(Some(Duration::from_secs(5)))
+                            .map_err(|e| format!("fixture write timeout: {e}"))?;
+                        let mut fixture = Fixture {
+                            frames,
+                            width,
+                            height,
+                            seq: 0,
+                        };
+                        serve_client(stream, &mut fixture)
+                    });
+                    handlers.push(handle);
+                }
                 Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                    if Instant::now() >= deadline {
-                        return Err("GStreamer did not connect to the fixture socket".into());
-                    }
                     std::thread::sleep(Duration::from_millis(10));
                 }
                 Err(e) => return Err(format!("accept: {e}")),
             }
-        };
-        stream
-            .set_read_timeout(Some(Duration::from_secs(10)))
-            .map_err(|e| format!("fixture read timeout: {e}"))?;
-        stream
-            .set_write_timeout(Some(Duration::from_secs(10)))
-            .map_err(|e| format!("fixture write timeout: {e}"))?;
-        let mut fixture = Fixture {
-            frames,
-            width,
-            height,
-            seq: 0,
-        };
-        serve_client(stream, &mut fixture)
+        }
+        let _ = std::fs::remove_file(&socket_for_server);
+        let mut total = 0u32;
+        for handle in handlers {
+            total = total.saturating_add(
+                handle
+                    .join()
+                    .map_err(|_| "fixture client thread panicked".to_string())??,
+            );
+        }
+        Ok(total)
     });
     match ready_rx.recv_timeout(Duration::from_secs(2)) {
         Ok(Ok(())) => {}
@@ -394,6 +425,7 @@ fn run_gst_audit(width: u32, height: u32, frames: u32) -> Result<(), String> {
         Err(e) => return Err(format!("fixture did not become ready: {e}")),
     }
     let pipeline = gst_pipeline(width, height, frames);
+    stop.store(true, Ordering::Release);
     let served = server
         .join()
         .map_err(|_| "fixture thread panicked".to_string())?;

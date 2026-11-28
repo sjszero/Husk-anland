@@ -92,6 +92,10 @@ struct ContextState {
     surface_frames: HashMap<VASurfaceID, SurfaceFrame>,
     /// PTS of the picture most recently submitted to each surface.
     surface_pts: HashMap<VASurfaceID, i64>,
+    /// Decoded pictures the bridge handed back while pumping, keyed by PTS.
+    /// A picture is moved into `surface_frames` when the surface that was
+    /// submitted with that PTS is asked for.
+    frames_by_pts: HashMap<i64, SurfaceFrame>,
     /// Latest content of every picture-parameter buffer, taken at unmap time.
     /// The client fills these structs through the mapping, and on this stack the
     /// bytes are gone again by the time vaEndPicture runs, so the snapshot is the
@@ -1224,32 +1228,88 @@ unsafe fn ensure_frame(ctx: VADriverContextP, surface: VASurfaceID) -> Result<()
     let Some(driver) = driver_context(ctx) else {
         return Err(VA_STATUS_ERROR_INVALID_CONTEXT as VAStatus);
     };
-    let frame = {
-        let mut video = match driver.video.lock() {
-            Ok(video) => video,
-            Err(_) => return Err(VA_STATUS_ERROR_OPERATION_FAILED as VAStatus),
-        };
-        let Some(client) = video.as_mut() else {
-            return Err(VA_STATUS_ERROR_INVALID_SURFACE as VAStatus);
-        };
-        match client.fetch_frame(pts) {
-            Ok(Some(frame)) => frame,
-            Ok(None) => {
-                // Bounded, unconditional: "the client asked for a picture the
-                // codec never produced" used to be invisible without a full
-                // trace, and a full trace changes the timing enough to hide it.
-                static MISSES: std::sync::atomic::AtomicUsize =
-                    std::sync::atomic::AtomicUsize::new(0);
-                if MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 5 {
-                    eprintln!("HUSK_VA_FRAME_NONE surface={surface} pts={pts}");
-                }
+    // Pump, do not block. Two separate defects lived here (measured 2026-11-28):
+    //   1. a single blocking fetch held the client mutex, which the decode side
+    //      needs, so the picture being waited for could never be produced;
+    //   2. asking only for the exact PTS of one surface deadlocks as soon as the
+    //      decoder emits in display order - the wanted picture sits behind
+    //      pictures nobody has claimed, and the bridge's queue cannot advance.
+    // So: short attempts, and every miss also pumps the oldest available picture
+    // out of the bridge into `frames_by_pts`, keyed by the PTS the app reports.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2000);
+    loop {
+        if with_state(ctx, |state| state.surface_frames.contains_key(&surface)).unwrap_or(false) {
+            break;
+        }
+        let attempt = {
+            let mut video = match driver.video.lock() {
+                Ok(video) => video,
+                Err(_) => return Err(VA_STATUS_ERROR_OPERATION_FAILED as VAStatus),
+            };
+            let Some(client) = video.as_mut() else {
                 return Err(VA_STATUS_ERROR_INVALID_SURFACE as VAStatus);
+            };
+            match client.fetch_frame(pts, 12) {
+                Ok(Some(frame)) => Ok(Some(frame)),
+                Ok(None) => client.fetch_any(12),
+                Err(error) => Err(error),
+            }
+        };
+        match attempt {
+            Ok(Some(frame)) => {
+                let got = frame.pts_us;
+                let stored = SurfaceFrame {
+                    nv12: frame.nv12,
+                    width: frame.width,
+                    height: frame.height,
+                };
+                let _ = with_state(ctx, |state| {
+                    if got == pts {
+                        state.surface_frames.insert(surface, stored);
+                    } else {
+                        // Bounded: at 1080p a picture is 3 MB, and a pumped
+                        // picture nobody claims is worth nothing. Oldest PTS
+                        // first - that is the one the client has already
+                        // passed.
+                        if state.frames_by_pts.len() >= 24 {
+                            if let Some(oldest) = state.frames_by_pts.keys().min().copied() {
+                                state.frames_by_pts.remove(&oldest);
+                            }
+                        }
+                        state.frames_by_pts.insert(got, stored);
+                    }
+                });
+            }
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    // Bounded, unconditional: "the client asked for a picture
+                    // the codec never produced" used to be invisible without a
+                    // full trace, and a full trace changes the timing enough to
+                    // hide it.
+                    static MISSES: std::sync::atomic::AtomicUsize =
+                        std::sync::atomic::AtomicUsize::new(0);
+                    if MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 5 {
+                        eprintln!("HUSK_VA_FRAME_NONE surface={surface} pts={pts}");
+                    }
+                    return Err(VA_STATUS_ERROR_INVALID_SURFACE as VAStatus);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
             }
             Err(error) => {
                 eprintln!("HUSK_VA_FRAME_FAILED surface={surface} pts={pts} {error}");
                 return Err(VA_STATUS_ERROR_DECODING_ERROR as VAStatus);
             }
         }
+    }
+    // A pumped picture may be the one this surface was submitted with.
+    let promoted = with_state(ctx, |state| state.frames_by_pts.remove(&pts)).flatten();
+    if let Some(frame) = promoted {
+        let _ = with_state(ctx, |state| {
+            state.surface_frames.insert(surface, frame);
+        });
+    }
+    let Some(frame) = with_state(ctx, |state| state.surface_frames.remove(&surface)).flatten() else {
+        return Err(VA_STATUS_ERROR_INVALID_SURFACE as VAStatus);
     };
     if std::env::var_os("HUSK_VA_TRACE").is_some() {
         // A coarse luma statistic, so "we got a frame" cannot be confused with
@@ -1287,14 +1347,7 @@ unsafe fn ensure_frame(ctx: VADriverContextP, surface: VASurfaceID) -> Result<()
         }
     }
     let _ = with_state(ctx, |state| {
-        state.surface_frames.insert(
-            surface,
-            SurfaceFrame {
-                nv12: frame.nv12,
-                width: frame.width,
-                height: frame.height,
-            },
-        );
+        state.surface_frames.insert(surface, frame);
     });
     Ok(())
 }

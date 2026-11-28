@@ -1,0 +1,3 @@
+Row: 0 _id=1000000469, _display_name=IMG20261128053753.jpg, relative_path=DCIM/Camera/, date_added=1795815475, datetaken=1795815473381, _size=2243241
+Row: 1 _id=1000000467, _display_name=IMG20261128053653.jpg, relative_path=DCIM/Camera/, date_added=1795815417, datetaken=1795815413962, _size=2825397
+Row: 2 _id=1000000442, _display_name=p2.png, relative_path=/, date_added=1795780750, datetaken=NULL, _size=22335

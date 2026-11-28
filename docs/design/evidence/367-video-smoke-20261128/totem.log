@@ -1,0 +1,16 @@
+services: polkitd already running
+
+(totem:20839): Handy-CRITICAL **: 07:38:03.064: Couldn't read the color-scheme setting: GDBus.Error:org.freedesktop.DBus.Error.AccessDenied: Portal operation not allowed: Unable to open /proc/20839/root
+
+(totem:20839): Handy-CRITICAL **: 07:38:03.069: Couldn't read the color-scheme setting: GDBus.Error:org.freedesktop.DBus.Error.AccessDenied: Portal operation not allowed: Unable to open /proc/20839/root
+
+(totem:20839): Handy-CRITICAL **: 07:38:03.075: Couldn't read the contrast setting: GDBus.Error:org.freedesktop.DBus.Error.AccessDenied: Portal operation not allowed: Unable to open /proc/20839/root
+
+(totem:20839): Handy-CRITICAL **: 07:38:03.081: Couldn't read the high-contrast setting: GDBus.Error:org.freedesktop.DBus.Error.AccessDenied: Portal operation not allowed: Unable to open /proc/20839/root
+MESA: warning: kbase: KBASE_IOCTL_MEM_EXEC_INIT failed: 不允许的操作 (executable BO allocation will not work)
+WARNING: panvk is not a conformant Vulkan implementation, testing use only.
+FristOneRR 1.2.0 (Mesa 26.3.0-devel)
+MESA: warning: kbase: KBASE_IOCTL_MEM_EXEC_INIT failed: 不允许的操作 (executable BO allocation will not work)
+** Message: 07:38:04.617: Missing plugin: gstreamer|1.0|totem|MPEG-4 AAC 解码器|decoder-audio/mpeg, mpegversion=(int)4, level=(string)2, base-profile=(string)lc, profile=(string)lc (MPEG-4 AAC 解码器)
+** Message: 07:38:04.617: Missing plugin: gstreamer|1.0|totem|H.264 (Constrained Baseline Profile) 解码器|decoder-video/x-h264, level=(string)3.1, profile=(string)constrained-baseline (H.264 (Constrained Baseline Profile) 解码器)
+** Message: 07:38:04.720: Automatic missing codec installation not supported (helper script missing)

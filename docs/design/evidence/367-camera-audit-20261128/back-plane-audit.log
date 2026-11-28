@@ -1,0 +1,9 @@
+11-28 05:41:54.482 I/Husk    (27690): camera|session|output_setup|container_rc=0|output_rc=0|add_rc=0|container_null=false|output_null=false
+11-28 05:41:54.773 I/Husk    (27690): camera|session|state_observed|ready=false|active=false
+11-28 05:41:54.774 I/Husk    (27690): camera|session|request_setup|request_rc=0|target_rc=0|add_target_rc=0|request_null=false|target_null=false
+11-28 05:41:54.774 I/Husk    (27690): camera|session|request_entries|control_mode_rc=0|ae_mode_rc=0
+11-28 05:41:54.775 I/Husk    (27690): camera|session|open|id=0|1280x720|mode=repeating|repeat_rc=0|sequence=0
+11-28 05:41:55.002 I/Husk    (27690): camera|image|audit|1280x720|fmt=35|fmt_rc=0|planes=3|count_rc=0|p0_len=921600|p0_row=1280|p0_pix=1|y=0/3/0.29|p1_len=460799|p1_row=1280|p1_pix=2|u=127/128/128.00|p2_len=460799|p2_row=1280|p2_pix=2|v=128/128/128.00
+11-28 05:41:55.013 I/Husk    (27690): camera|frame|ready|seq=1|1280x720|ts=9315142841000|bytes=1382400|min=0|max=128|mean=42.86|head_min=0|head_max=2|head_sum=1295
+11-28 05:41:55.144 I/Husk    (27690): camera|session|closed
+11-28 05:41:55.144 I/Husk    (27690): camera|client|done|handshake=ok

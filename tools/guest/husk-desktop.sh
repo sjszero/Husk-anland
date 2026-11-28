@@ -55,6 +55,19 @@ status_exit() {
 }
 trap status_exit EXIT
 status_write "starting"
+
+# ------------------------------------------------------- 0. 启动阶段埋点
+# 桌面冷启动的用户体感是"点按钮 -> 出画面"，一次要等十几秒。这个文件里所有
+# 阶段都串行执行，出问题只能靠二分；埋点把每个阶段的墙钟时间落成一行，便于
+# 直接把十几秒摊到具体阶段上（用 /proc/uptime，不 fork 外部程序，代价可忽略）。
+# 只写文件、失败即忽略：写不了埋点也不能让桌面起不来。
+TRACE=$ROOTFS/tmp/husk-desktop.trace
+: > "$TRACE" 2>/dev/null || TRACE=/dev/null
+_t() {
+    read -r _t_up _t_idle < /proc/uptime 2>/dev/null || _t_up=?
+    printf '%s %s\n' "$_t_up" "$*" >> "$TRACE" 2>/dev/null || true
+}
+_t "entry"
 # ROOTFS is guest-visible in NR_DESKTOP_GUEST=1 mode (usually `/`), while
 # NR_HOST_ROOTFS is the real Android path the loader uses for path translation.
 # Keeping the two identities separate prevents a guest `/` from turning every
@@ -215,6 +228,7 @@ stop_leftovers() {
     for pat in usr/bin/gnome-shell mutter-x11-frames usr/bin/gjs \
                /usr/libexec/gsd- xdg-desktop-portal gvfsd \
                /usr/libexec/tracker-miner- /usr/libexec/at-spi \
+               usr/bin/pipewire usr/bin/wireplumber \
                usr/bin/husk-window-wait husk-ding-fallback.sh \
                usr/bin/nautilus usr/bin/gnome-text-editor usr/bin/gnome-calculator; do
         g usr/bin/pkill -f -- "$pat" || true
@@ -223,6 +237,7 @@ stop_leftovers() {
     for pat in usr/bin/gnome-shell mutter-x11-frames usr/bin/gjs \
                /usr/libexec/gsd- xdg-desktop-portal gvfsd \
                /usr/libexec/tracker-miner- /usr/libexec/at-spi \
+               usr/bin/pipewire usr/bin/wireplumber \
                usr/bin/husk-window-wait husk-ding-fallback.sh; do
         g usr/bin/pkill -9 -f -- "$pat" || true
     done
@@ -233,7 +248,11 @@ stop_leftovers() {
 }
 stop_leftovers
 
+_t "leftovers-done"
+
 # ------------------------------------------------------------ 2. 清陈旧状态
+
+
 # gnome-shell-disable-extensions 是安全模式标记：它一在场，扩展（含 DING、dock、
 # user-theme）就不加载，表现就是"主题全丢了"。
 rm -f "$RT/bus" "$RT/bus.lock" "$RT/gnome-shell-disable-extensions" 2>/dev/null || true
@@ -248,9 +267,11 @@ g_bg "$ROOTFS/tmp/husk-sysbus.log" usr/bin/dbus-daemon \
      --nofork --address=unix:path=/run/dbus/system_bus_socket
 i=0; while [ $i -lt 20 ] && [ ! -S "$SYSBUS" ]; do sleep 1; i=$((i+1)); done
 [ -S "$SYSBUS" ] || say "WARNING: 系统总线没起来（账号/挂载相关功能会退化）"
+_t "sysbus-up"
 if [ -x "$BASE/husk-system-services.sh" ] && [ -S "$SYSBUS" ]; then
     NR_HOST_ROOTFS="$CHILD_ROOTFS" "$BASE/husk-system-services.sh" "$ROOTFS" "$NR_LD" "$LIBS" || true
 fi
+_t "sysservices-done"
 
 # 地址必须写 guest 路径：写宿主绝对路径时路径层会再拼一次 rootfs，
 # 拼完直接超 sun_path 上限（实测 101 + 90 = 191，dbus 报 Socket name too long）。
@@ -258,10 +279,21 @@ g_bg "$ROOTFS/tmp/husk-sessbus.log" usr/bin/dbus-daemon \
      --session --nofork --address="unix:path=$SESSBUS_G"
 i=0; while [ $i -lt 20 ] && [ ! -S "$SESSBUS" ]; do sleep 1; i=$((i+1)); done
 [ -S "$SESSBUS" ] || { say "会话总线起不来，会话无法继续"; exit 70; }
+_t "sessbus-up"
+
+# GNOME Snapshot enumerates cameras through GStreamer -> PipeWire ->
+# WirePlumber. camera.sock is our private Camera2 bridge and is invisible to
+# that standard path. Start the media services here, after the session bus is
+# ready and before GNOME Shell, so the first Snapshot launch sees video nodes.
+if ! g /usr/local/bin/husk-media-session start; then
+    say "WARNING: PipeWire/WirePlumber 没起来；Snapshot 可能显示 No Camera Found"
+fi
+_t "media-services-up"
 
 # ------------------------------------------------------------- 4. gnome-shell
 SHELL_LOG=$ROOTFS/tmp/husk-shell.log
 : > "$SHELL_LOG" 2>/dev/null || true
+_t "shell-spawn"
 (
     cd "$ROOTFS" || exit 1
     unset XDG_CACHE_HOME XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME
@@ -301,7 +333,7 @@ fi
 
 i=0
 while [ $i -lt "$WAIT" ]; do
-    if g usr/bin/husk-window-wait --probe-wm 2>/dev/null | grep -q '^wm=yes$'; then break; fi
+    if g usr/bin/husk-window-wait --probe-wm 2>/dev/null | grep -q '^wm=yes$'; then _t "wm-seen"; break; fi
     sleep 1; i=$((i+1))
 done
 
@@ -385,4 +417,5 @@ fi
 
 [ "$wm" = yes ] || { say "会话没起来：$SHELL_LOG"; exit 71; }
 say "会话已起（wm=$wm ding=$ding gpu=$gpu）"
+_t "ready"
 status_write "ready" "wm=$wm" "ding=$ding" "gpu=$gpu" "input=$input" "im=$im"

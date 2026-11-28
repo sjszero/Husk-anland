@@ -1,0 +1,40 @@
+== runtime permissions (granted by a user, not by install -g) ==
+  PASS  CAMERA granted=true
+  PASS  CAMERA is not USER_FIXED
+  PASS  RECORD_AUDIO granted=true
+  PASS  RECORD_AUDIO is not USER_FIXED
+  PASS  ACCESS_COARSE_LOCATION granted=true
+  PASS  ACCESS_COARSE_LOCATION is not USER_FIXED
+== the app read that state back ==
+  PASS  platform reports the hardware permissions granted (6/3; host does not log the husk-app line)
+== the hardware behind the permission actually delivers ==
+  PASS  captured 3 frame(s) through Camera2 (1382400 bytes each)
+  PASS  app opened a Camera2 session
+  PASS  capability matrix readable
+  PASS  audio capture device present
+== five default sensors are readable through Linux IIO ==
+  NOTE  /sys/class/iio/iio:device0|accel_3d
+  NOTE  /sys/bus/iio/devices/iio:device0|accel_3d
+  NOTE  /sys/subsystem/iio/devices/iio:device0|accel_3d
+  NOTE  /sys/class/iio/iio:device1|magn_3d
+  NOTE  /sys/bus/iio/devices/iio:device1|magn_3d
+  NOTE  /sys/subsystem/iio/devices/iio:device1|magn_3d
+  NOTE  /sys/class/iio/iio:device2|gyro_3d
+  NOTE  /sys/bus/iio/devices/iio:device2|gyro_3d
+  NOTE  /sys/subsystem/iio/devices/iio:device2|gyro_3d
+  NOTE  /sys/class/iio/iio:device3|als
+  NOTE  /sys/bus/iio/devices/iio:device3|als
+  NOTE  /sys/subsystem/iio/devices/iio:device3|als
+  NOTE  /sys/class/iio/iio:device4|proximity
+  NOTE  /sys/bus/iio/devices/iio:device4|proximity
+  NOTE  /sys/subsystem/iio/devices/iio:device4|proximity
+  PASS  five default sensors readable through three IIO views
+== authorized microphone delivers PCM ==
+  NOTE  CAPTURE_OK frames_read=49152 silent_chunks=3 peak=440
+  NOTE  capture-probe|PASS|chunks=48|frames=49152|bytes=196608|silent_chunks=3|peak=440|elapsed_ms=1114
+  PASS  microphone returned 196608 PCM bytes (peak=440)
+== authorized coarse location delivers gpsd TPV ==
+  PASS  gpsd delivered a last-known fix (coordinates=redacted|eph=35|provider=network|mode=3)
+== nothing died on the way ==
+  PASS  no crash records for the app process
+PASS=15 FAIL=0

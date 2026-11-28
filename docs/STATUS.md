@@ -1,8 +1,11 @@
 # 当前状态
 
-最后核验：2026-11-27（CST）
+最后核验：2026-11-28（CST）
 参考设备：RMX3357 / MT6893 / Mali-G77 MC9 / Android 13 / kernel 4.19.191 / arm64 / 4 KiB 页
 运行域：`untrusted_app`，无 Root、无 Shizuku、未解锁 Bootloader、无硬件虚拟化
+宿主 App：LinuxHub 2.0 的 Husk 运行时 `com.linuxhub.myth.husk`（唯一有效宿主，2026-11-28 起）
+说明：更早在 `com.linuxhub.husk` 上得到的结果属旧宿主现场，已作废；本文与门禁数字均取自
+`com.linuxhub.myth.husk`，命令里用 `PKG=com.linuxhub.myth.husk` 覆盖默认值。
 
 本文只记录**当前代码和当前设备上已经复验过的状态**。历史版本变化见
 [`CHANGELOG.md`](../CHANGELOG.md)，原始设备输出见 [`design/evidence/`](design/evidence/)。
@@ -28,15 +31,25 @@ files/rootfs-full -> release-tree-final/root
 
 | 项目 | 结果 | 证据 |
 |---|---|---|
-| 安装器退出码 | `INSTALL_RC=0` | 308 |
-| Tree Integrity | `PASS=23 FAIL=0` | 308、310 |
-| Gate A | `PASS=34 FAIL=0 SKIP=1` | 310 |
-| A-hw | `PASS=14 FAIL=0` | 323 |
-| GPU loader defaults | `PASS=9 FAIL=0 SKIP=0` | 310 |
+| 安装器退出码 | `INSTALL_RC=0`（`--upgrade`，0.0.37 发行包） | 358 |
+| Tree Integrity | `PASS=14 FAIL=0` | 358 |
+| Gate A | `PASS=38 FAIL=0 SKIP=0` | 358 |
+| A-hw | `PASS=4 FAIL=11` —— **外部阻塞**：相机/麦克风/定位未授权，宿主未建 `/run/husk/*.sock` | 358 |
+| GPU loader defaults | `PASS=9 FAIL=0 SKIP=0` | 358 |
+| readback 19 项 | `PASS=19 FAIL=0`；`READBACK_AUDIT PASS=6 FAIL=0` | 358 |
+| ICD canonical | `PASS=15 FAIL=0`（`24-icd-canonical.sh`） | 358 |
+| `--upgrade` 安装 | `RC=0`（两次），identity 六项一致 | 358 |
+| `--fresh` 空目录安装 | `RC=0`（stock `ubuntu-base-24.04.3`，28 MB）；`TREE_INTEGRITY 10/4`、`Gate A 31/2/2`，失败项全是精简基础包缺 `locales`/`gdk-pixbuf`/`shared-mime-info` | 358、359 |
+| `make test-device` | `UNIT_TESTS: PASS`；`01-functional-matrix` 31/0；`16-umount-legacy` 12/0 | 359 |
 | dpkg 记录 | 807 个 installed 包 / 807 个 `.list` | 308 |
 | locale | `LANG=zh_CN.UTF-8`，413 个 zh_CN `.mo` | 308 |
 
-Gate A 的唯一 SKIP 是离线树没有 apt package index。没有把 SKIP 计成 PASS。
+0.0.37 这一轮的树是发行包 `--upgrade` 装出来的
+`files/linux/distributions/ubuntu-24.04/rootfs`，运行身份写在 `etc/husk/runtime-identity`
+（version 0.0.37 / loader `67f543b9…` / PanVK `f73600da…`），门禁 A 38/0/0 全过。
+A-hw 的 11 条失败全部落在“没有人授权 + 宿主没有 socket”两件事上，不是硬件坏了：
+`RECORD_AUDIO`/`CAMERA`/`ACCESS_COARSE_LOCATION` 都是 `<absent>`，`/run/husk/` 下一次只有
+`ipc/` 和 `mounts`。相机 V4L2/GStreamer fixture（不需要权限）是 `camera-fixture: PASS`。
 
 ## 3. Linux 用户态
 
@@ -61,7 +74,7 @@ Gate A 的唯一 SKIP 是离线树没有 apt package index。没有把 SKIP 计�
 | GPU | 直连 | `/dev/mali0`，PanVK + Zink | Mali-G77 MC9 枚举、compute、离屏 graphics、EGL/GL；Adreno/KGSL 仅源码与主机侧测试，真机 UNKNOWN |
 | 相机 | 中转 | V4L2 `/dev/videoN` facade | 2026-11-27 复验：A-hw 14/0；前后摄各 3 帧 1280×720 NV12；V4L2/GStreamer fixture 两档通过；crop/selection 与 monotonic PTS 已验；DMABUF、通用 controls、非整帧裁剪未支持 |
 | 音频 | 中转 | PulseAudio → Rust relay → AAudio | 输出与采集真实 PCM；采集探针 196,608 bytes、`peak=285` |
-| 视频解码 | 中转 | VA-API → bridge → MediaCodec | H.264 1080p30 连续 600 秒，`dropped=0` |
+| 视频解码 | 中转 | VA-API → bridge → MediaCodec | 分两条写清：app 自有 SurfaceControl 路径 1080p30 600 秒 `dropped=0`（evidence 80）**PASS**；标准 VA-API 路径（gst-vaapi/`vaapih264dec`）720p 全片 PASS，1080p 与 High profile 在 12–25 帧后停摆 **FAIL**（evidence `367-video-va-ab-20261128`） |
 | 传感器 | 中转 | IIO sysfs 影子树 ← `ASensorManager_*` | 加速度、磁力、陀螺仪、环境光、距离五类可读；`iio-sensor-proxy` 已发布 `net.hadess.SensorProxy`，三项 Claim 与 `monitor-sensor` 真机通过（evidence 322） |
 | 定位 | 中转（仅 last-known） | gpsd JSON → `/run/husk/gps.sock` ← `LocationManager.getLastKnownLocation()` | `VERSION` / `DEVICES` / `WATCH` / `POLL` / `TPV` 真机通过；撤权后缓存 FIX 清空且只回 `mode=1`；持续定位、后台定位、GNSS 原始测量 UNVERIFIED（evidence 323） |
 | 显示 | 应用侧中转 | AHB → dma-buf → SurfaceControl | 3-buffer ring 与真实 `SYNC_FD` 跑到 10,000 帧；只覆盖应用侧接管段 |
@@ -81,6 +94,11 @@ NR_GPU_DEFAULT_OFF=1 -> llvmpipe
 HUSK_GPU=llvmpipe -> llvmpipe
 GPU_LOADER_DEFAULTS PASS=9 FAIL=0 SKIP=0
 ```
+
+`glxinfo -B` 走 zink→PanVK 现在 **271–289 ms**（0.0.37 之前恒定 4275 ms）。差别来自随包 PanVK 的
+kbase「2 秒热身」补丁：上游快照每建一次 context 就 `nanosleep(2s)`，一个进程建两次就白等 4 秒
+（evidence 357）。补丁只清零 `.rodata` `0x53a570` 的 16 字节 timespec，渲染语义不变，
+`HUSK_PANVK_KEEP_WARMUP=1` 可回退。
 
 同一份 `gl-probe` 的重负载结果：
 
@@ -106,6 +124,7 @@ GPU_LOADER_DEFAULTS PASS=9 FAIL=0 SKIP=0
 | `open` + `close` × 20 000 | 980.9 ms | 5,676.3 ms | Husk 快 5.79× |
 | shell 循环 × 1,000 | 18.2 ms | 51.5 ms | Husk 快 2.84× |
 | `/bin/true` × 50 | 708.5 ms | 323.6 ms | **Husk 慢 2.19×** |
+| 桌面冷启动（点按钮 → `SurfaceView`） | 11.13 s（3 次中位） | 9.79 s（3 次中位） | **Husk 慢 1.14×** |
 
 短进程启动是 Husk 当前真实代价：每次都要重新装载并完成 GOT 改写。历史 5 轮轮转数据与完整
 方法见 [`BENCHMARKS.md`](BENCHMARKS.md)，原始输出见 evidence 311。

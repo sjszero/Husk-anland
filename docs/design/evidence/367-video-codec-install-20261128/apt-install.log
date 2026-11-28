@@ -1,0 +1,2 @@
+services: polkitd already running
+/usr/bin/env: "usr/bin/apt-get": 没有那个文件或目录

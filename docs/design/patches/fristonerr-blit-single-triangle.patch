@@ -1,0 +1,89 @@
+--- a/src/vulkan/runtime/vk_meta_draw_rects.c
++++ b/src/vulkan/runtime/vk_meta_draw_rects.c
+@@ -266,6 +266,57 @@
+    return VK_SUCCESS;
+ }
+ 
++/* One axis-aligned rect, drawn as a single fullscreen triangle and trimmed to
++ * the rect by the scissor.
++ *
++ * The 6-vertex / 2-triangle quad that create_vertex_buffer() produces relies on
++ * the driver rasterizing a second triangle whose vertices come from a vertex
++ * buffer.  On Mali v9 (G77, jm path) that second triangle comes out distorted:
++ * a wedge-shaped region of the destination is never shaded, so a scaled
++ * vkCmdBlitImage (zink maps glBlitFramebuffer to it) leaves a black triangle in
++ * the destination whenever the destination extent is not the power-of-two size
++ * vk_meta picks for the viewport.  A single triangle is rasterized exactly on
++ * the same path, so use one and let the scissor bound it to the rect.
++ *
++ * Husk defect H57.  This is driver-generic: it is the same thing the CSF
++ * (PAN_ARCH >= 10) path does natively with cmd_run_fullscreen(). */
++static VkResult
++create_fullscreen_triangle_buffer(struct vk_command_buffer *cmd,
++                                  struct vk_meta_device *meta,
++                                  const struct vk_meta_rect *rect,
++                                  VkBuffer *buffer_out)
++{
++   VkResult result;
++
++   const VkBufferCreateInfo vtx_buffer_info = {
++      .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
++      .size = 3 * sizeof(struct vertex),
++      .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
++      .queueFamilyIndexCount = 1,
++      .pQueueFamilyIndices = &cmd->pool->queue_family_index,
++   };
++
++   result = vk_meta_create_buffer(cmd, meta, &vtx_buffer_info, buffer_out);
++   if (unlikely(result != VK_SUCCESS))
++      return result;
++
++   void *map;
++   result = meta->cmd_bind_map_buffer(cmd, meta, *buffer_out, &map);
++   if (unlikely(result != VK_SUCCESS))
++      return result;
++
++   /* Covers the whole [-1, 1] viewport (and spills past it, the scissor trims
++    * it back to the rect), so it works for any rect in any viewport size. */
++   const struct vertex tri[3] = {
++      { -1.0f, -1.0f, rect->z, rect->layer },
++      {  3.0f, -1.0f, rect->z, rect->layer },
++      { -1.0f,  3.0f, rect->z, rect->layer },
++   };
++
++   memcpy(map, tri, sizeof(tri));
++   return VK_SUCCESS;
++}
++
+ void
+ vk_meta_draw_volume(struct vk_command_buffer *cmd,
+                     struct vk_meta_device *meta,
+@@ -279,9 +330,17 @@
+    float x_scale, y_scale;
+    setup_viewport_scissor(cmd, 1, rect, &x_scale, &y_scale);
+ 
++   /* The vertex data below is a fullscreen triangle, so bound it to the rect
++    * with the scissor instead of relying on the vertex positions. */
++   const VkRect2D scissor = {
++      .offset = { (int32_t)rect->x0, (int32_t)rect->y0 },
++      .extent = { rect->x1 - rect->x0, rect->y1 - rect->y0 },
++   };
++   disp->CmdSetScissor(_cmd, 0, 1, &scissor);
++
+    VkBuffer vtx_buffer;
+-   VkResult result = create_vertex_buffer(cmd, meta, x_scale, y_scale,
+-                                          1, rect, &vtx_buffer);
++   VkResult result =
++      create_fullscreen_triangle_buffer(cmd, meta, rect, &vtx_buffer);
+    if (unlikely(result != VK_SUCCESS)) {
+       /* TODO: Report error */
+       return;
+@@ -290,7 +349,7 @@
+    const VkDeviceSize zero = 0;
+    disp->CmdBindVertexBuffers(_cmd, 0, 1, &vtx_buffer, &zero);
+ 
+-   disp->CmdDraw(_cmd, 6, layer_count, 0, 0);
++   disp->CmdDraw(_cmd, 3, layer_count, 0, 0);
+ }
+ 
+ void

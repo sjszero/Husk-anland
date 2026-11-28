@@ -14,20 +14,20 @@
 #![allow(non_snake_case)]
 
 mod ahb;
-mod audio;
-mod camera;
+pub mod audio;
+pub mod camera;
 mod caps;
-mod encoder;
+pub mod encoder;
 mod gl;
 mod guest_rootfs;
 mod input;
-mod location;
+pub mod location;
 mod permissions;
-mod sensors;
+pub mod sensors;
 mod surface;
 mod sys;
 mod term;
-mod video;
+pub mod video;
 
 use core::ffi::{c_char, c_int, c_long, c_void};
 use std::ffi::CStr;

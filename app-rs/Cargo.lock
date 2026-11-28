@@ -9,6 +9,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "776dfebd015e2d8732c684a2c71003674ccb49457b539b9e82151ba38e96dd7c"
 
 [[package]]
+name = "camera-v4l2-tree"
+version = "0.1.0"
+
+[[package]]
 name = "cesu8"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -56,6 +60,7 @@ version = "0.1.0"
 name = "husk-app"
 version = "0.2.0"
 dependencies = [
+ "camera-v4l2-tree",
  "fontdue",
  "gpu-env",
  "jni",

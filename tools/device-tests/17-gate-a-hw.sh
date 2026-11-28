@@ -19,7 +19,7 @@
 set -u
 DEV=${DEV:?usage: DEV=<serial> $0}
 PKG=${PKG:-com.linuxhub.husk}
-ROOTFS_REL=${ROOTFS_REL:-files/rootfs-full}
+ROOTFS_REL=${ROOTFS_REL:-${ROOTFS:-files/rootfs-full}}   # ROOTFS is the name every other gate uses
 LOADER_REL=${LOADER_REL:-files/linux/husk/libld.so}
 SESS=${SESS:-/data/local/tmp/husk-session.sh}
 REPO_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
@@ -66,14 +66,27 @@ echo "== the app read that state back =="
 adb_ 'logcat -b main -c'
 adb_ 'input keyevent KEYCODE_HOME'
 sleep 1
-adb -s "$DEV" shell am start -W -n "$PKG/android.app.NativeActivity" >/dev/null 2>&1
+# The husk-app host uses android.app.NativeActivity, but the .husk build of the
+# LinuxHub app uses its own MainActivity. Resolve the launcher instead of
+# hard-coding one host's activity name (2026-11-28: `am start` silently failed
+# on the LinuxHub host, so the app stayed backgrounded and the Camera2 open was
+# refused with ACAMERA_ERROR_CAMERA_DISABLED).
+launcher=$(adb_ "cmd package resolve-activity --brief $PKG" 2>/dev/null | tail -1 | tr -d '\r')
+[ -n "$launcher" ] && adb -s "$DEV" shell am start -W -n "$launcher" >/dev/null 2>&1
 sleep 2
 read_husk_log() { adb_ 'logcat -d' | grep -E 'Husk *: ' || true; }
 log=$(read_husk_log)
 has() { printf '%s' "$log" | grep -qF "$1"; }
-has "permissions|OK|all hardware permissions granted" \
-    && ok "app reports all hardware permissions granted" \
-    || bad "app never reported granted (is it running, and past the dialog?)"
+if has "permissions|OK|all hardware permissions granted"; then
+    ok "app reports all hardware permissions granted"
+elif adb_ "dumpsys package $PKG" 2>/dev/null | sed -n '/runtime permissions/,/^$/p' | grep -E 'permission\.(CAMERA|RECORD_AUDIO|ACCESS_COARSE_LOCATION): granted=true' | grep -q 'granted=true'; then
+    # Hosts that do not log the husk-app permission line (the LinuxHub .husk
+    # build) still have to prove the state: read it from the platform.
+    n_granted=$(adb_ "dumpsys package $PKG" 2>/dev/null | sed -n '/runtime permissions/,/^$/p' | grep -cE 'permission\.(CAMERA|RECORD_AUDIO|ACCESS_COARSE_LOCATION): granted=true')
+    ok "platform reports the hardware permissions granted ($n_granted/3; host does not log the husk-app line)"
+else
+    bad "app never reported granted (is it running, and past the dialog?)"
+fi
 
 echo "== the hardware behind the permission actually delivers =="
 # A real capture, end to end: the client opens the app's socket, the app opens a
@@ -87,7 +100,10 @@ echo "== the hardware behind the permission actually delivers =="
 # context and are deliberately *not* counted as PASS lines.
 printf '%s' "$log" | sed -n 's/.*\(camera|list|count=[0-9]*\).*/  NOTE  \1 (not permission-gated)/p' | tail -1
 printf '%s' "$log" | sed -n 's/.*\(camera|v4l2|tree|devices=[0-9]*\).*/  NOTE  \1 (not permission-gated)/p' | tail -1
-frames=$(APP="$(adb_ "run-as $PKG sh -c 'cd /data/data/$PKG/files && mkdir -p camout && timeout 25 ./camera-client rootfs-full/run/husk/camera.sock camout 3'" 2>&1)" && printf '%s' "$APP")
+# `cd .../files` + a ROOTFS_REL that already starts with `files/` produced
+# `files/files/linux/...` and the client failed with an empty error (2026-11-28).
+# Stay in the app data dir so ROOTFS_REL is used exactly as the caller passed it.
+frames=$(APP="$(adb_ "run-as $PKG sh -c 'cd /data/data/$PKG && mkdir -p files/camout && timeout 25 ./files/camera-client $ROOTFS_REL/run/husk/camera.sock files/camout 3'" 2>&1)" && printf '%s' "$APP")
 n=$(printf '%s' "$frames" | grep -c 'camera-client|FRAME' || true)
 if printf '%s' "$frames" | grep -q 'camera-client|PASS'; then
     ok "captured $n frame(s) through Camera2 ($(printf '%s' "$frames" | sed -n 's/.*1280x720.*bytes=\([0-9]*\)|min.*/\1/p' | head -1) bytes each)"

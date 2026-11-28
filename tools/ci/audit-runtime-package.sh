@@ -14,8 +14,12 @@ trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 fail=0
 
 # Collect every com.linuxhub.*husk occurrence outside immutable history.
+# TODO-*.md is a planning/field-notes file at the repo root: it names the
+# black-box host the numbers were taken on. It is not part of the runtime
+# tarball (make dist packages an explicit file list), so it is excluded the
+# same way evidence/ and CHANGELOG are.
 git grep --untracked -n -E 'com\.linuxhub\.[A-Za-z0-9_.-]*husk' \
-    -- ':!docs/design/evidence/**' ':!CHANGELOG.md' > "$tmp/ids" || true
+    -- ':!docs/design/evidence/**' ':!CHANGELOG.md' ':!TODO-*.md' > "$tmp/ids" || true
 
 # A line may contain the canonical id and an unrelated stale id. Remove the
 # canonical spelling first, then reject any second com.linuxhub.*husk on it.

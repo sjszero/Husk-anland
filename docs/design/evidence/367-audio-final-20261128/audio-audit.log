@@ -1,0 +1,30 @@
+DEV=${DEV:?set DEV=<adb serial>} PKG=${PKG:-com.linuxhub.husk} \
+		ROOTFS=${ROOTFS:-files/rootfs-full} \
+		LD=${LD:-files/linux/husk/libld.so} \
+		PROFILE_DIR=${PROFILE_DIR:-runtime/target/aarch64-unknown-linux-gnu/release} \
+		sh tools/device-tests/22-audio-audit.sh
+runtime/target/aarch64-unknown-linux-gnu/release/audio-setup: 1 file pushed, 0 skipped. 86.7 MB/s (519584 bytes in 0.006s)
+runtime/target/aarch64-unknown-linux-gnu/release/audio-relay: 1 file pushed, 0 skipped. 84.3 MB/s (516304 bytes in 0.006s)
+runtime/target/aarch64-unknown-linux-gnu/release/audio-capture: 1 file pushed, 0 skipped. 79.6 MB/s (569968 bytes in 0.007s)
+runtime/target/aarch64-unknown-linux-gnu/release/audio-probe: 1 file pushed, 0 skipped. 99.2 MB/s (512112 bytes in 0.005s)
+/Users/l/Documents/Codex/2026-08-10/husk/tools/device-tests/husk-audio-pipeline.sh: 1 file pushed, 0 skipped. 3.9 MB/s (1873 bytes in 0.000s)
+/Users/l/Documents/Codex/2026-08-10/husk/tools/guest/husk-session.sh: 1 file pushed, 0 skipped. 7.6 MB/s (13643 bytes in 0.002s)
+== guest audio provisioning ==
+  NOTE  root=/|helper_modules=11|module_dirs=1|state=/data/data/com.linuxhub.myth.husk/files/linux/distributions/ubuntu-24.04/rootfs/tmp/husk-pulse
+  PASS  audio-setup provisioned PulseAudio helper modules
+  PASS  app created audio-out.sock
+== direct AAudio bridge ==
+  NOTE  DEVICES_BEGIN count=1
+  NOTE  DEVICES_END
+  NOTE  DONE status=PASS input_bytes=192000 frames=96000 requested_frames=96000 frames_written=96000 rate=48000 channels=1 device=3 burst=1026 capacity=2052 buffer=2052 perf=10 sharing=1 latency_ms_avg=124.255 latency_ms_max=128.000 xruns=1 elapsed_ms=4203
+  NOTE  RESULT PASS
+  PASS  AAudio enumerated devices, changed/restored volume, and wrote 96000 frames
+== standard paplay -> PulseAudio -> Rust relay -> AAudio ==
+  NOTE  AUDIO_PULSE_READY|pid=19423
+  NOTE  AUDIO_PLAYER_RC|paplay=0|relay=0
+  NOTE  relay|OPEN|OPEN_READY rate=48000 channels=2 format=1 device=3 burst=1026 capacity=2052 buffer=1026 perf=10 sharing=1
+  NOTE  relay|CLOSE|CLOSE_OK input_bytes=339948 frames=84987 frames_written=84987 rate=48000 channels=2 device=3 burst=1026 capacity=2052 buffer=1026 perf=10 sharing=1 latency_ms_avg=104.632 latency_ms_max=106.667 xruns=1 elapsed_ms=8003
+  NOTE  relay|PASS|chunks=42|frames=84987|elapsed_ms=8017|last_ack=DATA_OK frames=1019 input_bytes=339948 frames_written=84987 xruns=0
+  NOTE  RESULT PASS
+  PASS  standard paplay completed through PulseAudio and AAudio
+AUDIO_AUDIT PASS=4 FAIL=0

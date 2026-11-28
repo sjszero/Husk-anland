@@ -57,14 +57,17 @@ done
 # definition does not satisfy libgstvideo4linux2's versioned references.
 for s in open64@GLIBC_2.17 open@GLIBC_2.17 openat@GLIBC_2.17 \
          ioctl@GLIBC_2.17 mmap64@GLIBC_2.17 close@GLIBC_2.17 \
-         read@GLIBC_2.17 readv@GLIBC_2.17 stat64@GLIBC_2.33; do
+         epoll_ctl@GLIBC_2.17 \
+         read@GLIBC_2.17 readv@GLIBC_2.17 stat64@GLIBC_2.33 \
+         fstat@GLIBC_2.17 fstat64@GLIBC_2.33; do
     need "$V4L2" "$s"
 done
-# `husk_v4l2_read` does not exist: read() is served through the versioned
-# read/readv interposers above and through `v4l2_read`, so assert the names that
-# are actually there rather than the names that sound right.
+# The loader shim and the preload share one Ctx through these unversioned
+# entry points. `fstat` is included because SPA opens the memfd before it checks
+# that the descriptor is a character device.
 for s in husk_v4l2_open husk_v4l2_ioctl husk_v4l2_is_fake husk_v4l2_mmap \
-         husk_v4l2_close husk_v4l2_nonblock v4l2_read; do
+         husk_v4l2_close husk_v4l2_nonblock husk_v4l2_forget_target \
+         husk_v4l2_read husk_v4l2_readv husk_v4l2_fstat v4l2_read; do
     need "$V4L2" "$s"
 done
 

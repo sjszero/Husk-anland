@@ -130,13 +130,13 @@ Husk 是**用户层运行时**（和容器同一层），不是桌面。所以�
 
 | 测试 | 命令 | 结果 |
 |---|---|---|
-| T0 启动 | `am start -n com.linuxhub.husk/android.app.NativeActivity` | `session: running pid=15293 (pgid=sid=pid by setsid) 80x24` ✅ |
+| T0 启动 | `am start -n com.linuxhub.myth.husk/android.app.NativeActivity` | `session: running pid=15293 (pgid=sid=pid by setsid) 80x24` ✅ |
 | T1 打字不退出 | `input text "echo hi"; input keyevent 66` | `cb: onDestroy` 计数 = 0 ✅ |
 | T4 切后台 | `input keyevent 3` | `cb: onPause`，**无 teardown**，libld 仍在 ✅ |
 | T5 回前台 | `am start …` | `cb: onStart/onResume`，**同一个 pid 15293**，未重启 ✅ |
 | T7 会话退出 | `input text "exit"` | `session: exited pid=15293 status=0 (exit 0)`，libld=0 ✅ |
 | T7b 点击重生 | `input tap 500 1200` | `session: restart requested by user` → `running pid=15490` ✅（400ms 限流生效） |
-| T8 强杀（无 onDestroy） | `am force-stop com.linuxhub.husk` | libld=0，guest 未变孤儿 ✅ |
+| T8 强杀（无 onDestroy） | `am force-stop com.linuxhub.myth.husk` | libld=0，guest 未变孤儿 ✅ |
 | T9 旋转/尺寸 | `cmd window user-rotation lock 1` / `lock 0`（不需要 WRITE_SECURE_SETTINGS） | 22:05 实测：`67x58 -> 142x26 -> 67x58`，同一 pid 31478，`onContentRectChanged` 跟随；guest 内 `stty size` 回 `58 67`，与 TIOCSWINSZ 一致 ✅ |
 | T10 fd 计数 | `session:` 日志里的 `fds=` | 启动 98；旋转 2 次后 159；再旋转 5 次后 167（每次重建约 +2，见缺口 G5） |
 | T11 重启泄漏 | 连续 exit → 点击重生 | 修复前每次重生残留 1 个 ptmx + 1 个 pty.log；加 `Drop for Term` 后只剩当前会话那一对 ✅ |

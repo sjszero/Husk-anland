@@ -1,0 +1,42 @@
+== T1/T2 every husk ICD manifest points at the canonical driver ==
+    ICD husk_panvk_frist370_execva.json /usr/lib/aarch64-linux-gnu/libvulkan_panfrost_husk.so
+    ICD husk_panvk_guest.json /usr/lib/aarch64-linux-gnu/libvulkan_panfrost_husk.so
+  PASS  husk_panvk_frist370_execva.json -> /usr/lib/aarch64-linux-gnu/libvulkan_panfrost_husk.so
+  PASS  husk_panvk_guest.json -> /usr/lib/aarch64-linux-gnu/libvulkan_panfrost_husk.so
+  PASS  2 husk manifest(s) found
+== T3 no experimental manifests left ==
+  PASS  no *nosleep* ICD manifest
+== T4 no stale driver copies on the side ==
+  PASS  absent: libvulkan_panfrost_husk_nosleep.so
+  PASS  absent: libvulkan_panfrost_x11.so
+  PASS  absent: libvulkan_panfrost_frist370_execva.so
+  PASS  absent: libvulkan_panfrost_frist370.so
+  PASS  absent: libvulkan_panfrost_g77.so
+  PASS  absent: .libvulkan_panfrost_husk.so.bak-orig
+== T5 installed driver is the warmup-patched build ==
+  PASS  driver sha256 5e06324783ec7947d48782441fd1cac23953c90bd0b31663f98f08b22344c1c3
+== T6 gpu-env pins the canonical ICD and zink ==
+  PASS  VK_ICD_FILENAMES -> canonical
+  PASS  MESA_LOADER_DRIVER_OVERRIDE=zink (forced)
+== T7 runtime: loader scan + legacy manifest name both still pick a working Vulkan ==
+    == vulkan-probe with the environment ICD pins removed (loader must scan icd.d) ==
+    vk|loader|PASS|libvulkan.so.1
+    vk|symbols|PASS|core entrypoints resolved
+    vk|instance|PASS|VkResult=0
+    vk|physical|PASS|count=1 name=Mali-G77 MC9
+    vk|queue_family|PASS|index=0 flags=0x7 queues=1
+    vk|device|PASS|queue=0x5568699470 VkResult=0
+    vk|memory_types|PASS|count=3
+    vk|buffer|PASS|created/bound/mapped size=4096 type=2 readback=0x4855534b
+    == vulkan-probe with the legacy manifest name the host pins (H40 path) ==
+    vk|loader|PASS|libvulkan.so.1
+    vk|symbols|PASS|core entrypoints resolved
+    vk|instance|PASS|VkResult=0
+    vk|physical|PASS|count=1 name=Mali-G77 MC9
+    vk|queue_family|PASS|index=0 flags=0x7 queues=1
+    vk|device|PASS|queue=0x558d4994f0 VkResult=0
+    vk|memory_types|PASS|count=3
+    vk|buffer|PASS|created/bound/mapped size=4096 type=2 readback=0x4855534b
+  PASS  vulkan-probe instance created (loader scan)
+  PASS  legacy manifest name also creates an instance (H40 host pin safe)
+ICD_CANONICAL PASS=15 FAIL=0 SKIP=0

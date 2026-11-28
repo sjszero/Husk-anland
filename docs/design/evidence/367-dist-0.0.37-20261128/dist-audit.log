@@ -1,0 +1,96 @@
+date_utc=2026-11-27T23:26:06Z
+git_head=c924d620f6de
+version=0.0.37
+tar=dist/husk-arm64.tar.gz
+tar_sha256=06bce26ae3e6193dacb89121debe533bef80edc04220ec925619d1df8dac9191
+tar_bytes=11695419
+entry_count=56
+loader_sha256=5a28f920377fe64632e6c83f3973f81c6645931475df56adcdead69e922e36f0
+loader_bytes=1263104
+v4l2_preload_sha256=ad3ed743fcee9464f6ce7fbe2f502e4a949378d179a7908efe436886bb164305
+v4l2_preload_bytes=200600
+pipewire_plugin_sha256=5baacf01e9a98f74a0d3fef88f8da16e9d6e54245b82e871a2b6844665ba7f01
+pipewire_plugin_bytes=200920
+panvk_driver_sha256=5e06324783ec7947d48782441fd1cac23953c90bd0b31663f98f08b22344c1c3
+--- RUNTIME-IDENTITY ---
+commit=c924d620f6de
+version=0.0.37
+loader_sha256=5a28f920377fe64632e6c83f3973f81c6645931475df56adcdead69e922e36f0
+pipewire_plugin_sha256=5baacf01e9a98f74a0d3fef88f8da16e9d6e54245b82e871a2b6844665ba7f01
+built=2026-11-27T23:25:55Z
+--- required entries ---
+PRESENT libld.so
+PRESENT libc.so.6
+PRESENT guest/libhusk_v4l2.so
+PRESENT guest/gstreamer-1.0/libgstpipewire.so
+PRESENT vendor/panvk/fristonerr-1.2.0-mali-g77/husk_panvk_guest.json
+PRESENT vendor/panvk/fristonerr-1.2.0-mali-g77/libvulkan_panfrost_frist370_execva.so.gz
+PRESENT guest-config/pipewire.conf
+PRESENT guest-config/wireplumber.conf
+PRESENT husk-media-session.sh
+PRESENT husk-desktop.sh
+PRESENT install-husk.sh
+PRESENT VERSION
+--- forbidden checks ---
+PASS no ._*
+PASS no private or Ubuntu path
+PASS no old experiment scripts
+--- key assertions ---
+PASS loader/plugin/installer SHA assertions
+--- listing ---
+RUNTIME-IDENTITY
+VERSION
+audio-capture
+audio-probe
+audio-relay
+audio-setup
+guest-config/
+guest-config/60-husk-sensor-proxy.rules
+guest-config/fcitx5-profile
+guest-config/guest-accounts.txt
+guest-config/husk-gpu-defaults.sh
+guest-config/husk-locale.sh
+guest-config/husk-look.override
+guest-config/linuxhub-system-bus.conf
+guest-config/mksys-net.sh
+guest-config/net.hadess.SensorProxy.policy
+guest-config/pipewire.conf
+guest-config/provision-accounts.sh
+guest-config/pulse-client-no-shm.conf
+guest-config/wireplumber.conf
+guest/
+guest/gstreamer-1.0/
+guest/gstreamer-1.0/libgstpipewire.so
+guest/libhusk_v4l2.so
+guest/wallpaper-scale
+husk-desktop.sh
+husk-ding-fallback.sh
+husk-lang-zh.tar.gz
+husk-ldconfig
+husk-logd
+husk-media-session.sh
+husk-session.sh
+husk-su
+husk-symlinks
+husk-system-services.sh
+husk-usermgr
+husk-wallpaper-fit.sh
+husk-window-wait
+install-husk.sh
+libc.so.6
+libld.so
+vendor/
+vendor/panvk/
+vendor/panvk/fristonerr-1.2.0-mali-g77/
+vendor/panvk/fristonerr-1.2.0-mali-g77/LICENSE-Mesa.txt
+vendor/panvk/fristonerr-1.2.0-mali-g77/PROVENANCE.md
+vendor/panvk/fristonerr-1.2.0-mali-g77/SHA256SUMS
+vendor/panvk/fristonerr-1.2.0-mali-g77/husk_panvk_guest.json
+vendor/panvk/fristonerr-1.2.0-mali-g77/libvulkan_panfrost_frist370_execva.so.gz
+vendor/pipewire/
+vendor/pipewire/1.0.5-gst-caps-subset.patch
+vendor/pipewire/COPYING
+vendor/pipewire/PROVENANCE.md
+vendor/pipewire/src/
+vendor/pipewire/src/gst/
+vendor/pipewire/src/gst/gstpipewiresrc.c

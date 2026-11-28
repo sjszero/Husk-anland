@@ -22,7 +22,7 @@
 ### 2.1 `/dev` 不能列目录 —— 平台限制
 
 ```
-$ run-as com.linuxhub.husk sh -c 'ls /dev'      # 不经过 loader，纯 app 身份
+$ run-as com.linuxhub.myth.husk sh -c 'ls /dev'      # 不经过 loader，纯 app 身份
 ls: /dev: Permission denied
 $ ls -ld /dev
 drwxr-xr-x 25 root root 5320 /dev

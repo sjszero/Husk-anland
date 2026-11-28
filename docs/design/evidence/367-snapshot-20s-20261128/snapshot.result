@@ -1,0 +1,4 @@
+pid=11627 started_unix=1795821219 seconds=20
+alive_after_20s=true
+termination=clean_term
+intentional_term_rc=143

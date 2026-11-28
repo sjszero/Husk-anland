@@ -1,0 +1,62 @@
+DEV=${DEV:?set DEV=<adb serial>} PKG=${PKG:-com.linuxhub.husk} \
+		ROOTFS=${ROOTFS:-files/rootfs-full} \
+		LD=${LD:-files/linux/husk/libld.so} \
+		GL_PROBE=${GL_PROBE:-runtime/target/aarch64-unknown-linux-gnu/release/gl-probe} \
+		sh tools/device-tests/19-readback-suite.sh
+== prerequisites ==
+  PASS  guest bash and loader are readable
+  PASS  host gl-probe exists
+== push Rust probe ==
+  PASS  probe and launcher pushed
+== 19-case readback suite through the loader ==
+MESA: warning: kbase: KBASE_IOCTL_MEM_EXEC_INIT failed: Operation not permitted (executable BO allocation will not work)
+WARNING: panvk is not a conformant Vulkan implementation, testing use only.
+FristOneRR 1.2.0 (Mesa 26.3.0-devel)
+MESA: warning: kbase: KBASE_IOCTL_MEM_EXEC_INIT failed: Operation not permitted (executable BO allocation will not work)
+TAG renderer=zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK)) version=OpenGL ES 3.2 Mesa 27.0.0-devel (git-b84f02a451)
+== T1 row-wise readback, width boundaries ==
+  PASS  W=1 H=3: 12 bytes exact, glGetError=0
+  PASS  W=2 H=3: 24 bytes exact, glGetError=0
+  PASS  W=3 H=3: 36 bytes exact, glGetError=0
+  PASS  W=4 H=3: 48 bytes exact, glGetError=0
+  PASS  W=5 H=3: 60 bytes exact, glGetError=0
+  PASS  W=7 H=3: 84 bytes exact, glGetError=0
+  PASS  W=8 H=4: 128 bytes exact, glGetError=0
+  PASS  W=15 H=3: 180 bytes exact, glGetError=0
+  PASS  W=16 H=4: 256 bytes exact, glGetError=0
+  PASS  W=17 H=3: 204 bytes exact, glGetError=0
+  PASS  W=63 H=2: 504 bytes exact, glGetError=0
+  PASS  W=64 H=2: 512 bytes exact, glGetError=0
+  PASS  W=65 H=2: 520 bytes exact, glGetError=0
+== T2 canary: row-wise read must not touch the tail ==
+  PASS  W=5 H=3: head exact, 4096-byte tail untouched
+  PASS  W=17 H=3: head exact, 4096-byte tail untouched
+  PASS  W=65 H=2: head exact, 4096-byte tail untouched
+== T3 whole-block read: exact bytes and canary ==
+  PASS  W=16 H=16: whole-block exact, 8192-byte tail untouched, glGetError=0
+  PASS  W=65 H=4: whole-block exact, 8192-byte tail untouched, glGetError=0
+== T4 screenshot path: row loop into W*H*4 ==
+  PASS  240x135: 129600 bytes byte-identical to ground truth
+
+PASS=19 FAIL=0
+  PASS  probe exited 0
+  STATE renderer: zink Vulkan 1.3(Mali-G77 MC9 (MESA_PANVK)) version=OpenGL ES 3.2 Mesa 27.0.0-devel (git-b84f02a451)
+  PASS  renderer contains zink
+  STATE summary: PASS=19 FAIL=0 expected PASS=19 FAIL=0
+  PASS  complete readback suite passed
+READBACK_AUDIT PASS=6 FAIL=0
+DEV=${DEV:?set DEV=<adb serial>} PKG=${PKG:-com.linuxhub.husk} \
+		ROOTFS=${ROOTFS:-files/rootfs-full} \
+		LD=${LD:-files/linux/husk/libld.so} \
+		ENV=DISPLAY=:0,XDG_RUNTIME_DIR=/tmp/runtime-husk \
+		sh tools/device-tests/run-guest.sh 15-gpu-global-audit.sh
+== existing desktop shell ==
+  STATE gnome-shell pid=23316 gpu=zink gsk=cairo
+  PASS  gnome-shell uses zink + hardware Vulkan + device fd
+  STATE display=:0 runtime_dir=/tmp/runtime-husk
+== loader-default GL client ==
+  PASS  glxinfo saw zink Vulkan 1.3(Mali-G77)
+== nested application ==
+  STATE nested-gtk pid=16625 gpu=zink gsk=cairo
+  PASS  nested-gtk uses zink + hardware Vulkan + device fd
+GPU_GLOBAL_AUDIT PASS=3 FAIL=0 SKIP=0

@@ -1,0 +1,6 @@
+73c8ca0000-73c8cf4000 r--p 00000000 fe:00 410479                         /data/app/~~xakmWTrvIUutDAWS2fCMng==/com.linuxhub.husk-kdX-raSXs736WizzK3pR8w==/lib/arm64/libhuskapp.so
+73c8cf7000-73c8da4000 r-xp 00053000 fe:00 410479                         /data/app/~~xakmWTrvIUutDAWS2fCMng==/com.linuxhub.husk-kdX-raSXs736WizzK3pR8w==/lib/arm64/libhuskapp.so
+73c8da7000-73c8dae000 r--p 000ff000 fe:00 410479                         /data/app/~~xakmWTrvIUutDAWS2fCMng==/com.linuxhub.husk-kdX-raSXs736WizzK3pR8w==/lib/arm64/libhuskapp.so
+73c8db1000-73c8db3000 rw-p 00105000 fe:00 410479                         /data/app/~~xakmWTrvIUutDAWS2fCMng==/com.linuxhub.husk-kdX-raSXs736WizzK3pR8w==/lib/arm64/libhuskapp.so
+74ef47c000-74ef47d000 r--s 001b9000 fe:00 410449                         /data/app/~~xakmWTrvIUutDAWS2fCMng==/com.linuxhub.husk-kdX-raSXs736WizzK3pR8w==/base.apk
+74ef47d000-74ef47e000 r--s 00246000 fe:00 410449                         /data/app/~~xakmWTrvIUutDAWS2fCMng==/com.linuxhub.husk-kdX-raSXs736WizzK3pR8w==/base.apk

@@ -231,6 +231,18 @@ struct Gl {
     framebuffer_texture_2d: unsafe extern "C" fn(c_uint, c_uint, c_uint, c_uint, c_int),
     check_framebuffer_status: unsafe extern "C" fn(c_uint) -> c_uint,
     get_error: unsafe extern "C" fn() -> c_uint,
+    blit_framebuffer: unsafe extern "C" fn(
+        c_int,
+        c_int,
+        c_int,
+        c_int,
+        c_int,
+        c_int,
+        c_int,
+        c_int,
+        c_uint,
+        c_uint,
+    ),
     draw_buffers: unsafe extern "C" fn(c_int, *const c_uint),
     viewport: unsafe extern "C" fn(c_int, c_int, c_int, c_int),
     clear_color: unsafe extern "C" fn(f32, f32, f32, f32),
@@ -288,6 +300,7 @@ impl Gl {
                 check_framebuffer_status: cast(p("glCheckFramebufferStatus")),
                 get_error: cast(p("glGetError")),
                 draw_buffers: cast(p("glDrawBuffers")),
+                blit_framebuffer: cast(p("glBlitFramebuffer")),
                 viewport: cast(p("glViewport")),
                 clear_color: cast(p("glClearColor")),
                 clear: cast(p("glClear")),
@@ -1478,6 +1491,559 @@ fn run_xput(width: u32, height: u32, frames: u32) -> i32 {
 /// a GPU - the work is trivial and the per-command overhead dominates. This is the
 /// shape where hardware acceleration is supposed to show, so this is what the
 /// README quotes.
+/// 缩放楔子探针（H49 / evidence 361、363）。
+///
+/// 把一张 2400×1080 的**不透明**白底网格纹理缩小画进 348×156 的 FBO，整块读回，
+/// 按 16×8 单元统计"平均亮度 < 40"的格子数并打一张 ASCII 图。用来把 shell 里
+/// 那个"缩略图右端楔子"从 CSS / 裁剪 / DING 里剥出来：只看缩放采样这一条。
+///
+/// 变体：`mip`（LINEAR + 生成 mipmap，即 GL_LINEAR_MIPMAP_LINEAR）、
+///       `nomip`（LINEAR，不生成 mipmap）、`nearest`、`list`（GL_TRIANGLES 代替 strip）、
+///       `mip-noblend`（不打开混合；默认按 Cogl 的预乘 alpha：ONE / ONE_MINUS_SRC_ALPHA）。
+///
+/// 判据：白底网格缩下来应当整幅都是亮的（只有稀疏的细网格线是暗的）。
+/// 若出现"成片的暗格" → 就是用户看到的楔子，且与内容无关。
+fn run_scale_wedge(dst_w: u32, dst_h: u32, variant: &str) -> i32 {
+    const GL_LINEAR: c_int = 0x2601;
+    const GL_LINEAR_MIPMAP_LINEAR: c_int = 0x2703;
+    const GL_BLEND: c_uint = 0x0BE2;
+    const GL_ONE: c_uint = 1;
+    const GL_ONE_MINUS_SRC_ALPHA: c_uint = 0x0303;
+    let Some(egl) = Egl::load() else {
+        say!("FAIL dlopen EGL");
+        return 1;
+    };
+    unsafe {
+        let display = (egl.get_platform_display)(
+            EGL_PLATFORM_SURFACELESS_MESA,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        );
+        if display.is_null() {
+            say!("FAIL eglGetPlatformDisplay(surfaceless)");
+            return 1;
+        }
+        let mut major = 0;
+        let mut minor = 0;
+        if (egl.initialize)(display, &mut major, &mut minor) == 0 {
+            say!("FAIL eglInitialize");
+            return 1;
+        }
+        (egl.bind_api)(EGL_OPENGL_ES_API);
+        let config_attrs = [
+            EGL_RENDERABLE_TYPE,
+            EGL_OPENGL_ES2_BIT,
+            EGL_RED_SIZE,
+            8,
+            EGL_GREEN_SIZE,
+            8,
+            EGL_BLUE_SIZE,
+            8,
+            EGL_ALPHA_SIZE,
+            8,
+            EGL_SURFACE_TYPE,
+            EGL_PBUFFER_BIT,
+            EGL_NONE,
+        ];
+        let mut config: Config = std::ptr::null_mut();
+        let mut count = 0;
+        if (egl.choose_config)(display, config_attrs.as_ptr(), &mut config, 1, &mut count) == 0
+            || count < 1
+        {
+            say!("FAIL eglChooseConfig n={count}");
+            return 1;
+        }
+        let surface_attrs = [EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE];
+        let surface = (egl.create_pbuffer_surface)(display, config, surface_attrs.as_ptr());
+        if surface.is_null() {
+            say!("FAIL eglCreatePbufferSurface err={:#x}", (egl.get_error)());
+            return 1;
+        }
+        let ctx_attrs = [EGL_CONTEXT_MAJOR_VERSION, 2, EGL_NONE];
+        let context =
+            (egl.create_context)(display, config, std::ptr::null_mut(), ctx_attrs.as_ptr());
+        if context.is_null() {
+            say!("FAIL eglCreateContext err={:#x}", (egl.get_error)());
+            return 1;
+        }
+        if (egl.make_current)(display, surface, surface, context) == 0 {
+            say!("FAIL eglMakeCurrent err={:#x}", (egl.get_error)());
+            return 1;
+        }
+        let Some(gl) = Gl::load() else {
+            say!("FAIL dlopen GLESv2");
+            return 1;
+        };
+        let lib = Lib::open("libGLESv2.so.2").unwrap();
+        let enable: unsafe extern "C" fn(c_uint) = cast(lib.sym("glEnable"));
+        let blend_func: unsafe extern "C" fn(c_uint, c_uint) = cast(lib.sym("glBlendFunc"));
+        let gen_mipmap: unsafe extern "C" fn(c_uint) = cast(lib.sym("glGenerateMipmap"));
+        say!("renderer={}", gl.string(GL_RENDERER));
+        say!("variant={variant} dst={dst_w}x{dst_h} src=2400x1080");
+
+        // 源纹理：白底 + 每 128 px 一条 8 px 宽的黑线 + alpha 恒 255。
+        let (sw, sh) = (2400usize, 1080usize);
+        let mut src = vec![255u8; sw * sh * 4];
+        for y in 0..sh {
+            for x in 0..sw {
+                let dark = (x % 128) < 8 || (y % 128) < 8;
+                let o = (y * sw + x) * 4;
+                let v = if dark { 0u8 } else { 255u8 };
+                src[o] = v;
+                src[o + 1] = v;
+                src[o + 2] = v;
+                src[o + 3] = 255;
+            }
+        }
+        // `blit-green`：源纹理整片纯绿（0,255,0），目标先清成红色。
+        // 用来判定楔子区域是「没被写」（留红）、「写对了」（绿）、还是「写了黑」。
+        if variant == "blit-green" || variant == "blit-double" {
+            for px in src.chunks_exact_mut(4) {
+                px[0] = 0;
+                px[1] = 255;
+                px[2] = 0;
+                px[3] = 255;
+            }
+        }
+        let mut tex = 0u32;
+        (gl.gen_textures)(1, &mut tex);
+        (gl.bind_texture)(GL_TEXTURE_2D, tex);
+        let mip = variant.starts_with("mip") || variant == "dumpmips";
+        let (min_f, mag_f) = match variant {
+            "nearest" => (GL_NEAREST, GL_NEAREST),
+            v if v == "nomip" || v.starts_with("blit") || v == "clearonly" => {
+                (GL_LINEAR, GL_LINEAR)
+            }
+            _ => (GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR),
+        };
+        (gl.tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min_f);
+        (gl.tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mag_f);
+        (gl.tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        (gl.tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        (gl.pixel_storei)(0x0CF5, 4); // GL_UNPACK_ALIGNMENT
+        (gl.tex_image_2d)(
+            GL_TEXTURE_2D,
+            0,
+            GL_RGBA8,
+            sw as c_int,
+            sh as c_int,
+            0,
+            GL_RGBA,
+            GL_UNSIGNED_BYTE,
+            src.as_ptr() as *const c_void,
+        );
+        // `cpumips`：不用 glGenerateMipmap，自己按 2×2 盒式滤波逐级算好再 upload。
+        // 用来把「mipmap **生成**坏」和「采样时的 **LOD/导数** 坏」分开。
+        let mut cpu_levels: Vec<(u32, u32)> = Vec::new();
+        if variant == "cpumips" {
+            let mut lw = sw;
+            let mut lh = sh;
+            let mut prev = src.clone();
+            let mut lv = 1u32;
+            while lw > 1 || lh > 1 {
+                let (nw, nh) = ((lw / 2).max(1), (lh / 2).max(1));
+                let mut next = vec![255u8; nw * nh * 4];
+                for y in 0..nh {
+                    for x in 0..nw {
+                        let mut acc = [0u32; 4];
+                        let mut n = 0u32;
+                        for dy in 0..2 {
+                            for dx in 0..2 {
+                                let sx = (x * 2 + dx).min(lw - 1);
+                                let sy = (y * 2 + dy).min(lh - 1);
+                                let o = (sy * lw + sx) * 4;
+                                for c in 0..4 {
+                                    acc[c] += prev[o + c] as u32;
+                                }
+                                n += 1;
+                            }
+                        }
+                        let o = (y * nw + x) * 4;
+                        for c in 0..4 {
+                            next[o + c] = (acc[c] / n.max(1)) as u8;
+                        }
+                    }
+                }
+                (gl.tex_image_2d)(
+                    GL_TEXTURE_2D,
+                    lv as c_int,
+                    GL_RGBA8,
+                    nw as c_int,
+                    nh as c_int,
+                    0,
+                    GL_RGBA,
+                    GL_UNSIGNED_BYTE,
+                    next.as_ptr() as *const c_void,
+                );
+                cpu_levels.push((lv, nw as u32));
+                prev = next;
+                lw = nw;
+                lh = nh;
+                lv += 1;
+            }
+            say!("cpumips: uploaded {} levels by hand", cpu_levels.len());
+        }
+        if mip {
+            (gen_mipmap)(GL_TEXTURE_2D);
+        }
+        // `dumpmips`：把 mipmap 每一级单独挂到 FBO 上读回，报每级平均亮度。
+        // 用来分开两件事：mipmap **生成**坏了（某级是黑的），还是采样时的
+        // **LOD/导数**坏了（各级都对，但右半边取到了错的那一级）。
+        if variant == "dumpmips" {
+            let mut fbo_lv = 0u32;
+            (gl.gen_framebuffers)(1, &mut fbo_lv);
+            (gl.bind_framebuffer)(GL_FRAMEBUFFER, fbo_lv);
+            for lv in 0..8u32 {
+                let lw = (sw >> lv).max(1);
+                let lh = (sh >> lv).max(1);
+                (gl.framebuffer_texture_2d)(
+                    GL_FRAMEBUFFER,
+                    GL_COLOR_ATTACHMENT0,
+                    GL_TEXTURE_2D,
+                    tex,
+                    lv as c_int,
+                );
+                let st_lv = (gl.check_framebuffer_status)(GL_FRAMEBUFFER);
+                if st_lv != GL_FRAMEBUFFER_COMPLETE {
+                    say!("mip level {lv} ({lw}x{lh}): FBO incomplete {st_lv:#x}");
+                    continue;
+                }
+                (gl.viewport)(0, 0, lw as c_int, lh as c_int);
+                (gl.read_buffer)(GL_COLOR_ATTACHMENT0);
+                (gl.pixel_storei)(GL_PACK_ALIGNMENT, 4);
+                let mut lb = vec![0u8; (lw * lh * 4) as usize];
+                (gl.read_pixels)(
+                    0,
+                    0,
+                    lw as c_int,
+                    lh as c_int,
+                    GL_RGBA,
+                    GL_UNSIGNED_BYTE,
+                    lb.as_mut_ptr() as *mut c_void,
+                );
+                let mut sum = 0u64;
+                let mut mn = 255u8;
+                let mut blacks = 0u64;
+                for px in lb.chunks_exact(4) {
+                    let m = px[0].max(px[1]).max(px[2]);
+                    sum += m as u64;
+                    mn = mn.min(m);
+                    if m < 16 {
+                        blacks += 1;
+                    }
+                }
+                let n = (lw * lh) as u64;
+                say!(
+                    "mip level {lv} {lw}x{lh}: mean={} min={mn} near_black={blacks}/{n}",
+                    sum / n.max(1)
+                );
+                if lv <= 2 {
+                    let mut ppm = format!("P6\n{lw} {lh}\n255\n").into_bytes();
+                    for y in (0..lh as usize).rev() {
+                        for x in 0..lw as usize {
+                            let o = (y * lw as usize + x) * 4;
+                            ppm.extend_from_slice(&lb[o..o + 3]);
+                        }
+                    }
+                    let _ = std::fs::write(format!("/tmp/mip-lv{lv}-{variant}.ppm"), &ppm);
+                }
+            }
+            (gl.bind_framebuffer)(GL_FRAMEBUFFER, 0);
+            return 0;
+        }
+
+        // 目标：FBO + RGBA8 纹理
+        let mut dst_tex = 0u32;
+        (gl.gen_textures)(1, &mut dst_tex);
+        (gl.bind_texture)(GL_TEXTURE_2D, dst_tex);
+        (gl.tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        (gl.tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        (gl.tex_image_2d)(
+            GL_TEXTURE_2D,
+            0,
+            GL_RGBA8,
+            dst_w as c_int,
+            dst_h as c_int,
+            0,
+            GL_RGBA,
+            GL_UNSIGNED_BYTE,
+            std::ptr::null(),
+        );
+        let mut fbo = 0u32;
+        (gl.gen_framebuffers)(1, &mut fbo);
+        (gl.bind_framebuffer)(GL_FRAMEBUFFER, fbo);
+        (gl.framebuffer_texture_2d)(
+            GL_FRAMEBUFFER,
+            GL_COLOR_ATTACHMENT0,
+            GL_TEXTURE_2D,
+            dst_tex,
+            0,
+        );
+        let st = (gl.check_framebuffer_status)(GL_FRAMEBUFFER);
+        if st != GL_FRAMEBUFFER_COMPLETE {
+            say!("FAIL FBO status={st:#x}");
+            return 1;
+        }
+        (gl.viewport)(0, 0, dst_w as c_int, dst_h as c_int);
+        if variant == "blit-green" || variant == "blit-double" || variant == "clearonly" {
+            (gl.clear_color)(1.0, 0.0, 0.0, 1.0);
+        } else {
+            (gl.clear_color)(0.0, 0.0, 0.0, 1.0);
+        }
+        (gl.clear)(GL_COLOR_BUFFER_BIT);
+
+        // `blit` / `blit-near` / `blit-green` / `blit-1to1`：FBO→FBO 的 glBlitFramebuffer 缩放。
+        // 这是 Cogl/mutter 那条"把 offscreen 贴图缩到目标大小"的候选实现：
+        // 如果这条也带楔子，现场的楔子就不在采样、不在 draw，而在这个 blit 上。
+        const GL_READ_FRAMEBUFFER: c_uint = 0x8CA8;
+        const GL_DRAW_FRAMEBUFFER: c_uint = 0x8CA9;
+        let blit_only = variant.starts_with("blit") || variant == "clearonly";
+        if variant.starts_with("blit") {
+            let mut src_fbo = 0u32;
+            (gl.gen_framebuffers)(1, &mut src_fbo);
+            (gl.bind_framebuffer)(GL_FRAMEBUFFER, src_fbo);
+            (gl.framebuffer_texture_2d)(
+                GL_FRAMEBUFFER,
+                GL_COLOR_ATTACHMENT0,
+                GL_TEXTURE_2D,
+                tex,
+                0,
+            );
+            let sts = (gl.check_framebuffer_status)(GL_FRAMEBUFFER);
+            say!("src fbo status={sts:#x}");
+            (gl.bind_framebuffer)(GL_READ_FRAMEBUFFER, src_fbo);
+            (gl.bind_framebuffer)(GL_DRAW_FRAMEBUFFER, fbo);
+            // `blit-1to1` 不缩放（源区与目标同尺寸），用来把「缩放算错」和
+            // 「blit 这条渲染路径本身坏」分开。
+            let (sx1, sy1) = if variant == "blit-1to1" {
+                (dst_w as c_int, dst_h as c_int)
+            } else {
+                (sw as c_int, sh as c_int)
+            };
+            say!("blit src_rect=0,0,{sx1},{sy1} dst_rect=0,0,{dst_w},{dst_h}");
+            (gl.blit_framebuffer)(
+                0,
+                0,
+                sx1,
+                sy1,
+                0,
+                0,
+                dst_w as c_int,
+                dst_h as c_int,
+                0x4000, // GL_COLOR_BUFFER_BIT
+                if variant == "blit-near" {
+                    GL_NEAREST as c_uint
+                } else {
+                    GL_LINEAR as c_uint
+                },
+            );
+            if variant == "blit-double" {
+                let r = (gl.blit_framebuffer)(
+                    0,
+                    0,
+                    sx1,
+                    sy1,
+                    0,
+                    0,
+                    dst_w as c_int,
+                    dst_h as c_int,
+                    0x4000,
+                    GL_LINEAR as c_uint,
+                );
+                let _ = r;
+                say!("second blit issued");
+            }
+            (gl.finish)();
+            say!("blit glGetError={:#x}", (gl.get_error)());
+            (gl.bind_framebuffer)(GL_FRAMEBUFFER, fbo);
+        }
+
+        // 着色器：位置 + UV + 整顶点颜色（模拟 Cogl 的 interleaved 布局）
+        let vs: &[u8] = b"attribute vec2 p; attribute vec2 t; attribute vec4 c;\nvarying vec2 uv; varying vec4 vc;\nvoid main(){ uv=t; vc=c; gl_Position=vec4(p,0.0,1.0); }\n";
+        let fs: &[u8] = b"precision highp float; varying vec2 uv; varying vec4 vc;\nuniform sampler2D s;\nvoid main(){ gl_FragColor = texture2D(s, uv) * vc; }\n";
+        let mut shaders = [0u32; 2];
+        let shader_srcs: [(c_uint, &[u8]); 2] = [(GL_VERTEX_SHADER, vs), (GL_FRAGMENT_SHADER, fs)];
+        for (i, (kind, src_s)) in shader_srcs.iter().copied().enumerate() {
+            let sh = (gl.create_shader)(kind);
+            let ptr = src_s.as_ptr() as *const c_char;
+            let len = src_s.len() as c_int;
+            (gl.shader_source)(sh, 1, &ptr, &len);
+            (gl.compile_shader)(sh);
+            let mut okc = 0;
+            (gl.get_shader_iv)(sh, GL_COMPILE_STATUS, &mut okc);
+            if okc == 0 {
+                let mut log = [0u8; 512];
+                (gl.get_shader_info_log)(sh, 512, std::ptr::null_mut(), log.as_mut_ptr());
+                let msg = std::ffi::CStr::from_ptr(log.as_ptr());
+                say!("FAIL shader compile: {}", msg.to_string_lossy());
+                return 1;
+            }
+            shaders[i] = sh;
+        }
+        let program = (gl.create_program)();
+        for sh in shaders {
+            (gl.attach_shader)(program, sh);
+        }
+        (gl.link_program)(program);
+        let mut linked = 0;
+        (gl.get_program_iv)(program, GL_LINK_STATUS, &mut linked);
+        if linked == 0 {
+            say!("FAIL program link");
+            return 1;
+        }
+        (gl.use_program)(program);
+        (gl.active_texture)(GL_TEXTURE0);
+        (gl.bind_texture)(GL_TEXTURE_2D, tex);
+        let loc = (gl.get_uniform_location)(program, b"s\0".as_ptr() as *const c_char);
+        (gl.uniform1i)(loc, 0);
+
+        // 4 顶点（strip）或 6 顶点（list）；位置在 -1..1，UV 与屏幕 y 反向。
+        let mut v: Vec<f32> = Vec::new();
+        let mut push = |x: f32, y: f32, u: f32, t: f32| {
+            v.extend_from_slice(&[x, y, u, t, 1.0, 1.0, 1.0, 1.0]);
+        };
+        if variant == "list" {
+            push(-1.0, -1.0, 0.0, 1.0);
+            push(1.0, -1.0, 1.0, 1.0);
+            push(-1.0, 1.0, 0.0, 0.0);
+            push(1.0, -1.0, 1.0, 1.0);
+            push(1.0, 1.0, 1.0, 0.0);
+            push(-1.0, 1.0, 0.0, 0.0);
+        } else {
+            push(-1.0, -1.0, 0.0, 1.0);
+            push(1.0, -1.0, 1.0, 1.0);
+            push(-1.0, 1.0, 0.0, 0.0);
+            push(1.0, 1.0, 1.0, 0.0);
+        }
+        let mut vbo = 0u32;
+        (gl.gen_buffers)(1, &mut vbo);
+        (gl.bind_buffer)(GL_ARRAY_BUFFER, vbo);
+        (gl.buffer_data)(
+            GL_ARRAY_BUFFER,
+            (v.len() * 4) as isize,
+            v.as_ptr() as *const c_void,
+            GL_STATIC_DRAW,
+        );
+        let mut vao = 0u32;
+        (gl.gen_vertex_arrays)(1, &mut vao);
+        (gl.bind_vertex_array)(vao);
+        (gl.bind_buffer)(GL_ARRAY_BUFFER, vbo);
+        let stride = 32;
+        (gl.vertex_attrib_pointer)(0, 2, GL_FLOAT, 0, stride, std::ptr::null());
+        (gl.enable_vertex_attrib_array)(0);
+        (gl.vertex_attrib_pointer)(1, 2, GL_FLOAT, 0, stride, 8 as *const c_void);
+        (gl.enable_vertex_attrib_array)(1);
+        (gl.vertex_attrib_pointer)(2, 4, GL_FLOAT, 0, stride, 16 as *const c_void);
+        (gl.enable_vertex_attrib_array)(2);
+
+        if !blit_only {
+            let blend = variant != "mip-noblend";
+            if blend {
+                (enable)(GL_BLEND);
+                (blend_func)(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+            }
+            if variant == "list" {
+                (gl.draw_arrays)(GL_TRIANGLES, 0, 6);
+            } else {
+                (gl.draw_arrays)(GL_TRIANGLE_STRIP, 0, 4);
+            }
+        }
+        (gl.finish)();
+        let err = (gl.get_error)();
+        say!("glGetError={err:#x}（0 为无错）");
+
+        let npix = (dst_w * dst_h) as usize;
+        let mut buf = vec![0u8; npix * 4];
+        (gl.pixel_storei)(GL_PACK_ALIGNMENT, 4);
+        (gl.read_pixels)(
+            0,
+            0,
+            dst_w as c_int,
+            dst_h as c_int,
+            GL_RGBA,
+            GL_UNSIGNED_BYTE,
+            buf.as_mut_ptr() as *mut c_void,
+        );
+
+        // 统计：整幅近黑占比 + 16×8 单元平均亮度 + ASCII 图
+        let (cw, chh) = (16usize, 8usize);
+        let mut dark_total = 0usize;
+        let mut ascii = String::new();
+        let mut dark_cells = 0usize;
+        let mut right_dark_cells = 0usize;
+        for cy in 0..chh {
+            for cx in 0..cw {
+                let x0 = cx * dst_w as usize / cw;
+                let x1 = ((cx + 1) * dst_w as usize / cw).max(x0 + 1);
+                let y0 = cy * dst_h as usize / chh;
+                let y1 = ((cy + 1) * dst_h as usize / chh).max(y0 + 1);
+                let mut sum = 0u64;
+                let mut n = 0u64;
+                for y in y0..y1 {
+                    for x in x0..x1 {
+                        let o = ((dst_h as usize - 1 - y) * dst_w as usize + x) * 4;
+                        let p = &buf[o..o + 4];
+                        let m = p[0].max(p[1]).max(p[2]) as u64;
+                        sum += m;
+                        n += 1;
+                        if m < 16 {
+                            dark_total += 1;
+                        }
+                    }
+                }
+                let mean = if n == 0 { 0 } else { sum / n };
+                let is_dark = mean < 40;
+                if is_dark {
+                    dark_cells += 1;
+                    if cx >= cw * 11 / 16 {
+                        right_dark_cells += 1;
+                    }
+                    ascii.push('#');
+                } else {
+                    ascii.push('.');
+                }
+            }
+            ascii.push('\n');
+        }
+        say!("dark_cells={dark_cells}/{cw}x{chh} right_dark_cells={right_dark_cells}");
+        say!("near_black={dark_total}/{npix}");
+        {
+            let (mut nred, mut ngreen, mut nblack, mut nwhite, mut nother) =
+                (0u64, 0u64, 0u64, 0u64, 0u64);
+            for px in buf.chunks_exact(4) {
+                let (r, g, b) = (px[0], px[1], px[2]);
+                if r > 200 && g < 60 && b < 60 {
+                    nred += 1;
+                } else if g > 200 && r < 60 && b < 60 {
+                    ngreen += 1;
+                } else if r.max(g).max(b) < 16 {
+                    nblack += 1;
+                } else if r.min(g).min(b) > 200 {
+                    nwhite += 1;
+                } else {
+                    nother += 1;
+                }
+            }
+            say!("colors red={nred} green={ngreen} black={nblack} white={nwhite} other={nother} of {npix}");
+        }
+        say!("map('#'=平均亮度<40):\n{ascii}");
+
+        // 落一张 PPM，便于留证
+        let mut ppm = format!("P6\n{dst_w} {dst_h}\n255\n").into_bytes();
+        for y in (0..dst_h as usize).rev() {
+            for x in 0..dst_w as usize {
+                let o = (y * dst_w as usize + x) * 4;
+                ppm.extend_from_slice(&buf[o..o + 3]);
+            }
+        }
+        let path = format!("/tmp/scale-wedge-{variant}.ppm");
+        if std::fs::write(&path, &ppm).is_ok() {
+            say!("wrote {path}");
+        }
+    }
+    0
+}
+
 fn run_fill(width: u32, height: u32, passes: u32, frames: u32) -> i32 {
     let Some(egl) = Egl::load() else {
         say!("FAIL dlopen EGL");
@@ -3114,6 +3680,17 @@ fn main() {
                 }
             }
         }
+        Some("scale-wedge") => {
+            let size = args.get(1).map(String::as_str).unwrap_or("348x156");
+            let variant = args.get(2).map(String::as_str).unwrap_or("mip");
+            match parse_size(size) {
+                Some((w, h)) => run_scale_wedge(w, h, variant),
+                None => {
+                    eprintln!("gl-probe scale-wedge: bad size {size:?} (want WxH)");
+                    2
+                }
+            }
+        }
         Some("fill") => {
             let size = args.get(1).map(String::as_str).unwrap_or("640x480");
             let passes = args
@@ -3165,7 +3742,7 @@ fn main() {
         Some("overlay") => run_capture("overlay"),
         Some("capture-window") => run_capture("capture-window"),
         _ => {
-            eprintln!("usage: gl-probe <es3 | fixed [frames] | fixedgl [WxH [seconds [tag [plain|lit]]]] | window [WxH [frames]] | pbuf [WxH [frames]] | xput [WxH [frames]] | fill [WxH [passes [frames]]] | readback [WxH] | readback-suite | soak [WxH [seconds [tag]]] | root [out.ppm] | overlay [out.ppm] | capture-window <id> [out.ppm]>");
+            eprintln!("usage: gl-probe <es3 | fixed [frames] | fixedgl [WxH [seconds [tag [plain|lit]]]] | window [WxH [frames]] | pbuf [WxH [frames]] | scale-wedge [WxH [mip|nomip|nearest|list|mip-noblend]] | xput [WxH [frames]] | fill [WxH [passes [frames]]] | readback [WxH] | readback-suite | soak [WxH [seconds [tag]]] | root [out.ppm] | overlay [out.ppm] | capture-window <id> [out.ppm]>");
             2
         }
     };

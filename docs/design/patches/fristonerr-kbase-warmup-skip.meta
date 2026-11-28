@@ -1,0 +1,18 @@
+# kbase "2 秒热身"补丁的机械描述（0.0.37 起改为源码构建）。
+#
+# 0.0.36 及以前：发行包不重编 Mesa，安装器按偏移把 .so 里的 16 字节 timespec
+# 改成 0（binary_patch_* 记录的是那段历史，保留以便审计旧包）。
+# 0.0.37 起：驱动由源码构建（同时带 vk_meta blit 修复），热身改成配置项，
+# 安装器只核 SHA-256，不再就地改字节。
+source_commit 0c9dce35094dbe89c412b79bf57c6067c7b97e59
+source_file src/panfrost/lib/kmod/kbase_kmod.c
+driver_sha256_upstream 599148568d80041ed3fd3312f5c9834479bcac9a13183f2b1479048b72a29b9c
+driver_sha256_patched 5e06324783ec7947d48782441fd1cac23953c90bd0b31663f98f08b22344c1c3
+binary_patch_offset 0x53a570
+binary_patch_length 16
+binary_patch_from tv_sec=2,tv_nsec=0
+binary_patch_to tv_sec=0,tv_nsec=0
+config_default PANVK_KBASE_WARMUP_MS unset -> no sleep
+config_opt_in PANVK_KBASE_WARMUP_MS=2000 (Mali-G57 class kbase JM)
+reason every kbase context creation slept 2s unconditionally (Mali-G57 workaround); a Mali-G77 does not need it
+evidence docs/design/evidence/365-thumb-wedge-fixed-in-driver-20261127.md

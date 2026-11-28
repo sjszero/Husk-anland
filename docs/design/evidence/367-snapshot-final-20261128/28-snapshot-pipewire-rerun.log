@@ -1,0 +1,20 @@
+/Users/l/Documents/Codex/2026-08-10/husk/tools/device-tests/snapshot-20s-guest.sh: 1 file pushed, 0 skipped. 7.6 MB/s (2550 bytes in 0.000s)
+services: polkitd already running
+husk-media-session: started pipewire pid=15761
+husk-media-session: started wireplumber pid=15771
+husk-media-session: pipewire=ready pid=15761
+husk-media-session: wireplumber=ready pid=15771
+PASS  PipeWire ready
+PASS  WirePlumber ready
+PASS  BACK v4l2 device visible
+PASS  FRONT v4l2 device visible
+PASS  Snapshot alive after 20s
+PASS  Snapshot terminated by intentional TERM (143)
+PASS  No Snapshot 139
+PASS  Redundant caps renegotiation skipped
+PASS  pipewiresrc selected a real target object
+NOTE  initial null-target enumeration occurred before the numeric target
+PASS  Camera2 frames reached the V4L2 facade
+PASS  No V4L2 panic in Snapshot run
+PASS  screenshot captured: /tmp/husk-snapshot-final-20261128-rerun/snapshot.png
+RESULT PASS=12 FAIL=0 OUT=/tmp/husk-snapshot-final-20261128-rerun RUN_RC=0

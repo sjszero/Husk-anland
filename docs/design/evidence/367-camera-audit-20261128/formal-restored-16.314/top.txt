@@ -1,0 +1,1 @@
+    topResumedActivity=ActivityRecord{c68969a u0 com.linuxhub.husk/android.app.NativeActivity} t1240}

@@ -1,0 +1,3 @@
+services: polkitd already running
+husk-media-session: stopped wireplumber pid=12976
+husk-media-session: stopped pipewire pid=12965

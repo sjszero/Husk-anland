@@ -1,0 +1,35 @@
+11-28 05:58:53.347 31798   305 I Husk    : camera|ROOTFS|/data/data/com.linuxhub.husk/files/rootfs
+11-28 05:58:53.349 31798   305 I Husk    : camera|looper|0xb400007433c92d00
+11-28 05:58:53.349 31798   305 I Husk    : camera|manager|pointer-return-abi
+11-28 05:58:53.349 31798   305 I Husk    : camera|manager|0xb400007433c22d50|raw=0xb400007433c22d50
+11-28 05:58:53.359 31798   305 I Husk    : camera|list|id=0|facing=BACK|orientation=90|yuv=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720|n=16
+11-28 05:58:53.359 31798   305 I Husk    : camera|list|id=1|facing=FRONT|orientation=270|yuv=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720|n=16
+11-28 05:58:53.359 31798   305 I Husk    : camera|list|count=2
+11-28 05:58:53.380 31798   305 I Husk    : camera|v4l2|tree|devices=2
+11-28 05:58:53.384 31798   305 I Husk    : camera|reader|ctor=AImageReader_newWithUsage|gpu_reader=true|usage=0x103|rc=0
+11-28 05:58:53.384 31798   305 I Husk    : camera|reader|geometry|before=1280x720/35|set_rc=0|after=1280x720/35
+11-28 05:58:53.384 31798   305 I Husk    : camera|reader|listener|rc=0|legacy_session=false
+11-28 05:58:53.414 31798   305 I Husk    : camera|session|output_setup|container_rc=0|output_rc=0|add_rc=0|container_null=false|output_null=false
+11-28 05:58:53.666 31798   305 I Husk    : camera|session|state_observed|ready=false|active=false|legacy_session=false
+11-28 05:58:53.668 31798   305 I Husk    : camera|session|request_setup|template=3|request_rc=0|target_rc=0|add_target_rc=0|request_null=false|target_null=false
+11-28 05:58:53.668 31798   305 I Husk    : camera|session|request_entries|control_mode_rc=0|ae_mode_rc=0
+11-28 05:58:53.670 31798   305 I Husk    : camera|session|open|id=1|1280x720|mode=repeating|repeat_rc=0|sequence=0
+11-28 05:58:53.672 31798   491 I Husk    : camera|callback|session_active
+11-28 05:58:53.679 31798   305 I Husk    : camera|frame|acquire|rc=-30001|image_null=true
+11-28 05:58:53.705 31798   405 I Husk    : caps|camera|present=yes|husk=degraded|backend=V4L2 /dev/videoN -> Camera2 NDK|detail=ids=0,1 / husk: V4L2 /dev/videoN is served by Camera2 NDK without a test marker; capture/photo/record and read/readv/mmap verified (evidence 91/93/240/282), but DMABUF/controls are unsupported and 8-25 fps was observed depending on mode
+11-28 05:58:53.793 31798   491 I Husk    : camera|capture|started|count=1|timestamp=10333985949000
+11-28 05:58:53.809 31798   490 I Husk    : camera|image_reader|available|count=1|reader_null=false
+11-28 05:58:53.810 31798   305 I Husk    : camera|frame|acquire|recovered
+11-28 05:58:53.811 31798   491 I Husk    : camera|capture|completed|count=1
+11-28 05:58:53.814 31798   305 I Husk    : camera|frame|ready|seq=1|1280x720|ts=10333985949000|bytes=1382400|min=0|max=128|mean=42.86|head_min=0|head_max=2|head_sum=981
+11-28 05:58:53.818 31798   305 I Husk    : camera|selftest|frame=0|1280x720|bytes=1382400|min=0|max=128|mean=42.86|ts=10333985949000|saved=true
+11-28 05:58:53.827 31798   305 I Husk    : camera|frame|acquire|rc=-30001|image_null=true
+11-28 05:58:53.845 31798   305 I Husk    : camera|frame|acquire|recovered
+11-28 05:58:53.850 31798   305 I Husk    : camera|selftest|frame=1|1280x720|bytes=1382400|min=0|max=128|mean=42.74|ts=10334019271000|saved=true
+11-28 05:58:53.858 31798   305 I Husk    : camera|frame|acquire|rc=-30001|image_null=true
+11-28 05:58:53.875 31798   305 I Husk    : camera|frame|acquire|recovered
+11-28 05:58:53.879 31798   305 I Husk    : camera|selftest|frame=2|1280x720|bytes=1382400|min=0|max=128|mean=42.74|ts=10334052593000|saved=true
+11-28 05:58:53.879 31798   305 I Husk    : camera|selftest|DONE|frames=3|fps=30.01|span_ms=66.64|elapsed_ms=208
+11-28 05:58:54.001 31798   305 I Husk    : camera|session|closed
+11-28 05:58:54.001 31798   305 I Husk    : camera|LISTEN|/data/data/com.linuxhub.husk/files/rootfs/run/husk/camera.sock
+11-28 05:59:01.404 31798   406 I Husk    : caps|camera|present=yes|husk=degraded|backend=V4L2 /dev/videoN -> Camera2 NDK|detail=ids=0,1 / husk: V4L2 /dev/videoN is served by Camera2 NDK without a test marker; capture/photo/record and read/readv/mmap verified (evidence 91/93/240/282), but DMABUF/controls are unsupported and 8-25 fps was observed depending on mode

@@ -11,13 +11,17 @@
 # there fails on missing dependencies rather than on anything this script can fix.
 #
 # usage:
-#   install-husk.sh --rootfs <rootfs.tar[.gz]> [--dest DIR] [--loader PATH] [--user NAME] [--fresh]
+#   install-husk.sh [--rootfs <rootfs.tar[.gz]>] [--dest DIR] [--loader PATH] [--user NAME]
+#                  [--fresh] [--upgrade]
 #
 #   --rootfs  Ubuntu base tarball (uncompressed or .gz)
 #   --dest    where the rootfs goes (default: ./root next to this script)
 #   --loader  our loader (default: $NR_LD, else ./libld.so next to this script)
 #   --user    guest user for the generated launcher (default: root)
 #   --fresh   replace a non-empty destination instead of refusing it
+#   --upgrade re-run the guest-side steps on an existing tree; no extraction,
+#             no --rootfs. This is the upgrade path: it replaces the loader,
+#             tools, ICD and PanVK driver without touching /home or dpkg state.
 #
 # Why two extraction passes: Ubuntu's base tarball contains hard links
 # (usr/bin/uncompress -> gunzip, usr/bin/perl -> perl5.38.2, ...). Android
@@ -33,6 +37,7 @@ DEST=
 LOADER=${NR_LD:-}
 USER_NAME=root
 FRESH=no
+UPGRADE=no
 usage() { sed -n '2,25p' "$0"; }
 
 while [ $# -gt 0 ]; do
@@ -42,20 +47,28 @@ while [ $# -gt 0 ]; do
         --loader) [ $# -ge 2 ] || { echo "--loader needs a value" >&2; exit 64; }; LOADER=$2; shift 2 ;;
         --user)   [ $# -ge 2 ] || { echo "--user needs a value" >&2; exit 64; };   USER_NAME=$2; shift 2 ;;
         --fresh)  FRESH=yes; shift ;;
+        --upgrade) UPGRADE=yes; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "install-husk: unknown argument $1" >&2; exit 64 ;;
     esac
 done
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-[ -n "$ROOTFS_TAR" ] || { echo "install-husk: --rootfs is required" >&2; usage >&2; exit 64; }
+if [ "$UPGRADE" = yes ]; then
+    [ -n "$DEST" ] || { echo "install-husk: --upgrade needs --dest" >&2; usage >&2; exit 64; }
+    [ -f "$DEST/etc/os-release" ] || { echo "install-husk: --upgrade target has no etc/os-release: $DEST" >&2; exit 66; }
+else
+    [ -n "$ROOTFS_TAR" ] || { echo "install-husk: --rootfs is required" >&2; usage >&2; exit 64; }
+fi
 # --rootfs may be a local tarball or a URL; in a terminal (Termux) a URL is the
 # normal case, so that path is not a special case here.
 is_url=no
+if [ "$UPGRADE" = no ]; then
 case "$ROOTFS_TAR" in
     http://*|https://*) is_url=yes ;;
     *) [ -f "$ROOTFS_TAR" ] || { echo "install-husk: no such rootfs tarball: $ROOTFS_TAR" >&2; exit 66; } ;;
 esac
+fi
 : "${DEST:=$HERE/root}"
 : "${LOADER:=$HERE/libld.so}"
 
@@ -70,7 +83,9 @@ mkdir -p "$DEST"
 DEST=$(cd "$DEST" && pwd -P)
 [ "$DEST" != / ] || { echo "install-husk: refusing to use / as --dest" >&2; exit 64; }
 if [ -n "$(ls -A "$DEST" 2>/dev/null)" ]; then
-    if [ "$FRESH" = yes ]; then
+    if [ "$UPGRADE" = yes ]; then
+        echo "== upgrade target: $DEST (files kept, no extraction) =="
+    elif [ "$FRESH" = yes ]; then
         echo "== fresh target: replacing $DEST =="
         rm -rf "$DEST"
         mkdir -p "$DEST"
@@ -96,7 +111,9 @@ fi
 [ -x "$LOADER" ] || { echo "install-husk: loader not executable: $LOADER" >&2; exit 69; }
 LOADER=$(cd "$(dirname "$LOADER")" && pwd)/$(basename "$LOADER")
 # a URL is not a path yet; it is turned into one by the download step below
-[ "$is_url" = yes ] || ROOTFS_TAR=$(cd "$(dirname "$ROOTFS_TAR")" && pwd)/$(basename "$ROOTFS_TAR")
+if [ "$UPGRADE" = no ]; then
+    [ "$is_url" = yes ] || ROOTFS_TAR=$(cd "$(dirname "$ROOTFS_TAR")" && pwd)/$(basename "$ROOTFS_TAR")
+fi
 
 # mksh (Android's /bin/sh) and dash both need a writable TMPDIR for `$(...)`
 # capture and here-documents. Under `run-as` nothing in /tmp or /data/local is
@@ -110,7 +127,7 @@ done
 [ -n "${TMPDIR:-}" ] || { echo "install-husk: no writable TMPDIR" >&2; exit 73; }
 
 echo "== husk install =="
-echo "   rootfs : $ROOTFS_TAR"
+if [ "$UPGRADE" = yes ]; then echo "   rootfs : (upgrade, keeping $DEST)"; else echo "   rootfs : $ROOTFS_TAR"; fi
 echo "   dest   : $DEST"
 echo "   loader : $LOADER"
 
@@ -146,7 +163,62 @@ case "$probe" in
         echo "              /data/local/tmp and most noexec mounts do not)." >&2
         exit 69 ;;
 esac
+# Library search path for guest_run()/the loader. It used to be computed inside
+# the extraction pass, so --upgrade (which skips extraction) ran every guest call
+# with LIBS unset and died under `set -u`.
+# 注意：这里**不能**按"目录此刻是否存在"来二选一。--fresh 装到空目录时，DEST 在
+# pass 1 之前是空的，`[ -d "$DEST/usr/lib/aarch64-linux-gnu" ]` 判假，于是 LIBS 塌成
+# "$DEST/usr/lib"，pass 2 立刻报 `usr/bin/env: libc.so.6: cannot open shared object file`
+# （2026-11-27 实测，defect H45）。升级装因为树已经在，所以从来没暴露。
+# 搜索路径多列几项没有代价，缺的目录会被 loader 跳过。
+LIBS="$DEST/lib/aarch64-linux-gnu:$DEST/usr/lib/aarch64-linux-gnu:$DEST/lib64:$DEST/lib:$DEST/usr/lib"
 
+# Upgrade replaces binaries the running guest still has mapped: cp then fails
+# with "Text file busy" (measured: husk-logd holding usr/bin/husk-logd). Stop
+# every process whose cmdline points into this tree first - that is also the
+# "forced exit" the session contract requires, so the install does not leave a
+# half-old session behind.
+if [ "$UPGRADE" = yes ]; then
+    # /data/user/0 and /data/data are the same tree with different spellings;
+    # the running helpers were started with the /data/data one.
+    _dest_alt=$(printf '%s' "$DEST" | sed 's|^/data/user/0/|/data/data/|')
+    _stopped=0
+    for _d in /proc/[0-9]*; do
+        [ -r "$_d/cmdline" ] || continue
+        _c=$(tr '\0' ' ' < "$_d/cmdline" 2>/dev/null) || continue
+        case " $_c " in
+            *" $DEST "*|*" $_dest_alt "*)
+                # 别把自己（以及拉起自己的父 shell）算进"残留会话"：安装器自己的
+                # cmdline 里就带着 --dest 的绝对路径，2026-11-27 实测它 kill 掉了
+                # 自己，输出停在 "loader : ..." 那行，installer 静默没做完（defect H44）。
+                _pid=${_d#/proc/}
+                [ "$_pid" = "$$" ] && continue
+                [ "$_pid" = "$PPID" ] && continue
+                case " $_c " in *" install-husk.sh "*) continue ;; esac
+                kill "$_pid" 2>/dev/null && _stopped=$((_stopped + 1))
+                ;;
+        esac
+    done
+    if [ "$_stopped" -gt 0 ]; then
+        echo "   stopped $_stopped guest process(es) still running from this tree"
+        sleep 2
+        for _d in /proc/[0-9]*; do
+            [ -r "$_d/cmdline" ] || continue
+            _c=$(tr '\0' ' ' < "$_d/cmdline" 2>/dev/null) || continue
+            case " $_c " in
+                *" $DEST "*|*" $_dest_alt "*)
+                    _pid=${_d#/proc/}
+                    [ "$_pid" = "$$" ] && continue
+                    [ "$_pid" = "$PPID" ] && continue
+                    case " $_c " in *" install-husk.sh "*) continue ;; esac
+                    kill -9 "$_pid" 2>/dev/null || true ;;
+            esac
+        done
+        sleep 1
+    fi
+fi
+
+if [ "$UPGRADE" = no ]; then
 # 1. first pass: host tar. Hard links fail on Android; that is expected.
 #    Pick the decompressor by magic: toybox tar handles .tar and .tar.gz, but not
 #    xz/zstd, and images in the wild come as all four. .gz goes straight through
@@ -226,8 +298,6 @@ rm -f "$OUT/.husk-pass1.log"
 echo "== pass 2: re-extract through the shim (fixes hard links) =="
 mkdir -p "$DEST/tmp"
 cp "$ROOTFS_TAR" "$DEST/tmp/.husk-rootfs.tar"
-LIBS="$DEST/lib/aarch64-linux-gnu:$DEST/usr/lib/aarch64-linux-gnu"
-[ -d "$DEST/usr/lib/aarch64-linux-gnu" ] || LIBS="$DEST/usr/lib"
 # Pass 2 is the only pass that has to succeed completely: it is the one that
 # materialises hard links. So it goes to a log file and its exit status is read
 # directly - a `| sed` here would report sed's status and hide a failed extract.
@@ -244,6 +314,7 @@ if [ "$rc2" -ne 0 ]; then
     echo "install-husk: pass 2 failed (tar rc=$rc2); hard links are not materialised, this tree is broken" >&2
     exit 69
 fi
+fi   # --upgrade: no extraction
 
 # 2b. a release tarball leaves the mount points out on purpose
 #     (tools/guest/make-release.sh): tmp/proc/sys/dev/run/root are recreated
@@ -318,19 +389,104 @@ else
     echo "install-husk: sensor-proxy polkit files missing; sensor D-Bus claims may be denied" >&2
 fi
 
+# 2b-0c. PipeWire's distro default autoloads module-access, which probes
+# /proc/<pid>/root to detect Flatpak. Husk intentionally does not pass that
+# path through, so the probe returns ENOENT and every client is treated as a
+# Flatpak waiting forever for permissions. Install the unrestricted local
+# config used by the session. This is required by GNOME Snapshot, whose camera
+# provider is GStreamer -> PipeWire -> WirePlumber, not camera.sock.
+if [ -f "$HERE/guest-config/pipewire.conf" ]; then
+    mkdir -p "$DEST/etc/pipewire"
+    cp "$HERE/guest-config/pipewire.conf" "$DEST/etc/pipewire/pipewire.conf"
+    chmod 644 "$DEST/etc/pipewire/pipewire.conf"
+    echo "   wrote etc/pipewire/pipewire.conf (local media access, no Flatpak probe)"
+else
+    echo "install-husk: guest-config/pipewire.conf missing; Snapshot camera discovery will fail" >&2
+fi
+
+# WirePlumber 0.4.17's stock config loads bluetooth.lua unconditionally. There
+# is no BlueZ service in a Husk session; the Lua component aborts during init
+# and prevents the V4L2 monitor from ever enumerating the camera facade.
+if [ -f "$HERE/guest-config/wireplumber.conf" ]; then
+    mkdir -p "$DEST/etc/wireplumber"
+    cp "$HERE/guest-config/wireplumber.conf" "$DEST/etc/wireplumber/wireplumber.conf"
+    chmod 644 "$DEST/etc/wireplumber/wireplumber.conf"
+    echo "   wrote etc/wireplumber/wireplumber.conf (no Bluetooth dependency)"
+else
+    echo "install-husk: guest-config/wireplumber.conf missing; Snapshot camera discovery will fail" >&2
+fi
+
+# spa.v4l2 is loaded by WirePlumber after the guest loader has patched the
+# startup objects, so the V4L2 preload must be installed as a separate DSO.
+if [ -f "$HERE/guest/libhusk_v4l2.so" ]; then
+    mkdir -p "$DEST/usr/lib/aarch64-linux-gnu"
+    cp "$HERE/guest/libhusk_v4l2.so" "$DEST/usr/lib/aarch64-linux-gnu/libhusk_v4l2.so"
+    chmod 755 "$DEST/usr/lib/aarch64-linux-gnu/libhusk_v4l2.so"
+    echo "   wrote usr/lib/aarch64-linux-gnu/libhusk_v4l2.so"
+else
+    echo "install-husk: guest/libhusk_v4l2.so missing; standard camera clients will not open /dev/video*" >&2
+fi
+
+# PipeWire 1.0.5 disconnects an unchanged stream when a reconfigure carries
+# range caps. The disconnect can remove a buffer while videoflip still copies
+# it, which is the GNOME Snapshot SIGSEGV (139). Install the audited plugin only
+# when this rootfs actually carries the GStreamer PipeWire plugin; do not invent
+# a package dependency on unrelated trees.
+PIPEWIRE_PLUGIN="$HERE/guest/gstreamer-1.0/libgstpipewire.so"
+PIPEWIRE_DEST="$DEST/usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstpipewire.so"
+PIPEWIRE_SHA=5baacf01e9a98f74a0d3fef88f8da16e9d6e54245b82e871a2b6844665ba7f01
+if [ -f "$PIPEWIRE_PLUGIN" ]; then
+    if [ -f "$PIPEWIRE_DEST" ]; then
+        _pw_have=$(sha256sum "$PIPEWIRE_PLUGIN" | cut -d' ' -f1)
+        [ "$_pw_have" = "$PIPEWIRE_SHA" ] || {
+            echo "install-husk: bundled gstpipewire SHA mismatch: $_pw_have" >&2
+            exit 74
+        }
+        cp "$PIPEWIRE_PLUGIN" "$PIPEWIRE_DEST"
+        chmod 644 "$PIPEWIRE_DEST"
+        _pw_installed=$(sha256sum "$PIPEWIRE_DEST" | cut -d' ' -f1)
+        [ "$_pw_installed" = "$PIPEWIRE_SHA" ] || {
+            echo "install-husk: installed gstpipewire SHA mismatch: $_pw_installed" >&2
+            exit 74
+        }
+        echo "   wrote usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstpipewire.so (Snapshot 139 fix)"
+    else
+        echo "   skipped gstpipewire patch: target rootfs has no GStreamer PipeWire plugin" >&2
+    fi
+else
+    echo "install-husk: guest/gstreamer-1.0/libgstpipewire.so missing; Snapshot may exit 139" >&2
+fi
+
 # 2b-1. DING announces itself by scanning /proc/<pid>/cmdline. Android hides some
 # host processes from the app UID, and the extension treats one EACCES as a fatal
 # init error: dock/DING/wallpaper never appear while gnome-shell looks healthy.
 # Skip the unreadable entry; do not weaken /proc or SELinux.
 DING_EXT="$DEST/usr/share/gnome-shell/extensions/ding@rastersoft.com/extension.js"
 if [ -f "$DING_EXT" ]; then
-    if grep -Fq 'let [binaryData, etag] = processUser.load_bytes(null);' "$DING_EXT"; then
-        sed -i 's|let \[binaryData, etag\] = processUser.load_bytes(null);|let binaryData, etag; try { [binaryData, etag] = processUser.load_bytes(null); } catch (e) { continue; }|' "$DING_EXT"
+    # Already guarded? The patch exists in two shapes (single line, or a try
+    # block spanning lines) and a host-provided DING can carry its own guard.
+    # Ask whether the load_bytes call sits inside a try block within 6 lines,
+    # instead of matching one exact spelling of the fix.
+    _ding_ok=no
+    if awk '
+        /try[[:space:]]*\{/ { t = NR }
+        /processUser\.load_bytes\(null\)/ { if (t > 0 && NR - t < 7) ok = 1 }
+        END { exit ok ? 0 : 1 }' "$DING_EXT"; then _ding_ok=yes; fi
+    if [ "$_ding_ok" = no ]; then
+        if grep -Fq 'let [binaryData, etag] = processUser.load_bytes(null);' "$DING_EXT"; then
+            sed -i 's|let \[binaryData, etag\] = processUser.load_bytes(null);|let binaryData, etag; try { [binaryData, etag] = processUser.load_bytes(null); } catch (e) { continue; }|' "$DING_EXT"
+        elif grep -Fq 'let [binaryData] = processUser.load_bytes(null);' "$DING_EXT"; then
+            sed -i 's|let \[binaryData\] = processUser.load_bytes(null);|let binaryData; try { [binaryData] = processUser.load_bytes(null); } catch (e) { continue; }|' "$DING_EXT"
+        fi
+        if awk '
+            /try[[:space:]]*\{/ { t = NR }
+            /processUser\.load_bytes\(null\)/ { if (t > 0 && NR - t < 7) ok = 1 }
+            END { exit ok ? 0 : 1 }' "$DING_EXT"; then _ding_ok=yes; fi
     fi
-    grep -Fq 'catch (e) { continue; }' "$DING_EXT" || {
+    if [ "$_ding_ok" = no ]; then
         echo "install-husk: DING /proc compatibility patch did not apply; desktop icons would fail silently" >&2
         exit 80
-    }
+    fi
     echo "   DING: unreadable /proc entries are skipped"
 fi
 
@@ -355,8 +511,22 @@ fi
 #        llvmpipe。这里只在宿主机确有 mali0 且目标树还没有 PanVK 驱动时解压固定快照，
 #        不覆盖发行版或其他构建已有的驱动。驱动、ICD 和 MIT 许可证一起落盘。
 _bundle_panvk_rel=vendor/panvk/fristonerr-1.2.0-mali-g77
-_panvk_driver=usr/lib/aarch64-linux-gnu/libvulkan_panfrost_frist370_execva.so
-if ( : <> /dev/mali0 ) 2>/dev/null && [ ! -r "$DEST/$_panvk_driver" ]; then
+# Keep the verified snapshot at a Husk-owned path. Reusing a vendor-looking
+# filename let a stale file in an upgraded tree win the driver search while the
+# canonical ICD still pointed at it (v0.0.37 regression: readback SIGSEGV).
+_panvk_driver=usr/lib/aarch64-linux-gnu/libvulkan_panfrost_husk.so
+# PanVK 驱动：0.0.37 起由源码构建，安装器只核对 SHA-256，不再就地改字节。
+#
+# 驱动里带两处源码改动（见 vendor/panvk/fristonerr-1.2.0-mali-g77/PROVENANCE.md）：
+#   1. kbase 的 2 秒热身改成配置项（默认不睡）：上游每次建 kbase context 无条件
+#      nanosleep 2 秒，是给 Mali-G57 绕"第一个 job 被终止"的；G77 不需要，
+#      而每个 GL 进程建两次 context 就白等 4 秒（evidence 357）。
+#      需要它的机器设 PANVK_KBASE_WARMUP_MS=2000。
+#   2. vk_meta 缩放 blit 改单三角形（evidence 365）：原来 6 顶点/2 三角形在 Mali v9
+#      上第二个三角形画歪，缩略图出现黑三角。
+#
+# 以前那种"按偏移改 16 字节"的做法已经废弃：源码改过了，再按旧偏移改就是错。
+if ( : <> /dev/mali0 ) 2>/dev/null; then
     _pb="$HERE/$_bundle_panvk_rel"
     if [ -f "$_pb/libvulkan_panfrost_frist370_execva.so.gz" ] && \
        [ -f "$_pb/husk_panvk_guest.json" ]; then
@@ -370,13 +540,18 @@ if ( : <> /dev/mali0 ) 2>/dev/null && [ ! -r "$DEST/$_panvk_driver" ]; then
             echo "install-husk: bundled PanVK driver is corrupt" >&2
             exit 76
         fi
-        _want=599148568d80041ed3fd3312f5c9834479bcac9a13183f2b1479048b72a29b9c
+        _want=5e06324783ec7947d48782441fd1cac23953c90bd0b31663f98f08b22344c1c3
         _have=$(sha256sum "$_pt" | cut -d' ' -f1)
         if [ "$_have" != "$_want" ]; then
             rm -f "$_pt"
             echo "install-husk: bundled PanVK driver sha256 mismatch: $_have" >&2
             exit 76
         fi
+        # 源码已经改过（热身=配置、blit=单三角形），这里只核对身份，不改字节。
+        if [ "${PANVK_KBASE_WARMUP_MS:-0}" != 0 ] && [ -n "${PANVK_KBASE_WARMUP_MS:-}" ]; then
+            echo "   PanVK: kbase warmup PANVK_KBASE_WARMUP_MS=$PANVK_KBASE_WARMUP_MS ms"
+        fi
+        echo "   PanVK: source-built driver verified ($_want)"
         chmod 755 "$_pt"
         mv "$_pt" "$DEST/$_panvk_driver"
         cp "$_pb/husk_panvk_guest.json" "$DEST/usr/share/vulkan/icd.d/husk_panvk_guest.json"
@@ -527,6 +702,7 @@ if [ "$_husk_gpu_family" = mali-kbase ]; then
     # advertise it when its driver really exists.
     _husk_driver=
     for _drv in \
+        usr/lib/aarch64-linux-gnu/libvulkan_panfrost_husk.so \
         usr/lib/aarch64-linux-gnu/libvulkan_panfrost_frist370_execva.so \
         usr/lib/aarch64-linux-gnu/libvulkan_panfrost_frist370.so \
         usr/lib/aarch64-linux-gnu/libvulkan_panfrost_x11.so \
@@ -569,6 +745,55 @@ if [ "$_husk_gpu_family" = mali-kbase ]; then
         chmod 644 "$DEST/usr/share/vulkan/icd.d/husk_panvk_guest.json"
         _husk_icd=/usr/share/vulkan/icd.d/husk_panvk_guest.json
         echo "   wrote usr/share/vulkan/icd.d/husk_panvk_guest.json (guest-relative: /$_husk_driver)"
+        # The host pins one legacy manifest name of its own accord
+        # (doro-gpu-run hard-codes husk_panvk_frist370_execva.json). Deleting
+        # that file makes gnome-shell exit 139 on 2026-11-27 hardware, so the
+        # tree cannot ship "canonical only". Keep the legacy names but retarget
+        # them at the canonical driver: same manifest content, no second .so,
+        # and no .bak-* copy left for the loader to pick up by accident.
+        for _legacy in \
+            "$DEST"/usr/share/vulkan/icd.d/husk_panvk_frist370_execva.json \
+            "$DEST"/usr/share/vulkan/icd.d/husk_panvk_frist370.json \
+            "$DEST"/usr/share/vulkan/icd.d/husk_panvk_x11.json \
+            "$DEST"/usr/share/vulkan/icd.d/husk_panvk_g77.json \
+            "$DEST"/usr/share/vulkan/icd.d/husk_panvk.json
+        do
+            [ -f "$_legacy" ] || continue
+            {
+                echo '{'
+                echo '  "ICD": {'
+                echo "    \"api_version\": \"$_husk_api\","
+                echo '    "library_arch": "64",'
+                echo "    \"library_path\": \"/$_husk_driver\""
+                echo '  },'
+                echo '  "file_format_version": "1.0.1"'
+                echo '}'
+            } > "$_legacy"
+            chmod 644 "$_legacy"
+            echo "   retargeted $(basename "$_legacy") -> /$_husk_driver"
+        done
+        rm -f "$DEST"/usr/share/vulkan/icd.d/husk_panvk*.json.bak-* 2>/dev/null || true
+        # 0.0.37 · 清掉实验期留下的过期 ICD 与驱动副本（evidence 357 §7 / defect H43）。
+        # 两份驱动字节相同时它们不致命，但只要驱动一升级，旧副本就可能先被选中；而且
+        # husk_panvk_nosleep_test.json 这种"名字带 nosleep"的清单会让人误判补丁状态。
+        # 只在 canonical 驱动确实存在时才删，绝不把树上唯一的驱动删掉。
+        if [ "$_husk_driver" = usr/lib/aarch64-linux-gnu/libvulkan_panfrost_husk.so ]; then
+            rm -f "$DEST"/usr/share/vulkan/icd.d/*nosleep*.json 2>/dev/null || true
+            for _stale in \
+                usr/lib/aarch64-linux-gnu/libvulkan_panfrost_husk_nosleep.so \
+                usr/lib/aarch64-linux-gnu/libvulkan_panfrost_husk.so.bak-orig \
+                usr/lib/aarch64-linux-gnu/.libvulkan_panfrost_husk.so.bak-orig \
+                usr/lib/aarch64-linux-gnu/libvulkan_panfrost_x11.so \
+                usr/lib/aarch64-linux-gnu/libvulkan_panfrost_frist370_execva.so \
+                usr/lib/aarch64-linux-gnu/libvulkan_panfrost_frist370.so \
+                usr/lib/aarch64-linux-gnu/libvulkan_panfrost_g77.so
+            do
+                [ -f "$DEST/$_stale" ] || continue
+                rm -f "$DEST/$_stale"
+                echo "   removed stale GPU artifact $_stale"
+            done
+            unset _stale
+        fi
     else
         echo "   no PanVK driver in the tree; refusing to select a manifest without its driver" >&2
     fi
@@ -817,6 +1042,10 @@ _tool_missing=
 for t in husk-usermgr husk-su husk-ldconfig; do
     if [ -f "$HERE/$t" ]; then
         cp "$HERE/$t" "$HSBIN/$t" && chmod 755 "$HSBIN/$t"
+        # Older installs left a second copy in usr/bin. PATH searches usr/sbin
+        # first, but absolute /usr/bin/su and third-party scripts used the stale
+        # binary. Keep both spellings byte-identical to this bundle.
+        cp "$HERE/$t" "$DEST/usr/bin/$t" && chmod 755 "$DEST/usr/bin/$t"
     else
         echo "   WARNING: no $t next to the installer" >&2
         _tool_missing="$_tool_missing $t"
@@ -864,6 +1093,13 @@ if [ -x "$HSBIN/husk-usermgr" ]; then
             echo "   $d/$c -> husk-usermgr (distro binary kept as $c.shadow)"
         done
         ln -sf husk-usermgr "$HSBIN/$c" || { echo "install-husk: cannot link $c" >&2; exit 77; }
+        # Keep the usr/bin spelling too. The distro binary used to live there and
+        # both the host layer and third-party scripts call that exact path
+        # (measured 2026-11-27: the app's sudo-access step ran chown/chmod on
+        # /usr/bin/passwd, failed, and aborted the session start-up).
+        if [ ! -e "$DEST/usr/bin/$c" ]; then
+            ln -s ../sbin/husk-usermgr "$DEST/usr/bin/$c" 2>/dev/null || true
+        fi
         # /usr/sbin 已经覆盖 PATH；/sbin 与 /usr/sbin 在 usrmerge 树里是同一个目录。
         [ -L "$DEST/sbin" ] || ln -sf husk-usermgr "$DEST/sbin/$c" 2>/dev/null || true
     done
@@ -1001,6 +1237,15 @@ if [ -f "$HERE/husk-system-services.sh" ]; then
 else
     echo "install-husk: husk-system-services.sh missing; polkitd/iio-sensor-proxy will not auto-start" >&2
 fi
+# The desktop and the LinuxHub .husk host both invoke this helper through the
+# guest loader. Keep it inside the rootfs so the command name is stable.
+if [ -f "$HERE/husk-media-session.sh" ]; then
+    mkdir -p "$DEST/usr/local/bin"
+    cp "$HERE/husk-media-session.sh" "$DEST/usr/local/bin/husk-media-session"
+    chmod 755 "$DEST/usr/local/bin/husk-media-session"
+else
+    echo "install-husk: husk-media-session.sh missing; PipeWire/WirePlumber will not auto-start" >&2
+fi
 # husk-desktop.sh 是"起一个可用桌面会话"的单一入口（evidence 200）：清残留、清安全模式
 # 标记、起双总线、起 shell、自检。放在 rootfs 旁边，和 husk-session.sh 同级。
 if [ "$HERE/husk-desktop.sh" != "$OUT/husk-desktop.sh" ]; then
@@ -1100,6 +1345,37 @@ if [ -x "$DEST/usr/bin/python3" ]; then
         echo "   skipped BLAS/LAPACK soname check (not installed in this tree)"
     fi
 fi
+
+# 5. runtime identity. Every deployment records what is actually on disk so a
+#    test result is tied to this exact tree instead of "whatever the app had last
+#    week". tools/device-tests/23-runtime-identity.sh re-derives the same six
+#    hashes and fails when any of them moved.
+_id_sha() { if [ -f "$1" ]; then sha256sum "$1" | cut -d' ' -f1; else echo missing; fi; }
+_id_git=unknown
+if [ -f "$HERE/RUNTIME-IDENTITY" ]; then
+    _v=$(sed -n 's/^commit=//p' "$HERE/RUNTIME-IDENTITY" | head -1)
+    [ -n "$_v" ] && _id_git=$_v
+fi
+_id_driver="$DEST/usr/lib/aarch64-linux-gnu/libvulkan_panfrost_husk.so"
+_id_icd="$DEST/usr/share/vulkan/icd.d/husk_panvk_guest.json"
+_id_gpuenv="$DEST/etc/husk/gpu-env"
+_id_pipewire="$DEST/usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstpipewire.so"
+mkdir -p "$DEST/etc/husk"
+{
+    echo "version=$HUSK_VERSION"
+    echo "git_commit=$_id_git"
+    echo "mode=$([ "$UPGRADE" = yes ] && echo upgrade || echo install)"
+    echo "loader_sha256=$(sha256sum "$LOADER" | cut -d' ' -f1)"
+    echo "libc_sha256=${libc_sha:-unknown}"
+    echo "gpu_env_sha256=$(_id_sha "$_id_gpuenv")"
+    echo "panvk_driver_sha256=$(_id_sha "$_id_driver")"
+    echo "icd_sha256=$(_id_sha "$_id_icd")"
+    echo "pipewire_plugin_sha256=$(_id_sha "$_id_pipewire")"
+    echo "ran_at_epoch=$(date -u +%s)"
+} > "$DEST/etc/husk/runtime-identity"
+cp "$DEST/etc/husk/runtime-identity" "$OUT/.husk-install-state" 2>/dev/null || true
+echo "== runtime identity =="
+sed 's/^/   /' "$DEST/etc/husk/runtime-identity"
 
 cat <<DONE
 

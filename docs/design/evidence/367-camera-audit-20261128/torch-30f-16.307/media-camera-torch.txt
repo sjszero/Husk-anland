@@ -1,0 +1,27 @@
+  11-28 06:10:03 : Torch for camera id 0 turned on for client PID 2354
+    Has a flash unit: true
+      android.flash.info.available (50000): byte[1]
+      com.oplus.engineercamera.calibration.flashlight.verify (900200a8): int32[1]
+      android.flash.info.strengthDefaultLevel (50003): int32[1]
+      android.flash.info.strengthMaximumLevel (50002): int32[1]
+    Has a flash unit: false
+      android.flash.info.available (50000): byte[1]
+    Has a flash unit: true
+      android.flash.info.available (50000): byte[1]
+      android.flash.info.strengthDefaultLevel (50003): int32[1]
+      android.flash.info.strengthMaximumLevel (50002): int32[1]
+    Has a flash unit: true
+      android.flash.info.available (50000): byte[1]
+      android.flash.info.strengthDefaultLevel (50003): int32[1]
+      android.flash.info.strengthMaximumLevel (50002): int32[1]
+    Has a flash unit: true
+      android.flash.info.available (50000): byte[1]
+      com.oplus.engineercamera.calibration.flashlight.verify (900200a8): int32[1]
+      android.flash.info.strengthDefaultLevel (50003): int32[1]
+      android.flash.info.strengthMaximumLevel (50002): int32[1]
+    0x800e0006 (customizedTorchDuty) with type 0 (byte) defined in section com.oplus.engineercamera.led
+    0x90020013 (ae.preflashstate) with type 1 (int32) defined in section com.oplus
+    0x9002008c (flash.snapshot) with type 1 (int32) defined in section com.oplus
+    0x900200a3 (flashtrigger.state) with type 1 (int32) defined in section com.oplus
+    0x900200a8 (engineercamera.calibration.flashlight.verify) with type 1 (int32) defined in section com.oplus
+    0x900200ee (control.torch.intensity) with type 1 (int32) defined in section com.oplus

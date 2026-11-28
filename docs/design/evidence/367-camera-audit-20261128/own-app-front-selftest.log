@@ -1,0 +1,34 @@
+11-28 05:52:10.186 I/Husk    (24596): camera|ROOTFS|/data/data/com.linuxhub.husk/files/rootfs
+11-28 05:52:10.196 I/Husk    (24596): camera|looper|0xb400007433c93700
+11-28 05:52:10.196 I/Husk    (24596): camera|manager|pointer-return-abi
+11-28 05:52:10.196 I/Husk    (24596): camera|manager|0xb400007433c22cc0|raw=0xb400007433c22cc0
+11-28 05:52:10.205 I/Husk    (24596): camera|list|id=0|facing=BACK|orientation=90|yuv=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720|n=16
+11-28 05:52:10.206 I/Husk    (24596): camera|list|id=1|facing=FRONT|orientation=270|yuv=1920x1080,1872x864,1440x1080,1280x960,1600x720,1560x720|n=16
+11-28 05:52:10.206 I/Husk    (24596): camera|list|count=2
+11-28 05:52:10.225 I/Husk    (24596): camera|v4l2|tree|devices=2
+11-28 05:52:10.229 I/Husk    (24596): camera|reader|geometry|before=1280x720/35|set_rc=0|after=1280x720/35
+11-28 05:52:10.229 I/Husk    (24596): camera|reader|listener|rc=0
+11-28 05:52:10.247 I/Husk    (24596): camera|session|output_setup|container_rc=0|output_rc=0|add_rc=0|container_null=false|output_null=false
+11-28 05:52:10.445 I/Husk    (24596): caps|camera|present=yes|husk=degraded|backend=V4L2 /dev/videoN -> Camera2 NDK|detail=ids=0,1 / husk: V4L2 /dev/videoN is served by Camera2 NDK without a test marker; capture/photo/record and read/readv/mmap verified (evidence 91/93/240/282), but DMABUF/controls are unsupported and 8-25 fps was observed depending on mode
+11-28 05:52:10.559 I/Husk    (24596): camera|session|state_observed|ready=false|active=false
+11-28 05:52:10.559 I/Husk    (24596): camera|session|request_setup|request_rc=0|target_rc=0|add_target_rc=0|request_null=false|target_null=false
+11-28 05:52:10.560 I/Husk    (24596): camera|session|request_entries|control_mode_rc=0|ae_mode_rc=0
+11-28 05:52:10.560 I/Husk    (24596): camera|session|open|id=1|1280x720|mode=repeating|repeat_rc=0|sequence=0
+11-28 05:52:10.561 I/Husk    (24596): camera|callback|session_active
+11-28 05:52:10.569 I/Husk    (24596): camera|frame|acquire|rc=-30001|image_null=true
+11-28 05:52:10.687 I/Husk    (24596): camera|capture|started|count=1|timestamp=9930898608000
+11-28 05:52:10.713 I/Husk    (24596): camera|image_reader|available|count=1|reader_null=false
+11-28 05:52:10.715 I/Husk    (24596): camera|frame|acquire|recovered
+11-28 05:52:10.716 I/Husk    (24596): camera|capture|completed|count=1
+11-28 05:52:10.718 I/Husk    (24596): camera|frame|ready|seq=1|1280x720|ts=9930898608000
+11-28 05:52:10.724 I/Husk    (24596): camera|selftest|frame=0|1280x720|bytes=1382400|min=0|max=128|mean=42.85|ts=9930898608000|saved=true
+11-28 05:52:10.732 I/Husk    (24596): camera|frame|acquire|rc=-30001|image_null=true
+11-28 05:52:10.765 I/Husk    (24596): camera|frame|acquire|recovered
+11-28 05:52:10.772 I/Husk    (24596): camera|selftest|frame=1|1280x720|bytes=1382400|min=0|max=128|mean=42.71|ts=9930931930000|saved=true
+11-28 05:52:10.781 I/Husk    (24596): camera|frame|acquire|rc=-30001|image_null=true
+11-28 05:52:10.797 I/Husk    (24596): camera|frame|acquire|recovered
+11-28 05:52:10.805 I/Husk    (24596): camera|selftest|frame=2|1280x720|bytes=1382400|min=0|max=128|mean=42.71|ts=9930965252000|saved=true
+11-28 05:52:10.805 I/Husk    (24596): camera|selftest|DONE|frames=3|fps=30.01|span_ms=66.64|elapsed_ms=244
+11-28 05:52:10.904 I/Husk    (24596): camera|session|closed
+11-28 05:52:10.908 I/Husk    (24596): camera|LISTEN|/data/data/com.linuxhub.husk/files/rootfs/run/husk/camera.sock
+11-28 05:52:18.248 I/Husk    (24596): caps|camera|present=yes|husk=degraded|backend=V4L2 /dev/videoN -> Camera2 NDK|detail=ids=0,1 / husk: V4L2 /dev/videoN is served by Camera2 NDK without a test marker; capture/photo/record and read/readv/mmap verified (evidence 91/93/240/282), but DMABUF/controls are unsupported and 8-25 fps was observed depending on mode

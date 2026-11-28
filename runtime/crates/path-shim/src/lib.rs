@@ -555,6 +555,27 @@ const SYS_EXIT_GROUP: usize = 94;
 const SYS_TGKILL: usize = 131;
 const SIGSYS_NUM: usize = 31;
 const SA_SIGINFO: usize = 0x00000004;
+const SA_ONSTACK: usize = 0x0800_0000;
+const SYS_SIGALTSTACK: usize = 132;
+
+/// Alternate signal stack. A stack overflow raises SIGSEGV, the handler is then
+/// entered on the *exhausted* stack, faults again inside itself, and the kernel
+/// applies the default action: exit code 139 with no record at all. That is
+/// exactly the shape of the desktop crash this file had no evidence for
+/// (2026-11-27, `GNOME 已退出，退出码 139`), so the handler now runs off-stack
+/// and builds its record in statics instead of locals.
+#[repr(align(16))]
+struct CrashStack([u64; 8192]);
+static mut CRASH_STACK: CrashStack = CrashStack([0; 8192]);
+static mut CRASH_BUF: [u8; 512] = [0; 512];
+static mut CRASH_MAPS: [u8; 262144] = [0; 262144];
+#[repr(C)]
+struct KStack {
+    sp: usize,
+    flags: i32,
+    _pad: i32,
+    size: usize,
+}
 const SA_RESTART: usize = 0x10000000;
 const SYS_SECCOMP: i32 = 1;
 const AUDIT_ARCH_AARCH64: u32 = 0xc000_00b7;
@@ -665,7 +686,7 @@ unsafe fn sigsys_mode() -> u8 {
 /// identical lines. The *first* occurrence is the one worth keeping - it says
 /// who hit what - so the rest are dropped. The syscall is still answered the
 /// same way; only the log line goes away.
-static mut SEEN_NR: [u16; 24] = [0; 24];
+static mut SEEN_NR: [u16; 128] = [0; 128];
 static SEEN_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 /// Cross-process half of the same rule: a session runs hundreds of short-lived
@@ -1072,9 +1093,18 @@ unsafe fn install_sigsys() {
 
     // Same pass, one more diagnostic: a guest crash prints fault/pc/x0..x8 to
     // the log, then the default action runs as if we had never been there.
+    let ss = KStack {
+        sp: (core::ptr::addr_of_mut!(CRASH_STACK) as usize + 15) & !15,
+        flags: 0,
+        _pad: 0,
+        size: core::mem::size_of::<CrashStack>(),
+    };
+    if syscall4(SYS_SIGALTSTACK, &ss as *const KStack as usize, 0, 0, 0) < 0 {
+        init_note(b"nr-init|sigaltstack refused\n");
+    }
     let segh = KSigaction {
         handler: on_segv as usize,
-        flags: SA_SIGINFO,
+        flags: SA_SIGINFO | SA_ONSTACK,
         restorer: 0,
         mask: 0,
     };
@@ -1118,42 +1148,52 @@ unsafe fn init_note(line: &[u8]) {
 /// Without this a SIGSEGV inside the shim is a bare "Segmentation fault" with no
 /// address, which is what turned the first body-patch attempt into guesswork.
 /// The frame layout is the kernel's (installed through rt_sigaction with an
-/// 8-byte mask): ucontext.uc_mcontext sits at 160, regs[0..31] at +8, sp at +256,
+/// 8-byte mask): ucontext.uc_mcontext sits at 176, regs[0..31] at +8, sp at +256,
 /// pc at +264, pstate at +272.
 extern "C" fn on_segv(sig: CInt, info: *const u8, uc: *mut u8) {
     unsafe {
-        const MC: usize = 160;
+        const MC: usize = 176;
         let fa = core::ptr::read_unaligned(info.add(16) as *const u64);
         let pc = core::ptr::read_unaligned(uc.add(MC + 264) as *const u64);
         let lr = core::ptr::read_unaligned(uc.add(MC + 248) as *const u64);
+        let sp = core::ptr::read_unaligned(uc.add(MC + 256) as *const u64);
+        let fp = core::ptr::read_unaligned(uc.add(MC + 240) as *const u64);
         let x0 = core::ptr::read_unaligned(uc.add(MC + 8) as *const u64);
         let x1 = core::ptr::read_unaligned(uc.add(MC + 16) as *const u64);
         let x2 = core::ptr::read_unaligned(uc.add(MC + 24) as *const u64);
         let x8 = core::ptr::read_unaligned(uc.add(MC + 72) as *const u64);
-        let mut buf = [0u8; 224];
+        // Statics, not locals: see CRASH_STACK. sp and fp are what tell a
+        // stack overflow (sp at/near the mapping's low end) apart from a bad
+        // pointer (sp sane, fa nowhere near it).
+        let buf: &mut [u8] = &mut *core::ptr::addr_of_mut!(CRASH_BUF);
         let mut k = 0usize;
-        put(&mut buf, &mut k, b"segv|sig=");
-        putnum(&mut buf, &mut k, sig as i64);
-        put(&mut buf, &mut k, b"|fa=");
-        putnum(&mut buf, &mut k, fa as i64);
-        put(&mut buf, &mut k, b"|pc=");
-        putnum(&mut buf, &mut k, pc as i64);
-        put(&mut buf, &mut k, b"|lr=");
-        putnum(&mut buf, &mut k, lr as i64);
-        put(&mut buf, &mut k, b"|x0=");
-        putnum(&mut buf, &mut k, x0 as i64);
-        put(&mut buf, &mut k, b"|x1=");
-        putnum(&mut buf, &mut k, x1 as i64);
-        put(&mut buf, &mut k, b"|x2=");
-        putnum(&mut buf, &mut k, x2 as i64);
-        put(&mut buf, &mut k, b"|x8=");
-        putnum(&mut buf, &mut k, x8 as i64);
-        put(&mut buf, &mut k, b"|ld=");
-        putnum(&mut buf, &mut k, crate::boot::loader_base() as i64);
-        put(&mut buf, &mut k, b"|lc=");
-        putnum(&mut buf, &mut k, crate::boot::libc_base() as i64);
-        put(&mut buf, &mut k, b"\n");
+        put(buf, &mut k, b"segv|sig=");
+        putnum(buf, &mut k, sig as i64);
+        put(buf, &mut k, b"|fa=");
+        putnum(buf, &mut k, fa as i64);
+        put(buf, &mut k, b"|pc=");
+        putnum(buf, &mut k, pc as i64);
+        put(buf, &mut k, b"|lr=");
+        putnum(buf, &mut k, lr as i64);
+        put(buf, &mut k, b"|sp=");
+        putnum(buf, &mut k, sp as i64);
+        put(buf, &mut k, b"|fp=");
+        putnum(buf, &mut k, fp as i64);
+        put(buf, &mut k, b"|x0=");
+        putnum(buf, &mut k, x0 as i64);
+        put(buf, &mut k, b"|x1=");
+        putnum(buf, &mut k, x1 as i64);
+        put(buf, &mut k, b"|x2=");
+        putnum(buf, &mut k, x2 as i64);
+        put(buf, &mut k, b"|x8=");
+        putnum(buf, &mut k, x8 as i64);
+        put(buf, &mut k, b"|ld=");
+        putnum(buf, &mut k, crate::boot::loader_base() as i64);
+        put(buf, &mut k, b"|lc=");
+        putnum(buf, &mut k, crate::boot::libc_base() as i64);
+        put(buf, &mut k, b"\n");
         record(&buf[..k]);
+        crash_dump_maps();
         // Real crash semantics: restore SIG_DFL and let the fault happen again,
         // so a core dump / the platform's own reporting still happens.
         let dfl = KSigaction {
@@ -1172,6 +1212,62 @@ extern "C" fn on_segv(sig: CInt, info: *const u8, uc: *mut u8) {
         let tid = syscall4(SYS_GETTID, 0, 0, 0, 0);
         syscall4(SYS_TGKILL, tid as usize, tid as usize, sig as usize, 0);
         syscall4(SYS_EXIT_GROUP, (128 + sig) as usize, 0, 0, 0);
+    }
+}
+
+/// Copy /proc/self/maps next to the crash record: a pc inside a 25 MB library is
+/// just a number without the map, and the process is about to be gone. Bounded,
+/// syscall-only, static buffers - it also has to work when the stack is gone.
+unsafe fn crash_dump_maps() {
+    const SYS_READ: usize = 63;
+    let mut p = [0u8; 32];
+    let mut pn = 0usize;
+    for &b in b"/proc/self/maps" {
+        p[pn] = b;
+        pn += 1;
+    }
+    p[pn] = 0;
+    let fd = syscall4(SYS_OPENAT, AT_FDCWD as usize, p.as_ptr() as usize, 0, 0);
+    if (fd as i64) < 0 {
+        return;
+    }
+    let mb: &mut [u8] = &mut *core::ptr::addr_of_mut!(CRASH_MAPS);
+    let got = syscall4(SYS_READ, fd as usize, mb.as_mut_ptr() as usize, mb.len(), 0);
+    syscall4(SYS_CLOSE, fd as usize, 0, 0, 0);
+    if (got as i64) <= 0 {
+        return;
+    }
+    let root = guest_root();
+    let mut out = [0u8; 256];
+    let mut on = 0usize;
+    if !root.is_empty() && root.len() + 40 < out.len() {
+        out[..root.len()].copy_from_slice(root);
+        on = root.len();
+    }
+    for &b in b"/tmp/nr-crash-" {
+        if on < out.len() - 1 {
+            out[on] = b;
+            on += 1;
+        }
+    }
+    on = put_i64(&mut out, on, syscall4(SYS_GETPID, 0, 0, 0, 0) as i64);
+    for &b in b".maps" {
+        if on < out.len() - 1 {
+            out[on] = b;
+            on += 1;
+        }
+    }
+    out[on] = 0;
+    let ofd = syscall4(
+        SYS_OPENAT,
+        AT_FDCWD as usize,
+        out.as_ptr() as usize,
+        (1 | 0o100 | 0o2000) as usize,
+        0o644,
+    );
+    if (ofd as i64) >= 0 {
+        write_all(ofd as CInt, &mb[..got as usize]);
+        syscall4(SYS_CLOSE, ofd as usize, 0, 0, 0);
     }
 }
 
@@ -6304,7 +6400,7 @@ static FAKE_ID: AtomicU64 = AtomicU64::new(0);
 // every app a fixed set of host groups (input, log, sdcard_rw, ...); those must
 // never leak into a guest user's `getgroups()`. Keep a process-local guest list
 // instead, seeded from /etc/group and replaceable by setgroups()/initgroups().
-const FAKE_GROUPS_MAX: usize = 32;
+const FAKE_GROUPS_MAX: usize = 128;
 static mut FAKE_GROUPS: [u32; FAKE_GROUPS_MAX] = [0; FAKE_GROUPS_MAX];
 static mut FAKE_GROUPS_N: usize = 0;
 static FAKE_GROUPS_READY: AtomicU8 = AtomicU8::new(0);
@@ -9435,7 +9531,10 @@ unsafe fn guest_path_is_sys(path: *const CChar) -> bool {
         return false;
     }
     let p = bytes(path);
-    p == b"/sys" || (p.len() > 4 && &p[..4] == b"/sys" && p[4] == b'/')
+    p == b"/sys"
+        || (p.len() > 4 && &p[..4] == b"/sys" && p[4] == b'/')
+        || p.starts_with(b"/sys-v4l2/")
+        || p == b"/sys-v4l2"
 }
 
 unsafe fn fd_path_is_guest_sys(fd: CInt) -> bool {
@@ -9461,7 +9560,10 @@ unsafe fn fd_path_is_guest_sys(fd: CInt) -> bool {
         return false;
     }
     let rest = &real[root.len()..];
-    rest == b"/sys" || (rest.len() > 4 && &rest[..4] == b"/sys" && rest[4] == b'/')
+    rest == b"/sys"
+        || (rest.len() > 4 && &rest[..4] == b"/sys" && rest[4] == b'/')
+        || rest.starts_with(b"/sys-v4l2/")
+        || rest == b"/sys-v4l2"
 }
 
 /// `statvfs(3)` is glibc's own wrapper around `statfs(2)`: the conversion runs
@@ -9760,6 +9862,60 @@ unsafe fn env_has_name(envp: *const *const CChar, name: &[u8]) -> bool {
     false
 }
 
+/// `/proc/self/exe` 这类 magic link 在本模型下指向**加载器**，不是当程序跑的
+/// guest ELF。`readlink` 那一侧 evidence 217 已经换成 guest 路径了，但 `execve`
+/// 这一侧一直漏着：Chrome / Electron 的 zygote、network service 都是
+/// `execve("/proc/self/exe", ["--type=utility", ...])` 自报家门，直接交给内核就
+/// 会把 libld.so 当程序跑。实测（evidence 362）：
+///   `bash -c 'exec /proc/self/exe -c "echo hi"'`
+///     -> `-c: error while loading shared libraries: -c: cannot open shared object file`
+///   `bash -c 'exec /proc/self/exe --type=utility'`
+///     -> `/proc/self/exe: unrecognized option '--type=utility'`
+/// 而同一个进程里 `readlink /proc/self/exe` 给的是 `/usr/bin/readlink`。
+/// 所以这里把 self-exe 换成 `EXE_GUEST`（exec 时发布的那条 guest 路径），再走
+/// 正常的路径解析流程。
+unsafe fn self_exe_exec_path(out: &mut [u8; PATH_MAX]) -> Option<usize> {
+    // 与 readlinkat 同一套 seqlock：另一个线程正在 exec 时 EXE_GUEST 会被改写。
+    let mut attempts = 0;
+    while attempts < 64 {
+        let s1 = EXE_SEQ.load(Ordering::Acquire);
+        if s1 & 1 == 0 {
+            let n = EXE_GUEST_LEN;
+            if n == 0 {
+                return None;
+            }
+            out[..n].copy_from_slice(&EXE_GUEST[..n]);
+            out[n] = 0;
+            if EXE_SEQ.load(Ordering::Acquire) == s1 {
+                return Some(n);
+            }
+        }
+        attempts += 1;
+        core::hint::spin_loop();
+    }
+    None
+}
+
+/// `path` 是不是"本进程自己的 exe"：`/proc/self/exe` 或 `/proc/thread-self/exe`。
+unsafe fn is_self_exe_path(path: *const CChar) -> bool {
+    const WANTS: [&[u8]; 2] = [b"/proc/self/exe", b"/proc/thread-self/exe"];
+    for want in WANTS.iter() {
+        let mut hit = true;
+        let mut i = 0usize;
+        while i < want.len() {
+            if *path.add(i) as u8 != want[i] {
+                hit = false;
+                break;
+            }
+            i += 1;
+        }
+        if hit && *path.add(want.len()) as u8 == 0 {
+            return true;
+        }
+    }
+    false
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn execve(
     path: *const CChar,
@@ -9769,6 +9925,14 @@ pub unsafe extern "C" fn execve(
     if path.is_null() {
         return set_errno(14);
     }
+    // 自我 re-exec：`execve("/proc/self/exe", …)` 必须落到本进程真正在跑的
+    // guest 程序上，而不是加载器自己（见 self_exe_exec_path）。
+    let mut self_exe = [0u8; PATH_MAX];
+    let path = if is_self_exe_path(path) && self_exe_exec_path(&mut self_exe).is_some() {
+        self_exe.as_ptr() as *const CChar
+    } else {
+        path
+    };
     let augmented_env = ExecEnv::prepare(envp);
     let envp = augmented_env.as_ptr(envp);
     let rfd = rootfd();
@@ -12056,6 +12220,9 @@ pub unsafe extern "C" fn fstat64(fd: CInt, st: *mut u8) -> CInt {
     if is_fake_fd(fd) && plan::gpu_family() == plan::GPU_MALI && drm_node_stat(st) {
         return 0;
     }
+    if v4l2_dispatch_fstat(fd, st) {
+        return 0;
+    }
     let r = ret_or_errno(syscall4(SYS_FSTAT, fd as usize, st as usize, 0, 0));
     if r == 0 {
         own_patch_stat(st);
@@ -13698,9 +13865,7 @@ pub unsafe extern "C" fn ioctl(fd: CInt, request: u64, arg: *mut u8) -> CInt {
 pub unsafe extern "C" fn read(fd: CInt, out: *mut u8, count: CSizet) -> Ssize {
     if v4l2_is_fake(fd) {
         v4l2_api_audit(16, b"[husk v4l2] core read\n");
-        v4l2_lock();
-        let r = V4L2_CTX.read_frame(fd, out, count);
-        v4l2_unlock();
+        let r = v4l2_dispatch_read(fd, out, count);
         return ssize_or_errno(r);
     }
     ssize_or_errno(syscall4(SYS_READ, fd as usize, out as usize, count, 0))
@@ -13710,9 +13875,7 @@ pub unsafe extern "C" fn read(fd: CInt, out: *mut u8, count: CSizet) -> Ssize {
 pub unsafe extern "C" fn readv(fd: CInt, iov: *mut u8, iovcnt: CInt) -> Ssize {
     if v4l2_is_fake(fd) {
         v4l2_api_audit(32, b"[husk v4l2] core readv\n");
-        v4l2_lock();
-        let r = V4L2_CTX.readv_frame(fd, iov, iovcnt);
-        v4l2_unlock();
+        let r = v4l2_dispatch_readv(fd, iov, iovcnt);
         return ssize_or_errno(r);
     }
     ssize_or_errno(syscall4(
@@ -13832,6 +13995,9 @@ unsafe fn v4l2_ready() -> bool {
     p[..rl].copy_from_slice(&ROOT_REAL[..rl]);
     p[rl..rl + suffix.len()].copy_from_slice(suffix);
     let ok = V4L2_CTX.init(&p[..rl + suffix.len()]);
+    if ok && env_lookup(b"NR_V4L2_AUDIT").is_some() {
+        V4L2_CTX.set_trace(true);
+    }
     once_end(&V4L2_STATE, ok);
     ok
 }
@@ -13864,9 +14030,12 @@ unsafe fn v4l2_sys_host(p: &[u8], out: &mut [u8; PATH_MAX]) -> Option<usize> {
         return None;
     }
     const C: &[u8] = b"/sys/class/video4linux";
+    const B: &[u8] = b"/sys/bus/video4linux";
     const S: &[u8] = b"/sys/subsystem/video4linux";
     let (dir, rest) = if p.starts_with(C) {
         (b"/sys-v4l2/class".as_ref(), &p[C.len()..])
+    } else if p.starts_with(B) {
+        (b"/sys-v4l2/bus".as_ref(), &p[B.len()..])
     } else if p.starts_with(S) {
         (b"/sys-v4l2/subsystem".as_ref(), &p[S.len()..])
     } else {
@@ -13970,9 +14139,10 @@ unsafe fn v4l2_statx(n: u32, buf: *mut u8) -> CInt {
  *
  * loader 只能改启动时已加载对象的 GOT；GStreamer 的 libgstvideo4linux2.so 是
  * dlopen 的，它调 open("/dev/video1") 会绕过我们落到 Android 那个 0660 的节点。
- * 所以 preload 拥有一份 Ctx，并把函数表地址写进 HUSK_V4L2_API（hex），
- * 我们两边共用同一份状态（app 的 camera.sock 一次只收一个客户端）。
- * 表：[open, ioctl, mmap, is_fake, close, nonblock, forget_target]
+ * 所以 preload 拥有一份 Ctx，并导出稳定的 `husk_v4l2_*` ABI；loader 从
+ * link map 解析这些函数并缓存。不要再通过环境变量传裸函数表：那会绕过
+ * ELF 的加载顺序、符号版本和地址重定位，实测会把只含模块相对偏移的表
+ * 当成绝对地址解引用并 SIGSEGV。
  */
 type V4l2Open = unsafe extern "C" fn(u32) -> CInt;
 type V4l2Ioctl = unsafe extern "C" fn(CInt, u64, *mut u8) -> i64;
@@ -13981,33 +14151,64 @@ type V4l2IsFake = unsafe extern "C" fn(CInt) -> CInt;
 type V4l2Close = unsafe extern "C" fn(CInt);
 type V4l2Nonblock = unsafe extern "C" fn(CInt, CInt);
 type V4l2ForgetTarget = unsafe extern "C" fn(CInt);
+type V4l2Read = unsafe extern "C" fn(CInt, *mut u8, usize) -> isize;
+type V4l2Readv = unsafe extern "C" fn(CInt, *mut u8, CInt) -> isize;
+type V4l2Fstat = unsafe extern "C" fn(CInt, *mut u8) -> CInt;
 
-unsafe fn v4l2_api() -> Option<*const usize> {
-    let v = env_lookup(b"HUSK_V4L2_API")?;
-    if v.len() < 4 || v[0] != b'0' || (v[1] | 0x20) != b'x' {
+const V4L2_API_COUNT: usize = 10;
+static mut V4L2_PRELOAD_API: [usize; V4L2_API_COUNT] = [0; V4L2_API_COUNT];
+static mut V4L2_PRELOAD_API_STATE: u8 = 0; // 0=unresolved, 1=ready, 2=absent
+
+/// Resolve the preload's public V4L2 ABI through the normal ELF link map.
+///
+/// The previous implementation published the address of a Rust `static` array
+/// through `HUSK_V4L2_API`. In this static-PIE/no_std DSO the value observed by
+/// the loader was `0x2008` rather than a relocated process address, so the
+/// first dereference faulted with `fa=0x2008`. Symbol resolution keeps the
+/// handshake on ABI that the dynamic loader actually owns.
+unsafe fn v4l2_api() -> Option<[usize; V4L2_API_COUNT]> {
+    if V4L2_PRELOAD_API_STATE == 2 {
         return None;
     }
-    let mut p: usize = 0;
-    for c in &v[2..] {
-        let d = match c {
-            b'0'..=b'9' => c - b'0',
-            b'a'..=b'f' => c - b'a' + 10,
-            b'A'..=b'F' => c - b'A' + 10,
-            _ => return None,
-        };
-        p = (p << 4) | d as usize;
+    if V4L2_PRELOAD_API_STATE == 0 {
+        // Do not use a constructor-published environment marker here. The
+        // custom loader does not necessarily run no_std preload init arrays,
+        // and relying on one made the loader silently stay on its private Ctx.
+        // Missing symbols are the authoritative "preload absent" signal.
+        let main_map = crate::boot::nr_get_main_map();
+        let names: [(&[u8], usize); V4L2_API_COUNT] = [
+            (b"husk_v4l2_open\0", 14),
+            (b"husk_v4l2_ioctl\0", 15),
+            (b"husk_v4l2_mmap\0", 14),
+            (b"husk_v4l2_is_fake\0", 17),
+            (b"husk_v4l2_close\0", 15),
+            (b"husk_v4l2_nonblock\0", 18),
+            (b"husk_v4l2_forget_target\0", 23),
+            (b"husk_v4l2_read\0", 14),
+            (b"husk_v4l2_readv\0", 15),
+            (b"husk_v4l2_fstat\0", 15),
+        ];
+        let mut i = 0;
+        while i < V4L2_API_COUNT {
+            let (name, len) = names[i];
+            let p = crate::boot::nr_resolve_name(main_map, name.as_ptr() as usize, len);
+            if p == 0 {
+                init_note(b"[husk v4l2] preload ABI unavailable\n");
+                V4L2_PRELOAD_API_STATE = 2;
+                return None;
+            }
+            V4L2_PRELOAD_API[i] = p;
+            i += 1;
+        }
+        V4L2_PRELOAD_API_STATE = 1;
     }
-    if p == 0 {
-        None
-    } else {
-        Some(p as *const usize)
-    }
+    Some(V4L2_PRELOAD_API)
 }
 
 unsafe fn v4l2_is_fake(fd: CInt) -> bool {
     v4l2_lock();
-    let fake = if let Some(t) = v4l2_api() {
-        let f: V4l2IsFake = core::mem::transmute(*t.add(3));
+    let fake = if let Some(api) = v4l2_api() {
+        let f: V4l2IsFake = core::mem::transmute(api[3]);
         f(fd) != 0
     } else if V4L2_STATE.load(Ordering::Acquire) != 2 {
         false
@@ -14021,8 +14222,8 @@ unsafe fn v4l2_is_fake(fd: CInt) -> bool {
 unsafe fn v4l2_dispatch_ioctl(fd: CInt, req: u64, arg: *mut u8) -> i64 {
     v4l2_api_audit(32, b"[husk v4l2] core ioctl\n");
     v4l2_lock();
-    let r = if let Some(t) = v4l2_api() {
-        let f: V4l2Ioctl = core::mem::transmute(*t.add(1));
+    let r = if let Some(api) = v4l2_api() {
+        let f: V4l2Ioctl = core::mem::transmute(api[1]);
         f(fd, req, arg)
     } else {
         V4L2_CTX.ioctl(fd, req, arg)
@@ -14034,8 +14235,8 @@ unsafe fn v4l2_dispatch_ioctl(fd: CInt, req: u64, arg: *mut u8) -> i64 {
 unsafe fn v4l2_dispatch_mmap(fd: CInt, len: usize, off: i64) -> Option<*mut u8> {
     v4l2_api_audit(64, b"[husk v4l2] core mmap\n");
     v4l2_lock();
-    let out = if let Some(t) = v4l2_api() {
-        let f: V4l2Mmap = core::mem::transmute(*t.add(2));
+    let out = if let Some(api) = v4l2_api() {
+        let f: V4l2Mmap = core::mem::transmute(api[2]);
         let p = f(fd, len, off);
         if p.is_null() {
             None
@@ -14049,10 +14250,53 @@ unsafe fn v4l2_dispatch_mmap(fd: CInt, len: usize, off: i64) -> Option<*mut u8> 
     out
 }
 
+unsafe fn v4l2_dispatch_read(fd: CInt, out: *mut u8, count: usize) -> isize {
+    v4l2_lock();
+    let r = if let Some(api) = v4l2_api() {
+        let f: V4l2Read = core::mem::transmute(api[7]);
+        f(fd, out, count)
+    } else {
+        V4L2_CTX.read_frame(fd, out, count)
+    };
+    v4l2_unlock();
+    r
+}
+
+unsafe fn v4l2_dispatch_readv(fd: CInt, iov: *mut u8, iovcnt: CInt) -> isize {
+    v4l2_lock();
+    let r = if let Some(api) = v4l2_api() {
+        let f: V4l2Readv = core::mem::transmute(api[8]);
+        f(fd, iov, iovcnt)
+    } else {
+        V4L2_CTX.readv_frame(fd, iov, iovcnt)
+    };
+    v4l2_unlock();
+    r
+}
+
+unsafe fn v4l2_dispatch_fstat(fd: CInt, st: *mut u8) -> bool {
+    if let Some(api) = v4l2_api() {
+        let f: V4l2Fstat = core::mem::transmute(api[9]);
+        if f(fd, st) == 0 {
+            return true;
+        }
+    }
+
+    // loader-only sessions use the embedded Ctx; preload-backed sessions use
+    // the copy above. Try both so fstat sees the same owner as open().
+    v4l2_lock();
+    let rdev = V4L2_CTX.char_device_rdev(fd);
+    v4l2_unlock();
+    match rdev {
+        Some(rdev) => v4l2_stat(rdev & 0xff, st) == 0,
+        None => false,
+    }
+}
+
 unsafe fn v4l2_forget(fd: CInt) {
     v4l2_lock();
-    if let Some(t) = v4l2_api() {
-        let f: V4l2Close = core::mem::transmute(*t.add(4));
+    if let Some(api) = v4l2_api() {
+        let f: V4l2Close = core::mem::transmute(api[4]);
         f(fd);
     } else {
         V4L2_CTX.close(fd);
@@ -14065,8 +14309,8 @@ unsafe fn v4l2_forget(fd: CInt) {
 /// the new source is an ordinary file and can no longer be identified as V4L2.
 unsafe fn v4l2_forget_target(fd: CInt) {
     v4l2_lock();
-    if let Some(t) = v4l2_api() {
-        let f: V4l2ForgetTarget = core::mem::transmute(*t.add(6));
+    if let Some(api) = v4l2_api() {
+        let f: V4l2ForgetTarget = core::mem::transmute(api[6]);
         f(fd);
     } else if V4L2_STATE.load(Ordering::Acquire) == 2 {
         V4L2_CTX.forget_target(fd);
@@ -14076,8 +14320,8 @@ unsafe fn v4l2_forget_target(fd: CInt) {
 
 unsafe fn v4l2_nonblock(fd: CInt, on: bool) {
     v4l2_lock();
-    if let Some(t) = v4l2_api() {
-        let f: V4l2Nonblock = core::mem::transmute(*t.add(5));
+    if let Some(api) = v4l2_api() {
+        let f: V4l2Nonblock = core::mem::transmute(api[5]);
         f(fd, if on { 1 } else { 0 });
     } else {
         V4L2_CTX.update_nonblock(fd, on);
@@ -14119,8 +14363,8 @@ unsafe fn apply_v4l2_open_flags(fd: CInt, flags: CInt) -> Result<(), CInt> {
 unsafe fn v4l2_open_device(n: u32, flags: CInt) -> Option<Result<CInt, CInt>> {
     v4l2_api_audit(128, b"[husk v4l2] core open\n");
     v4l2_lock();
-    let out = if let Some(t) = v4l2_api() {
-        let f: V4l2Open = core::mem::transmute(*t);
+    let out = if let Some(api) = v4l2_api() {
+        let f: V4l2Open = core::mem::transmute(api[0]);
         let fd = f(n);
         Some(if fd >= 0 { Ok(fd) } else { Err(-fd) })
     } else if !v4l2_ready() {

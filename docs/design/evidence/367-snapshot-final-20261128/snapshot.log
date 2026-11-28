@@ -1,0 +1,9 @@
+[2m2026-11-27T23:27:18.845582Z[0m [32m INFO[0m [2msnapshot::application::imp[0m[2m:[0m Snapshot (org.gnome.Snapshot)    
+[2m2026-11-27T23:27:18.845653Z[0m [32m INFO[0m [2msnapshot::application::imp[0m[2m:[0m Version: 46.2    
+[2m2026-11-27T23:27:18.845658Z[0m [32m INFO[0m [2msnapshot::application::imp[0m[2m:[0m Datadir: /usr/share/snapshot    
+MESA-EGL: warning: DRI3 error: Could not get DRI3 device
+MESA-EGL: warning: Ensure your X server supports DRI3 to get accelerated rendering
+MESA: warning: kbase: KBASE_IOCTL_MEM_EXEC_INIT failed: 不允许的操作 (executable BO allocation will not work)
+WARNING: panvk is not a conformant Vulkan implementation, testing use only.
+FristOneRR 1.2.0 (Mesa 26.3.0-devel)
+MESA: warning: kbase: KBASE_IOCTL_MEM_EXEC_INIT failed: 不允许的操作 (executable BO allocation will not work)
