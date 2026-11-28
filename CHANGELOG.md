@@ -7,6 +7,15 @@
 **每条结论都带证据编号**，原始输出在 `docs/design/evidence/`。0.0.1 之前的工程日记（36 条，
 按时间顺序）在 [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md)。
 
+## [0.0.38] - 未发布
+
+### 延期账（2026-11-28 登记）
+
+- H60 相机预览帧率：能出画面但逐帧刷新，先量基线再改取帧流水线。
+- H61 标准 VA-API 视频 1080p 停摆：720p 通，1080p / High profile 12–25 帧后卡住。
+- H62 VA 资产未进 dist 与 App assets：`husk_drv_video.so`、`libgstvaapi.so`、`vainfo`，随 H61 同批处理。
+- H63 X11 → WD 迁移：用户指定延后，另行立项。
+
 ## [0.0.37] - 2026-11-27
 
 ### 文档校正（2026-11-28）
@@ -1809,3 +1818,4 @@ GTK 应用都走同一套 Mali/PanVK 设备运行时”。
 
 [0.0.13]: https://github.com/xishanp/Husk/releases/tag/v0.0.13
 [0.0.12]: https://github.com/xishanp/Husk/releases/tag/v0.0.12
+[0.0.38]: https://github.com/xishanp/Husk/releases/tag/v0.0.38
