@@ -74,7 +74,7 @@ A-hw 的 11 条失败全部落在“没有人授权 + 宿主没有 socket”两�
 | GPU | 直连 | `/dev/mali0`，PanVK + Zink | Mali-G77 MC9 枚举、compute、离屏 graphics、EGL/GL；Adreno/KGSL 仅源码与主机侧测试，真机 UNKNOWN |
 | 相机 | 中转 | V4L2 `/dev/videoN` facade | 2026-11-27 复验：A-hw 14/0；前后摄各 3 帧 1280×720 NV12；V4L2/GStreamer fixture 两档通过；crop/selection 与 monotonic PTS 已验；DMABUF、通用 controls、非整帧裁剪未支持 |
 | 音频 | 中转 | PulseAudio → Rust relay → AAudio | 输出与采集真实 PCM；采集探针 196,608 bytes、`peak=285` |
-| 视频解码 | 中转 | VA-API → bridge → MediaCodec | 分两条写清：app 自有 SurfaceControl 路径 1080p30 600 秒 `dropped=0`（evidence 80）**PASS**；标准 VA-API 路径（gst-vaapi/`vaapih264dec`）720p 全片 PASS，1080p 与 High profile 在 12–25 帧后停摆 **FAIL**（evidence `367-video-va-ab-20261128`） |
+| 视频解码 | 中转 | VA-API → bridge → MediaCodec | 分两条写清：app 自有 SurfaceControl 路径 1080p30 600 秒 `dropped=0`（evidence 80，**旧宿主证据，未在新宿主复跑**）；标准 VA-API 路径（gst-vaapi/`vaapih264dec`）720p 全片 PASS，1080p 与 High profile 在 12–25 帧后停摆 **FAIL**（evidence `367-video-va-ab-20261128`） |
 | 传感器 | 中转 | IIO sysfs 影子树 ← `ASensorManager_*` | 加速度、磁力、陀螺仪、环境光、距离五类可读；`iio-sensor-proxy` 已发布 `net.hadess.SensorProxy`，三项 Claim 与 `monitor-sensor` 真机通过（evidence 322） |
 | 定位 | 中转（仅 last-known） | gpsd JSON → `/run/husk/gps.sock` ← `LocationManager.getLastKnownLocation()` | `VERSION` / `DEVICES` / `WATCH` / `POLL` / `TPV` 真机通过；撤权后缓存 FIX 清空且只回 `mode=1`；持续定位、后台定位、GNSS 原始测量 UNVERIFIED（evidence 323） |
 | 显示 | 应用侧中转 | AHB → dma-buf → SurfaceControl | 3-buffer ring 与真实 `SYNC_FD` 跑到 10,000 帧；只覆盖应用侧接管段 |

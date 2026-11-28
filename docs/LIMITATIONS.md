@@ -85,7 +85,7 @@ GPU 表面 -> CPU 回读 -> X server / SHM 拷贝 -> 应用侧 AHB -> 屏幕
 | GPU | 直连 | `/dev/mali0` + PanVK；Adreno 未真机验证 |
 | 相机 | 中转 | 标准 V4L2 facade，后端 Camera2；不支持 DMABUF/controls |
 | 音频 | 中转 | PulseAudio → Rust relay → AAudio；无 `/dev/snd` |
-| 视频解码 | 中转 | VA-API → MediaCodec；标准 VA-API 路径目前只有 720p Constrained Baseline 实测通过，1080p 与 High profile 会停摆（`367-video-va-ab-20261128`），不能宣称播放器可用 |
+| 视频解码 | 中转 | VA-API → MediaCodec；标准 VA-API 路径目前只有 720p Constrained Baseline 实测通过，1080p 与 High profile 会停摆；自有 SurfaceControl 路径的 600 秒结论来自旧宿主，未在新宿主复跑（`367-video-va-ab-20261128`），不能宣称播放器可用 |
 | 传感器 | 中转 | NDK → IIO 影子树 → `iio-sensor-proxy`；D-Bus 输出已在参考机验证，当前只映射五类默认传感器 |
 | 定位 | 中转（仅 last-known） | `LocationManager.getLastKnownLocation()` → gpsd JSON；持续定位、后台定位、GNSS 原始测量未实现 |
 | USB / 蓝牙 | 权限或厂商限制 | 仍需要 Java 回调或明确功能子集 |

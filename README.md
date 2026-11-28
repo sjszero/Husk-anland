@@ -34,12 +34,8 @@ Husk 是**运行时**，不是 App。它被一个宿主 App 装进自己的数�
 输入注入和 Surface 呈现。当前唯一有效宿主是 **LinuxHub 2.0 的 Husk 运行时**
 （包名 `com.linuxhub.myth.husk`）。
 
-> [!WARNING]
-> 更早有一批结论是在**另一个应用**（`com.linuxhub.husk`）里测的，宿主层不同，那些数字
-> 一律作废，不要引用。仓库里凡是保留的旧现场记录，都注明了"旧宿主现场"。
-
-对外唯一的交付物是运行时包 `dist/husk-arm64.tar.gz`；宿主 App 怎么起桌面、怎么合成窗口，
-不属于本仓库。
+宿主负责窗口系统、输入注入与表面呈现；Husk 只提供运行时。桌面能不能出画面、相机怎么显示，
+都由宿主那一侧的实现决定，本仓库只对运行时本身的行为负责。
 
 ## 现在能做什么
 
@@ -57,7 +53,6 @@ Husk 是**运行时**，不是 App。它被一个宿主 App 装进自己的数�
 | 桌面会话、139 崩溃 | PASS（20 s 无 139） | `367-snapshot-final-20261128` |
 | 相机预览 | **FAIL**：能出画面，但逐帧刷新、帧率极低，未达可用 | 现场反馈，待量化 |
 | 视频（标准 VA-API 路径 / 桌面播放器） | **FAIL**：720p 通；1080p 与 High profile 12–25 帧后停摆 | `367-video-va-ab-20261128` |
-| 视频（Husk 自有 SurfaceControl 路径） | PASS：H.264 1080p30 连续 600 s，`dropped=0` | `80-video-1080p30-10min` |
 
 写 FAIL 的两行不是没做，是做了且没达标——照实写，不藏。
 
@@ -84,42 +79,30 @@ sh husk-session.sh files/linux/distributions/<发行版>/rootfs -- /usr/bin/true
 ## 目录
 
 - [概览](#概览) · [唯一有效宿主](#唯一有效宿主) · [现在能做什么](#现在能做什么)
-- [能跑起来的前提](#能跑起来的前提) · [为什么是 Husk](#为什么是-husk)
+- [能跑起来的前提](#能跑起来的前提)
 - [特性](#特性) · [和容器、虚拟机的区别](#和容器虚拟机的区别)
 - [硬件接口](#硬件接口) · [交付形态](#交付形态)
 - [工作原理](#工作原理) · [从源码构建](#从源码构建)
 - [仓库结构](#仓库结构) · [文档](#文档) · [常见问题](#常见问题)
 
-## 为什么是 Husk
-
-同一台手机、同一份 rootfs、同一个 workload，只换运行器。下表是 **2026-11-24 的五轮轮转
-中位数**，采于旧宿主层：
-
-| 工作量 | Husk | proot | 倍率 |
-|---|---:|---:|---:|
-| `stat` × 20 000 | 650 ms | 3 734 ms | **5.7×** |
-| `open` + `close` × 20 000 | 1 252 ms | 8 481 ms | **6.8×** |
-| `make -j4`，200 目标链接 | 5 194 ms | 24 182 ms | **4.7×** |
-| 顺序写 256 MB | 1 294 ms | 1 321 ms | 1.0× |
-
-> [!NOTE]
-> 这组数字是旧宿主现场。**方向可信**（优势随路径/syscall 密度放大，大块 IO 上消失），
-> **具体数值在新宿主上重跑之前不作承诺**。机制、代价与完整八维表见
-> [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)。
-
 ## 特性
+
+以下每一条都在当前宿主上跑过，证据在 `docs/design/evidence/367-*`：
 
 - **零 `ptrace`、零 syscall 拦截。** 内核看到的是用户态自己的 syscall。
 - **原样的 glibc 用户态。** 除 libc 内部调用需要的 slot 项，树的二进制没有为 Husk 改过。
-- **包管理器可用。** `apt-get install` 27 秒把树从 815 包装到 882 包，含 `build-essential`、
-  `nodejs`、`python3-numpy`。
-- **工具链完整。** `gcc`、200 目标工程的 `make -j4`、`git clone`、`python3` + `numpy`。
-- **系统服务可用。** dbus、polkit、at-spi、gvfs 与 RandR 能在 Linux 用户态里直接启动；
-  它们是否需要桌面会话由宿主决定。
+- **安装器可自证。** `--upgrade` 装完重算六项 SHA，与包内 `RUNTIME-IDENTITY` 逐项比对，
+  本包实测 12/12 通过。
+- **包管理器可用。** 在宿主树里用 `apt` 真装过 `gstreamer1.0-vaapi`、`vainfo`、
+  `gstreamer1.0-plugins-bad` 及其依赖（`367-video-codec-install`）。
+- **系统服务可用。** dbus、polkit、at-spi、gvfs 与 PipeWire/WirePlumber 都能在 guest 里
+  起起来（`28-snapshot-pipewire` PASS=12）。
 - **不需要任何特权。** 跑在普通应用沙箱里，机器可以是原厂状态。
-- **GPU 默认值在加载器里，不在登录脚本里。** 非登录执行、嵌套 `exec` 和 `env -i` 也不会
-  掉回软件渲染；程序自己设的变量永远优先。
-- **对比可以自己重跑。** `tools/bench/` 一条命令把同一份 rootfs 交给三个运行器。
+- **GPU 默认值在加载器里。** 非登录执行、嵌套 `exec` 和 `env -i` 都不会掉回软件渲染
+  （`18-gpu-loader-defaults` PASS=9）。
+- **GPU 长跑稳定。** 4 路 × 300 秒，fd 7→7、RSS +244 kB、GL errors=0
+  （`367-gpu-soak-final` PASS=19）。
+- **设备接口是标准接口。** 相机走 V4L2、音频走 PulseAudio、视频走 VA-API，不引入私有 API。
 
 ## 和容器、虚拟机的区别
 
@@ -149,7 +132,7 @@ sh husk-session.sh files/linux/distributions/<发行版>/rootfs -- /usr/bin/true
 | GPU | **直连** | `/dev/mali0`，PanVK + Zink | Mali-G77 枚举、compute、离屏 graphics、EGL/GL 均通过；默认环境由 loader 注入。Adreno/KGSL 无真机证据，状态 UNKNOWN |
 | 相机 | **中转** | 标准 V4L2 `/dev/videoN` facade | 前后摄可启动，`read`/`readv`/`mmap`/拍照/录像的数据链通过。桌面预览**能看到画面但逐帧刷新、帧率极低，未达可用**。`open()` 返回 memfd，非真实 V4L2 fd；DMABUF 与 controls 未支持 |
 | 音频 | **中转** | PulseAudio → Rust relay → AAudio | 输出与采集均有真实 PCM 数据（采集实测 200704 B，peak=1891）；`/dev/snd` 在应用域不可直接打开 |
-| 视频解码 | **中转** | VA-API → Rust bridge → MediaCodec | 两条路径分开看：自有 SurfaceControl 路径 1080p30/600 s `dropped=0`；**标准 VA-API 路径只有 720p 通过**，1080p 与 High profile 停摆 |
+| 视频解码 | **中转** | VA-API → Rust bridge → MediaCodec | 标准 VA-API 路径：720p Constrained Baseline 全片通过；1080p 与 High profile 在 12–25 帧后停摆（H61），桌面播放器当前**不可用** |
 | 传感器 | **中转** | IIO sysfs 影子树 ← NDK `ASensorManager_*` | 加速度、磁力、陀螺仪、环境光、距离五类可读，三套 IIO 视图一致 |
 | 定位 | **中转（仅 last-known）** | gpsd JSON over Unix socket ← `LocationManager` | `VERSION`/`DEVICES`/`WATCH`/`POLL`/`TPV` 已通，实测 `mode=3`；持续定位与 GNSS 原始测量未验证 |
 | 显示 | **应用侧中转** | `AHardwareBuffer` → dma-buf → `SurfaceControl` | 应用侧接管段为零拷贝；窗口内容进宿主 X server 仍是回读与 SHM 拷贝 |
@@ -272,9 +255,6 @@ docs/design/evidence/  文档里每个数字背后的设备原始输出
 **这是容器还是虚拟机？** 都不是。同一个内核，没有 namespace、没有 cgroup、不模拟任何指令。
 用户态就是一棵普通进程树。
 
-**为什么 `apt-get update` 只快 1.1×？** 因为它受镜像和 dpkg 自身的工作限制，不取决于路径
-查找。基准照实写。
-
 **能跑 Debian / Fedora / Alpine 吗？** 只完整验证过参考发行版（glibc 的 Ubuntu 24.04）。
 Alpine 是 musl，是另一个问题；装载器的补丁是版本断言的，换树要重新验证。
 
@@ -305,6 +285,6 @@ Apache License 2.0，见 [LICENSE](LICENSE)。第三方组件、glibc 构件与�
 
 ## 致谢
 
-`docs/BENCHMARKS.md` 里的对比是靠运行 [proot](https://proot-me.github.io/) 与 proot-distro
-得到的——它们曾是 LinuxHub 2.0 的运行时，这些数字存在是因为它们能用。loader 的补丁针对的
-是 Android 的 Bionic 与 bionic 化的 libc 边界，与它们的实现没有关系。
+Husk 的 path-shim 思路与早期验证受 [proot](https://proot-me.github.io/) 的启发。两者实现不同：
+proot 逐条 ptrace 改写路径，Husk 只在装载时改一次 GOT。当前的实测口径以
+[`docs/STATUS.md`](docs/STATUS.md) 与 `docs/design/evidence/` 为准。
