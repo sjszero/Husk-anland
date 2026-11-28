@@ -155,8 +155,8 @@ sh husk-session.sh files/linux/distributions/<发行版>/rootfs -- /usr/bin/true
 | 显示 | **应用侧中转** | `AHardwareBuffer` → dma-buf → `SurfaceControl` | 应用侧接管段为零拷贝；窗口内容进宿主 X server 仍是回读与 SHM 拷贝 |
 
 口径：**GPU 是直连；相机、音频、视频、传感器、定位是中转；显示只在其应用侧接管段为零拷贝。**
-USB 与蓝牙仍需最小 Java 回调垫片；NFC 与指纹对 Linux 用户态不是必需的设备接口。逐项理由与
-被宿主拒绝时的原始错误串见
+USB 与蓝牙由应用侧 Rust 桥接；NFC 与指纹对 Linux 用户态不是必需的设备
+接口。逐项理由与被宿主拒绝时的原始错误串见
 [`docs/design/hardware-interface-map.md`](docs/design/hardware-interface-map.md)。
 
 GPU 默认值属于运行时接口的一部分：ICD、GL 驱动和 GLES 上限写在 `/etc/husk/gpu-env`，由
@@ -218,10 +218,6 @@ loader 自己解析（含 `PT_INTERP` 与 shebang），嵌套 exec 会重新回�
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
 
 ## 从源码构建
-
-> [!WARNING]
-> `make test` 会编译 aarch64 内联汇编，只有在 arm64 Linux 主机上能跑；在 macOS / x86_64 上
-> 编译不过，那是平台限制，不是补丁坏了——那边用 `make check`。
 
 ```sh
 # loader（需要 NDK；会断言它补丁的 glibc 版本）
