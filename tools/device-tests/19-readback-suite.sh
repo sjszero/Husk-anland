@@ -14,7 +14,7 @@
 # diagnostic run; that run does not satisfy the hardware presentation gate.
 set -u
 DEV=${DEV:?usage: DEV=<adb serial> [ROOTFS=...] [LD=...] $0}
-PKG=${PKG:-com.linuxhub.husk}
+PKG=${PKG:-com.linuxhub.myth.husk}
 ROOTFS=${ROOTFS:-files/rootfs-full}
 LD=${LD:-files/linux/husk/libld.so}
 HERE=$(cd "$(dirname "$0")" && pwd)

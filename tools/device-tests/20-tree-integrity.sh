@@ -14,7 +14,7 @@
 # 需要的系统总线配置与语言包。
 set -u
 DEV=${DEV:?usage: DEV=<serial> [ROOTFS=...] [EXPECT=base|desktop] $0}
-PKG=${PKG:-com.linuxhub.husk}
+PKG=${PKG:-com.linuxhub.myth.husk}
 ROOTFS=${ROOTFS:-files/rootfs-full}
 EXPECT=${EXPECT:-base}
 PASS=0; FAIL=0

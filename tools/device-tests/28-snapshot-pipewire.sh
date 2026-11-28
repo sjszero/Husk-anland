@@ -8,7 +8,7 @@
 set -eu
 
 DEV=${1:?usage: $0 <adb-serial>}
-PKG=${PKG:-com.linuxhub.husk}
+PKG=${PKG:-com.linuxhub.myth.husk}
 APP=/data/user/0/$PKG
 ROOTFS=${ROOTFS:-$APP/files/rootfs-full}
 LD=${LD:-$APP/files/linux/husk/libld.so}

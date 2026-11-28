@@ -804,7 +804,7 @@ pub fn main(argv: &[String]) {
     let mut cache = PathBuf::from("/tmp/nr-toolchain/deb");
     let mut skip: HashSet<String> = ["libc6".to_string()].into_iter().collect();
     let mut no_push = false;
-    let mut app = "com.linuxhub.husk".to_string();
+    let mut app = "com.linuxhub.myth.husk".to_string();
     let mut guest_root = "files/linux/distributions/ubuntu-24.04/rootfs".to_string();
     let mut adb = "adb".to_string();
     let mut serial: Option<String> = None;

@@ -18,7 +18,7 @@
 #   3. leave the app running so its startup lines are in logcat.
 set -u
 DEV=${DEV:?usage: DEV=<serial> $0}
-PKG=${PKG:-com.linuxhub.husk}
+PKG=${PKG:-com.linuxhub.myth.husk}
 ROOTFS_REL=${ROOTFS_REL:-${ROOTFS:-files/rootfs-full}}   # ROOTFS is the name every other gate uses
 LOADER_REL=${LOADER_REL:-files/linux/husk/libld.so}
 SESS=${SESS:-/data/local/tmp/husk-session.sh}

@@ -14,7 +14,7 @@
 # 有它时，设备上的 commit/version 必须与构建一致，否则判 FAIL。
 set -u
 DEV=${DEV:?usage: DEV=<adb serial> [PKG=...] [ROOTFS=...] [LD=...] $0}
-PKG=${PKG:-com.linuxhub.husk}
+PKG=${PKG:-com.linuxhub.myth.husk}
 ROOTFS=${ROOTFS:-files/rootfs-full}
 LD=${LD:-files/linux/husk/libld.so}
 HERE=$(cd "$(dirname "$0")" && pwd)

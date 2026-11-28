@@ -63,10 +63,10 @@ static RENAME_A: &[u8] = b"rename-a\0";
 static RENAME_B: &[u8] = b"rename-b\0";
 static PROC: &[u8] = b"/proc\0";
 static PROC_DATA_ESCAPE: &[u8] =
-    b"../data/data/com.linuxhub.husk/files/rootfs-full/etc/os-release\0";
+    b"../data/data/com.linuxhub.myth.husk/files/rootfs-full/etc/os-release\0";
 static PROC_ROOT_ESCAPE: &[u8] = b"self/root/system/build.prop\0";
 static PROC_SAFE: &[u8] = b"self/status\0";
-static PROC_PRIVATE_ESCAPE: &[u8] = b"../data/data/com.linuxhub.husk/files/proc-dirfd-escape\0";
+static PROC_PRIVATE_ESCAPE: &[u8] = b"../data/data/com.linuxhub.myth.husk/files/proc-dirfd-escape\0";
 static ABS_PROC_ROOT_ESCAPE: &[u8] = b"/proc/self/root/system/build.prop\0";
 static ABS_PROC_DOTDOT_ESCAPE: &[u8] = b"/proc/../system/build.prop\0";
 const AT_SYMLINK_FOLLOW: i32 = 0x400;

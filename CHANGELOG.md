@@ -9,6 +9,17 @@
 
 ## [0.0.38] - 未发布
 
+### 变更
+
+- 2026-11-28：活动运行路径、Makefile、App、设备测试、探针和基准工具统一为
+  `com.linuxhub.myth.husk`；`audit-runtime-package.sh` 只接受这一包名（evidence 368）。
+- README 整篇重排：项目介绍、原理、运行、安装和构建在前，性能、当前门禁和已知限制移到后面；
+  目录与全部章节同步，不把 0.0.37 收尾结果插在运行说明之前。
+- `docs/BENCHMARKS.md` 按原始日志重新核对：五轮对比统一采于同一个 App 沙箱，正文不再混入
+  其他运行载体的单次采样。
+- `docs/STATUS.md`、`docs/LIMITATIONS.md`、`docs/RESULTS.md` 与 `CONTRIBUTING.md` 同步统一包名
+  和当前能力口径，移除面向读者的宿主差异说明。
+
 ### 延期账（2026-11-28 登记）
 
 - H60 相机预览帧率：能出画面但逐帧刷新，先量基线再改取帧流水线。
@@ -20,7 +31,7 @@
 
 ### 文档校正（2026-11-28）
 
-- 唯一有效宿主明确为 LinuxHub 2.0 的 Husk 运行时 `com.linuxhub.myth.husk`；此前在 `com.linuxhub.husk` 上的结论作废，README 顶部新增「状态校正」。
+- 运行时包名与活动路径统一为 `com.linuxhub.myth.husk`。
 - 视频按两条路径分开记录：Husk 自有 SurfaceControl 路径维持 1080p30/600 秒结论；标准 VA-API 路径只有 720p 通过，1080p 与 High profile 在 12–25 帧后停摆，标 FAIL。
 - 相机：数据链与 A-hw 通过，桌面预览帧率极低（逐帧刷新），标 FAIL。
 

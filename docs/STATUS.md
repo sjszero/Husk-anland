@@ -3,9 +3,7 @@
 最后核验：2026-11-28（CST）
 参考设备：RMX3357 / MT6893 / Mali-G77 MC9 / Android 13 / kernel 4.19.191 / arm64 / 4 KiB 页
 运行域：`untrusted_app`，无 Root、无 Shizuku、未解锁 Bootloader、无硬件虚拟化
-宿主 App：LinuxHub 2.0 的 Husk 运行时 `com.linuxhub.myth.husk`（唯一有效宿主，2026-11-28 起）
-说明：更早在 `com.linuxhub.husk` 上得到的结果属旧宿主现场，已作废；本文与门禁数字均取自
-`com.linuxhub.myth.husk`，命令里用 `PKG=com.linuxhub.myth.husk` 覆盖默认值。
+宿主 App：LinuxHub 2.0 的 Husk 运行时 `com.linuxhub.myth.husk`
 
 本文只记录**当前代码和当前设备上已经复验过的状态**。历史版本变化见
 [`CHANGELOG.md`](../CHANGELOG.md)，原始设备输出见 [`design/evidence/`](design/evidence/)。
@@ -74,12 +72,12 @@ A-hw 的 11 条失败全部落在“没有人授权 + 宿主没有 socket”两�
 | GPU | 直连 | `/dev/mali0`，PanVK + Zink | Mali-G77 MC9 枚举、compute、离屏 graphics、EGL/GL；Adreno/KGSL 仅源码与主机侧测试，真机 UNKNOWN |
 | 相机 | 中转 | V4L2 `/dev/videoN` facade | 2026-11-27 复验：A-hw 14/0；前后摄各 3 帧 1280×720 NV12；V4L2/GStreamer fixture 两档通过；crop/selection 与 monotonic PTS 已验；DMABUF、通用 controls、非整帧裁剪未支持 |
 | 音频 | 中转 | PulseAudio → Rust relay → AAudio | 输出与采集真实 PCM；采集探针 196,608 bytes、`peak=285` |
-| 视频解码 | 中转 | VA-API → bridge → MediaCodec | 分两条写清：app 自有 SurfaceControl 路径 1080p30 600 秒 `dropped=0`（evidence 80，**旧宿主证据，未在新宿主复跑**）；标准 VA-API 路径（gst-vaapi/`vaapih264dec`）720p 全片 PASS，1080p 与 High profile 在 12–25 帧后停摆 **FAIL**（evidence `367-video-va-ab-20261128`） |
+| 视频解码 | 中转 | VA-API → bridge → MediaCodec | 标准 VA-API 路径（gst-vaapi/`vaapih264dec`）720p 全片 PASS，1080p 与 High profile 在 12–25 帧后停摆 **FAIL**（evidence `367-video-va-ab-20261128`） |
 | 传感器 | 中转 | IIO sysfs 影子树 ← `ASensorManager_*` | 加速度、磁力、陀螺仪、环境光、距离五类可读；`iio-sensor-proxy` 已发布 `net.hadess.SensorProxy`，三项 Claim 与 `monitor-sensor` 真机通过（evidence 322） |
 | 定位 | 中转（仅 last-known） | gpsd JSON → `/run/husk/gps.sock` ← `LocationManager.getLastKnownLocation()` | `VERSION` / `DEVICES` / `WATCH` / `POLL` / `TPV` 真机通过；撤权后缓存 FIX 清空且只回 `mode=1`；持续定位、后台定位、GNSS 原始测量 UNVERIFIED（evidence 323） |
 | 显示 | 应用侧中转 | AHB → dma-buf → SurfaceControl | 3-buffer ring 与真实 `SYNC_FD` 跑到 10,000 帧；只覆盖应用侧接管段 |
 | 输入 | 窗口层 | Android 输入 → 宿主 window/X11 | bridge 已实现；端到端依赖宿主窗口系统 |
-| USB / 蓝牙 | 权限或厂商限制 | 需要 Java 回调/Intent | 当前 `hasCode=false`，需要极小 Java 垫片或明确子集 |
+| USB / 蓝牙 | 权限或厂商限制 | 宿主侧权限与回调 | 当前只支持明确的功能子集，完整链路未验收 |
 | NFC / 指纹 | 不需要 | 无标准 POSIX 等价接口 | 不应为 Linux 用户态伪造 |
 
 “直连”只用于 GPU。相机、音频、视频、传感器和定位都是明确的中转；不能写成“全部直连”。

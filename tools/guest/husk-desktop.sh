@@ -98,7 +98,7 @@ DISPLAY=${DISPLAY:-:0}
 # 运行时目录固定放树根下的 /run/rt，不再用 /tmp/xdg-husk：
 # unix socket 的 sun_path 上限是 108 字节（含结尾 NUL），而路径层会把**guest 路径**
 # 拼上 rootfs 前缀。实测树路径
-# /data/data/com.linuxhub.husk/files/linux/distributions/ubuntu-24.04/rootfs-broken-20261126
+# /data/data/com.linuxhub.myth.husk/files/linux/distributions/ubuntu-24.04/rootfs-broken-20261126
 # 是 90 字符：/run/rt/bus 拼完 101 字节可以，/tmp/xdg-husk/bus 拼完 109 就超，
 # dbus-daemon 直接退出 "Failed to start message bus: Socket name too long"，整套会话起不来。
 RT=${XDG_RUNTIME_DIR:-$ROOTFS/run/rt}

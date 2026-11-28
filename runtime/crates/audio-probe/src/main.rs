@@ -91,7 +91,7 @@ fn main() {
     let socket = args
         .get(1)
         .cloned()
-        .unwrap_or_else(|| "/data/user/0/com.linuxhub.husk/files/audio-bridge.sock".into());
+        .unwrap_or_else(|| "/data/user/0/com.linuxhub.myth.husk/files/audio-bridge.sock".into());
     let seconds = args
         .get(2)
         .and_then(|v| v.parse::<u32>().ok())

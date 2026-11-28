@@ -814,7 +814,7 @@ unsafe fn record(line: &[u8]) {
     if !logged {
         // Absolute fallback: the launcher's own private dir. A trap record that
         // depends on env lookup is a record that can be lost.
-        const P: &[u8] = b"/data/user/0/com.linuxhub.husk/files/sigsys.log\0";
+        const P: &[u8] = b"/data/user/0/com.linuxhub.myth.husk/files/sigsys.log\0";
         let fd = syscall4(
             SYS_OPENAT,
             AT_FDCWD as usize,

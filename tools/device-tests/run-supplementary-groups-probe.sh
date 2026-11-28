@@ -4,7 +4,7 @@
 set -eu
 DEV=${DEV:-${1:-}}
 [ -n "$DEV" ] || { echo "usage: $0 <device-serial>" >&2; exit 1; }
-PKG=${PKG:-com.linuxhub.husk}
+PKG=${PKG:-com.linuxhub.myth.husk}
 ROOTFS=${ROOTFS:-files/rootfs-full}
 LD=${LD:-files/linux/husk/libld.so}
 HERE=$(cd "$(dirname "$0")" && pwd)

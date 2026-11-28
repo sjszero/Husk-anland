@@ -198,7 +198,7 @@ fork/exec 不经翻译层；I/O 直落内核）、**代价**（生态成熟度�
 - [x] 仓库无第三方代码、无密钥、无真实用户数据、无内部路径与私有仓库名 ——
       2026-11-24 扫过：无 `gh[po]_`/私钥、无 `/Users/...`（4 个构建脚本里写死的 NDK 路径已改成
       从 `ANDROID_NDK_HOME`/`ANDROID_HOME` 解析）、无 vendored 第三方源、只出现本项目自己的
-      包名 `com.linuxhub.myth.husk`（2026-11-28 起；更早的 `com.linuxhub.husk` 是旧宿主）
+      包名 `com.linuxhub.myth.husk`
 - [x] 每条结论可指回 `docs/design/evidence/` —— 193 个 markdown 链接 0 断
 
 ## 5 · 不做（Non-goals）

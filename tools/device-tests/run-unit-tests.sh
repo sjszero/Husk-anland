@@ -8,7 +8,7 @@
 # no writable /data/local path and no extra quoting.
 set -u
 DEV=${DEV:?usage: DEV=<adb serial> [PKG=...] [ROOTFS=...] $0}
-PKG=${PKG:-com.linuxhub.husk}
+PKG=${PKG:-com.linuxhub.myth.husk}
 ROOTFS=${ROOTFS:-files/rootfs-full}
 OUT=${OUT:-/tmp/unit}
 BUILD=${BUILD:-runtime/target/aarch64-unknown-linux-gnu/debug/build}

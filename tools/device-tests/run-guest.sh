@@ -14,7 +14,7 @@ set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 DEV=${DEV:?usage: DEV=<adb serial> ./run-guest.sh <script>   (see adb devices)}
-PKG=${PKG:-com.linuxhub.husk}
+PKG=${PKG:-com.linuxhub.myth.husk}
 ROOTFS=${ROOTFS:-files/rootfs-full}
 LD=${LD:-files/linux/husk/libld.so}
 SCRIPT=${1:?usage: run-guest.sh <script-name>}

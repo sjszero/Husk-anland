@@ -8,14 +8,14 @@
 #   adb shell 'run-as <pkg> sh /data/local/tmp/12.sh'
 #
 # Overridable so the same script covers any tree/package without editing it:
-#   FILES  app-private files dir   (default /data/data/com.linuxhub.husk/files)
+#   FILES  app-private files dir   (default /data/data/com.linuxhub.myth.husk/files)
 #   ROOT   rootfs, relative to FILES (default rootfs-full)
 #   LD     loader, relative to FILES (default libld39.so)
 P=0; F=0
 ok()  { P=$((P+1)); echo "  PASS  $1"; }
 bad() { F=$((F+1)); echo "  FAIL  $1"; }
 
-FILES=${FILES:-/data/data/com.linuxhub.husk/files}
+FILES=${FILES:-/data/data/com.linuxhub.myth.husk/files}
 RS=${ROOT:-rootfs-full}
 LDS=${LD:-libld39.so}
 R=$FILES/$RS

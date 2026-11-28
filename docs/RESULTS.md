@@ -107,7 +107,6 @@ Gate A 的 SKIP 是离线树没有 apt package index。没有把它算成 PASS�
 | 传感器 IIO | 5 类默认传感器 `READY`，guest 可读 | 302 |
 | 传感器 D-Bus | `iio-sensor-proxy` 出现；Accelerometer/Light/Proximity 三项 Claim 成功；`monitor-sensor` 读到三类设备 | 322 |
 | 定位 gpsd | last-known `network` 点转成 `TPV mode=2`；撤权后 `mode=1`、无 TPV；坐标在日志中脱敏 | 323 |
-| MediaCodec 解码（Husk 自有 SurfaceControl 路径） | H.264 1080p30，600 秒，dropped=0（旧宿主证据，未在新宿主复跑） | 80 |
 | MediaCodec 解码（标准 VA-API 路径，桌面播放器） | 720p 全片通过；1080p 与 High profile 12–25 帧后停摆，**FAIL** | 367-video-va-ab |
 | AHB → SurfaceControl | 3-buffer ring / SYNC_FD，10,000 帧 | 59 |
 

@@ -106,7 +106,7 @@ mod tests {
         assert_eq!(classify(b"/tmp/malicious-data"), None);
         assert_eq!(classify(b"/home/user/mali-cache"), None);
         assert_eq!(
-            classify(b"/data/user/0/com.linuxhub.husk/files/mali.log"),
+            classify(b"/data/user/0/com.linuxhub.myth.husk/files/mali.log"),
             None
         );
         // 也不是 v4l2：只有完整前缀+纯十进制下标才算。

@@ -1,9 +1,9 @@
 plugins { id("com.android.application") }
 val huskVersion = rootProject.file("../VERSION").readText().trim()
-val huskApplicationId = providers.gradleProperty("huskApplicationId").orElse("com.linuxhub.husk")
+val huskApplicationId = providers.gradleProperty("huskApplicationId").orElse("com.linuxhub.myth.husk")
 val huskVersionCode = huskVersion.split('.').fold(0) { value, part -> value * 100 + part.toInt() }
 android {
-    namespace = "com.linuxhub.husk"
+    namespace = "com.linuxhub.myth.husk"
     compileSdk = 36
     defaultConfig {
         applicationId = huskApplicationId.get()

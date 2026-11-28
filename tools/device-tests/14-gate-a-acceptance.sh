@@ -3,7 +3,7 @@
 # leak / no real seccomp trap - all measured inside the guest, on whatever rootfs
 # the caller points at.
 #
-#   DEV=UKHMMB8PYTGECMNV PKG=com.linuxhub.husk \
+#   DEV=UKHMMB8PYTGECMNV PKG=com.linuxhub.myth.husk \
 #   ROOTFS=files/linux/husk-clean/rootfs LD=files/linux/husk/libld.so \
 #     ./14-gate-a-acceptance.sh
 #
@@ -11,7 +11,7 @@
 # create temporary files in this data domain) and then copied into the rootfs.
 set -eu
 DEV=${DEV:?usage: DEV=<serial> PKG=<package> ROOTFS=<rel rootfs> LD=<rel loader> $0}
-PKG=${PKG:-com.linuxhub.husk}
+PKG=${PKG:-com.linuxhub.myth.husk}
 ROOTFS=${ROOTFS:-files/linux/husk-clean/rootfs}
 LD=${LD:-files/linux/husk/libld.so}
 
@@ -154,7 +154,7 @@ eq "host paths only in internal NR_ vars" "0" \
 # written here on purpose - tools/ci/audit-runtime-package.sh rejects a retired id
 # anywhere in a live script, and "anything that is not the package under test is a
 # leak" is the invariant this check is supposed to state.
-own=${HUSK_PKG:-com.linuxhub.husk}
+own=${HUSK_PKG:-com.linuxhub.myth.husk}
 leaked=$(ps -e -o args= 2>/dev/null | grep -oE 'com\.[a-z0-9_.]+' \
            | grep -v -x -e "$own" | sort -u || true)
 [ -n "$leaked" ] && { echo "  offenders:"; printf '%s\n' "$leaked" | head -5 | sed 's/^/    /'; }

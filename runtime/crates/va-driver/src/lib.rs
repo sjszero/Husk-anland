@@ -1308,7 +1308,8 @@ unsafe fn ensure_frame(ctx: VADriverContextP, surface: VASurfaceID) -> Result<()
             state.surface_frames.insert(surface, frame);
         });
     }
-    let Some(frame) = with_state(ctx, |state| state.surface_frames.remove(&surface)).flatten() else {
+    let Some(frame) = with_state(ctx, |state| state.surface_frames.remove(&surface)).flatten()
+    else {
         return Err(VA_STATUS_ERROR_INVALID_SURFACE as VAStatus);
     };
     if std::env::var_os("HUSK_VA_TRACE").is_some() {

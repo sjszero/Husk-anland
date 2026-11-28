@@ -6,7 +6,7 @@
 #   lib/aarch64-linux-gnu   merged-/usr: everything from the base packages
 #   mutter-14, gnome-shell  libmutter-cogl-14 and friends
 #   gvfs                    libgvfscommon.so has no version suffix and lives here
-F=/data/data/com.linuxhub.husk/files
+F=/data/data/com.linuxhub.myth.husk/files
 R=$F/$1; shift
 export NR_ROOTFS=$R
 export NR_LD=${NR_LD:-$F/libld39.so}

@@ -1,5 +1,4 @@
-<!-- 首屏只放标题、图标和徽章。GitHub 只在空行处结束 HTML 块，各段必须分开，
-     否则标题会退回左对齐。项目介绍从下面的「概览」开始。 -->
+<!-- 首屏：标题、图标、居中简介、技术栈与站内导航。项目正文从「目录」开始。 -->
 <h1 align="center">Husk</h1>
 
 <p align="center">
@@ -7,276 +6,372 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/xishanp/Husk/releases"><img alt="Release" src="https://img.shields.io/github/v/release/xishanp/Husk?style=flat-square&color=EA580C"></a>
-  <a href="https://github.com/xishanp/Husk/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/xishanp/Husk/actions/workflows/ci.yml/badge.svg?branch=main&style=flat-square"></a>
-  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/github/license/xishanp/Husk?style=flat-square&color=2563EB"></a>
-  <img alt="Platform: Android arm64" src="https://img.shields.io/badge/Platform-Android%20arm64-3DDC84?style=flat-square&logo=android&logoColor=white">
-  <img alt="Rust 1.75+" src="https://img.shields.io/badge/Rust-1.75%2B-DEA584?style=flat-square&logo=rust&logoColor=white">
-  <a href="CONTRIBUTING.md"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-0F766E?style=flat-square"></a>
+  <strong>Android 上的原生 Linux 运行时。</strong><br>
+  在 Android 内核上直接运行 glibc Linux 用户态；不使用 PRoot 跟踪器，也不是第二套虚拟机。
 </p>
 
-## 概览
+<p align="center">
+  <img alt="Runtime: Husk" src="https://img.shields.io/badge/runtime-Husk-111827?style=flat-square">
+  <img alt="Userland: glibc" src="https://img.shields.io/badge/userland-glibc-0F766E?style=flat-square">
+  <img alt="Ubuntu 24.04" src="https://img.shields.io/badge/Ubuntu-24.04-E95420?style=flat-square&logo=ubuntu&logoColor=white">
+  <img alt="GNOME 46 / X11 host" src="https://img.shields.io/badge/Desktop-GNOME%2046%20%2F%20X11-4A86CF?style=flat-square&logo=gnome&logoColor=white">
+  <img alt="PanVK / Zink" src="https://img.shields.io/badge/GPU-PanVK%20%2F%20Zink-7C3AED?style=flat-square">
+  <img alt="Android ARM64" src="https://img.shields.io/badge/Platform-Android%20ARM64-3DDC84?style=flat-square&logo=android&logoColor=white">
+  <img alt="Rust 1.75+" src="https://img.shields.io/badge/Rust-1.75%2B-DEA584?style=flat-square&logo=rust&logoColor=white">
+  <img alt="License: Apache-2.0" src="https://img.shields.io/badge/License-Apache--2.0-2563EB?style=flat-square">
+</p>
 
-让 Linux 用户态以普通应用进程的身份，直接跑在 Android 内核上。
+<p align="center">
+  <a href="README.md">简体中文</a> ·
+  <a href="README_EN.md">English</a> ·
+  <a href="docs/ARCHITECTURE.md">技术架构</a> ·
+  <a href="CHANGELOG.md">更新记录</a> ·
+  <a href="CONTRIBUTING.md">参与贡献</a> ·
+  <a href="SECURITY.md">安全策略</a>
+</p>
 
-Husk 在 Android 上跑一棵真实的 Linux 用户态：glibc、包管理器、编译器、shell 和服务都是普通
-`untrusted_app` 进程，直接向 Android 内核发系统调用。路径改写只在装载时做一次（改每个对象
-的 GOT），之后程序自己的 `svc` 指令原样进内核，每条 syscall 的成本与原生应用相同；沙箱放行
-的设备节点可以直开。没有 namespace，没有虚拟机，也不跑 `ptrace`。
-
-运行时按 glibc 版本断言补丁点，不绑定某个发行版或某台设备。本次完整验证用的是 Ubuntu 24.04
-（glibc 2.39）和一台 arm64 Android 手机；型号、内核与每一条实测数字写在
-[`docs/STATUS.md`](docs/STATUS.md) 与 `docs/design/evidence/`，那只是实测条件，不是要求。
-
-## 唯一有效宿主
-
-Husk 是**运行时**，不是 App。它被一个宿主 App 装进自己的数据目录，并由宿主提供窗口系统、
-输入注入和 Surface 呈现。当前唯一有效宿主是 **LinuxHub 2.0 的 Husk 运行时**
-（包名 `com.linuxhub.myth.husk`）。
-
-宿主负责窗口系统、输入注入与表面呈现；Husk 只提供运行时。桌面能不能出画面、相机怎么显示，
-都由宿主那一侧的实现决定，本仓库只对运行时本身的行为负责。
-
-## 现在能做什么
-
-判据只有一条：**驱动能加载、element 能注册、编译能通过，都不算"能用"。** 只认设备上实测到
-的最终行为。每行右边的证据都是设备原始输出。
-
-| 能力 | 状态 | 证据 |
-|---|---|---|
-| 安装器 `--upgrade` + 运行身份自证 | PASS（12/12，六项 SHA 与包内记录一致） | `367-runtime-upgrade-20261128` |
-| ICD canonical、旧 ICD 全部禁选 | PASS=15 | `367-gpu-audit-final-20261128` |
-| GPU 全局继承 13 项 | PASS=3（gnome-shell / nested GTK 均 zink + 硬件 Vulkan + `/dev/mali0`） | 同上 |
-| 读回 2400×1080 | PASS=19 | 同上 |
-| 4 路 × 300 s GPU soak | PASS（fd 7→7，RSS +244 kB，errors=0） | `367-gpu-soak-final-20261128` |
-| A-hw：相机/麦克风/传感器/定位权限与数据 | PASS=15 | `367-a-hw-final-20261128` |
-| 桌面会话、139 崩溃 | PASS（20 s 无 139） | `367-snapshot-final-20261128` |
-| 相机预览 | **FAIL**：能出画面，但逐帧刷新、帧率极低，未达可用 | 现场反馈，待量化 |
-| 视频（标准 VA-API 路径 / 桌面播放器） | **FAIL**：720p 通；1080p 与 High profile 12–25 帧后停摆 | `367-video-va-ab-20261128` |
-
-写 FAIL 的两行不是没做，是做了且没达标——照实写，不藏。
-
-## 能跑起来的前提
-
-> [!IMPORTANT]
-> **这一节只讲一件事：它怎么才能跑起来。三条硬前提，缺一条就跑不起来；其它条件只影响跑得
-> 多完整，不影响能不能跑。** 逐条的自查方式与原因在 [`docs/RUNNING.md`](docs/RUNNING.md) §2。
-
-| # | 硬前提 | 不满足时的样子 | 怎么自查 |
-|---|---|---|---|
-| 1 | **arm64（aarch64）**：用户态是 aarch64 ELF，loader 的 GOT 改写与 syscall 直通只对这一个 ABI 成立 | 直接 `Exec format error` | `uname -m` → `aarch64` |
-| 2 | **一个既能执行、又可写、沙箱也允许的目录**：loader 与用户态二进制都要被 `exec`。Android 上只有应用私有目录满足；`noexec` 挂载直接失败 | 看起来像 loader 坏了：`cannot execute the loader from here` | 直接跑 loader，它应回 `missing program name`（说明 `exec` 成功） |
-| 3 | **系统没有对 `untrusted_app` 额外收紧 seccomp / SELinux**：用户态要 `execve` / `clone` / `open*` 直通内核；厂商另封一层就没有可绕的余地 | `Bad system call`，进程当场被杀 | 先跑 `bin/true`；或跑 `tools/device-tests/01-functional-matrix.sh` |
-
-```sh
-# 1、2：loader 自己能不能被 exec —— 期望输出 missing program name
-cd files/linux/husk && ./libld.so
-
-# 2、3：guest 程序能不能直通内核 —— 期望退出码 0
-sh husk-session.sh files/linux/distributions/<发行版>/rootfs -- /usr/bin/true
-```
+---
 
 ## 目录
 
-- [概览](#概览) · [唯一有效宿主](#唯一有效宿主) · [现在能做什么](#现在能做什么)
-- [能跑起来的前提](#能跑起来的前提)
-- [特性](#特性) · [和容器、虚拟机的区别](#和容器虚拟机的区别)
-- [硬件接口](#硬件接口) · [交付形态](#交付形态)
-- [工作原理](#工作原理) · [从源码构建](#从源码构建)
-- [仓库结构](#仓库结构) · [文档](#文档) · [常见问题](#常见问题)
+- [跑起来的前提](#跑起来的前提)
+- [概览](#概览)
+- [安装与启动](#安装与启动)
+- [运行方式](#运行方式)
+- [工作原理](#工作原理)
+- [从源码构建](#从源码构建)
+- [运行能力](#运行能力)
+- [硬件接口](#硬件接口)
+- [交付内容](#交付内容)
+- [仓库结构](#仓库结构)
+- [性能基准](#性能基准)
+- [当前状态](#当前状态)
+- [已知限制](#已知限制)
+- [常见问题](#常见问题)
+- [文档](#文档)
+- [参与贡献](#参与贡献)
+- [许可](#许可)
+- [致谢](#致谢)
 
-## 特性
-
-以下每一条都在当前宿主上跑过，证据在 `docs/design/evidence/367-*`：
-
-- **零 `ptrace`、零 syscall 拦截。** 内核看到的是用户态自己的 syscall。
-- **原样的 glibc 用户态。** 除 libc 内部调用需要的 slot 项，树的二进制没有为 Husk 改过。
-- **安装器可自证。** `--upgrade` 装完重算六项 SHA，与包内 `RUNTIME-IDENTITY` 逐项比对，
-  本包实测 12/12 通过。
-- **包管理器可用。** 在宿主树里用 `apt` 真装过 `gstreamer1.0-vaapi`、`vainfo`、
-  `gstreamer1.0-plugins-bad` 及其依赖（`367-video-codec-install`）。
-- **系统服务可用。** dbus、polkit、at-spi、gvfs 与 PipeWire/WirePlumber 都能在 guest 里
-  起起来（`28-snapshot-pipewire` PASS=12）。
-- **不需要任何特权。** 跑在普通应用沙箱里，机器可以是原厂状态。
-- **GPU 默认值在加载器里。** 非登录执行、嵌套 `exec` 和 `env -i` 都不会掉回软件渲染
-  （`18-gpu-loader-defaults` PASS=9）。
-- **GPU 长跑稳定。** 4 路 × 300 秒，fd 7→7、RSS +244 kB、GL errors=0
-  （`367-gpu-soak-final` PASS=19）。
-- **设备接口是标准接口。** 相机走 V4L2、音频走 PulseAudio、视频走 VA-API，不引入私有 API。
-
-## 和容器、虚拟机的区别
-
-| | 传统容器 | 虚拟机 | PRoot 一类 | **Husk** |
-|---|---|---|---|---|
-| 内核 | 宿主内核（要 namespace/cgroup） | 自带内核 | 宿主内核 + `ptrace` | **宿主内核，零拦截** |
-| 权限 | root / user namespace | 虚拟化 | 普通应用 + `ptrace` | **普通应用** |
-| 每条 syscall 成本 | 原生 | 陷入虚拟机 | 一次 `ptrace` 往返 | **原生（0 额外）** |
-| 路径隔离 | mount namespace | 完整隔离 | `ptrace` 逐条改写 | **装载时改 GOT，一次到位** |
-| 设备访问 | 受 namespace 限制 | 虚拟设备 | 受 `ptrace` 限制 | **能直开的直开，其余走应用内后端** |
-
-一句话：容器和虚拟机都是「把用户态装进一个边界」，Husk 是「让用户态自己跑，只在装载时把
-路径改对一次」。所以它既不需要特权，也不为每条 syscall 付费。
-
-> [!WARNING]
-> **Husk 不是恶意代码沙箱。** 路径改写只覆盖「经过动态链接函数入口」的调用：自己发 raw
-> `syscall` 的程序、静态链接的二进制、以及不经我们 loader 启动的进程，看到的都是宿主路径。
-> 它能把普通 Linux 用户态按普通应用权限跑起来，**不能**用来隔离不可信的代码。
-
-## 硬件接口
-
-能直接用的内核节点直接交给 guest；必须经过 Android 应用身份的能力，提供标准 Linux 接口，
-并明确标注为 facade 或中转。
-
-| 能力 | 接法 | 用户态接口 | 当前验收 |
-|---|---|---|---|
-| GPU | **直连** | `/dev/mali0`，PanVK + Zink | Mali-G77 枚举、compute、离屏 graphics、EGL/GL 均通过；默认环境由 loader 注入。Adreno/KGSL 无真机证据，状态 UNKNOWN |
-| 相机 | **中转** | 标准 V4L2 `/dev/videoN` facade | 前后摄可启动，`read`/`readv`/`mmap`/拍照/录像的数据链通过。桌面预览**能看到画面但逐帧刷新、帧率极低，未达可用**。`open()` 返回 memfd，非真实 V4L2 fd；DMABUF 与 controls 未支持 |
-| 音频 | **中转** | PulseAudio → Rust relay → AAudio | 输出与采集均有真实 PCM 数据（采集实测 200704 B，peak=1891）；`/dev/snd` 在应用域不可直接打开 |
-| 视频解码 | **中转** | VA-API → Rust bridge → MediaCodec | 标准 VA-API 路径：720p Constrained Baseline 全片通过；1080p 与 High profile 在 12–25 帧后停摆（H61），桌面播放器当前**不可用** |
-| 传感器 | **中转** | IIO sysfs 影子树 ← NDK `ASensorManager_*` | 加速度、磁力、陀螺仪、环境光、距离五类可读，三套 IIO 视图一致 |
-| 定位 | **中转（仅 last-known）** | gpsd JSON over Unix socket ← `LocationManager` | `VERSION`/`DEVICES`/`WATCH`/`POLL`/`TPV` 已通，实测 `mode=3`；持续定位与 GNSS 原始测量未验证 |
-| 显示 | **应用侧中转** | `AHardwareBuffer` → dma-buf → `SurfaceControl` | 应用侧接管段为零拷贝；窗口内容进宿主 X server 仍是回读与 SHM 拷贝 |
-
-口径：**GPU 是直连；相机、音频、视频、传感器、定位是中转；显示只在其应用侧接管段为零拷贝。**
-USB 与蓝牙由应用侧 Rust 桥接；NFC 与指纹对 Linux 用户态不是必需的设备
-接口。逐项理由与被宿主拒绝时的原始错误串见
-[`docs/design/hardware-interface-map.md`](docs/design/hardware-interface-map.md)。
-
-GPU 默认值属于运行时接口的一部分：ICD、GL 驱动和 GLES 上限写在 `/etc/husk/gpu-env`，由
-loader 在程序没有显式设置时注入；Mali/kbase 的 PanVK 快照随包安装，安装器校验设备节点与
-驱动 SHA-256。
-
-## 交付形态
+## 跑起来的前提
 
 > [!IMPORTANT]
-> **这些资产不能脱离应用沙箱直接用在别的终端环境里。** 别的环境没有这套依赖，也没有
-> 「可写 + 可执行 + 沙箱允许」三者同时成立的目录。交付形态只有一种：打进 APP。
+> 下面三条是硬前提，缺一条就跑不起来。其它条件只影响功能完整度。
 
-宿主 App（LinuxHub 2.0 的 Husk 运行时）持有 X server、做输入注入、负责 Surface 呈现；
-`dist/husk-arm64.tar.gz` 不内嵌 X server，也不含桌面合成器。
+| # | 硬前提 | 不满足时的样子 | 怎么自查 |
+|---|---|---|---|
+| 1 | **arm64（aarch64）**：loader 的 GOT 改写和 syscall 直通只对这一 ABI 成立 | `Exec format error` | `uname -m` 输出 `aarch64` |
+| 2 | **目录同时可写、可执行、被沙箱允许**：loader 和 guest 二进制都要能被 `exec` | 看起来像 loader 损坏，实际是 `noexec`/权限问题 | 直接执行 loader，应返回 `missing program name` |
+| 3 | **厂商没有额外收紧 `untrusted_app` 的 seccomp / SELinux**：`execve`、`clone`、`open*` 必须能直达内核 | `Bad system call`，进程被杀 | 运行 `tools/device-tests/01-functional-matrix.sh`，或先跑 `/usr/bin/true` |
+
+参考配置：arm64、Android 13、kernel 4.19.191、4 KiB 页、无 root、无 Shizuku、未解锁
+Bootloader。16 KiB / 64 KiB 页只在 QEMU 上验证过，真机状态是 UNVERIFIED。
+
+## 概览
+
+Husk 让一棵真实的 Linux ARM64 用户态作为普通 Android 应用进程运行。glibc、包管理器、编译器、
+shell 和服务直接向 Android 内核发系统调用，不需要 root、虚拟机、namespace，也不逐条
+`ptrace` 拦截 syscall。
+
+路径改写只发生在装载阶段：loader 把动态对象里的路径函数入口改到 Husk path-shim，shim 把
+guest 绝对路径转换成应用私有目录里的真实路径，然后调用真正的 libc/内核入口。程序开始执行后，
+自己的 syscall 原样进入内核。
+
+PRoot 每次经过路径相关的 syscall 都要停下来改写；Husk 只在装载时改写一次 GOT。路径和 syscall
+越密集，这个差别越明显；大块顺序 I/O 主要由存储和内核决定，差距会消失。
+
+参考环境是 Ubuntu 24.04、glibc 2.39、arm64 Android 13 和 Mali-G77。具体机型、内核、页大小
+与证据入口写在 [`docs/STATUS.md`](docs/STATUS.md) 和 [`docs/RESULTS.md`](docs/RESULTS.md)；
+这些是实测条件，不是产品绑定。
+
+## 安装与启动
+
+### App 资产部署
+
+生产路径是把 `dist/husk-arm64.tar.gz` 打进 APK assets，首次启动时解压到应用私有目录，再执行
+安装器准备 rootfs。安装器负责：
+
+- 安装 `libld.so`、打过补丁的 `libc.so.6` 和运行时工具；
+- 把绝对符号链接改成相对链接并逐项校验；
+- 替换 `ldconfig`、用户与组管理、`su` 等不可直接工作的发行版入口；
+- 创建 `run`、`tmp`、`dev/shm` 等 guest 目录；
+- 写入 `etc/husk/runtime-identity`，记录 version、commit 与关键资产 SHA-256；
+- 升级时重跑 guest 侧步骤，不重新解压整棵 rootfs。
+
+### 手工安装
+
+```sh
+tar xzf husk-arm64.tar.gz
+cd husk
+sh install-husk.sh \
+  --rootfs /path/to/ubuntu-rootfs.tar \
+  --dest /path/to/app-private/rootfs \
+  --loader ./libld.so
+```
+
+安装后的会话启动契约：
+
+```sh
+NR_ROOTFS=<rootfs> \
+NR_LD=<loader> \
+NR_LIBRARY_PATH=<aarch64-linux-gnu:usr/lib/aarch64-linux-gnu:lib:usr/lib> \
+  <loader> --library-path "$NR_LIBRARY_PATH" usr/bin/env -i \
+  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  HOME=/root /bin/sh
+```
+
+完整目录、升级、libc 恢复和故障排查见 [`docs/RUNNING.md`](docs/RUNNING.md)。
+
+## 运行方式
+
+Husk 以运行时资产交付，由 LinuxHub 2.0 放进应用私有目录并启动。LinuxHub 2.0 同时提供窗口
+系统、输入注入和 Surface 呈现；`dist/husk-arm64.tar.gz` 不包含 X server，也不包含桌面合成器。
 
 ```text
-APK assets/husk/arm64-v8a/
-  libld.so          loader（内嵌 path-shim）
-  libc.so.6         打过两处补丁的 glibc
-  husk-ldconfig     写 ld.so.cache 与 ld.so.husk-path
-  husk-usermgr      useradd / groupadd / passwd 一族替身
-  husk-su           提权替身
-  husk-symlinks     绝对符号链接改相对 + 校验（否则 dlopen 找不到明明存在的库）
+LinuxHub 2.0
+  ├─ 应用容器、权限与窗口呈现
+  └─ Husk runtime
+       ├─ loader + path-shim
+       ├─ guest rootfs 安装与修补工具
+       ├─ GPU 默认值与 PanVK 资产
+       └─ 相机、音频、视频、传感器、定位接口
 ```
 
-首次启动自动完成：解压 loader → 放三个工具进 `usr/sbin` → 按 sha256 替换 libc（只认已知
-基线）→ `ldconfig` 指向 `husk-ldconfig` → shadow 工具指向 `husk-usermgr` → 建
-`run` / `tmp` / `dev/shm` → 写版本标记 `files/linux/husk/assets.version`。
-
-会话启动契约（缺一个就看起来像 shim 坏了）：
-
-```sh
-NR_ROOTFS=<rootfs> NR_LD=<loader> NR_LIBRARY_PATH=<lib/aarch64-linux-gnu:usr/lib/...> \
-  <loader> --library-path "$NR_LIBRARY_PATH" usr/bin/env -i PATH=... HOME=/root /bin/sh
-```
-
-装上发行版之后**必须改的 7 件事**见 [`docs/RUNNING.md`](docs/RUNNING.md)。
-
-开发机上不装 APP 也能跑（`/data/local/tmp` 之类可执行的目录），这是调试路径，不是交付形态：
-
-```sh
-adb push husk-arm64.tar.gz /data/local/tmp/husk/
-adb shell
-cd /data/local/tmp/husk && tar xzf husk-arm64.tar.gz
-sh install-husk.sh --rootfs linux-rootfs.tar --dest ./root --loader ./libld.so
-./husk run linux
-```
+终端、编译器、包管理和 GPU 计算可以脱离桌面单独验证；GNOME 桌面是否完整，还取决于宿主侧
+窗口系统、输入和呈现链是否接通。
 
 ## 工作原理
 
-<p align="center">
-  <img src="docs/assets/architecture.svg" alt="Husk 架构" width="760">
-</p>
+```text
+Android App
+  │
+  ▼
+Husk loader
+  ├─ 校验并装载 guest ELF
+  ├─ 解析 PT_INTERP、shebang 和嵌套 exec
+  ├─ 改写动态对象的路径函数 GOT
+  └─ 注入 GPU / locale 等运行时默认值
+        │
+        ▼
+Husk path-shim
+  ├─ guest 绝对路径 → 应用私有 rootfs 路径
+  ├─ 符号链接、`..` 边界与 rootfd 语义
+  └─ 调用真正的 libc / syscall
+        │
+        ▼
+Android Linux 内核
+```
 
-Android 唯一执行的是一个静态 loader，path-shim 内嵌在里面。它映射用户态对象时改写该对象的
-GOT，让每个 libc 路径调用落到 shim；shim 加一次根前缀，然后发真正的 syscall。`exec` 由
-loader 自己解析（含 `PT_INTERP` 与 shebang），嵌套 exec 会重新回到同一个 loader，而不是掉回
-宿主。因为此后没有任何东西挡住进程，程序从第一条指令起，syscall 就是原生的。细节见
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
+关键点：
+
+- loader 内嵌 path-shim，不依赖外部预加载环境。
+- `execve` 由 loader 自己解析，嵌套执行仍回到同一套装载流程。
+- libc 只补 Android/glibc 边界必需的两类改动；发行版二进制不为 Husk 重写。
+- 运行时不做 syscall 代理，不启动常驻翻译进程。
+- 静态 ELF、直接 raw syscall、以及没有经过 loader 的进程不受路径改写控制。
+
+更完整的装载、GOT、路径解析与已知缺口见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
 
 ## 从源码构建
 
 ```sh
-# loader（需要 NDK；会断言它补丁的 glibc 版本）
+# loader，需要 Android NDK
 NDK=$ANDROID_HOME/ndk/<ver>/toolchains/llvm/prebuilt/<host>/bin \
   sh tools/loader/build-embedded-loader.sh
 
-# Rust crates（no_std shim + 宿主工具）
+# Rust 运行时与工具
 cargo build --release --manifest-path runtime/Cargo.toml
 
-# 本地门禁：CI 把同一组命令拆成七个作业跑，任何一个红了就不算过
-make check   # fmt + aarch64 cargo check + clippy + shell 语法 + 文档链接 + 版本三元组
+# 本地检查
+make check
+cargo test -p gpu-env
 
-# 出运行时包（只发这一种资产）
+# 设备门禁（连接设备后）
+make test-device
+
+# 只生成运行时发行包
 NDK=<ndk>/bin make dist
 ```
 
+CI 把格式检查、Rust 交叉检查、Clippy、shell 语法、文档链接、版本一致性和运行时包边界拆成
+独立作业。编译通过不等于设备可用；最终结果以 [`docs/RESULTS.md`](docs/RESULTS.md) 和原始
+evidence 为准。
+
+## 运行能力
+
+| 能力 | 现状 | 说明 |
+|---|---|---|
+| aarch64 glibc 用户态 | 可用 | bash、coreutils、Python、GCC、make 已在参考树中执行 |
+| 动态解释器、shebang、嵌套 exec | 可用 | 子进程重新进入同一 loader |
+| 路径与符号链接 | 可用 | guest 绝对路径落在 rootfs；绝对链接由安装器规范化 |
+| PTY、信号、进程视图 | 可用 | 门禁 A 覆盖管道、子 shell、进程可见性和 SIGSYS |
+| apt / dpkg | 可用 | 安装、配置、包记录和 libc 升级后的恢复链已实测 |
+| 用户与组管理 | 可用 | `husk-usermgr` / `husk-su` 替代不可用的发行版工具 |
+| 中文 locale | 可用 | 默认 `zh_CN.UTF-8`，显式英文设置不会被覆盖 |
+| GPU 默认值 | 可用 | loader 从 `/etc/husk/gpu-env` 注入 ICD、Zink 和 GLES 配置 |
+| GPU 直连 | 可用 | Mali-G77 通过 `/dev/mali0` 使用 PanVK + Zink |
+
+## 硬件接口
+
+分类只有四种：直连、中转、不需要、权限或厂商限制。
+
+| 设备类 | 分类 | guest 接口 | 当前验收 |
+|---|---|---|---|
+| GPU | **直连** | `/dev/mali0`，PanVK + Zink | Mali-G77 枚举、compute、离屏 graphics、EGL/GL、2400×1080 读回和 4×300 s 并发长稳通过；Adreno/KGSL 真机 UNKNOWN |
+| 相机 | **中转** | V4L2 `/dev/videoN` facade | Camera2 前后摄、V4L2/GStreamer fixture、read/readv/mmap/拍照/录像数据链通过；桌面预览帧率过低，未达可用 |
+| 音频 | **中转** | PulseAudio → Rust relay → AAudio | 输出和采集得到真实 PCM；`/dev/snd` 在应用域不能直开 |
+| 视频解码 | **中转** | VA-API → bridge → MediaCodec | 720p Constrained Baseline 通过；1080p 和 High profile 在 12–25 帧后停摆，桌面播放器当前不可用 |
+| 传感器 | **中转** | IIO sysfs 影子树 ← Android NDK sensor | 加速度、磁力、陀螺仪、环境光、距离五类可读，三套 IIO 视图一致 |
+| 定位 | **中转（仅 last-known）** | gpsd JSON over Unix socket | `VERSION` / `DEVICES` / `WATCH` / `POLL` / `TPV` 已通，实测 `mode=3`；持续定位和 GNSS 原始测量未实现 |
+| 显示 | **应用侧中转** | `AHardwareBuffer` → dma-buf → `SurfaceControl` | 应用侧接管段为零拷贝；窗口内容进入 X server 仍存在回读与 SHM 拷贝 |
+| USB / 蓝牙 | **权限或厂商限制** | 候选标准接口 | 当前未完成全链路验收 |
+| NFC / 指纹 | **不需要** | — | 没有可复用的标准 Linux 设备语义 |
+
+**只有 GPU 是直连。** 相机、音频、视频、传感器、定位和显示都是中转，不能宣传成“全部硬件
+直连”，也不能把整条呈现链写成零拷贝。逐项理由和原始错误见
+[`docs/design/hardware-interface-map.md`](docs/design/hardware-interface-map.md)。
+
+## 交付内容
+
+唯一运行时资产是 `dist/husk-arm64.tar.gz`。包内包含 loader、path-shim、glibc 补丁、安装器、
+guest 工具、GPU 默认值和随包 PanVK 驱动；不包含 X server、桌面合成器或整棵发行版 rootfs。
+
+```text
+usr/bin/
+  libld.so                 loader + path-shim
+  libc.so.6                按 glibc 基线校验并修补
+  husk-ldconfig            guest ldconfig
+  husk-usermgr             用户与组管理替身
+  husk-su                  su 替身
+  husk-symlinks            绝对符号链接规范化
+etc/husk/
+  gpu-env                  GPU 默认环境
+  runtime-identity         version / commit / 关键 SHA-256
+usr/lib/aarch64-linux-gnu/
+  libvulkan_panfrost_husk.so
+usr/share/vulkan/icd.d/
+  husk_panvk_guest.json
+```
+
+设备上重算 `runtime-identity` 中的 SHA-256 并逐项比对，才能证明当前运行的是这份包，而不是
+设备上残留的旧资产。
+
 ## 仓库结构
 
-```
-runtime/crates/      loader 侧的 path-shim、exec、PTY、信号（Rust，no_std）
-runtime/crates/nr-tools/  ELF 手术：scan、patch、embed、libc interpose
-tools/loader/        入口与 hook 汇编，产出 loader 的构建
-tools/bench/         产出 docs/BENCHMARKS.md 的三运行器夹具
-tools/guest/         rootfs 安装器、会话脚本、release 打包（不需要 APK）
-tools/guest-config/  libc 补丁、ldconfig、符号链接改写
-tools/device-tests/  设备验收套件，含门禁 A / A-hw
-docs/design/evidence/  文档里每个数字背后的设备原始输出
+```text
+runtime/crates/          loader 侧 path-shim、exec、PTY、信号（Rust，no_std）
+runtime/crates/nr-tools/ ELF 扫描、修补、嵌入和 libc interpose
+tools/loader/            loader 入口与 hook 汇编
+tools/guest/             rootfs 安装器、会话脚本、发行打包
+tools/guest-config/      libc 补丁、ldconfig、符号链接处理
+tools/device-tests/      设备门禁 A、A-hw、GPU、readback、soak
+tools/bench/             三运行器轮转基准
+docs/design/evidence/    每个结论对应的设备原始输出
 ```
 
-## 文档
+## 性能基准
 
-| 文档 | 回答什么 |
-|---|---|
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | loader、shim、exec 图怎么拼起来 |
-| [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) | 对比、机制、代价 |
-| [`docs/RUNNING.md`](docs/RUNNING.md) | 怎么装怎么跑，含 rootfs 准备三步 |
-| [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) | 每个运行器能跑什么 |
-| [`docs/design/hardware-interface-map.md`](docs/design/hardware-interface-map.md) | 每类硬件怎么接：直连 / 中转 / 不需要 / 权限或厂商限制 |
-| [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) | 什么不工作，为什么 |
-| [`docs/STATUS.md`](docs/STATUS.md) | 目标机上的当前状态 |
-| [`docs/RESULTS.md`](docs/RESULTS.md) | 门禁与实测结果汇总 |
-| [`docs/design/DEVLOG.md`](docs/design/DEVLOG.md) | 1.0 之前的工程日记 |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | 怎么构建、怎么测、术语表 |
-| [`ROADMAP.md`](ROADMAP.md) | 对外承诺：交付了什么、下一步、不做什么 |
-| [`SECURITY.md`](SECURITY.md) | 什么算漏洞、怎么私密上报 |
+2026-11-24 使用同一台手机、同一份 rootfs、同一个 App 沙箱，三个运行器轮转执行 5 轮。下表是
+中位数；Husk 与 PRoot 的差别只来自路径层实现。
+
+| 工作量 | Husk | PRoot | Husk 相对 PRoot |
+|---|---:|---:|---:|
+| `stat` × 20,000 | 650 ms | 3,734 ms | **5.7×** |
+| `open` + `close` × 20,000 | 1,252 ms | 8,481 ms | **6.8×** |
+| `make -j4`，200 目标链接 | 5,194 ms | 24,182 ms | **4.7×** |
+| 顺序写 256 MB | 1,294 ms | 1,321 ms | **1.0×** |
+
+优势集中在路径和 syscall 密度高的任务；顺序大块 I/O 基本持平。完整八维表、其他运行器、
+热漂移条件、冷启动和不利数字见 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)。
+
+## 当前状态
+
+仓库已进入 `0.0.38` 开发周期。最近一轮完整设备门禁来自 `0.0.37` 收尾批次，运行身份、GPU、
+桌面崩溃修复、安装器和发行包都已留证；相机预览和标准 VA-API 1080p 仍是 FAIL，已登记到后续
+版本。
+
+| 项目 | 结果 | 证据 |
+|---|---|---|
+| 安装器 `--upgrade` + 运行身份自证 | PASS=12，FAIL=0 | `367-runtime-upgrade-20261128` |
+| canonical ICD / 旧 ICD 禁选 | PASS=15，FAIL=0 | `367-runtime-upgrade-20261128` |
+| GPU 全局继承 | PASS=3，FAIL=0 | `367-gpu-audit-final-20261128` |
+| 2400×1080 读回 | PASS=19，FAIL=0 | `367-gpu-audit-final-20261128` |
+| GPU 4×300 s soak | PASS=19，FAIL=0；fd 7→7，RSS +244 kB，errors=0 | `367-gpu-soak-final-20261128` |
+| 桌面 Snapshot / 139 | 20 s 无 139 | `367-snapshot-20s-20261128` |
+| A-hw 相机 / 麦克风 / 传感器 / 定位 | PASS=15，FAIL=0 | `367-a-hw-final-20261128` |
+| 相机桌面预览 | **FAIL**：能出画面，但逐帧刷新、帧率极低 | 现场反馈，待量化 |
+| 标准 VA-API 视频 | **FAIL**：720p 通过；1080p / High profile 12–25 帧后停摆 | `367-video-va-ab-20261128` |
+| 运行时发行包审计 | PASS | `367-dist-0.0.37-20261128` |
+
+未在设备上复跑的项目继续写 UNVERIFIED；编译成功、驱动加载、element 注册都不会被当成功能
+通过。完整结果见 [`docs/RESULTS.md`](docs/RESULTS.md)。
+
+## 已知限制
+
+- **不是安全沙箱。** 静态 ELF、raw syscall 和不经过 loader 的进程不受路径替换控制；不要把
+  Husk 用来隔离恶意代码。
+- **窗口呈现不是全链路零拷贝。** 应用侧 `AHardwareBuffer → SurfaceControl` 是零拷贝；窗口
+  内容进入 X server 仍会回读和拷贝，DRI3 在应用域没有可用 render node。
+- **相机预览不可用。** 数据链能出帧，但桌面刷新率过低，已列为 0.0.38 后续项。
+- **标准 VA-API 1080p 不可用。** 720p 通过，1080p / High profile 会停摆；相关插件和工具也还
+  没有全部进入发行包。
+- **平台覆盖有限。** 16/64 KiB 页真机、Adreno/KGSL、其他 Android 版本和厂商 SELinux/seccomp
+  策略仍未验证。
+- **桌面依赖应用侧集成。** Husk 发行资产不包含 X server 或桌面合成器。
+
+更完整的不工作项和原因见 [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md)。
 
 ## 常见问题
 
-**需要 root 或解 Bootloader 吗？** 不需要。跑在 `untrusted_app` 里，能碰到的东西就是应用
-沙箱允许的那些。
+**需要 root 或解锁 Bootloader 吗？** 不需要。Husk 运行在普通 `untrusted_app` 权限内。
 
-**这是容器还是虚拟机？** 都不是。同一个内核，没有 namespace、没有 cgroup、不模拟任何指令。
-用户态就是一棵普通进程树。
+**这是容器还是虚拟机？** 都不是。没有 namespace、cgroup、虚拟机或 syscall 跟踪器；guest 和
+普通 Android 应用使用同一个内核。
 
-**能跑 Debian / Fedora / Alpine 吗？** 只完整验证过参考发行版（glibc 的 Ubuntu 24.04）。
-Alpine 是 musl，是另一个问题；装载器的补丁是版本断言的，换树要重新验证。
+**为什么路径密集任务快很多？** PRoot 每次路径 syscall 都要 `ptrace` 往返；Husk 只在装载时
+改写 GOT，运行时不再为每条 syscall 加一层。
 
-**为什么 rootfs 要打补丁？** 两个 Android 特有缺口：libc 内部调用需要 slot 项；rootfs 里的
-绝对符号链接会按 Android 根解析。步骤在 `docs/RUNNING.md`，工具在 `tools/guest-config/`。
+**为什么 `apt-get update` 只快约 1.1×？** 它主要受镜像、网络和 dpkg 自身工作限制，不是纯路径
+查找负载。基准照实写。
 
-> [!CAUTION]
-> **能在 Termux 里跑吗？不能，也不支持。** Termux 的 `$PREFIX` 不提供这里需要的二进制与库，
-> 在那边跑会直接卡在缺依赖上。
+**为什么顺序 I/O 没有明显提升？** 大块顺序读写主要由存储和内核决定，路径拦截不是瓶颈。
 
-**验证过哪些 Android 与内核？** 当前宿主是 LinuxHub 2.0 的 Husk 运行时
-（`com.linuxhub.myth.husk`），参考环境是 Android 13、kernel 4.19.191、4 KiB 页、arm64。
-16 KiB 与 64 KiB 页只在 QEMU 上跑过。这不是要求，是实测条件。
+**能跑 Debian / Fedora / Alpine 吗？** 当前只完整验证 Ubuntu 24.04 / glibc 2.39。Alpine 使用
+musl，是另一套装载和符号问题；换 rootfs 必须重新验证。
 
-**为什么 README 里有 FAIL？** 因为那些能力现在真的没过。驱动能加载、element 能注册、编译能
-通过，都不写进"能用"。
+**为什么 rootfs 还要打补丁？** Android 环境有两个额外边界：libc 内部存在不经过 GOT 的路径
+调用；rootfs 里的绝对符号链接会按 Android 根解析。安装器负责补齐这些边界。
+
+**能在 Termux 里跑吗？** 不能，也不支持。Termux 的目录、依赖和应用私有路径模型不满足 Husk
+的运行契约。
+
+**为什么 README 里还有 FAIL？** 因为相机预览和 VA-API 1080p 当前确实没达到可用标准。把失败
+藏起来只会让发布结果失真。
+
+## 文档
+
+| 文档 | 内容 |
+|---|---|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | loader、GOT、shim、exec 与已知缺口 |
+| [`docs/RUNNING.md`](docs/RUNNING.md) | 安装、升级、会话契约与排障 |
+| [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) | PRoot 对比、完整表格、机制与代价 |
+| [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) | shell、工具链、系统服务和浏览器边界 |
+| [`docs/design/hardware-interface-map.md`](docs/design/hardware-interface-map.md) | GPU、相机、音频、视频、传感器、定位等接口分类 |
+| [`docs/STATUS.md`](docs/STATUS.md) | 当前设备与安装树状态 |
+| [`docs/RESULTS.md`](docs/RESULTS.md) | 门禁矩阵和实测结果 |
+| [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) | 已知限制与不能宣称的内容 |
+| [`CHANGELOG.md`](CHANGELOG.md) | 版本变更与延期账 |
+| [`ROADMAP.md`](ROADMAP.md) | 已交付范围与下一步 |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | 构建、测试、发布与提交规范 |
+| [`SECURITY.md`](SECURITY.md) | 漏洞范围与私密上报方式 |
 
 ## 参与贡献
 
-欢迎 issue 与 pull request；先读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。注意：每个性能结论
-都要有一个 `docs/design/evidence/` 下的证据文件。本项目遵循
-[Contributor Covenant 2.1](CODE_OF_CONDUCT.md)。安全问题见 [`SECURITY.md`](SECURITY.md)。
+欢迎 issue 和 pull request。提交前先读 [`CONTRIBUTING.md`](CONTRIBUTING.md)，并运行与改动对应
+的本地检查和设备门禁。任何性能结论都必须带 `docs/design/evidence/` 下的原始输出；不利数字
+不能删除或改成推测值。
+
+安全问题不要公开贴利用细节，按 [`SECURITY.md`](SECURITY.md) 私密上报。
 
 ## 许可
 
@@ -285,6 +380,7 @@ Apache License 2.0，见 [LICENSE](LICENSE)。第三方组件、glibc 构件与�
 
 ## 致谢
 
-Husk 的 path-shim 思路与早期验证受 [proot](https://proot-me.github.io/) 的启发。两者实现不同：
-proot 逐条 ptrace 改写路径，Husk 只在装载时改一次 GOT。当前的实测口径以
-[`docs/STATUS.md`](docs/STATUS.md) 与 `docs/design/evidence/` 为准。
+Husk 的 path-shim 思路与早期验证受 [PRoot](https://proot-me.github.io/) 启发。两者实现不同：
+PRoot 在运行时逐条拦截路径 syscall，Husk 在装载时改写 GOT。基准与限制以
+[`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)、[`docs/RESULTS.md`](docs/RESULTS.md) 和
+`docs/design/evidence/` 为准。

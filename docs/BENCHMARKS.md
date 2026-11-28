@@ -1,29 +1,13 @@
 # 基准
 
-> **口径（2026-11-28）**：本文所有对比数字采于**旧宿主层**（`com.linuxhub.husk` 时期的运行
-> 载体）。方向可信（优势随路径/syscall 密度放大，大块 IO 上消失），但具体数值未经新宿主
-> `com.linuxhub.myth.husk` 重测，引用前请先重跑。复现命令默认的 `PKG` 是本仓库自带的终端
-> APK；在宿主 App 上复现需 `PKG=com.linuxhub.myth.husk`，安装树路径为
-> `files/linux/distributions/<发行版>/rootfs`。
-
+> **口径（2026-11-28 核对）**：2026-11-24 五轮轮转数据和三份原始日志都采于 LinuxHub 2.0 的
+> Husk 运行时 `com.linuxhub.myth.husk`：同一台手机、同一份 rootfs、同一个 App 沙箱，
+> 唯一变量是路径层。
+> Husk 在装载时改写 GOT，PRoot 在每次路径 syscall 上 `ptrace`。复现时使用
+> `PKG=com.linuxhub.myth.husk`，rootfs 为 `files/linux/distributions/<发行版>/rootfs`。
 
 一台设备、一份 rootfs、三个运行器，只换运行器。下面每个数字都是同一台手机上 5 轮的
 中位数。
-
-## 2026-11-27 最终树复核（单次采样）
-
-最终发行树接入 App 的 `files/rootfs-full` 后，用同一探针再次对比 Husk 与 PRoot。这只是单次
-现场采样，不代表 5 轮中位数：
-
-| 工作量 | Husk | PRoot | 结果 |
-|---|---:|---:|---|
-| `stat` × 20,000 | 741.2 ms | 2,338.7 ms | Husk 快 3.16× |
-| `open` + `close` × 20,000 | 980.9 ms | 5,676.3 ms | Husk 快 5.79× |
-| shell loop × 1,000 | 18.2 ms | 51.5 ms | Husk 快 2.84× |
-| `/bin/true` × 50 | 708.5 ms | 323.6 ms | **Husk 慢 2.19×** |
-
-短进程启动慢是当前 loader 的真实成本。它与“运行时零 syscall 拦截”并不矛盾：省掉的是每条
-syscall 的 ptrace 往返，付出的是每个新进程的装载与 GOT 改写。原始输出见 evidence 311。
 
 ## 测了什么
 
@@ -172,7 +156,7 @@ proot-distro 这一格我们**没有数据**，不拿别的数字顶替。电池
 - **rootfs 准备。** stock 的树要三步才能跑：libc 打补丁、绝对符号链接改相对、
   `husk-ldconfig` 替换静态 `ldconfig`（`docs/RUNNING.md`）。proot 一步都不要。
 - **设备访问。** Husk 已给 guest 提供传感器 IIO 接口（中转，5 类默认传感器实测），proot 侧没有
-  对等实现；GPS、USB、蓝牙在 Husk 侧还需最小 Java 垫片，NFC 与指纹归“不需要”。本轮没有把
+  对等实现；USB、蓝牙仍受宿主侧权限和回调限制，NFC 与指纹归“不需要”。本轮没有把
   “Husk 有传感器接口”当成 proot 速度对比数字。
 - **图形。** 桌面能出帧、默认走 GPU（第 5 维）。呈现仍要回读 + 拷贝（DRI3 未通），所以
   清屏 + 窗口呈现这一格反而输给 CPU；但**着色器密集的负载 GPU 快一个数量级**。四类负载分开

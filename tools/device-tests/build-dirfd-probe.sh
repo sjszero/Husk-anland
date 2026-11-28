@@ -6,7 +6,7 @@
 # sysroot: only the runtime libc.so.6 from the same guest is needed.
 #
 # Example:
-#   adb exec-out run-as com.linuxhub.husk \
+#   adb exec-out run-as com.linuxhub.myth.husk \
 #     cat files/rootfs-full/usr/lib/aarch64-linux-gnu/libc.so.6 > /tmp/husk-glibc.so.6
 #   LIBC_SO=/tmp/husk-glibc.so.6 ./build-dirfd-probe.sh
 set -eu

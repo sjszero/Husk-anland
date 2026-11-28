@@ -93,7 +93,7 @@ nr-tools:
 # transforms to whatever libc the tree has now, with the assertions the old
 # shell script could not make (nr-tools libc-patch; evidence 170).
 DEV        ?= UKHMMB8PYTGECMNV
-PKG        ?= com.linuxhub.husk
+PKG        ?= com.linuxhub.myth.husk
 DEV_ROOTFS ?= files/linux/distributions/ubuntu-24.04/rootfs
 DEV_LIBC   := $(DEV_ROOTFS)/usr/lib/aarch64-linux-gnu/libc.so.6
 # `husk-session` refuses to start a tree whose guest libc is not the one the
@@ -179,7 +179,7 @@ test-device: test
 # `$$` 是必须的：写成 `$DEV` 时 make 会把 `$D` 展开成空、留下字面量 "EV"，
 # 于是目标永远报 `adb: device 'EV' not found`（2026-11-27 实测，defect H46）。
 	@test -n "$$DEV" || { echo "set DEV=<adb serial>" >&2; exit 1; }
-	DEV="$$DEV" PKG="$${PKG:-com.linuxhub.husk}" \
+	DEV="$$DEV" PKG="$${PKG:-com.linuxhub.myth.husk}" \
 		ROOTFS="$${ROOTFS:-files/rootfs-full}" \
 		LD="$${LD:-files/linux/husk/libld.so}" sh tools/device-tests/run-unit-tests.sh
 
@@ -255,11 +255,11 @@ release-tree-check:
 	@test -n "$$TAR" || { echo "set TAR=<rootfs.tar.gz>" >&2; exit 1; }
 	BUNDLE=$${BUNDLE:-files/linux-clean}; DEST=$${DEST:-files/release-tree/root}; \
 	adb -s "$$DEV" push "$$TAR" /data/local/tmp/husk-release-tree.tar.gz >/dev/null && \
-	adb -s "$$DEV" shell "run-as $${PKG:-com.linuxhub.husk} sh -c 'cat /data/local/tmp/husk-release-tree.tar.gz > files/release-tree.tar.gz'" && \
-	adb -s "$$DEV" shell "run-as $${PKG:-com.linuxhub.husk} sh -c 'cd $$BUNDLE && TMPDIR=/data/data/$${PKG:-com.linuxhub.husk}/files/tmp sh install-husk.sh --rootfs ../release-tree.tar.gz --dest ../release-tree/root --loader ./libld.so'"
-	DEV=$$DEV PKG=$${PKG:-com.linuxhub.husk} ROOTFS=$${DEST:-files/release-tree/root} EXPECT=$${EXPECT:-base} \
+	adb -s "$$DEV" shell "run-as $${PKG:-com.linuxhub.myth.husk} sh -c 'cat /data/local/tmp/husk-release-tree.tar.gz > files/release-tree.tar.gz'" && \
+	adb -s "$$DEV" shell "run-as $${PKG:-com.linuxhub.myth.husk} sh -c 'cd $$BUNDLE && TMPDIR=/data/data/$${PKG:-com.linuxhub.myth.husk}/files/tmp sh install-husk.sh --rootfs ../release-tree.tar.gz --dest ../release-tree/root --loader ./libld.so'"
+	DEV=$$DEV PKG=$${PKG:-com.linuxhub.myth.husk} ROOTFS=$${DEST:-files/release-tree/root} EXPECT=$${EXPECT:-base} \
 		sh tools/device-tests/20-tree-integrity.sh
-	DEV=$$DEV PKG=$${PKG:-com.linuxhub.husk} ROOTFS=$${DEST:-files/release-tree/root} \
+	DEV=$$DEV PKG=$${PKG:-com.linuxhub.myth.husk} ROOTFS=$${DEST:-files/release-tree/root} \
 		LD=$${BUNDLE:-files/linux-clean}/libld.so EXPECT_PKGS_MIN=$${EXPECT_PKGS_MIN:-700} \
 		sh tools/device-tests/14-gate-a-acceptance.sh
 
@@ -272,7 +272,7 @@ bench:
 # 门禁 A = 38 项验收 + 覆盖度探针 + 补充组/session locale/身份初始化/组表竞态/session guard/rootfd/最终 symlink 真机回归。
 # 探针单列一步，因为 locale 看 env -i 后的真实值，竞态看宿主哨兵是否被改动。
 readback-audit:
-	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.husk} \
+	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.myth.husk} \
 		ROOTFS=$${ROOTFS:-files/rootfs-full} \
 		LD=$${LD:-files/linux/husk/libld.so} \
 		GL_PROBE=$${GL_PROBE:-$(PROFILE_DIR)/gl-probe} \
@@ -280,19 +280,19 @@ readback-audit:
 		sh tools/device-tests/19-readback-suite.sh
 
 gpu-audit:
-	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.husk} \
+	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.myth.husk} \
 		ROOTFS=$${ROOTFS:-files/rootfs-full} \
 		LD=$${LD:-files/linux/husk/libld.so} \
 		GL_PROBE=$${GL_PROBE:-$(PROFILE_DIR)/gl-probe} \
 		sh tools/device-tests/19-readback-suite.sh
-	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.husk} \
+	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.myth.husk} \
 		ROOTFS=$${ROOTFS:-files/rootfs-full} \
 		LD=$${LD:-files/linux/husk/libld.so} \
 		ENV=DISPLAY=:0,XDG_RUNTIME_DIR=/tmp/runtime-husk \
 		sh tools/device-tests/run-guest.sh 15-gpu-global-audit.sh
 
 gpu-soak:
-	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.husk} \
+	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.myth.husk} \
 		ROOTFS=$${ROOTFS:-files/rootfs-full} \
 		LD=$${LD:-files/linux/husk/libld.so} \
 		GL_PROBE=$${GL_PROBE:-$(PROFILE_DIR)/gl-probe} \
@@ -300,14 +300,14 @@ gpu-soak:
 		sh tools/device-tests/21-gpu-soak-audit.sh
 
 server-parity:
-	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.husk} \
+	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.myth.husk} \
 		ROOTFS=$${ROOTFS:-files/rootfs-full} \
 		LD=$${LD:-files/linux/husk/libld.so} \
 		RUNTIME_PROBE=$${RUNTIME_PROBE:-$(PROFILE_DIR)/runtime-probe} \
 		sh tools/device-tests/run-server-parity.sh
 
 gate-a:
-	DEV=$${DEV:?} PKG=$${PKG:-com.linuxhub.husk} \
+	DEV=$${DEV:?} PKG=$${PKG:-com.linuxhub.myth.husk} \
 		ROOTFS=$${ROOTFS:-files/rootfs-full} \
 		LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/14-gate-a-acceptance.sh
@@ -318,48 +318,48 @@ gate-a:
 	sh tools/device-tests/run-v4l2-ref-probe.sh "$${DEV}"
 	sh tools/device-tests/run-drm-fd-probe.sh "$${DEV}"
 	sh tools/device-tests/run-fd-identity-probe.sh "$${DEV}"
-	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.husk} \
+	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.myth.husk} \
 		ROOTFS=$${ROOTFS:-files/rootfs-full} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-supplementary-groups-probe.sh
-	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.husk} \
+	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.myth.husk} \
 		ROOTFS=$${ROOTFS:-files/rootfs-full} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-session-locale-probe.sh
-	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.husk} \
+	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.myth.husk} \
 		ROOTFS=$${ROOTFS:-files/rootfs-full} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-identity-init-race-probe.sh
-	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.husk} \
+	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.myth.husk} \
 		ROOTFS=$${ROOTFS:-files/rootfs-full} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-groups-race-probe.sh
 	DEV=$${DEV} sh tools/device-tests/run-session-guard-probe.sh
-	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.husk} \
+	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.myth.husk} \
 		ROOTFS=$${ROOTFS:-files/rootfs-full} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-rootfd-close-range-probe.sh
-	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.husk} \
+	DEV=$${DEV} PKG=$${PKG:-com.linuxhub.myth.husk} \
 		ROOTFS=$${ROOTFS:-files/rootfs-full} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-path-race-probe.sh
 
 camera-audit:
-	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.husk} \
-		ROOTFS=$${ROOTFS:-/data/user/0/$${PKG:-com.linuxhub.husk}/files/rootfs-full} \
-		LD=$${LD:-/data/user/0/$${PKG:-com.linuxhub.husk}/files/linux/husk/libld.so} \
+	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.myth.husk} \
+		ROOTFS=$${ROOTFS:-/data/user/0/$${PKG:-com.linuxhub.myth.husk}/files/rootfs-full} \
+		LD=$${LD:-/data/user/0/$${PKG:-com.linuxhub.myth.husk}/files/linux/husk/libld.so} \
 		sh tools/device-tests/run-camera-fixture.sh "$${DEV}"
 
 audio-audit:
-	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.husk} \
+	DEV=$${DEV:?set DEV=<adb serial>} PKG=$${PKG:-com.linuxhub.myth.husk} \
 		ROOTFS=$${ROOTFS:-files/rootfs-full} \
 		LD=$${LD:-files/linux/husk/libld.so} \
 		PROFILE_DIR=$${PROFILE_DIR:-$(PROFILE_DIR)} \
 		sh tools/device-tests/22-audio-audit.sh
 
 rootfd-race:
-	DEV=$${DEV:?} PKG=$${PKG:-com.linuxhub.husk} \
+	DEV=$${DEV:?} PKG=$${PKG:-com.linuxhub.myth.husk} \
 		ROOTFS=$${ROOTFS:-files/rootfs-full} LD=$${LD:-files/linux/husk/libld.so} \
 		sh tools/device-tests/run-rootfd-close-range-probe.sh
 
 virt-race:
 	@test -n "$${DEV:-}" || { echo "set DEV=<serial> and the device paths" >&2; exit 1; }
 	sh tools/device-tests/run-virt-concurrency-probe.sh \
-		"$${DEV}" "$${PKG:-com.linuxhub.husk}" \
+		"$${DEV}" "$${PKG:-com.linuxhub.myth.husk}" \
 		"$${ROOTFS:?set ROOTFS}" "$${LD:?set LD}" "$${ROUNDS:-4000}"
 
 docs: tools

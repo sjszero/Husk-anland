@@ -8,7 +8,7 @@
 set -eu
 cd "$(dirname "$0")/../.."
 
-canonical=com.linuxhub.husk
+canonical=com.linuxhub.myth.husk
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/husk-package-audit.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 fail=0
@@ -48,11 +48,11 @@ check_literal() {
     fi
 }
 
-check_literal Makefile 'PKG        ?= com.linuxhub.husk' 'Makefile PKG default'
-check_literal app/app/build.gradle.kts '    namespace = "com.linuxhub.husk"' 'Android namespace'
-check_literal app/app/build.gradle.kts 'val huskApplicationId = providers.gradleProperty("huskApplicationId").orElse("com.linuxhub.husk")' 'Android applicationId default'
-check_literal runtime/crates/nr-tools/src/provision.rs '    let mut app = "com.linuxhub.husk".to_string();' 'nr-tools provision default'
-check_literal tools/bench/bench.env 'PKG=${PKG:-com.linuxhub.husk}' 'benchmark package default'
+check_literal Makefile 'PKG        ?= com.linuxhub.myth.husk' 'Makefile PKG default'
+check_literal app/app/build.gradle.kts '    namespace = "com.linuxhub.myth.husk"' 'Android namespace'
+check_literal app/app/build.gradle.kts 'val huskApplicationId = providers.gradleProperty("huskApplicationId").orElse("com.linuxhub.myth.husk")' 'Android applicationId default'
+check_literal runtime/crates/nr-tools/src/provision.rs '    let mut app = "com.linuxhub.myth.husk".to_string();' 'nr-tools provision default'
+check_literal tools/bench/bench.env 'PKG=${PKG:-com.linuxhub.myth.husk}' 'benchmark package default'
 
 if [ "$fail" -ne 0 ]; then
     echo "runtime package audit: FAIL" >&2

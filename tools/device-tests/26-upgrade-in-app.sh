@@ -14,7 +14,7 @@
 # 不能用来出任何数字。
 set -eu
 DEV=${DEV:?usage: DEV=<adb serial> [PKG=...] [ROOTFS=...] [TARBALL=...] $0}
-PKG=${PKG:-com.linuxhub.husk}
+PKG=${PKG:-com.linuxhub.myth.husk}
 ROOTFS=${ROOTFS:-files/rootfs-full}
 LD=${LD:-files/linux/husk/libld.so}
 HERE=$(cd "$(dirname "$0")" && pwd)

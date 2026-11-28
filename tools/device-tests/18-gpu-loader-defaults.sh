@@ -16,7 +16,7 @@
 # 退出码 0 = 加载器注入生效（树里有 PanVK 驱动时）；2 = 树里没有驱动，只验软件路径。
 set -u
 DEV=${DEV:?usage: DEV=<serial> [ROOTFS=...] [LD=...] $0}
-PKG=${PKG:-com.linuxhub.husk}
+PKG=${PKG:-com.linuxhub.myth.husk}
 ROOTFS=${ROOTFS:-files/rootfs-full}
 LD=${LD:-files/linux/libld.so}
 HERE=$(cd "$(dirname "$0")" && pwd)

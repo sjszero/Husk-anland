@@ -11,7 +11,7 @@
 #     simply absent. That is expected; the shell still comes up.
 #
 # usage: sh files/gnome-session.sh [runtime-dir-name]
-F=/data/data/com.linuxhub.husk/files
+F=/data/data/com.linuxhub.myth.husk/files
 R=$F/rootfs-full
 D=${1:-xdg-session}
 export XDG_RUNTIME_DIR=$R/tmp/$D

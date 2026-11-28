@@ -5,10 +5,10 @@
 # 实验清单留在树上时，今天两份字节相同所以看不出问题；驱动一升级，旧副本可能先赢，
 # 而表现出来只是"新驱动没生效"，不报任何错。
 #
-#   DEV=<adb serial> PKG=com.linuxhub.husk sh tools/device-tests/24-icd-canonical.sh
+#   DEV=<adb serial> PKG=com.linuxhub.myth.husk sh tools/device-tests/24-icd-canonical.sh
 set -u
 DEV=${DEV:?usage: DEV=<adb serial> [PKG=...] [ROOTFS=...] $0}
-PKG=${PKG:-com.linuxhub.husk}
+PKG=${PKG:-com.linuxhub.myth.husk}
 ROOTFS=${ROOTFS:-files/rootfs-full}
 LD=${LD:-files/linux/husk/libld.so}
 HERE=$(cd "$(dirname "$0")" && pwd)

@@ -2,7 +2,7 @@
 # Run the guest-side V4L2 fd-lifetime regression probe through Husk itself.
 set -eu
 DEV=${1:?usage: $0 <device-serial>}
-PKG=${PKG:-com.linuxhub.husk}
+PKG=${PKG:-com.linuxhub.myth.husk}
 APPDIR=${APPDIR:-/data/data/$PKG/files/linux}
 ROOTFS=${ROOTFS:-$APPDIR/../rootfs-full}
 LD=${LD:-$APPDIR/husk/libld.so}

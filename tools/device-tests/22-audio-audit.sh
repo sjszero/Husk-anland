@@ -3,7 +3,7 @@
 # directly, then play a standard guest sound through PulseAudio and the relay.
 set -eu
 DEV=${DEV:?usage: DEV=<adb serial> [ROOTFS=...] [LD=...] $0}
-PKG=${PKG:-com.linuxhub.husk}
+PKG=${PKG:-com.linuxhub.myth.husk}
 ROOTFS=${ROOTFS:-files/rootfs-full}
 LD=${LD:-files/linux/husk/libld.so}
 SESS=${SESS:-/data/local/tmp/husk-session.sh}

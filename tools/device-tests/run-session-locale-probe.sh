@@ -4,7 +4,7 @@
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 DEV=${DEV:?usage: DEV=<serial> sh run-session-locale-probe.sh}
-PKG=${PKG:-com.linuxhub.husk}
+PKG=${PKG:-com.linuxhub.myth.husk}
 ROOTFS=${ROOTFS:-files/rootfs-full}
 LD=${LD:-files/linux/husk/libld.so}
 APP=/data/user/0/$PKG

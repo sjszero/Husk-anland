@@ -6,12 +6,12 @@
 # growth over 30 idle minutes, so this prints a series and the growth is read
 # off the first and last lines — nothing is summarised here.
 #
-#   adb shell "run-as com.linuxhub.husk sh files/linux/bench/soak.sh proot 1800"
+#   adb shell "run-as com.linuxhub.myth.husk sh files/linux/bench/soak.sh proot 1800"
 set -u
 RUNNER=${1:?usage: soak.sh <runner> [seconds]}
 SECS=${SECS:-1800}
 INT=${INT:-60}
-B=/data/user/0/com.linuxhub.husk/files/linux
+B=/data/user/0/com.linuxhub.myth.husk/files/linux
 ME=$$
 
 # Runner names are not file names: proot-distro's script is prootdistro-run.sh.
